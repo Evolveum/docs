@@ -40,7 +40,7 @@ Manually create some organizational units for contractors. Make sure that you ca
 
 * For the purposes of this exercise you can assume that the records have correct ordering in the `org.csv` file. E.g. that the units that are on top of the hierarchy will be synchronized first. You may also assume that organizational unit will be present in `org.csv` file long before any user is assigned to it.
 * You may choose to handle unassigned users in any reasonable way (users that do not belong to any organization). You may choose to ignore them and do not create LDAP accounts for them. You may choose to automatically assign them to some "default" organizational unit. But whatever you do, it has to be automatic. No administrator intervention should be needed.
-* We are not trying to suggest that this way of managing organizational structure in LDAP server is a good thing. In fact it is quite a terrible thing. This is just an exercise. It is purely academic. Do not use in practice. Honestly. Do not do this.
+* We are not trying to suggest that this way of managing organizational structure in LDAP server is a good thing. In fact it is quite a terrible thing. This is just an exercise. It is purely academic. Do not use this approach in practice. We are doing this only because we have not went as far as *entitlements* yet. But once we learn the subtle art of entitlement management we won't need this kind of utterly impractical LDAP organizational structure. Honestly. Do not do this in any real deployment.
 
 ## Bonus
 
