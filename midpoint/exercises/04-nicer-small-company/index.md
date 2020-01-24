@@ -3,15 +3,19 @@ layout: exercise
 number: 4
 title: "Nicer Small Company"
 permalink: /midpoint/exercises/04-nicer-small-company/
-synopsis: "Small company with a nicer configuration: nicer usernames, some role hierarchy."
-difficulty: Easy
+synopsis: "Small company with a nicer configuration: nicer usernames, database resource, schema, password policy, RBAC."
+difficulty: Easy-Medium
 bookref:
   - "Chapter 4: Resources and Mappings"
   - "Chapter 5: Synchronization"
+  - "Chapter 6: Schema"
   - "Chapter 7: Role-Based Access Control"
   - "Chapter 8: Object Template"
+trainingref:
+  - MID-101
 files:
   - hr.csv
+  - create-table-crm.sql
 ---
 
 ## Environment
@@ -19,6 +23,7 @@ files:
 * **HR System**: Employee data are stored in the HR system. There is an export task that exports the content of an HR system into a CSV file in regular interval.
 * **Open source LDAP server** (OpenLDAP, 389ds or similar): Company-wide LDAP server that is used as central user directory and authentication server for several applications. Accounts should be provisioned into the LDAP server using the standard `inetOrgPerson` object class.
 * **MidPoint**: Start the exercise with an empty midPoint server.
+* **CRM**: Database-based CRM application. Accounts should be provisioned in the database table. See `create-table-crm.sql` file. There are some pre-existing accounts, including some rogue accounts.
 
 ## Description
 
@@ -32,9 +37,29 @@ Nicer usernames
 * Make sure that people can be renamed. If Alice gets married to Mr. Smith, make sure her username changes to `asmith`.
 * Make sure that renames are properly reflected in LDAP.
 
+CRM resource:
+* Connect the CRM resource to midPoint (e.g. use DatabaseTable connector). Set up the mappings. CRM is an "outbound" resource.
+* Be aware that you are not starting on a green field. There are some pre-existing accounts. Some of those accounts are legal, but they may not be configured in an entirely correct way. E.g. usernames may not match company standards. And then there may be accounts that should not be there.
+* Correlate existing accounts. It looks like employee number can be a reasonably good correlation identifier. Although, even that is not perfect. You may need to manually correlate an account or two.
+* We do not want to delete accounts on this resource. Accounts that should no longer be in the CRM system should be left in the CRM database, but they should be disabled.
+* Clean up the resource a bit and make sure that the resource stays clean. E.g. disable all illegal accounts and make sure that any new illegal account is automatically disabled. But do not overdo it. E.g. we want keep existing usernames for pre-existing accounts, even if they are not aligned with company standards.
+
 Improved roles:
-* There are job codes in the HR file. Let's use them. Create roles for every job code that is present in the HR file. Make sure those "job roles" are automatically assigned.
+* There are job codes in the HR file. Let's use them. Extend default midPoint schema with a new `jobCode` property and populate that from the HR file.
+* Create roles for every job code that is present in the HR file. Make sure those "job roles" are automatically assigned. You may need to extend default role schema to do that.
 * Do not repeat yourself. You could assign both the `Employee` role and the "job" role to the user. But that would be boring. We do not want to have two assignments when one is enough. Therefore make use of role hierarchy. We still want `Employee` role, we still want that role to contain LDAP account construction, but we do not want to assign that role to users directly.
 * You will have to figure out what to do with users that do not have a job code. You can either assign some default role to them. Or you can simply choose not to provision LDAP account to those people. Figure out something meaningful (but not too trivial).
+* Set up midPoint user interface to should custom view that contains active employees only. There should be a new "Active employees" menu item below existing "All users" item.
+* Set up the "job roles" to provision LDAP attribute `title`. This attribute is multi-valued. While any person will normally have only a single "job role", make sure that the `title` attribute is properly provisioned with multiple values in case that a user has multiple job roles. Also make sure that midPoint is authoritative for this attribute. That means that any values that are assigned to the `title` attribute outside of midPoint control are removed.
+* Create a role catalog to organize the roles. Create some business roles that are suitable for ad-hoc assignment. Put them into the role catalog (there is no need to setup at an approval process yet). Make sure that those roles are properly "archetyped" using the pre-configured `Business role` archetype.
+* Configure midPoint user interface to show "Business roles" menu item below existing "All roles" item.
+* Set up simple segregation of duties policy (SoD). For example make sure that `Director` and `Controlling` roles cannot be both assigned to one user at the same time.
+
+Other improvements:
+* Database schema for the CRM resource specifies maximum of 16 characters for the password. Although this is not ideal, we want a pragmatic solution here. Therefore set s company-wide password policy that specifies maximum of 16-character password. And let's use this change to set up a strict password policy. Therefore set up a custom password policy, requiring minimal number of upper case letters, non-alphanumeric characters, password expiration and so on. This will be a really annoying policy that users will have in the real life. But hey, this is just an exercise. We can do that.
+* There are too many properties in default midPoint schema. We do not want to confuse users with the properties that we are not using. Therefore hide some of the superfluous properties, such as `organization` and `organizationalUnit` properties of a user. Make sure they completely disappear from midPoint user interface.
+* Given name, family name and full name are such an important properties that we want to see them all the time, even if they do not have any value. Set it up.
+* There are properties that can be useful, but they have unusual labels in the user interface. E.g. we do not want to see "Family name". We want to see "Last name" instead. Make sure that it happens.
+* Our company has seven branches, one branch on each continent. Affiliation to a branch is stored in `locality` user property. But users are too tired to type `Europe` or `Antarctica` to the text field. Make sure that there are pre-defined values for each continent for all users to choose from.
 
 The process should be completely automatic. No administrator intervention should be needed. We still need initial passwords and all the other applicable things from previous exercises. We also want to be able to create contractors manually. Make sure it is still possible.

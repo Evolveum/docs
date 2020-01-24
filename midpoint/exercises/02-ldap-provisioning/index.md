@@ -5,8 +5,10 @@ title: "LDAP Provisioning"
 permalink: /midpoint/exercises/02-ldap-provisioning/
 synopsis: "Create a simple midPoint configuration that provisions account to LDAP server."
 difficulty: Very easy
-bookref: 
+bookref:
   - "Chapter 4: Resources and Mappings"
+trainingref:
+  - MID-101
 ---
 
 ## Environment
@@ -22,5 +24,3 @@ Our company is using an LDAP server as central directory server. Many applicatio
 
 * LDAP accouts are good enough. Just a single LDAP entry for each user. You do not need to deal with groups or anything else.
 * Simple assignment of default LDAP account should work. Administrator does that manually in midPoint administration GUI. There is no need to deal with roles or any other form of automation - except for provisioning and LDAP attribute mappings.
-
-

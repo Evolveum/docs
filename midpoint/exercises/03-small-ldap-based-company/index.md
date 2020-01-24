@@ -10,6 +10,8 @@ bookref:
   - "Chapter 5: Synchronization"
   - "Chapter 7: Role-Based Access Control"
   - "Chapter 8: Object Template"
+trainingref:
+  - MID-101
 files:
   - hr.csv
 ---
@@ -28,8 +30,6 @@ Set up an synchronization task to pull the data from HR CSV file automatically (
 
 The process should be completely automatic. New LDAP account should be automatically created when a new record is added to the CSV file. And the process should be quick, it should take just a few seconds. Also make sure that deprovisioning work: LDAP account should be deleted when a record from CSV file is removed.
 
-Make sure that initial passwords are generated, either randomly or in some other algorithmic way. There is no need to deliver the initial password to users. We abstract from that in the exercise. LDAP group management or any other functionality is not needed. Make sure that `cn` and similar LDAP attributes are managed as single-value attributes. Make sure that enable/disable works - that LDAP accounts are properly disabled when needed. Make sure that the system is stable. e.g. recompute of a user should not try to delete HR account, unassign employee role and so on.
+Make sure that initial passwords are generated, either randomly or in some other algorithmic way. There is no need to deliver the initial password to users. We abstract from that in the exercise. LDAP group management or any other functionality is not needed. Make sure that `cn` and similar LDAP attributes are managed as single-value attributes. Make sure that those attributes have a human-friendly display names. Make sure that the attributes that are automatically computed are not marked as *mandatory* in the GUI. Make sure that enable/disable works - that LDAP accounts are properly disabled when needed. Make sure that the system is stable. e.g. recompute of a user should not try to delete HR account, unassign employee role and so on. Make sure that administrator accounts in LDAP are never changed or deleted by midPoint.
 
 Also make sure that you can create new users in midPoint manually. We have contractors that do not have records in the HR systems. Create a `Contractor` role that also creates an LDAP account. But use one of the LDAP account attributes to distingush between contractors and employees. Employees should have value of `E` in that LDAP attribute and contractors should have `C`.
-
-

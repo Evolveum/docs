@@ -1,8 +1,8 @@
 ---
 layout: exercise
-number: 5
+number: 7
 title: "Synchronize organizational structure to LDAP"
-permalink: /midpoint/exercises/04-orgstruct-ldap-sync/
+permalink: /midpoint/exercises/07-orgstruct-ldap-sync/
 synopsis: "Synchronize organization structure from CSV file to LDAP server."
 difficulty: Easy-Medium
 bookref:
@@ -10,7 +10,9 @@ bookref:
   - "Chapter 5: Synchronization"
   - "Chapter 7: Role-Based Access Control"
   - "Chapter 8: Object Template"
-  - "Unwritten"
+  - "Unwritten chapters"
+trainingref:
+  - MID-102
 files:
   - hr.csv
   - org.csv

@@ -1,7 +1,7 @@
 Exercise tips:
 
 Orgstruct:
-* Managers (relations)
+* Sync managers (relations)
 * Construct orgstruct from "flat" HR feed with hierarchy paths (create-on-demand)
 
 Entitlements and gensync:
