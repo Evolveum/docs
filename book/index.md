@@ -2,6 +2,7 @@
 layout: page
 title: Book
 permalink: /book/
+nav: top
 ---
 # Practical Identity Management with MidPoint
 
