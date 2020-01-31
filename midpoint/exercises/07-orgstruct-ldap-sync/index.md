@@ -22,7 +22,7 @@ files:
 
 * **HR System**: Employee data are stored in the HR system. There is an export task that exports the content of an HR system into a CSV file in regular interval. Unlike other exercises, this HR system is smart and it maintains full information about organizational structure (which is something rarely seen in practice).
 * **Open source LDAP server** (OpenLDAP, 389ds or similar): Company-wide LDAP server that is used as central user directory and authentication server for several applications. Accounts should be provisioned into the LDAP server using the standard `inetOrgPerson` object class. This LDAP server has a traditional structure based on company organizational strucure. E.g. `uid=aanderson,ou=Direct Sales Department,ou=Sales and Marketing Division,dc=example,dc=com`.
-* **MidPoint**: Start the exercise with an empty midPoint server.
+* **MidPoint**: Start the exercise with an empty midPoint server. Alternatively you may start with a configuration from previous exercises.
 
 ## Description
 
