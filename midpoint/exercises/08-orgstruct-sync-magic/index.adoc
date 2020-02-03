@@ -1,0 +1,108 @@
+---
+layout: exercise
+number: 8
+permalink: /midpoint/exercises/08-orgstruct-sync-magic/
+synopsis: "Synchronize organization structure from incomplete data, set up managers and LDAP groups."
+difficulty: Medium
+bookref:
+  - "Chapter 4: Resources and Mappings"
+  - "Chapter 5: Synchronization"
+  - "Chapter 7: Role-Based Access Control"
+  - "Chapter 8: Object Template"
+  - "Unwritten chapters"
+trainingref:
+  - MID-102
+files:
+  - hr.csv
+  - org.csv
+---
+
+= Advanced Organizational Structure Synchronization
+
+== Environment
+
+* *HR System*: Employee data are stored in the HR system.
+There is an export task that exports the content of an HR system into a CSV file in regular interval.
+Unlike other exercises, this HR system is smart and it maintains full information about organizational structure (which is something rarely seen in practice).
+However, the relation between HR users and HR organizational units is not entirely ideal.
+
+* *Open source LDAP server* (OpenLDAP, 389ds or similar): Company-wide LDAP server that is used as central user directory and authentication server for several applications.
+Accounts should be provisioned into the LDAP server using the standard `inetOrgPerson` object class.
+This LDAP server has a flat structure, storing all accounts in `ou=People,dc=example,dc=com` suffix.
+There are supposed to be groups in `ou=Groups,dc=example,dc=com` suffix.
+But at the beginning of this exercise both suffixes are empty.
+
+* *MidPoint*: Start the exercise with an empty midPoint server.
+Alternatively you may start with a configuration from previous exercises.
+Do not use configuration from Exercise 7 though.
+That configuration is not compatible and it will only confuse you.
+
+## Description
+
+We have a small company.
+We have a simple HR system that exports the data to an CSV file.
+All the current employees are recorded in the HR system.
+The HR system also exports organizational structure in CSV files.
+But the data are not entirely ideal.
+There are no identifiers.
+There are only names for organizational units.
+Lower organizational units refer to parent organizational unit by name.
+
+Set up an synchronization task to pull the data from HR CSV files automatically.
+Both organizational structure and employees should be synchronized to midPoint.
+Employees should be properly assigned to organizational units.
+Users and orgs in midPoint should be fully populated, including computed properties such as `fullName`.
+
+The `org.csv` file contains specification of a manager for some organizational units.
+Make sure that the managers are assigned in midPoint organiational structure and that they are properly displayed in the organizational tree by midPoint user interface.
+Managers should have elevated privileges when working with the employees that belong to the part of the organizational structure that they are managing.
+For example, manager should see all the users in "their" part of the company.
+This should apply hierarchically to all the levels.
+For example `Lily Lewis` is a manager of `Operations Division`.
+Lilly should be able to see all the users in all the departments and sections that belong to operations devision.
+The managers should be able to modify some of user's properties.
+For example the managers may be able to set `costCenter` for emplyees that belong into their organizational unit.
+
+There is also an LDAP server that works as central directory server.
+Many applications are configured to authenticate at this server using LDAP protocol.
+LDAP server has a flat structure, storing all accounts in `ou=People,dc=example,dc=com` suffix.
+
+Organizational structure is reflected to LDAP server in a form of LDAP groups.
+Each organizational unit is represented in a form of LDAP group.
+All such groups are stored in a flat structure with suffix in `ou=Groups,dc=example,dc=com`.
+MidPoint should automatically create, delete and update those groups.
+
+Set up automatic provisioning of employee accounts to LDAP server.
+Provisioning to LDAP server should be driven by organizational structure.
+Membership in an organizational unit should automatically imply an LDAP account.
+Make sure that the LDAP accounts are properly assigned to LDAP groups that represent organizational units.
+
+All processes should be completely automatic.
+No administrator intervention should be required.
+
+## Notes
+
+* The records in the `org.csv` file may have any ordering.
+E.g. that the units that are on top of the hierarchy may come after units at the bottom of the hierarchy.
+
+* HR users and HR organizational units may come in any order.
+E.g. a user that belongs to an organizational unit may be synchronized to midPoint before that organizational unit appears in `org.csv`.
+
+* Organizational unit names are mutable.
+They can change.
+Anytime.
+Organizational units may be renamed, moved or deleted.
+It is clear that it is not possible to handle all those cases smoothly.
+There may be "fluctuations" that cause midPoint to show false data for some period of time.
+But make an effort to make the situation as smooth as possible.
+What is most important is that midPoint should not break in a way that it needs to be manually corrected.
+The situation should always fix itself _eventually_.
+When all the files are synchronized and reconciled, midPoint should correctly reflect reality.
+Manual correction must not be needed.
+
+* You may choose to handle unassigned users in any reasonable way (users that do not belong to any organization).
+See Exercise 7 for the details.
+
+* Use nested LDAP groups (groups in groups) in case that your LDAP server supports it. I.e. if section X belongs to department Y then LDAP group X should be a part of LDAP group Y. In that case LDAP accounts should be direct member of the group in which they directly belong (e.g. group X only).
+If your LDAP server does not support nested groups then use ordinary groups.
+But in that case put users in all LDAP groups that represent organizational units in the hierarchy all the way up (e.g. both LDAP group X and Y).
