@@ -5,6 +5,7 @@ layout: home
 
 * [MidPoint Book](/book/)
 * [MidPoint Exercises](/midpoint/exercises/)
+* [Evolveum Talks](/talks/)
 
 # Other Information Sources
 
