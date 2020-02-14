@@ -4,6 +4,7 @@ layout: home
 # Site Sections
 
 * [MidPoint Book](/book/)
+* [Identity and Access Management Introduction](/iam/)
 * [MidPoint Exercises](/midpoint/exercises/)
 * [Evolveum Talks](/talks/)
 

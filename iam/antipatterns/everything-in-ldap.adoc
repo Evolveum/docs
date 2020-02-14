@@ -1,0 +1,153 @@
+= Everything in LDAP
+
+link:http://en.wikipedia.org/wiki/Don%27t_repeat_yourself[Don't Repeat Yourself (DRY)] is a not just a good idea, it is a law.
+Every piece of information in a computer system should reside at exactly one place.
+This applies to identity management as well.
+All modern applications have a support for LDAP anyway.
+So let's just move all the accounts to LDAP, let's connect all applications to that LDAP and we are done.
+Simple, easy, cheap.
+
+Yes, it would be simple, easy and cheap if it can be done.
+But it is usually not feasible.
+Not in this simple form.
+
+
+== Directory Service
+
+LDAP is a protocol that connects applications to directory service.
+Directory service is very like a phone book: it is just a database.
+It is designed to be scalable, distributed, standardized ... but it is still just a database.
+And it is a very simplified database.
+Its job is to store, search and retrieve the data (and actually the "search" part is also very simple).
+The design decisions of directory services prefer scalability and availability and sacrifice features and hard data consistency.
+
+Directory services are currently being used for two primary purposes: user account database and authentication.
+Storing data such as user accounts - that's what the directory service was designed to do and it does it reasonably well.
+But authentication is just a side effect.
+Applications that use LDAP as an authentication service are actually abusing the internal LDAP authentication mechanism which was not designed to be used externally.
+LDAP was not built for this, therefore it only provides very basic authentication "services": verification of credentials.
+And by _credentials_ I mean password.
+The original LDAP authentication was not very flexible to support much more than just password and therefore it is currently being replaced by more flexible mechanisms such as SASL.
+But even that will not change the fact that directory service is *not* an authentication service.
+E.g. it does not maintain user session and therefore there is no possibility for single-sign on, it does not store historical data therefore there is no possibility for login time reports, it does not know anything about logouts, etc.
+
+
+== Data Model
+
+LDAP's data model is designed to be link:http://tools.ietf.org/html/rfc2798[standardized].
+And this is one of the most widely accepted standard in the whole identity and access management (IAM) field.
+While there is undeniable benefit to standardization there are also some drawbacks.
+The LDAP data model creates an interface to which all the clients must adapt.
+This is OK for a new and simple application that only needs the very basic data from user profile.
+The `uid`, `cn`, `sn` and `givenName` will be more than enough for such trivial applications.
+But what if the application also needs more data? Such as user's timezone which is needed to correctly display local time information.
+Fortunately LDAP is extensible and it is easy to add new `timezone` attribute.
+However, one application expects that the timezone will be in "+0200" format, the other expects "CEST" and yet another "Europe/Bratislava".
+Houston, we have a problem.
+This just won't work with a single attribute.
+But let's image that we persuade these applications to use three different attributes for time zone.
+But now we have three places where we store a single piece of data and that means that the link:http://en.wikipedia.org/wiki/Don%27t_repeat_yourself[DRY principle] went down the drain.
+And simplicity went south with it.
+Now we need a component that will keep these three values consistent.
+Many modern directory servers have a plugin ability that can be used to do it.
+But this is not an easy way to do this kind of things.
+The things start to go the link:/iam/antipatterns/diy-idm/[DIY way].
+
+And it all gets worse.
+There at least two standardized but mutually incompatible LDAP grouping mechanisms: `groupOfNames` and `groupOfUniqueNames`. Some applications support the former, some the latter.
+But for the directory service to be really a universal database the accounts needs to be placed in both types of groups.
+And again we need something to keep that consistent.
+Also many applications are not happy with just a simple grouping mechanism.
+Sophisticated applications need sophisticated ways of authorization.
+They need roles, ACLs, privileges .... and there is no standardized way how to do this in LDAP.
+And the real killer is organizational structure.
+LDAP has a hierarchical structure of `organizationalUnit` objects.
+But it is so inflexible that it fails to model the flexible multi-dimensional organizational structures used in 21st century companies.
+Also there are many incompatible ways how to represent it and each application expects something slightly different.
+Bye bye link:http://en.wikipedia.org/wiki/Don%27t_repeat_yourself[DRY].
+
+
+== Data Consistency
+
+Data duplication is not limited just to duplicating values over several LDAP attributes.
+There is a more serious problem.
+Very often the data need to be copied out of LDAP and stored in application databases.
+There are many reasons for this.
+One of the reason is application simplicity.
+Most applications were *not* built to support LDAP.
+The LDAP support was only added later.
+Therefore the application is hardcoded to read the account data from its own database.
+The easiest way how to integrate this with LDAP is to copy the data from LDAP to the application database on first login.
+And that's exactly what many applications do.
+Other applications just need the data to be stored locally.
+You cannot do a join between database table and directory server.
+Therefore if the application needs to create a report that contains full names of the users it must replicate this information from LDAP to database tables.
+
+It is relatively easy to copy the data once.
+But how to keep the copies up to date? That's much harder.
+But, do we really need that? The account data are quite static, right? Well, they are much less static that one would expect.
+Approximately half of the population changes a name at least once per life.
+Because people have that annoying habit of getting married.
+And as the marriage usually happens during a productive age the renames of user accounts are surprisingly frequent.
+Mix in changes in organizational structure, job positions, responsibilities .... and what you get is a user management nightmare.
+
+There is one more thing that LDAP just cannot do efficiently: deprovisioning.
+LDAP-enabled applications usually work like this: user goes to the application, enters username and password.
+Application transforms username to LDAP DN and attempts to "login" to LDAP.
+If that succeeds then a local record for the user is created in the application and the user is allowed access to the application.
+User works inside the application, creates new data, files, history records and so on.
+A few years later the user leaves the company and his account is deleted from the LDAP.
+But the application does not know anything about this.
+It gets no signal.
+The user just stops accessing the application.
+If someone tries to access it then the authentication would fail (no LDAP account) but nobody bothers to try the authentication any more.
+So the useless data just lies around in the application forever.
+This is especially interesting if the data are in form of home directories full of big files.
+Simply speaking there is nobody that would clean up.
+And this may even be a security risk especially if the application has a secondary non-LDAP authentication mechanism (e.g. SSH key pair) which remains valid even after LDAP account is removed.
+
+But perhaps the most pressing practical issues is the how the user accounts get into the directory server in the first place.
+Usually the directory service is *not* a primary source of the data.
+The source is Human Resource (HR) system, CRM, self-registration system or something similar.
+But most frequently it is a combination of several sources.
+How do we get the data from these sources to the directory server? Well, there is always the link:/iam/antipatterns/diy-idm/[DIY way].
+This may be a good start but it breaks down surprisingly quickly.
+
+
+== The Solution
+
+The key is to realize that directory service is just a database.
+It is not a complete IDM solution, just one component of that solution.
+It may a good first step but then it needs to be followed by other steps.
+Specifically these two steps:
+
+* Deploy a provisioning system to synchronize data from the sources (HR, CRM) to LDAP.
+This does not need to be anything complex and expensive.
+A simple open source solution will do well enough.
+The same provisioning system can also take care of deprovisioning accounts from applications, synchronizing account data, manage group membership, keep directory data consistent and so on.
+
+* Use an access management solution to get full authentication functionality, SSO and so on.
+
+The practical solution usually has three components: link:/iam/best-practice/management-directory-access/[directory service, identity management and access management].
+
+But that does not mean that directory service is not needed any more.
+Quite the contrary! You cannot integrate an application in any cheaper way than by connecting it to LDAP.
+If you can use LDAP then do not hesitate and do it.
+Especially if the application is simple and mostly stateless.
+This keeps the price of the solution acceptable.
+But you need to have a "plan B" for applications that are more heavyweight.
+Provisioning system will do that very well.
+And when it comes to access management that is usually the last piece in the puzzle.
+There is enough time to figure out how to do this well.
+It may come later.
+LDAP authentication will work very well for quite a long time.
+People will cope with entering the password many times as long as it is the same password and they do not need to remember 10 different passwords.
+LDAP will do that quite well and provisioning system will help to reach system that do not support LDAP.
+And you can plan deployment of access management for later.
+
+
+== See Also
+
+* link:/iam/best-practice/management-directory-access/[Management, Directory, Access]
+
+* link:/iam/antipatterns/diy-idm/[DIY IDM]
