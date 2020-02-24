@@ -6,6 +6,7 @@ layout: home
 * [MidPoint Book](/book/)
 * [Identity and Access Management Introduction](/iam/)
 * [MidPoint Exercises](/midpoint/exercises/)
+* [Connectors](/connectors/)
 * [Evolveum Talks](/talks/)
 
 # Other Information Sources
