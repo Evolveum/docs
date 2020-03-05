@@ -1,0 +1,263 @@
+---
+layout: exercise
+number: 50
+permalink: /midpoint/exercises/50-governed-identities/
+synopsis: "Apply complex governance rules on identity population."
+difficulty: Hard
+bookref:
+  - "Unwritten chapters"
+trainingref:
+  - MID-102
+  - Governance (planned)
+files:
+  - hr.csv
+  - org.csv
+---
+
+= Govern The Identities
+
+NOTE: WORK IN PROGRESS
+
+== Environment
+
+* *HR System*: Employee data are stored in the HR system.
+There is an export task that exports the content of an HR system into a CSV file in regular interval.
+This HR system is smart and it maintains full information about organizational structure.
+
+* *Open source LDAP server* (OpenLDAP, 389ds or similar): Company-wide LDAP server that is used as central user directory and authentication server for several applications.
+Accounts should be provisioned into the LDAP server using the standard `inetOrgPerson` object class.
+This LDAP server has flat structure, e.g. all accounts are in `ou=People,dc=example,dc=com`.
+
+* *Addressbook* application is written on top of LDAP directory.
+The application allows to browse employee LDAP accounts, search for a specific contact and retrieve e-mail addresses and telephone numbers.
+Addressbook application is using the content of LDAP server both as a data and as account database.
+Access to addressbook application is controlled by membership in LDAP groups:
+`cn=addressbook,ou=Groups,dc=example,dc=com` for ordinary users and `cn=addressbook-admin,ou=Groups,dc=example,dc=com` for addressbook administrators.
+
+* *CRM*: Database-based CRM application.
+Accounts should be provisioned in the database table.
+See `create-table-crm.sql` file.
+There are some pre-existing accounts, including some rogue accounts.
+
+* *MidPoint*: Start the exercise with an empty midPoint server.
+Alternatively you may start with a configuration from previous exercises.
+
+
+== Description
+
+We have a mid-size company.
+It is no longer sufficient to manage the identities.
+We want to apply _identity governance_ principles.
+
+
+=== Basic Principles
+
+Archetypes should be applied wherever it makes sense.
+There should be archetypes for employees, external workers, business role, project, functional organizational units and so on.
+Archetypes should use proper _assignment relation_ definitions that constraint applicability of archetypes and archetyped object only to cases where it makes sense.
+
+_Do not repeat yourself_.
+Keep copy&paste to the very minimum.
+Try to reuse the code and configuration as much as possible.
+Use the opportunity to specify policies in archetypes and meta-roles.
+Use function libraries to avoid code duplication.
+
+Apply _least privilege_ principle.
+Limit privileges of all users to the necessary minimum.
+Use fine-grained authorizations and user interface customization mechanisms to their full potential.
+Apply global policy rules in situations where a policy needs to be consistently applied to the whole system.
+
+
+=== Synchronization and Provisioning
+
+We have a simple HR system that exports the data to an CSV file.
+All the current employees are recorded in the HR system.
+The HR system also exports organizational structure in CSV files.
+Each organizational unit has an (immutable) identifier.
+It also has an identifier of a parent organizational unit.
+
+There is also an LDAP server that works as central directory server.
+Many applications are configured to authenticate at this server using LDAP protocol.
+LDAP server has a flat structure, storing all accounts in `ou=People,dc=example,dc=com` suffix.
+
+Set up an synchronization task to pull the data from HR CSV files automatically.
+Both organizational structure and employees should be synchronized to midPoint.
+Employees should be properly assigned to organizational units in midPoint.
+Users and orgs in midPoint should be fully populated.
+
+Set up automatic provisioning to LDAP server, based on organizational structure and job code roles.
+This includes LDAP groups for organizational units and job roles.
+Use an approach similar to the preview exercise of your choice.
+
+All active employees should have access to addressbook application.
+
+Connect the CRM resource to midPoint (e.g. use DatabaseTable connector).
+CRM is an "outbound" resource.
+Use the setup similar to Exercise 4.
+
+All synchronization and provisioning processes should be completely automatic.
+No administrator intervention should be required.
+
+
+=== Role Request and Approval
+
+Organize roles in a role catalog.
+Role catalog should contain at least two role categories:
+
+* Application roles that are related to a single application.
+Such as _addressbook administrator_ or _CRM auditor_.
+This part of role catalog should be organized by application.
+Make sure that appropriate archetype is applied to the application "categories" (see below).
+
+* Business roles that span several applications.
+Such as _sales agent_ or _customer support leader_.
+
+The role catalog should look roughly like this:
+
+* Application Roles
+** Directory Service (archetype: application)
+**** Directory Service Administrator (archetype: application role)
+**** Directory Service Backup Operator (archetype: application role)
+**** ...
+** Addressbook (archetype: application)
+**** Addressbook Administrator (archetype: application role)
+**** ...
+** CRM (archetype: application)
+**** CRM Administrator (archetype: application role)
+**** CRM Auditor (archetype: application role)
+**** ...
+* Business Roles
+** Sales agent (archetype: business role)
+** Marketing specialist (archetype: business role)
+** ...
+
+Make sure that appropriate archetypes are used on all levels of the role catalog.
+Please note, that the roles are sorted by _application_ and not necessarily by _resource_.
+For example there is no resource for the addressbook application.
+But we still want to see that application in our role catalog.
+
+Allow employees to request roles using a self-service capabilities of midPoint user interface.
+Make sure that employees can log into midPoint and request the roles from the catalog.
+The interaction should be intuitive and fool proof.
+E.g. users should not see any role in the catalog that the user cannot request.
+Mind the least privilege principle.
+Pay attention to set up the authorization in a robust way.
+Make sure that roles cannot be requested in any way.
+Some users may have access to other parts of midPoint user interface such as user details or role details.
+Make sure that such users cannot abuse this privilege to request a role that is not available in the role catalog,
+e.g. by using the assignments tab of user details page.
+
+Not all the application roles are requestable.
+There may be application roles that cannot be requested by users.
+We still want to place such roles into the role catalog.
+But we do not want to display those roles to employees when they browse the catalog, looking for a role to request.
+
+Requested roles are not assigned immediately.
+The request should be driven through a multi-stage approval process.
+The process has following stages:
+
+|===
+|Stage |Approver |Description |Escalate to
+
+|1
+|Manager (functional)
+|Follow functional organizational structure to find user's manager.
+Skip organizational units that do not have a manager.
+E.g. if user's organizational unit does not have a manager, manager of a higher organization unit should be used as an approver.
+|Functional manager of the manager that was the original approver.
+
+|2
+|Role approver or application owner
+|If a business role is requested, then approver of business role should approve.
+If an application role is requested, then owner of the application in which the role belongs should approve.
+|Manager of `IT Department` organizational unit.
+
+|3 (optional)
+|Security office
+|Some sensitive roles should be approved by any member of security office.
+|Manager of `Security Department` organizational unit.
+|===
+
+Role stages should be executed sequentially (not in parallel).
+Any decision that denies the request at any stage is understood as a final deny.
+E.g. if user's manager denies the request then we do not want to bother role approver or security officer.
+In case that there are more managers, more approvers/owners or more security officers then any of them can decide independently.
+E.g. if a role has several approvers, the approver that makes a first decision matters.
+If any of the approvers approves the request, the request continues with the next stage.
+If any of the approvers denies the request, the the request is denied.
+
+Applications have owners, but individual application roles do not have explicit owners or approvers.
+We do not want to store the owner relation for application roles as that can be a maintenance problem.
+If an application role is requested, the approval policy should dynamically determine the approvers by looking at the application.
+
+Last approval step is applied only to some roles.
+Some roles are sensitive.
+We want to get an approval of a security office to these roles.
+We do not want to hardcode a specific name of a security officer in the policy.
+We want any member of `Information Security Office` to be approver of these roles.
+
+But how do we know which roles are sensitive?
+We want to create a special meta-role that will be used to mark security-sensitive roles.
+We want to assign this meta-role in a very convenient way in midPoint user interface.
+We want to apply this policy to a role by clicking on a single checkbox.
+Therefore this meta-role should be configured as a "user friendly policy" in the user interface.
+
+All approval stages should include an escalation scheme.
+If the original approver does not make a decision in a specified time limit, then the request is escalated.
+Escalation scheme is different for each approval stage.
+
+Please note, that not all the roles are placed in role catalog.
+There are special non-requestable roles such as `Superuser`.
+There are roles that are designed for automatic assignment only.
+There are roles that should be manually assigned by system administrator.
+
+There are also roles that can be assigned in two ways:
+they may be assigned automatically, and they may be assigned manually by system administrator.
+Make sure that those two methods will not get mixed.
+If a role is assigned by administrator then the assignment should stay until administrator unassigns it.
+The role may be assigned and unassigned automatically in the meatime.
+But even if there is a reason to unassign the role automatically, it should still remain assigned until administrator unassigns it.
+
+=== Governance Policies
+
+* SoD with "class" metaroles: executive and controlling
+* "Radio button roles": what exactly?
+
+* annaual recertification campaigns
+* add-hoc recertification
+
+* Deputy
+* Delegated administration
+
+
+=== Role Management Policies
+
+* role lifecycle and approvals (approve create, modify and delete role)
+** , application owner has to approve creation/modification of a new role
+
+
+=== User Interface Customization
+
+* views for archetypes
+* more views (active employees)
+* GUI value validation (check that email and telephone number is well-formed)
+* Full-text search
+* Launch bulk actions from object menu
+
+
+=== TODO
+
+* Bulk action with Groovy script: TODO: what it should do?
+* Bulk action in scheduled task: TODO: what it should do?
+* Change encryption keys, re-encrypt the values (Bulk task)
+
+Manually create some organizational units for contractors.
+Make sure that you can create contractors manually.
+Make sure that neither contractors nor their organizational units are deleted during synchronization.
+
+== Notes
+
+
+== Bonus
+
+TODO
