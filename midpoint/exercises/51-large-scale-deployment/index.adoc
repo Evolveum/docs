@@ -1,0 +1,154 @@
+---
+layout: exercise
+number: 51
+permalink: /midpoint/exercises/51-large-scale-deployment/
+synopsis: "Clustering, multi-node tasks, thresholds, dashboards, ..."
+difficulty: Hard
+visibility: hidden
+bookref:
+  - "Unwritten chapters"
+trainingref:
+  - MID-102
+  - Some topics are not covered by any training
+files:
+  - create-table-hr.sql
+  - org.csv
+---
+
+= Large-Scale Deployment
+
+NOTE: WORK IN PROGRESS
+
+== Environment
+
+* *HR System*: Employee data are stored in the HR system.
+We have direct access to HR system database view (read-only).
+
+* *External Identity Source Database*: Data about external identities are stored in this database.
+The database contains various types of identities: external workers, support staff, partners, suppliers.
+
+* *Organizational Directory*: Very simple (and ancient) application that stores organizationa structure.
+We have managed to get a nightly CSV export from this application (`org.csv`).
+
+* *Open source LDAP server* (OpenLDAP, 389ds or similar): Company-wide LDAP server that is used as central user directory and authentication server for several applications.
+Accounts should be provisioned into the LDAP server using the standard `inetOrgPerson` object class.
+This LDAP server has flat structure, e.g. all accounts are in `ou=People,dc=example,dc=com`.
+
+* *MidPoint*: Start the exercise with an empty midPoint server.
+Alternatively you may start with a configuration from previous exercises.
+
+== Description
+
+We have a mid-size company that is processing a large number od identity records.
+Total user population is in a range of several millions.
+
+
+=== Basic Principles
+
+Archetypes should be applied wherever it makes sense.
+There should be archetypes for employees, external workers, business role, project, functional organizational units and so on.
+
+_Do not repeat yourself_.
+Keep copy&paste to the very minimum.
+Try to reuse the code and configuration as much as possible.
+Use the opportunity to specify policies in archetypes and meta-roles.
+Use function libraries to avoid code duplication.
+
+Make this deployment _efficient_.
+Waste as little computational and storage resources as possible.
+
+Make the solution _scalable_.
+Make it work with large number of identities without significant loss in performance.
+For example, full-scale reconciliation over a million of identities is not a scalable way.
+It can be used for checks in weekly/monthly intervals.
+But a different method must be used for ordinary day-to-day operation.
+
+Scope of this solution is beyond the capabilities of a single server.
+And we also want redundancy and fault tolerance.
+Therefore you have to use clustered deployment with at least 4 midPoint nodes.
+HTTP/HTTPS load balancer is assumed on the deployment front end to provide load balancing and high availability for midPoint user interface.
+Make sure that there is appropriate configuration to support this setup.
+
+=== Synchronization and Provisioning
+
+We have a simple database-based HR system that maintains employee data.
+We have direct access to HR system database view (read-only).
+All the current and former employees are recorded in the HR system.
+There is no timestamp or any similar datum that would enable live sync.
+We have to rely on regular reconciliation.
+
+There is also an ancient application that stores organizationa structure.
+We have managed to get a nightly CSV export from this application (`org.csv`).
+Quite surprisingly, each organizational unit has an (immutable) identifier.
+It also has an identifier of a parent organizational unit.
+
+#TODO# External Identity Source Database
+
+There is also an LDAP server that works as central directory server.
+Many applications are configured to authenticate at this server using LDAP protocol.
+LDAP server has a flat structure, storing all accounts in `ou=People,dc=example,dc=com` suffix.
+All active identities that are processed in the system should be provisioned to the LDAP server.
+Inactive identities (e.g. former employees) should not have account in the LDAP server.
+
+Set up an synchronization tasks to pull the data from HR database automatically.
+Also set up a synchronization for organizational structure.
+Both organizational structure and employees should be synchronized to midPoint.
+Employees should be properly assigned to organizational units in midPoint.
+Users and orgs in midPoint should be fully populated.
+
+Former employees has to be kept in midPoint, but they should not be exposed to ordinary users.
+Design an appropriate way how to deal with identities of former employees, e.g. separate org, activation, lifecycle state, etc.
+Ordinary (non-administrator) users should not be able to access data about former employees.
+
+All synchronization and provisioning processes should be completely automatic.
+No administrator intervention should be required.
+
+Configure reconciliation tasks for every source resource, even for resources that synchronize by using live sync.
+We want reconciliation to be a failsafe mechanism in case that livesync would miss some data.
+However, reconciliation of millions of identities cannot be executed on a single node.
+It would take ages to finish.
+Therefore setup a multi-node tasks and let reconciliation to execute on several nodes of the cluster.
+
+#TODO#
+
+TODO: thresholds
+
+=== LDAP Group Management
+
+#TODO#
+
+* Make sure to use memberOf/isMemberOf, avoid fetching list of members
+* Premissive LDAP modify
+
+* large LDAP groups?
+
+=== Delegated Administration
+
+TODO: allow some users to manage some user types.
+E.g. customer support can manage customer data.
+
+#TODO#
+
+=== Audit Trails
+
+TODO
+
+* Custom fields in audit log
+
+* Audit log data pump/SIEM/ELK
+
+
+=== Dashboards
+
+#TODO#
+
+* (resorces down, failed operation in 24h)
+
+* custom dashboard based on audit log custom fields
+
+
+== Notes
+
+TODO: In exercise use 100k identities. But setup as if you had millions.
+
+TODO: Dedicated GUI and "task" nodes
