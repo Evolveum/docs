@@ -5,6 +5,7 @@ layout: home
 
 * [MidPoint Book](/book/)
 * [Identity and Access Management Introduction](/iam/)
+* [MidPrivacy](/midpoint/midprivacy/)
 * [MidPoint Exercises](/midpoint/exercises/)
 * [Connectors](/connectors/)
 * [Evolveum Talks](/talks/)
