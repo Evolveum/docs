@@ -13,6 +13,7 @@ trainingref:
 files:
   - create-table-hr.sql
   - org.csv
+  - create-table-ext.sql
 ---
 
 = Large-Scale Deployment
@@ -27,7 +28,7 @@ We have direct access to HR system database view (read-only).
 * *External Identity Source Database*: Data about external identities are stored in this database.
 The database contains various types of identities: external workers, support staff, partners, suppliers.
 
-* *Organizational Directory*: Very simple (and ancient) application that stores organizationa structure.
+* *Organizational Directory*: Very simple (and ancient) application that stores organizational structure.
 We have managed to get a nightly CSV export from this application (`org.csv`).
 
 * *Open source LDAP server* (OpenLDAP, 389ds or similar): Company-wide LDAP server that is used as central user directory and authentication server for several applications.
@@ -69,6 +70,7 @@ Therefore you have to use clustered deployment with at least 4 midPoint nodes.
 HTTP/HTTPS load balancer is assumed on the deployment front end to provide load balancing and high availability for midPoint user interface.
 Make sure that there is appropriate configuration to support this setup.
 
+
 === Synchronization and Provisioning
 
 We have a simple database-based HR system that maintains employee data.
@@ -77,12 +79,14 @@ All the current and former employees are recorded in the HR system.
 There is no timestamp or any similar datum that would enable live sync.
 We have to rely on regular reconciliation.
 
-There is also an ancient application that stores organizationa structure.
+There is also an ancient application that stores organizational structure.
 We have managed to get a nightly CSV export from this application (`org.csv`).
 Quite surprisingly, each organizational unit has an (immutable) identifier.
 It also has an identifier of a parent organizational unit.
 
-#TODO# External Identity Source Database
+Most of the identities originate from _External Identity Source Database_.
+All the identities should be synchronized into midPoint.
+The identities should be sorted to special organizational units according to their types.
 
 There is also an LDAP server that works as central directory server.
 Many applications are configured to authenticate at this server using LDAP protocol.
@@ -109,42 +113,70 @@ However, reconciliation of millions of identities cannot be executed on a single
 It would take ages to finish.
 Therefore setup a multi-node tasks and let reconciliation to execute on several nodes of the cluster.
 
-#TODO#
+We are afraid that faulty input data may ruin everything.
+For example, the records from the external identity database may be deleted by mistake.
+Therefore set up thresholds in the live synchronization tasks.
+We want to stop the synchronization task if too many changes are done at the same time.
 
-TODO: thresholds
 
 === LDAP Group Management
 
-#TODO#
+We want to have LDAP groups for all organizational units, similarly to previous exercises.
+We also want LDAP groups for external workers, support staff, partners and suppliers.
+There will be many of such identities, therefore these groups are likely to be large.
+Make sure that your configuration can efficiently handle management of large groups.
+You should use `memberOf`/`isMemberOf` attribute that is provided by most modern LDAP servers.
+Also make sure that midPoint will not read all the values of `member`/`uniqueMember` attribute.
+These attribute will have many values, reading them all may be inefficient and are likely to slow system down.
+Hint: Permissive modify LDAP control may be useful in this situation.
 
-* Make sure to use memberOf/isMemberOf, avoid fetching list of members
-* Premissive LDAP modify
-
-* large LDAP groups?
 
 === Delegated Administration
 
-TODO: allow some users to manage some user types.
-E.g. customer support can manage customer data.
+There are many identities in our system.
+Too many to rely on one administrator.
+Therefore we want to set up delegated administration mechanism.
+We want to allow employees that work in customer support department to modify some properties of customer identities.
 
-#TODO#
 
 === Audit Trails
 
-TODO
+We want to record all the operations of the system using audit records in the database table.
+We have special requirements for audit log filtering and processing (see below).
+Therefore we want to store the user type into a custom audit table column.
 
-* Custom fields in audit log
+There are many identities in the system, therefore it is expected that there will be a lot of audit records as well.
+We cannot store that many records in our database for a long time.
+Therefore we have to set up some way how to pump the data to an appropriate system.
+Let us assume that there is a SIEM system, data warehouse or perhaps some other system that is processing and analysing the data.
+Make some effort to set up a way how to export the data from the audit table in regular intervals.
+E.g. set up simple data pump or data export task.
 
-* Audit log data pump/SIEM/ELK
+We need to clean up the audit data after they were pumped/exported.
+But some data are more important than other.
+We want to keep audit records about external identities in the system for one month.
+We want to keep all other audit records for six months.
 
 
 === Dashboards
 
-#TODO#
+There are so many identities in the system that administrators can easily get lost.
+We want to set up dashboards that can provide information about the state of the system at a glance.
+We want to set up following dashboards:
 
-* (resorces down, failed operation in 24h)
+* System size dashboard.
+We want to see how many active identities are in our system.
+Do not count disabled identities.
 
-* custom dashboard based on audit log custom fields
+* System health dashboard. We want to show how many resources are down (inaccessible).
+We want this dashboard to turn red if at least one resource is down.
+
+* Recent errors dashboard. We want dashboard that shows failed operations during last 24 hours.
+This dashboard should use audit records.
+We want this dashboard to turn red if more than 5% of operations failed.
+
+* Recent customer errors dashboard. We want dashboard that shows failed operations during last 24 hours, but this dashboard should only show operations that dealt with customer identities.
+We want this dashboard to turn red if more than 5% of operations failed.
 
 
 == Notes
