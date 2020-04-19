@@ -1,0 +1,289 @@
+== Axiom Overview
+
+=== Functional Overview
+
+Axiom is a language originally designed to model data for the Prism and MidPrivacy.
+A Axiom model defines data objects and their nested data item hierarchies
+that can be used by Prism and MidPrivacy-based systems.
+This allows a complete human and machine-readable description of all data processed
+in Prism-based systems.
+
+Axiom models the entities as uniquelly indentifable objects.
+Object is hierarchical organization of its data as a tree of items in which each item has a name, and either a value (property) or a set of child items (container).
+Axiom provides clear and concise descriptions of the items, as well as the interaction between those items.
+
+Axiom structures data models into models.
+A model can import definitions from other external models.
+The hierarchy can be extended, allowing one model to add items to the extension point defined in another model.
+
+Axiom data models can describe constraints to be enforced on the data.
+
+Axiom defines a set of built-in types and has a type mechanism through
+which additional types may be defined.
+Derived types can restrict their base type's set of valid values using mechanisms like range or pattern restrictions and extend their base type by addition of additional items in case of complex types.
+
+=== Language Overview
+
+==== Models
+
+Axiom data models are defined in models.
+A model contain collection of related definitions such as object and type definitions.
+
+A model contains three types of statements: model header statements, versioning statements and definition statements.
+
+==== Data Modeling Basics
+
+Axiom defines five basic concepts for data modeling - objects, properties,
+containers, object references and value metadata.
+
+===== Objects
+
+Object represents top-level entity, which may have nested data items.
+Object must be uniquely identifiable in the system. In Prism this is achieved by
+objects having *object identifier* (UUID).
+
+.Axiom Example
+[source, axiom]
+----
+
+complexType User {
+  property oid {
+    type uuid;
+  }
+  property name {
+    type PolyString;
+  }
+}
+
+object user {
+  type User;
+  description """
+    User of the system.
+    """;
+
+}
+----
+
+.XML Encoding
+[source,xml]
+----
+<user>
+  <oid>0b2f5d5c-6560-43da-9dcb-445eb6fd742a</oid>
+  <name>administrator</name>
+  ...
+</user>
+----
+
+.YAML Encoding
+[source, yaml]
+----
+user:
+  oid: 0b2f5d5c-6560-43da-9dcb-445eb6fd742a
+  name: administrator
+  ...
+----
+
+===== Properties
+
+A property instance contains data of simple type like an integer or a string.
+It may have multiple values of particular type.
+In case of *expanded value form* it may have nested data items.
+
+[source, axiom]
+----
+property comment {
+  type PolyString;
+}
+----
+
+[source, xml]
+----
+<comment>Simple value</comment>
+<comment>
+    <orig>Complex Value</orig>
+    <norm>complex-value</norm>
+    <metadata>
+      ...
+    </metadata>
+</comment>
+----
+
+
+[source, yaml]
+----
+comment:
+  - Simple value
+  - orig: Complex value
+    norm: complex-value
+    metadata:
+      ....
+----
+
+===== Containers
+
+A container instance contains data of complex type like address or user details.
+It may have multiple values of particular type.
+
+[source,axiom]
+----
+complexType Address {
+  property street {
+    type string;
+  }
+  property city {
+    type string;
+  }
+  property country {
+    type string;
+  }
+}
+
+container primaryAddress {
+  type Address;
+}
+----
+
+[source,yaml]
+----
+primaryAddress:
+  street: Main Street 10
+  city: Bratislava
+  country: Slovak Republic
+----
+
+===== Object references
+An object reference instance contains reference to object of particular type.
+It may have multiple references to particular object.
+
+.Axiom Example
+[source, axiom]
+----
+resourceReference managerRef {
+  description "Manager of the resource";
+  type User;
+}
+----
+
+[source, yaml]
+----
+managerRef:
+  oid: 0b2f5d5c-6560-43da-9dcb-445eb6fd742a
+----
+
+
+==== Built-in Types
+
+Axiom provides following built-in simple types:
+
+.Built-in types from XSD
+boolean::
+base64::
+byte::
+date::
+dateTime::
+dateTimeStamp::
+decimal::
+double::
+duration::
+float::
+int::
+integer::
+language::
+long::
+negativeInteger::
+nonNegativeInteger::
+nonPositiveInteger::
+normalizedString::
+positiveInteger::
+precisionDecimal::
+QName::
+short::
+string::
+time::
+token::
+unsignedByte::
+unsignedInt::
+unsignedLong::
+unignedShort::
+yearMonthDuration::
+
+.Axiom Specific Built in types
+PolyString:: String which can have normalized form and language-specific variants defined.
+
+==== Derived Types
+
+Axiom allows type derivation for both simple and complex types.
+Derived simple type may limit possible value set by imposing restrictions.
+Derived complex type may introduce additional items (properties, container, object references).
+
+.Axiom Example
+----
+type IdentifiableObject {
+  property oid {
+    type uuid;
+  }
+  identifier oid;
+}
+
+type User {
+  extends IdentifiableObject;
+  property username {
+    type PolyString;
+  }
+}
+----
+
+==== Extending Data Models
+
+Axiom allows for model to introduce extension to other existing model,
+which has defined extension points.
+
+[source, axiom]
+----
+model baseline {
+  namespace "urn:ns:baseline";
+
+  type User {
+    property username;
+    container extensions;
+  }
+
+  object user {
+    type User;
+  }
+}
+
+model custom-ext {
+  namespace "urn:ns:extension";
+  import baseline;
+
+  extends User/extensions {
+    property departmentId {
+      type string;
+    }
+  }
+}
+----
+
+.XML example
+[source,xml]
+----
+<user>
+  <username>administrator</username>
+  <extensions>
+    <departmentId xmlns="urn:ns:extension">DEP-01</departmentId>
+  </extensions>
+</user>
+
+----
+
+.YAML example
+[source, yaml]
+----
+user:
+  username: administrator
+  extensions:
+    "urn:ns:extension":
+       departmentId: DEP-01
+
+----
