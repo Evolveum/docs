@@ -1,0 +1,123 @@
+= Cross-Schema Use Cases
+
+Those are Axiom use cases when several schemas interact.
+
+== Type Reuse
+
+Schema A is using a type from schema B:
+
+----
+model prism {
+    type PolyString {
+        item orig { ... }
+    }
+}
+
+model midpoint {
+    object User {
+        item fullName {
+            type prism:PolyString;
+        }
+    }
+}
+----
+
+Namespaces are *transplanted* (flattened).
+Namespace of the schema that is using the type will be used.
+E.g. `orig` will be used in `midpoint` schema without need for explicit namespace.
+
+This dependency is *safe*.
+If source schema (`prism`) evolves in a compatible way the target schema (`midpoint`) will be consistent and compatible.
+
+== Extension (Augmenting)
+
+Schema A extends definition of type in schema B with custom items.
+
+----
+model midpoint {
+    object User {
+        ...
+    }
+}
+
+model example {
+    extension ExampleUser {
+        target midpoint:User;
+        item examplePersonIdentifier { ... }
+    }
+}
+----
+
+Namespaces are *maintained*.
+Extension items are stored with the namespace of the schema where the extension was defined (`example`).
+
+This dependency is *safe*.
+Both schemas can evolve independently.
+
+== Inheritance (Subtyping)
+
+Schema A defines a new data type that inherits items of data type from schema B.
+
+----
+model midpoint {
+    type Activation {
+        item administrativeStatus { ... }
+    }
+}
+
+model example {
+    type FancyActivation {
+        supertype midpoint:Activation;
+        item fancyStatus { ... }
+    }
+}
+----
+
+
+Namespaces are *transplanted* (flattened).
+Namespace of the schema that defines the subtype will be used even for items defined in supertype.
+E.g. `administrativeStatus` will be used in `example` schema without need for explicit namespace.
+
+This dependency is *unsafe*.
+Even if source schema (`midpoint`) evolves in a compatible way, such a change may be in conflict with the target schema (`example`) and it may result in inconsistencies or non-compatible changes.
+
+This method is *not recommended* for general use.
+It is recommended only in case where there is a strong coordination of evolution of both schemas.
+Or in case that the target schema can adapt to any changes of source schema and data compatibility is not an issue.
+
+== Inclusion (Mixin reuse)
+
+Schema A is using parts of schema B by including them in its data structures (e.g. by using a mixin).
+
+----
+model prism {
+    mixin Documented {
+        item documentation { ... }
+    }
+}
+
+model midpoint {
+    type Object {
+        uses prism:Documented;
+        ...
+    }
+}
+----
+
+Namespaces are *transplanted* (flattened).
+Namespace of the schema that uses the mixin will be used even for items defined in mixin definition.
+E.g. `documentaion` will be used in `midpoint` schema without need for explicit namespace.
+
+This dependency is *unsafe*.
+Even if source schema (`prism`) evolves in a compatible way, such a change may be in conflict with the target schema (`midpoint`) and it may result in inconsistencies or non-compatible changes.
+
+This method is *not recommended* for general use.
+It is recommended only in case where there is a strong coordination of evolution of both schemas.
+Or in case that the target schema can adapt to any changes of source schema and data compatibility is not an issue.
+
+== Open Questions
+
+Prism is supposed to be a genaral-purpose reusable component.
+However, may Prism data structures will be subtyped and included in midPoint schema.
+Those are unsafe uses.
+How can we provide independent evolution of Prism and midPoint?
