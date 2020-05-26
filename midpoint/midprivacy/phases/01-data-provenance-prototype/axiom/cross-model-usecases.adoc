@@ -1,0 +1,137 @@
+= Cross-Model Use Cases
+
+Those are Axiom use cases when several models interact.
+
+== Type Reuse (Composition)
+
+Model A is using a type from model B:
+
+----
+model prism {
+    type PolyString {
+        item orig { ... }
+    }
+}
+
+model midpoint {
+    object User {
+        item fullName {
+            type prism:PolyString;
+        }
+    }
+}
+----
+
+Item namespaces are *irrelevant*.
+Namespaces may not be used with the data as the namespaces can be programmatically determined from model definitions.
+Storing item namespace information with the data would be redundant information.
+
+This dependency is *safe*.
+If source model (`prism`) evolves in a compatible way the target model (`midpoint`) will be consistent and compatible.
+
+== Extension (Augmenting)
+
+Model A extends definition of type in model B with custom items.
+
+----
+model midpoint {
+    object User {
+        ...
+    }
+}
+
+model example {
+    extension ExampleUser {
+        target midpoint:User;
+        item examplePersonIdentifier { ... }
+    }
+}
+----
+
+Item namespaces are *maintained* and it is *mandatory* to use them in data representation formats.
+Extension items are stored with the namespace of the model where the extension was defined (`example`).
+
+This dependency is *safe*.
+Both models can evolve independently.
+
+== Inheritance (Subtyping)
+
+Model A defines a new data type that inherits items of data type from model B.
+
+----
+model midpoint {
+    type Activation {
+        item administrativeStatus { ... }
+    }
+}
+
+model example {
+    type FancyActivation {
+        supertype midpoint:Activation;
+        item fancyStatus { ... }
+    }
+}
+----
+
+Item names (without namespace) must be unique across all the items, both superclass and subclass items.
+
+Item namespaces are *irrelevant*.
+Namespaces may not be used with the data as the namespaces can be programmatically determined from model definitions.
+Storing item namespace information with the data would be redundant information.
+
+This dependency is *unsafe*.
+Even if source model (`midpoint`) evolves in a compatible way, such a change may be in conflict with the target model (`example`) and it may result in inconsistencies or non-compatible changes.
+
+This method is *not recommended* for general use.
+It is recommended only in case where there is a strong coordination of evolution of both models.
+Or in case that the target model can adapt to any changes of source model and data compatibility is not an issue.
+Use of composition (type reuse) or extension (augmenting) should be considered instead of inheritance.
+
+.Why do we want unique item names?
+TIP: We require that item names must be unique in the entire definition.
+This means that the item name without a namespace must be unique (a.k.a. "local name").
+This deliberate limitation simplifies the data, as it means that namespaces are irrelevant for data interpretation and therefore they do not need to be stored with each item.
+This also means that we can make simpler code generators, as most programming languages cannot apply namespaces for class fields and methods.
+Allowing conflicting local names in subclass and superclass can cause ambiguity when translating item names to generated code.
+Requiring unique names makes everything simpler.
+But there is a price to pay.
+Model authors must be very careful about evolution of the data models.
+
+== Inclusion (Mixin reuse)
+
+Model A is using parts of model B by including them in its data structures (e.g. by using a mixin).
+
+----
+model prism {
+    mixin Documented {
+        item documentation { ... }
+    }
+}
+
+model midpoint {
+    type Object {
+        uses prism:Documented;
+        ...
+    }
+}
+----
+
+Item namespaces are *irrelevant*.
+Namespaces may not be used with the data as the namespaces can be programmatically determined from model definitions.
+E.g. `documentation` will be used in `midpoint` model without need for explicit namespace.
+Storing item namespace information with the data would be redundant information.
+
+This dependency is *unsafe*.
+Even if source model (`prism`) evolves in a compatible way, such a change may be in conflict with the target model (`midpoint`) and it may result in inconsistencies or non-compatible changes.
+
+This method is *not recommended* for general use.
+It is recommended only in case where there is a strong coordination of evolution of both models.
+Or in case that the target model can adapt to any changes of source model and data compatibility is not an issue.
+
+== Open Questions
+
+Prism is supposed to be a genaral-purpose reusable component.
+However, may Prism data structures will be subtyped and included in midPoint model.
+Those are unsafe uses.
+How can we provide independent evolution of Prism and midPoint?
+Will careful versioning and some recommendations do?
