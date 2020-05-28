@@ -2,7 +2,7 @@
 
 Those are Axiom use cases when several models interact.
 
-== Type Reuse (Composition)
+== Composition (Type Reuse)
 
 Model A is using a type from model B:
 
@@ -14,6 +14,7 @@ model prism {
 }
 
 model midpoint {
+    namespace "https://midpoint.evolveum.com/ns/common";
     object User {
         item fullName {
             type prism:PolyString;
@@ -22,6 +23,18 @@ model midpoint {
 }
 ----
 
+Example data (YAML):
+
+----
+@context: "https://midpoint.evolveum.com/ns/common"
+user:
+    fullName:
+        orig: "John Doe"
+----
+
+Prism type `PolyString` is re-used in midPoint `User` object, thus creating a composition.
+As an entire unmodified type is used and it is isolated within an _item_, the type may evolve independently and there is no potential for conflicts of `prism` and `midpoint` models.
+
 Item namespaces are *irrelevant*.
 Namespaces may not be used with the data as the namespaces can be programmatically determined from model definitions.
 Storing item namespace information with the data would be redundant information.
@@ -29,24 +42,39 @@ Storing item namespace information with the data would be redundant information.
 This dependency is *safe*.
 If source model (`prism`) evolves in a compatible way the target model (`midpoint`) will be consistent and compatible.
 
-== Extension (Augmenting)
+== Augmentation (Extension)
 
-Model A extends definition of type in model B with custom items.
+Model A augments definition of type in model B with custom items.
 
 ----
 model midpoint {
+    namespace "https://midpoint.evolveum.com/ns/common";
     object User {
         ...
     }
 }
 
 model example {
-    extension ExampleUser {
+    namespace "https://example.com/ns";
+    augmentation ExampleUser {
         target midpoint:User;
-        item examplePersonIdentifier { ... }
+        item personIdentifier { ... }
     }
 }
 ----
+
+Example data (YAML):
+
+----
+@context: "https://midpoint.evolveum.com/ns/common"
+user:
+    fullName: ...
+    "https://example.com/ns#personIdentifier": "007"
+----
+
+Example model augments midPoint `User` type with custom property `personIdentifier`.
+Whenever the `User` data structure is used, the `personIdentifier` property may be used with it.
+However, the `personIdentifier` property needs to be fully qualified with namespace information to distinguish it from any other properties that the midPoint model can have in the future.
 
 Item namespaces are *maintained* and it is *mandatory* to use them in data representation formats.
 Extension items are stored with the namespace of the model where the extension was defined (`example`).
@@ -60,18 +88,32 @@ Model A defines a new data type that inherits items of data type from model B.
 
 ----
 model midpoint {
-    type Activation {
-        item administrativeStatus { ... }
+    type User {
+        item fullName { ... }
     }
 }
 
 model example {
-    type FancyActivation {
-        supertype midpoint:Activation;
+    namespace "https://example.com/ns";
+    type FancyUser {
+        inherit midpoint:User;
         item fancyStatus { ... }
     }
 }
 ----
+
+Example data (YAML):
+
+----
+@context: "https://example.com/ns"
+user:
+    fullName: ...
+    fancyStatus: "asleep"
+----
+
+Example model extends midPoint `User` type with a custom property `fancyStatus`, creating a new (sub)type `FancyUser`.
+Whenever `FancyUser` is used, it may include `fancyStatus` property without any need to specify namespace explicitly.
+Data processor can use model definitions to figure out definitions for all items.
 
 Item names (without namespace) must be unique across all the items, both superclass and subclass items.
 
@@ -85,7 +127,7 @@ Even if source model (`midpoint`) evolves in a compatible way, such a change may
 This method is *not recommended* for general use.
 It is recommended only in case where there is a strong coordination of evolution of both models.
 Or in case that the target model can adapt to any changes of source model and data compatibility is not an issue.
-Use of composition (type reuse) or extension (augmenting) should be considered instead of inheritance.
+Use of composition (type reuse) or augmenting should be considered instead of inheritance.
 
 .Why do we want unique item names?
 TIP: We require that item names must be unique in the entire definition.
@@ -109,12 +151,30 @@ model prism {
 }
 
 model midpoint {
+    namespace "https://midpoint.evolveum.com/ns/common";
     type Object {
-        uses prism:Documented;
+        item name { ... }
+        use prism:Documented;
         ...
     }
 }
 ----
+
+Example data (YAML):
+
+----
+@context: "https://midpoint.evolveum.com/ns/common"
+user:
+    name: "administrator"
+    documentation: "Omnipotent pseudo-user for emergency administration."
+----
+
+MidPoint `Object` is using `Documented` mixin from Prism model.
+The `Documented` mixing adds `documentation` property to midPoint objects.
+
+Mixins are data strucures intended to re-use.
+However, due to the limitations the re-use is intended mostly in a single model.
+When mixins are used across models the a great care needs to be exercised.
 
 Item namespaces are *irrelevant*.
 Namespaces may not be used with the data as the namespaces can be programmatically determined from model definitions.
