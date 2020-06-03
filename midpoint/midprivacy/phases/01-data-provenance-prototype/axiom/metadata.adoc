@@ -4,6 +4,7 @@
 
 Option 1: `metadata` keyword:
 
+[source]
 ----
 model midpoint {
     metadata StorageMetadata {  // Creates type StorageMetadata
@@ -23,6 +24,7 @@ Option 2: Augmentation
 Not a good option. Metadata may be too complex to be handled by simple augmentation.
 This is also not very readable.
 
+[source]
 ----
 model midpoint {
     augmentation ValueMetadata {
@@ -39,23 +41,90 @@ model midpoint {
 }
 ----
 
+Metadata serialized with data:
+
+[source,xml]
+----
+    ...
+    <description>
+        <axiom:value>Lorem ipsum dolor sit amet ...</axiom:value>
+        <midpoint:storage>
+            <midpoint:creation>...</midpoint:creation>
+            <midpoint:modification>...</midpoint:modification>
+        </midpoint:storage>
+    </description>
+    ...
+----
+
+
+[source,json]
+----
+  ...
+  "description" : {
+    "@value" : "Lorem ipsum dolor sit amet ...",
+    "http://.../midpoint#storage" : {
+      "creation" : ....,
+      "modification" : ....
+    }
+  }
+----
+
+
 == Completeness
 
 TODO
 
+Use case: jpegPhoto was not fetched from repository and we do not know whether it has a value or not.
+
+[source,xml]
 ----
     ...
-    <jpegPhoto>
-        <prism:completeness>
-            TODO
-        </prism:completeness>
+    <jpegPhoto xsi:nil="true">
+        <axiom:completeness>incomplete</axiom:completeness>
     </jpegPhoto>
     ...
+----
+
+There is an issue that the completeness is a property of `jpegPhoto` item, not a particular value.
+But we cannot express data about an item if there is no value present.
+Hence the `nil`.
+The `nil` indicates that this value is not really a value.
+
+[source,json]
+----
+  ...
+  "jpegPhoto" : {
+    "@value" : null,
+    "@completeness" : "incomplete"
+  }
+----
+
+The `@value=null` may be optional, as this is a hash and no value is specified this should be obvious.
+
+Use case: password is present, but we cannot or do not want to disclose the value.
+However, we want to indicate that there is a password.
+
+[source,xml]
+----
+    ...
+    <password xsi:nil="true">
+        <axiom:significance>unknown</axiom:significance>
+    </password>
+    ...
+----
+
+[source,json]
+----
+  ...
+  "password" : {
+    "@significance" : "unknown"
+  }
 ----
 
 
 == Prism Expressions
 
+[source]
 ----
 model prism {
     metadata ValueExpression {
@@ -71,12 +140,64 @@ model prism {
 Example data with expression.
 `prop123` is a string prism property.
 
+[source,xml]
 ----
     ...
     <prop123>
+        <axiom:significance>unknown</axiom:significance>
         <prism:expression>
             <midpoint:const>const123</midpoint:const>
         </prism:expression>
     </prop123>
     ...
+----
+
+[source,json]
+----
+  ...
+  "prop123" : {
+    "@expression" : {
+      "const" : "const123"
+    }
+  }
+  ...
+----
+
+Question: Expression is a prism concept, but we would like to use short-hand `@expression` instead of long QName.
+How to do this?
+
+Question: Do we need to set `@significance=unknown` here explicitly?
+Or can we infer that from the fact that there is no `@value` here?
+We could perhaps do that in JSON.
+But XML will still need either explicit significance or `xsi:nil`, because all XMl elements have value (even if it is empty string).
+Or can be have XML parsing mode where we ignore whitespace in indent and consider empty string to be null?
+
+== Metadata Of Negative Values
+
+Metadata serialized with data:
+
+[source,xml]
+----
+    ...
+    <description>
+        <axiom:value>This was all wrong, it is gone now</axiom:value>
+        <axiom:significance>negative</axiom:significance>
+        <midpoint:transformation>
+            <midpoint:mapping>...</midpoint:mapping>
+        </midpoint:storage>
+    </description>
+    ...
+----
+
+
+[source,json]
+----
+  ...
+  "description" : {
+    "@value" : "This was all wrong, it is gone now",
+    "@significance" : "negative",
+    "http://.../midpoint#transformation" : {
+      "mapping" : ....,
+    }
+  }
 ----
