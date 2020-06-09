@@ -1,6 +1,51 @@
 = Axiom Metadata
 :page-toc: float-right
 
+_Metadata_ are data about data.
+Metadata often describe how we learned about the data, e.i. metadata describe origin of data.
+But metadata may also describe trustworthiness of the data (e.g. "level of assurance"), data confidentiality, metadata may record transformation history of data and so on.
+Metadata are often created automatically by systems that process and transfer the data.
+
+Metadata are often as flexible as the data.
+As Axiom is used to create a model of the data, it can also be used to create a model of metadata: _metadata model_.
+Metadata model is using the very same mechanisms that the data model is using: data types, items, values, subtyping, etc.
+The only difference is that metadata are not included in the data structures directly.
+Metadata are automatically attached to every applicable value.
+
+TODO
+
+== Design Notes
+
+=== Metadata and Completeness Belong To Axiom?
+
+Question: Do metadata and completeness belong to Axiom? Or would they rather belong to Prism?
+
+Answer: They probably belong to Axiom, because:
+
+* Representation formats may have native way how to express metadata.
+In that case Axiom has to know about it to use it.
+
+* Data may often be serialized without metadata, e.g. for readable presentation.
+Axiom has to understand what metadata are to be able to serialize data without them.
+
+* Using metadata at this level of abstraction is relatively new.
+We are not sure about implementation details, performance and all the other unforeseen circumstances.
+Having metadata concept natively in Axiom allows us to hard-code things, make adjustments in the future, etc.
+This lowers the risk that Axiom specs are inconsistent.
+
+Same arguments apply to completeness concepts.
+
+Problem: We do not want to apply metadata to metadata.
+How do we distinguish data and metadata?
+
+Question: Do we want to apply completeness to metadata?
+
+Answer: Yes, we want to.
+Metadata may also be incomplete.
+Or missing entirely.
+We may want to indicate that there are metadata, but we have not returned them.
+Therefore support completeness concepts for all Axiom items, including metadata.
+
 == Example: MidPoint Metadata
 
 Metadata model definition:
@@ -18,10 +63,24 @@ model midpoint {
         item modification { ... }
     }
 }
+
+model custom {
+    // Model loaded in runtime
+    namespace "http://example.com/...";
+    metadata CustomMetadata {
+        target {
+            // We do not want this here. How to avoid it?
+            itemType prism:Item;
+        }
+        itemName: custom;
+        item foo { ... }
+    }
+}
 ----
 
 Metadata serialized with data:
 
+.XML, full namespaces
 [source,xml]
 ----
     ...
@@ -32,85 +91,64 @@ Metadata serialized with data:
                 <midpoint:creation>...</midpoint:creation>
                 <midpoint:modification>...</midpoint:modification>
             </midpoint:storage>
+            <ex:custom>
+                <ex:foo>...</ex:foo>
+            </ex:custom>
         </axiom:metadata>
     </description>
     ...
 ----
 
+.XML, minimal namespaces
+[source,xml]
+----
+    ...
+    <description>
+        <_value>Lorem ipsum dolor sit amet ...</_value>
+        <_metadata>
+            <!-- No need to specify namespace here, as storage is defined in the same namespace as is the rest of the document. -->
+            <storage>
+                <creation>...</creation>
+                <modification>...</modification>
+            </storage>
+            <!-- We need namespace here to avoid conflicts with other metadata (similar rules than augmentation) -->
+            <ex:custom xmlns:ex="http://example.com/...">
+                <!-- Namespaces are not be strictly necessary inside storage element -->
+                <foo>...</foo>
+            </ex:custom>
+        </_metadata>
+    </description>
+    ...
+----
 
+
+.JSON
 [source,json]
 ----
   ...
   "description" : {
     "@value" : "Lorem ipsum dolor sit amet ...",
     "@metadata" : {
-        "http://.../midpoint#storage" : {
+        "storage" : {
           "creation" : ....,
           "modification" : ....
+        },
+        "http://example.com/...#custom" : {
+          "foo" : ....
         }
     }
   }
 ----
 
 
-== Completeness
-
-TODO
-
-Use case: jpegPhoto was not fetched from repository and we do not know whether it has a value or not.
-
-[source,xml]
-----
-    ...
-    <jpegPhoto xsi:nil="true">
-        <axiom:completeness>incomplete</axiom:completeness>
-    </jpegPhoto>
-    ...
-----
-
-There is an issue that the completeness is a property of `jpegPhoto` item, not a particular value.
-But we cannot express data about an item if there is no value present.
-Hence the `nil`.
-The `nil` indicates that this value is not really a value.
-
-[source,json]
-----
-  ...
-  "jpegPhoto" : {
-    "@value" : null,
-    "@completeness" : "incomplete"
-  }
-----
-
-The `@value=null` may be optional, as this is a hash and no value is specified this should be obvious.
-
-Use case: password is present, but we cannot or do not want to disclose the value.
-However, we want to indicate that there is a password.
-
-[source,xml]
-----
-    ...
-    <password xsi:nil="true">
-        <axiom:significance>unknown</axiom:significance>
-    </password>
-    ...
-----
-
-[source,json]
-----
-  ...
-  "password" : {
-    "@significance" : "unknown"
-  }
-----
-
-
 == Prism Expressions
+
+TODO: following definition has to be corrected
 
 [source]
 ----
 model prism {
-    metadata ValueExpression {
+    infra ValueExpression {
         target {
             itemType prism:Property;
         }
@@ -123,22 +161,7 @@ model prism {
 Example data with expression.
 `prop123` is a string prism property.
 
-.XML, Namespace-based option, expression as metadata
-[source,xml]
-----
-    ...
-    <prop123>
-        <axiom:significance>unknown</axiom:significance>
-        <axiom:metadata>
-            <prism:expression>
-                <midpoint:const>const123</midpoint:const>
-            </prism:expression>
-        </axiom:metadata>
-    </prop123>
-    ...
-----
-
-.XML, expression in "value subclass", Namespace-based option
+.XML, full namespaces
 [source,xml]
 ----
     ...
@@ -151,34 +174,20 @@ Example data with expression.
     ...
 ----
 
-.XML, expression in "value subclass", metachar _, (a.k.a. Underscore option)
+.XML, minimal namespaces
 [source,xml]
 ----
     ...
     <prop123>
         <_significance>unknown</_significance>
         <_expression>
-            <_const>const123</_const>
+            <const>const123</const>
         </_expression>
     </prop123>
     ...
 ----
 
-.JSON, expression as metadata, full namespaces
-[source,json]
-----
-  ...
-  "prop123" : {
-    "@metadata" : {
-        "http://...prism#expression" : {
-          "http://...midpoint/common#const" : "const123"
-        }
-    }
-  }
-  ...
-----
-
-.JSON, expression in "value subclass", metachar @
+.JSON
 [source,json]
 ----
   ...
@@ -190,26 +199,6 @@ Example data with expression.
   ...
 ----
 
-
-Question: Expression is a prism concept, but we would like to use short-hand `@expression` instead of long QName.
-`const` expression evaluator is midpoint concept.
-But we would like to have simplified notation here.
-We want this:
-
-[source,json]
-----
-  ...
-  "prop123" : {
-    "@expression" : {
-          "const" : "const123"
-    }
-  }
-  ...
-----
-
-How to do this?
-
-
 Question: Do we need to set `@significance=unknown` here explicitly?
 Or can we infer that from the fact that there is no `@value` here?
 We could perhaps do that in JSON.
@@ -218,8 +207,11 @@ Or can be have XML parsing mode where we ignore whitespace in indent and conside
 
 == Metadata Of Negative Values
 
+// TODO: move to "Completeness"?
+
 Metadata serialized with data:
 
+.XML, full namespace
 [source,xml]
 ----
     ...
@@ -235,7 +227,24 @@ Metadata serialized with data:
     ...
 ----
 
+.XML, minimal namespace
+[source,xml]
+----
+    ...
+    <description>
+        <_value>This was all wrong, it is gone now</_value>
+        <_significance>negative</_significance>
+        <_metadata>
+            <midpoint:transformation>
+                <mapping>...</mapping>
+            </midpoint:storage>
+        </_metadata>
+    </description>
+    ...
+----
 
+
+.JSON
 [source,json]
 ----
   ...
