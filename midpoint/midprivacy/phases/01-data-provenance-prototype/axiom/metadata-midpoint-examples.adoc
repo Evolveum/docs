@@ -1,0 +1,241 @@
+= MidPoint Metadata Examples
+
+Following examples illustrate how metadata can be used in midPoint.
+
+Metadata model definition:
+
+[source,axiom]
+----
+model midpoint {
+    metadata StorageMetadata {  // Creates type StorageMetadata
+        target {
+            // apply this metadata for all Prism items
+            itemType prism:Item;
+        }
+        itemName: storage;
+        item creation { ... }
+        item modification { ... }
+    }
+}
+
+model custom {
+    // Model loaded in runtime
+    namespace "http://example.com/...";
+    metadata CustomMetadata {
+        target {
+            // We do not want this here. How to avoid it?
+            itemType prism:Item;
+        }
+        itemName: custom;
+        item foo { ... }
+    }
+}
+----
+
+Metadata serialized with data:
+
+.XML, full namespaces
+[source,xml]
+----
+    ...
+    <description>
+        <axiom:value>Lorem ipsum dolor sit amet ...</axiom:value>
+        <axiom:metadata>
+            <midpoint:storage>
+                <midpoint:creation>...</midpoint:creation>
+                <midpoint:modification>...</midpoint:modification>
+            </midpoint:storage>
+            <ex:custom>
+                <ex:foo>...</ex:foo>
+            </ex:custom>
+        </axiom:metadata>
+    </description>
+    ...
+----
+
+.XML, minimal namespaces
+[source,xml]
+----
+    ...
+    <description>
+        <_value>Lorem ipsum dolor sit amet ...</_value>
+        <_metadata>
+            <!-- No need to specify namespace here, as storage is defined in the same namespace as is the rest of the document. -->
+            <storage>
+                <creation>...</creation>
+                <modification>...</modification>
+            </storage>
+            <!-- We need namespace here to avoid conflicts with other metadata (similar rules than augmentation) -->
+            <ex:custom xmlns:ex="http://example.com/...">
+                <!-- Namespaces are not be strictly necessary inside storage element -->
+                <foo>...</foo>
+            </ex:custom>
+        </_metadata>
+    </description>
+    ...
+----
+
+
+.JSON
+[source,json]
+----
+  ...
+  "description" : {
+    "@value" : "Lorem ipsum dolor sit amet ...",
+    "@metadata" : {
+        "storage" : {
+          "creation" : ....,
+          "modification" : ....
+        },
+        "http://example.com/...#custom" : {
+          "foo" : ....
+        }
+    }
+  }
+----
+
+
+== Prism Expressions
+
+TODO: following definition has to be corrected
+
+[source]
+----
+model prism {
+    infra ValueExpression {
+        target {
+            itemType prism:Property;
+        }
+        itemName: expression;
+        type: Expression;
+    }
+}
+----
+
+Example data with expression.
+`prop123` is a string prism property.
+
+.XML, full namespaces
+[source,xml]
+----
+    ...
+    <prop123>
+        <axiom:significance>unknown</axiom:significance>
+        <prism:expression>
+            <midpoint:const>const123</midpoint:const>
+        </prism:expression>
+    </prop123>
+    ...
+----
+
+.XML, minimal namespaces
+[source,xml]
+----
+    ...
+    <prop123>
+        <_significance>unknown</_significance>
+        <_expression>
+            <const>const123</const>
+        </_expression>
+    </prop123>
+    ...
+----
+
+.JSON
+[source,json]
+----
+  ...
+  "prop123" : {
+    "@expression" : {
+      "const" : "const123"
+    }
+  }
+  ...
+----
+
+Question: Do we need to set `@significance=unknown` here explicitly?
+Or can we infer that from the fact that there is no `@value` here?
+We could perhaps do that in JSON.
+But XML will still need either explicit significance or `xsi:nil`, because all XMl elements have value (even if it is empty string).
+Or can be have XML parsing mode where we ignore whitespace in indent and consider empty string to be null?
+
+== Metadata Of Negative Values
+
+// TODO: move to "Completeness"?
+
+Metadata serialized with data:
+
+.XML, full namespace
+[source,xml]
+----
+    ...
+    <description>
+        <axiom:value>This was all wrong, it is gone now</axiom:value>
+        <axiom:significance>negative</axiom:significance>
+        <axiom:metadata>
+            <midpoint:transformation>
+                <midpoint:mapping>...</midpoint:mapping>
+            </midpoint:storage>
+        </axiom:metadata>
+    </description>
+    ...
+----
+
+.XML, minimal namespace
+[source,xml]
+----
+    ...
+    <description>
+        <_value>This was all wrong, it is gone now</_value>
+        <_significance>negative</_significance>
+        <_metadata>
+            <midpoint:transformation>
+                <mapping>...</mapping>
+            </midpoint:storage>
+        </_metadata>
+    </description>
+    ...
+----
+
+
+.JSON
+[source,json]
+----
+  ...
+  "description" : {
+    "@value" : "This was all wrong, it is gone now",
+    "@significance" : "negative",
+    "@metadata" : {
+        "http://.../midpoint#transformation" : {
+          "mapping" : ....,
+      }
+    }
+  }
+----
+
+
+== Notes
+
+Considered Option: Metadata Definition using Augmentation
+
+Not a good option. Metadata may be too complex to be handled by simple augmentation.
+This is also not very readable.
+
+[source]
+----
+model midpoint {
+    augmentation ValueMetadata {
+        target axiom:ValueMetadata;  // Magic type
+        item storage {
+            type StorageMetadata;
+        }
+    }
+
+    type StorageMetadata {
+        item creation { ... }
+        item modification { ... }
+    }
+}
+----
+
+TODO: application of metadata to metadata

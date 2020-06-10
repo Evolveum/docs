@@ -161,9 +161,63 @@ E.g. "no criminal records"
 | We do not know anything about the item.
 |===
 
+=== Metadata
+
+Considered Option: Metadata Definition using Augmentation
+
+Not a good option. Metadata may be too complex to be handled by simple augmentation.
+This is also not very readable.
+
+[source]
+----
+model midpoint {
+    augmentation ValueMetadata {
+        target axiom:ValueMetadata;  // Magic type
+        item storage {
+            type StorageMetadata;
+        }
+    }
+
+    type StorageMetadata {
+        item creation { ... }
+        item modification { ... }
+    }
+}
+----
+
+
 == Design Decisions
 
-TODO: metadata in Axiom or Prism?
+=== Metadata and Completeness Belong To Axiom?
+
+Question: Do metadata and completeness belong to Axiom? Or would they rather belong to Prism?
+
+Answer: They probably belong to Axiom, because:
+
+* Representation formats may have native way how to express metadata.
+In that case Axiom has to know about it to use it.
+
+* Data may often be serialized without metadata, e.g. for readable presentation.
+Axiom has to understand what metadata are to be able to serialize data without them.
+
+* Using metadata at this level of abstraction is relatively new.
+We are not sure about implementation details, performance and all the other unforeseen circumstances.
+Having metadata concept natively in Axiom allows us to hard-code things, make adjustments in the future, etc.
+This lowers the risk that Axiom specs are inconsistent.
+
+Same arguments apply to completeness concepts.
+
+Problem: We do not want to apply metadata to metadata.
+How do we distinguish data and metadata?
+
+Question: Do we want to apply completeness to metadata?
+
+Answer: Yes, we want to.
+Metadata may also be incomplete.
+Or missing entirely.
+We may want to indicate that there are metadata, but we have not returned them.
+Therefore support completeness concepts for all Axiom items, including metadata.
+
 
 == Why We Do Not Just Use XSD?
 
@@ -202,3 +256,43 @@ Therefore it looks like there is little perspective in XSD development.
 We link:../existing-languages-analysis/[considered several existing languages] for schema modeling in the context of midPrivacy.
 Based on our existing experience with using custom XSD annotations in *midPoint* and implementation of *YANG* language in OpenDaylight project.
 The result was that none of XSD, YANG, JSON Schema or SCIM meets our requirements, without significant hit on readability, or lot of extensions to extend schema language.
+
+
+== Ideas
+
+Miscellaneous ideas for the future.
+
+=== Namespace Resolvability
+
+We can make namespaces resolvable.
+HTTP GET on namespace could return the definition (we need to figure out how to pass a version).
+That would be a very simple way how to get a model definitions.
+
+=== Extension Criticality
+
+Let's have this:
+
+[source,yaml]
+----
+user:
+    name: foo
+    "https://unknown.com/#id": bar
+----
+
+We have no model for `https://unknown.com/` and we are not able to retrieve it.
+What do we do?
+Do we continue working with the data ignoring the unknown item?
+Or do we end up with an error, stopping all processing?
+
+Maybe we can explicitly specify how critical an extension is:
+
+[source,yaml]
+----
+user:
+    name: foo
+    "https://unknown.com/#id":
+      @value: bar
+      @criticality: critical
+----
+
+Now we know that we have to stop processing with an error.

@@ -1,5 +1,4 @@
-= Axiom Metadata
-:page-toc: float-right
+= Metadata
 
 _Metadata_ are data about data.
 Metadata often describe how we learned about the data, e.i. metadata describe origin of data.
@@ -12,202 +11,88 @@ Metadata model is using the very same mechanisms that the data model is using: d
 The only difference is that metadata are not included in the data structures directly.
 Metadata are automatically attached to every applicable value.
 
-TODO
+== Metadata Specification
 
-== Design Notes
+Metadata structures are specified using a special `metadata` keyword:
 
-=== Metadata and Completeness Belong To Axiom?
-
-Question: Do metadata and completeness belong to Axiom? Or would they rather belong to Prism?
-
-Answer: They probably belong to Axiom, because:
-
-* Representation formats may have native way how to express metadata.
-In that case Axiom has to know about it to use it.
-
-* Data may often be serialized without metadata, e.g. for readable presentation.
-Axiom has to understand what metadata are to be able to serialize data without them.
-
-* Using metadata at this level of abstraction is relatively new.
-We are not sure about implementation details, performance and all the other unforeseen circumstances.
-Having metadata concept natively in Axiom allows us to hard-code things, make adjustments in the future, etc.
-This lowers the risk that Axiom specs are inconsistent.
-
-Same arguments apply to completeness concepts.
-
-Problem: We do not want to apply metadata to metadata.
-How do we distinguish data and metadata?
-
-Question: Do we want to apply completeness to metadata?
-
-Answer: Yes, we want to.
-Metadata may also be incomplete.
-Or missing entirely.
-We may want to indicate that there are metadata, but we have not returned them.
-Therefore support completeness concepts for all Axiom items, including metadata.
-
-== Example: MidPoint Metadata
-
-Metadata model definition:
-
-[source]
+[source,axiom]
 ----
-model midpoint {
-    metadata StorageMetadata {  // Creates type StorageMetadata
-        target {
-            // apply this metadata for all Prism items
-            itemType prism:Item;
-        }
+model example {
+    namespace "https://schema.example.com/ns/metasample";
+    metadata StorageMetadata {
         itemName: storage;
-        item creation { ... }
-        item modification { ... }
+        item createTimestamp { ... }
+        item modificationTimestamp { ... }
     }
 }
+----
 
-model custom {
-    // Model loaded in runtime
-    namespace "http://example.com/...";
-    metadata CustomMetadata {
-        target {
-            // We do not want this here. How to avoid it?
-            itemType prism:Item;
+This statement defines a new data type `StorageMetadata` with items `createTimestamp` and `modificationTimestamp`.
+The data type will be registered as _value metadata_ with item name `storage`.
+The metadata will appear mixed into the data:
+
+.JSON representation of user object without metadata
+[source,json]
+----
+{
+    "user" : {
+      "name" : "foo",
+      "fullName" : "Foo Bar"
+    }
+}
+----
+
+.JSON representation of user object with metadata
+[source,json]
+----
+{
+    "user" : {
+      "name" : {
+        "@value" : "foo",
+        "@metadata" : {
+          "https://schema.example.com/ns/metasample#storage" : {
+            "createTimestamp" : "2020-06-10T14:26:42Z",
+            "modificationTimestamp" : "2020-06-12T18:14:05Z"
+          }
         }
-        itemName: custom;
-        item foo { ... }
+      },
+      "fullName" : {
+        "@value" : "Foo Bar",
+        "@metadata" : {
+          "https://schema.example.com/ns/metasample#storage" : {
+            "createTimestamp" : "2020-06-10T14:26:42Z",
+            "modificationTimestamp" : "2020-06-22T09:30:16Z"
+          }
+        }
+      }
     }
 }
 ----
 
-Metadata serialized with data:
+== Metadata Of Empty Values
 
-.XML, full namespaces
-[source,xml]
-----
-    ...
-    <description>
-        <axiom:value>Lorem ipsum dolor sit amet ...</axiom:value>
-        <axiom:metadata>
-            <midpoint:storage>
-                <midpoint:creation>...</midpoint:creation>
-                <midpoint:modification>...</midpoint:modification>
-            </midpoint:storage>
-            <ex:custom>
-                <ex:foo>...</ex:foo>
-            </ex:custom>
-        </axiom:metadata>
-    </description>
-    ...
-----
-
-.XML, minimal namespaces
-[source,xml]
-----
-    ...
-    <description>
-        <_value>Lorem ipsum dolor sit amet ...</_value>
-        <_metadata>
-            <!-- No need to specify namespace here, as storage is defined in the same namespace as is the rest of the document. -->
-            <storage>
-                <creation>...</creation>
-                <modification>...</modification>
-            </storage>
-            <!-- We need namespace here to avoid conflicts with other metadata (similar rules than augmentation) -->
-            <ex:custom xmlns:ex="http://example.com/...">
-                <!-- Namespaces are not be strictly necessary inside storage element -->
-                <foo>...</foo>
-            </ex:custom>
-        </_metadata>
-    </description>
-    ...
-----
-
+Metadata can be attached even to items without a value.
 
 .JSON
 [source,json]
 ----
   ...
-  "description" : {
-    "@value" : "Lorem ipsum dolor sit amet ...",
+  "criminalCharges" : {
     "@metadata" : {
-        "storage" : {
-          "creation" : ....,
-          "modification" : ....
-        },
-        "http://example.com/...#custom" : {
-          "foo" : ....
-        }
+        "https://...#loa" : {
+          "levelOfAssurance" : "high",
+          ...
+      }
     }
   }
 ----
 
-
-== Prism Expressions
-
-TODO: following definition has to be corrected
-
-[source]
-----
-model prism {
-    infra ValueExpression {
-        target {
-            itemType prism:Property;
-        }
-        itemName: expression;
-        type: Expression;
-    }
-}
-----
-
-Example data with expression.
-`prop123` is a string prism property.
-
-.XML, full namespaces
-[source,xml]
-----
-    ...
-    <prop123>
-        <axiom:significance>unknown</axiom:significance>
-        <prism:expression>
-            <midpoint:const>const123</midpoint:const>
-        </prism:expression>
-    </prop123>
-    ...
-----
-
-.XML, minimal namespaces
-[source,xml]
-----
-    ...
-    <prop123>
-        <_significance>unknown</_significance>
-        <_expression>
-            <const>const123</const>
-        </_expression>
-    </prop123>
-    ...
-----
-
-.JSON
-[source,json]
-----
-  ...
-  "prop123" : {
-    "@expression" : {
-      "const" : "const123"
-    }
-  }
-  ...
-----
-
-Question: Do we need to set `@significance=unknown` here explicitly?
-Or can we infer that from the fact that there is no `@value` here?
-We could perhaps do that in JSON.
-But XML will still need either explicit significance or `xsi:nil`, because all XMl elements have value (even if it is empty string).
-Or can be have XML parsing mode where we ignore whitespace in indent and consider empty string to be null?
 
 == Metadata Of Negative Values
 
 // TODO: move to "Completeness"?
+
+Value _significance_ is used to denote a negative value, metadata are attached as usual.
 
 Metadata serialized with data:
 
@@ -260,26 +145,5 @@ Metadata serialized with data:
 ----
 
 
-== Notes
 
-Considered Option: Metadata Definition using Augmentation
-
-Not a good option. Metadata may be too complex to be handled by simple augmentation.
-This is also not very readable.
-
-[source]
-----
-model midpoint {
-    augmentation ValueMetadata {
-        target axiom:ValueMetadata;  // Magic type
-        item storage {
-            type StorageMetadata;
-        }
-    }
-
-    type StorageMetadata {
-        item creation { ... }
-        item modification { ... }
-    }
-}
-----
+// TODO: application of metadata to metadata
