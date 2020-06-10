@@ -33,6 +33,7 @@ Axiom defines basic concepts for data modeling - items, values and data types.
 
 TODO: further explain items and values
 
+TODO: composition: type reuse from other models
 
 == Built-in Types
 
@@ -80,6 +81,8 @@ Axiom allows subtyping (type derivation) for both simple and complex types.
 Derived simple type may limit possible value set by imposing restrictions.
 Derived complex type may introduce additional items (properties, container, object references).
 
+Complex type subtyping is extending the set of items that are defined for the type:
+
 [source, axiom]
 ----
 type IdentifiableObject {
@@ -95,6 +98,135 @@ type User {
   }
 }
 ----
+
+Subtyping creates new data type in a smooth and natural way.
+For example, the new data type will use the same namespace for all the items, even if the supertype is defined in a different model.
+The purpose of subtyping is to facilitate reuse of data structures and hence support reuse of code in the data processing implementations.
+
+.YAML
+[source,yaml]
+----
+user:
+    oid: 96df17b4-ab26-11ea-859b-cf5a21832c98
+    username: foo
+----
+
+.Subtyping and inheritance
+TIP: Subtyping is often confused with inheritance.
+Axiom is a data modeling language and not a programming language.
+Therefore it is quite obvious that Axiom is focusing on subtyping instead of inheritance.
+However, there is also a bit of inheritance involved in complex type subtyping.
+Subtype automatically "inherits" definitions of all items of a supertype.
+This is a natural thing to do, as subtype has to satisfy the contract of the supertype and the common method how to do that is to reuse supertype items.
+However, this is only a default behavior.
+Subtype is free to provide its own definition of the supertype items - as long as it still satisfies the supertype contract.
+
+However, there is also a downside to subtyping.
+The subtype has a very tight binding to the supertype.
+Whenever supertype changes, the changes may affect subtype in a very severe way.
+The use of subtyping is recommended only in cases that there is a strong coordination of evolution of supertype and subtype, ideally when they are part of the same model.
+
+CAUTION: Simple type subtyping is planned for the future, but it is not supported yet.
+// TODO: more on simple type subtyping
+
+== Mixins
+
+Mixin is a data structure designed to be included in other data structures.
+Use of mixins is similar to inheritance used in subtyping, but it is not bound to subtyping and therefore it does not need to follow type hierarchy.
+
+[source,axiom]
+----
+model example {
+    mixin Documented {
+        item documentation {
+            type string
+        }
+    }
+
+    type Object {
+        item name { ... }
+        include Documented;
+        ...
+    }
+}
+----
+
+The mixin is seamlessly integrated into the data type:
+
+.YAML
+[source,yaml]
+----
+object:
+    name: foo
+    documentation: This is really useless object.
+----
+
+Mixins are used when a set of items is repeated in may data types.
+It would be possible to just copy definitions of such items.
+But that would not be really readable and maintainable, especially if the items have complex type definitions, documentation or other annotations.
+Mixins make it all easier, bundling all the complexity in a single definition and then allowing its reuse.
+There is also a benefit for platforms that are generating code from the models, as mixins can be translated to native programming language concepts (e.g. Java interfaces).
+
+However, all of that does not change the basic fact that mixin use is just a simple inclusion of items into the data structure.
+Therefore there are downsides.
+Data type that is using a mixin is tightly bound to the mixin definition, similarly to subtyping.
+Therefore great care must be taken when using mixins from different models.
+
+== Augmentation
+
+Augmentation is a method how to extend capabilities of an existing data type without definition of a new data type.
+
+----
+model midpoint {
+    namespace "https://schema.evolveum.com/ns/midpoint";
+    type User {
+        item fullName { ... }
+        ...
+    }
+}
+
+model custom {
+    namespace "https://schema.example.com/ns/custom";
+
+    import "https://schema.evolveum.com/ns/midpoint";
+
+    augmentation ExampleUser {
+        target midpoint:User;
+        item personIdentifier { ... }
+    }
+}
+----
+
+Example model augments midPoint `User` type with custom property `personIdentifier`.
+Whenever the `User` data structure is used, the `personIdentifier` property may be used with it.
+
+However, the `personIdentifier` property needs to be fully qualified with namespace information to distinguish it from any other properties that the midPoint model can have in the future.
+
+.YAML
+----
+@context: "https://schema.evolveum.com/ns/midpoint"
+user:
+    fullName: ...
+    "https://schema.example.com/ns/custom#personIdentifier": "007"
+----
+
+Augmentation is usually used to extend capabilities of a different model, a model that we do not control.
+Therefore it is an ideal tool for customization of data models.
+For example, midPoint is a product with a fixed data model set when the product was released.
+But there is often a need to customize and extend the data model at "deployment time", long after the software was released.
+Augmentation is an ideal mechanism for that.
+A customer data model can augment fixed data structures of midPoint with custom items.
+
+Augmentation is designed to be _safe_ with respect to data model evolution.
+As long as the original data model evolves in an compatible way, the augmentation will still work.
+Both the original data model and the augmentation may evolve independently.
+The models will not get into conflict.
+But there is a price to pay.
+Augmentation data always have to use full namespaces to make the augmentation safe.
+
+TIP: Augmentation is a mechanism that realizes the link:https://en.wikipedia.org/wiki/Open%E2%80%93closed_principle[open-closed principle].
+The original data model is fixed, it is _closed_ to modification.
+But still the data are _open_ to extension by the means of data model augmentation.
 
 == Metadata, Completeness And Other Underlying Concepts
 
