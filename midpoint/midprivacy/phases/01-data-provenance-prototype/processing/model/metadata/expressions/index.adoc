@@ -68,7 +68,114 @@ We have no special needs for metadata treatment, simply copying them from source
 </metadataMapping>
 ----
 
-=== Example 2: Using level of assurance to select one of values
+=== Example 2: Another example of propagation of confidentiality information
+
+HR system supplies information on user primary role (engineer, researcher, support person, manager, and so on)
+and user organizational unit (or units) where he or she fulfills this role. Each role and organizational unit
+value has a confidentiality information attached, e.g. `unclassified`, `restricted`, `secret`, `topSecret`.
+For each combination of primary role and organizational unit midPoint creates an assignment to appropriate
+role with `orgRef` pointing to related org object. We want to compute the confidentiality information for
+such assignment as the highest of the confidentiality levels of source values.
+
+Jim's primary role value of `Researcher` has confidentiality of `restricted` but his `organizationalUnit` value of
+`Cryptoanalysis Department` is marked as `secret`. So the resulting assignment has confidentiality of `secret`.
+
+image::example-confidentiality-jim.png["Propagating confidentiality information for Jim"]
+
+Frank's primary role value of `Secretary` is also `restricted` but he serves two departments: Cryptoanalysis (`secret`)
+and Human Resources (`restricted`). So his first assignment is `secret` but the second one is `restricted` only.
+
+image::example-confidentiality-frank.png["Propagating confidentiality information for Frank"]
+
+The data mapping looks fairly complex, although in reality it is not:
+
+----
+<mapping>
+    <source>
+        <path>organization</path>
+    </source>
+    <source>
+        <path>organizationalUnit</path>
+    </source>
+    <expression>
+        <assignmentTargetSearch>
+            <targetType>RoleType</targetType>
+            <filter>
+                <equal>
+                    <path>name</path>
+                    <expression>
+                        <path>$organization</path>
+                    </expression>
+                </equal>
+            </filter>
+            <populate>
+                <populateItem>
+                    <expression>
+                        <referenceSearch>
+                            <targetType>OrgType</targetType>
+                            <filter>
+                                <equal>
+                                    <path>name</path>
+                                    <expression>
+                                        <path>$organizationalUnit</path>
+                                    </expression>
+                                </equal>
+                            </filter>
+                        </referenceSearch>
+                    </expression>
+                    <target>
+                        <path>orgRef</path>
+                    </target>
+                </populateItem>
+            </populate>
+        </assignmentTargetSearch>
+    </expression>
+    <target>
+        <path>assignment</path>
+    </target>
+</mapping>
+----
+
+[NOTE]
+====
+Multiple levels of expressions are evaluated here:
+
+1. `assignmentTargetSearch` creating the output value/values, i.e. one or more assignments,
+2. `path` when constructing the filter to be used for searching for the role by its name (`$organization`),
+3. `referenceSearch` when looking for `orgRef` for the assignment,
+4. `path` when constructing the filter to be used for looking for `orgRef` for the assignment (`$organizationalUnit`).
+
+We want to set confidentiality on the assignment value itself, so the metadata mapping can be declared at the level
+of the data mapping.
+
+The situation would be different if we would like to set confidentiality for the `assignment/orgRef`
+value only. This case will not be supported in midPoint 4.2 by general configuration means. Custom scripts would need
+to be used.
+====
+
+Metadata mapping for the confidentiality looks like this. Note it is evaluated in absolute mode, because it needs
+to find the highest confidentiality value among all the source values.
+
+----
+<metadataMapping>
+    <source>
+        <path>confidentiality</path>
+    </source>
+    <expression>
+        <script>
+            <relativityMode>absolute</relativityMode>
+            <code>
+                custom.getHigestConfidentiality(confidentiality)
+            </code>
+        </script>
+    </expression>
+    <target>
+        <path>confidentiality</path>
+    </target>
+</metadataMapping>
+----
+
+=== Example 3: Using level of assurance to select one of values
 
 A member of academic community has a set of contact email addresses, each coming from different source
 (HR, eduGAIN, user entry) and therefore having different level of assurance (high, medium, low).
@@ -113,7 +220,7 @@ Again, no special needs in the metadata area:
 </metadataMapping>
 ----
 
-=== Example 3: Using level of assurance to filter values
+=== Example 4: Using level of assurance to filter values
 
 This is a variation on the example above. Let us generate certificates for users. Each user has a primary
 email address but also a set of secondary addresses (aliases). We want the certificate to contain
@@ -187,7 +294,7 @@ This shows how we can invoke custom code. Note that creation timestamp will be p
 </metadataMapping>
 ----
 
-=== Example 4: Creating email aliases with metadata depending on metadata of their components
+=== Example 5: Creating email aliases with metadata depending on metadata of their components
 
 User's email aliases (`extension/emailAlias`) are derived from user name(s) (`extension/name`) and mail domain(s)
 (`extension/domain`). Each name and domain has a source (e.g. HR, Facebook) and level of assurance. Created email
