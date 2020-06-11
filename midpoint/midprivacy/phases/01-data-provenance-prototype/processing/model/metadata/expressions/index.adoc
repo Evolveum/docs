@@ -18,6 +18,8 @@ deal with metadata from sources only.
 
 == Some examples
 
+Mappings used below are of "thinking aloud" kind. No schema does exist yet.
+
 === Example 1: Propagation of data sensitivity information
 
 Let's assume that `extension/impairmentCategory` is highly sensitive information. Then assignment of the org
@@ -27,6 +29,44 @@ should be marked as highly sensitive as well.
 The picture below shows that other assignments (like of `Employees` org) have low sensitivity.
 
 image::example-assignment-sensitive.png["Assignment creation based on sensitive data"]
+
+[source,xml]
+----
+<mapping>
+    <source>
+        <path>extension/impairmentCategory</path>
+    </source>
+    <expression>
+        <assignmentTargetSearch>
+            <type>OrgType</type>
+            <oid>29963fc9-f494-4911-af3c-9e73fd64617f</oid> <!-- Special Medical Services -->
+        </assignmentTargetSearch>
+    </expression>
+    <condition>
+        <script>
+            <code>
+                impairmentCategory >= 'B'
+            </code>
+        </script>
+    </condition>
+    <target>
+        <path>assignment</path>
+        <set> ... </set>
+</target>
+</mapping>
+----
+
+We have no special needs for metadata treatment, simply copying them from source to output:
+
+[source,xml]
+----
+<metadataMapping>
+    <itemSelector>
+        <all/>
+    </itemSelector>
+    <!-- default source (selected), target (selected), expression (asIs) -->
+</metadataMapping>
+----
 
 === Example 2: Using level of assurance to select among values
 
@@ -38,6 +78,41 @@ property.
 
 image::example-primary-email-selection.png["Selecting primary email address depending on the level of assurance"]
 
+[source,xml]
+----
+<mapping>
+    <source>
+        <path>extension/email</path>
+    </source>
+    <expression>
+        <script>
+            <relativityMode>absolute</relativityMode>
+            <valueVariableMode>prism</valueVariableMode> <!-- provides values as prism values (including metadata) -->
+            <code>
+                // The following method selects a value with the highest level of assurance.
+                // If there are more such values, selects any of them - TODO.
+                custom.selectHighestLoa(email)
+            </code>
+        </script>
+    </expression>
+    <target>
+        <path>emailAddress</path>
+</target>
+</mapping>
+----
+
+Again, no special needs in the metadata area:
+
+[source,xml]
+----
+<metadataMapping>
+    <itemSelector>
+        <all/>
+    </itemSelector>
+    <!-- default source (selected), target (selected), expression (asIs) -->
+</metadataMapping>
+----
+
 === Example 3: Creating email aliases with metadata depending on metadata of their components
 
 User's email aliases (`extension/emailAlias`) are derived from user name(s) (`extension/name`) and mail domain(s)
@@ -47,12 +122,48 @@ of LoAs from the constituents.
 
 image::example-email-aliases.png["Creating email aliases with metadata"]
 
+[source,xml]
+----
+<mapping>
+    <source>
+        <path>extension/name</path>
+    </source>
+    <source>
+        <path>extension/domain</path>
+    </source>
+    <expression>
+        <script>
+            <code>
+                // e.g. 'Bill R. Smith', 'example.org' -> 'Bill_R_Smith@example.org'
+                custom.createEmailAlias(name, domain)
+            </code>
+        </script>
+    </expression>
+    <target>
+        <path>extension/emailAlias</path>
+</target>
+</mapping>
+----
+
+We need to combine `source` metadata values. But this is the default behavior, because (we assume) `source`
+is multivalued metadata property.
+
+[source,xml]
+----
+<metadataMapping>
+    <itemSelector>
+        <all/>
+    </itemSelector>
+    <!-- default source (selected), target (selected), expression (asIs) -->
+</metadataMapping>
+----
+
 == Where to put metadata support?
 
 *Should the metadata support start at the level of expression, or it is sufficient to support it for mappings?*
 
-The answer depends on whether there are mapping-less expressions that produce values that ultimately end somewhere in midPoint
-objects. It seems like there are some:
+The answer depends on whether there are mapping-less expressions that produce values that ultimately end
+somewhere in midPoint objects. It seems like there are some:
 
 === Category 1: Usually covered by "outer" mapping
 
@@ -78,3 +189,7 @@ expression i.e. something done in the context of a mapping.
 * `PerformerCommentsFormatterImpl` - provides approver comments in string form - this is really ugly case but still valid.
 * `ClockworkAuditHelper.auditEvent` - values for custom audit columns (not important for now, maybe in the future)
 * Individual scripting actions that modify objects using custom values (`execute-script`, `modify`, ...)
+
+So, metadata processing will be declared and executed at the level of mapping evaluation.
+But there will be some support from expression evaluators, mainly because of the combinatorial (relative) evaluation
+of scripts and other value-transforming expression evaluators.
