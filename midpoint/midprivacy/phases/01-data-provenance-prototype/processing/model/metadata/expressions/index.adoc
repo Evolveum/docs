@@ -52,7 +52,7 @@ image::example-assignment-sensitive.png["Assignment creation based on sensitive 
     <target>
         <path>assignment</path>
         <set> ... </set>
-</target>
+    </target>
 </mapping>
 ----
 
@@ -68,7 +68,7 @@ We have no special needs for metadata treatment, simply copying them from source
 </metadataMapping>
 ----
 
-=== Example 2: Using level of assurance to select among values
+=== Example 2: Using level of assurance to select one of values
 
 A member of academic community has a set of contact email addresses, each coming from different source
 (HR, eduGAIN, user entry) and therefore having different level of assurance (high, medium, low).
@@ -97,7 +97,7 @@ image::example-primary-email-selection.png["Selecting primary email address depe
     </expression>
     <target>
         <path>emailAddress</path>
-</target>
+    </target>
 </mapping>
 ----
 
@@ -113,7 +113,81 @@ Again, no special needs in the metadata area:
 </metadataMapping>
 ----
 
-=== Example 3: Creating email aliases with metadata depending on metadata of their components
+=== Example 3: Using level of assurance to filter values
+
+This is a variation on the example above. Let us generate certificates for users. Each user has a primary
+email address but also a set of secondary addresses (aliases). We want the certificate to contain
+the primary address along with those aliases that have LoA of `high`. (Also, the condition is that
+emailAddress is provided and is of LoA `high` as well.)
+
+image::example-filtering-by-loa.png["Using level of assurance to filter values"]
+
+// [source,xml]
+----
+<mapping>
+    <source>
+        <path>emailAddress</path>
+    </source>
+    <source>
+        <path>extension/emailAlias</path>
+    </source>
+    <source>
+        <name>existingCertificate</name>
+        <path>extension/certificate</path>
+    </source>
+    <expression>
+        <script>
+            <relativityMode>absolute</relativityMode>
+            <valueVariableMode>prism</valueVariableMode> <!-- provides values as prism values (including metadata) -->
+            <code>
+                highLoaAliases = custom.filterByLoa(emailAlias, 'high')
+                custom.checkOrCreateCertificate(existingCertificate, emailAddress, highLoaAliases)
+            </code>
+        </script>
+    </expression>
+    <condition>
+        <script>
+            <code>
+                custom.getLoa(primaryAddress) == 'high' // implies that there is a value
+            </code>
+        </script>
+    </condition>
+    <target>
+        <path>extension/certificate</path>
+    </target>
+</mapping>
+----
+
+We don't need LoA information for the certificate. Let's assume we want to propagate other metadata
+(except for `created` that we want to generate from the current time).
+
+// [source,xml]
+----
+<metadataMapping>
+    <itemSelector>
+        <exclude>loa</exclude>
+        <exclude>created</exclude>
+    </itemSelector>
+    <!-- default processing i.e. copying the values -->
+</metadataMapping>
+----
+
+This shows how we can invoke custom code. Note that creation timestamp will be probably treated by the system
+(at selected places) by default.
+----
+<metadataMapping>
+    <itemSelector>
+        <include>created</include>
+    </itemSelector>
+    <expression>
+        <script>
+            <code>basic.currentDateTime()</code>
+        </script>
+    </expression>
+</metadataMapping>
+----
+
+=== Example 4: Creating email aliases with metadata depending on metadata of their components
 
 User's email aliases (`extension/emailAlias`) are derived from user name(s) (`extension/name`) and mail domain(s)
 (`extension/domain`). Each name and domain has a source (e.g. HR, Facebook) and level of assurance. Created email
@@ -141,7 +215,7 @@ image::example-email-aliases.png["Creating email aliases with metadata"]
     </expression>
     <target>
         <path>extension/emailAlias</path>
-</target>
+    </target>
 </mapping>
 ----
 
