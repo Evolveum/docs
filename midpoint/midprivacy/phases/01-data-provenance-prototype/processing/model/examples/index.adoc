@@ -1,26 +1,8 @@
-= Processing metadata in expressions and mappings
-
-See
-
-* link:https://wiki.evolveum.com/display/midPoint/Expression[Expression] for background information on expression evaluation,
-* link:../../plain/expressions/[Processing expressions] for information on processing "simple" data expressions,
-* link:../../plain/mappings/[Processing mappings] for information on processing "simple" data mappings.
-
-To recall, an _expression evaluator_ converts _sources_ and _input variables_ to _output values_ (under given evaluation parameters).
-
-image::../../plain/expressions/expression context.png["Expression context"]
-
-Each value being processed can have its own _value metadata_ and, therefore, we have to process this metadata
-along with the data.
-
-Metadata can be present on values from both sources and variables but for the time being we will explicitly
-deal with metadata from sources only.
-
-== Some examples
+= Examples of metadata processing
 
 Mappings used below are of "thinking aloud" kind. No schema does exist yet.
 
-=== Example 1: Propagation of data sensitivity information
+== Example 1: Propagation of data sensitivity information
 
 Let's assume that `extension/impairmentCategory` is highly sensitive information. Then assignment of the org
 `Special Medical Services` (that is created based on the `impairmentCategory` having value greater than `B`)
@@ -68,7 +50,7 @@ We have no special needs for metadata treatment, simply copying them from source
 </metadataMapping>
 ----
 
-=== Example 2: Another example of propagation of confidentiality information
+== Example 2: Another example of propagation of confidentiality information
 
 HR system supplies information on user primary role (engineer, researcher, support person, manager, and so on)
 and user organizational unit (or units) where he or she fulfills this role. Each role and organizational unit
@@ -175,7 +157,7 @@ to find the highest confidentiality value among all the source values.
 </metadataMapping>
 ----
 
-=== Example 3: Using level of assurance to select one of values
+== Example 3: Using level of assurance to select one of values
 
 A member of academic community has a set of contact email addresses, each coming from different source
 (HR, eduGAIN, user entry) and therefore having different level of assurance (high, medium, low).
@@ -220,7 +202,7 @@ Again, no special needs in the metadata area:
 </metadataMapping>
 ----
 
-=== Example 4: Using level of assurance to filter values
+== Example 4: Using level of assurance to filter values
 
 This is a variation on the example above. Let us generate certificates for users. Each user has a primary
 email address but also a set of secondary addresses (aliases). We want the certificate to contain
@@ -294,7 +276,7 @@ This shows how we can invoke custom code. Note that creation timestamp will be p
 </metadataMapping>
 ----
 
-=== Example 5: Creating email aliases with metadata depending on metadata of their components
+== Example 5: Creating email aliases with metadata depending on metadata of their components
 
 User's email aliases (`extension/emailAlias`) are derived from user name(s) (`extension/name`) and mail domain(s)
 (`extension/domain`). Each name and domain has a source (e.g. HR, Facebook) and level of assurance. Created email
@@ -339,7 +321,7 @@ is multivalued metadata property.
 </metadataMapping>
 ----
 
-=== Example 6: Detailed tracing of origin of values
+== Example 6: Detailed tracing of origin of values
 
 This is a slightly more complex scenario consisting of a couple of mappings (inbound, template, outbound):
 
@@ -435,39 +417,3 @@ only have to specify it needs to be applied.
     </itemSelector>
 </metadataMapping>
 ----
-
-== Where to put metadata support?
-
-*Should the metadata support start at the level of expression, or it is sufficient to support it for mappings?*
-
-The answer depends on whether there are mapping-less expressions that produce values that ultimately end
-somewhere in midPoint objects. It seems like there are some:
-
-=== Category 1: Usually covered by "outer" mapping
-
-* `PopulatorUtil.evaluatePopulateExpression` It is called when populating assignment in auto-assignment scenarios,
-and also when creating assignments and/or objects in target search expression evaluators. However, the execution of
-these expressions is usually done in the context of a mapping.
-* `ExpressionUtil.evaluateFilterExpressionsInternal` We use expressions to evaluate filters that might be used
-e.g. for target search in other expressions. Values in the filters are not important per se. What is important are
-objects that result from these searches. (Like roles when we are searching them by name.) Fortunately, the most probable
-context for these filter expression evaluation (that leads to inclusion of some values in objects) is target search
-expression i.e. something done in the context of a mapping.
-
-=== Category 2: Generating item values for objects but not executing in a mapping (probably need to process metadata)
-
-* `LensUtil.formatIterationToken` Iteration token itself can contain sensitive information.
-* `ObjectMerger` It computes merged values via expressions.
-
-=== Category 3: Generating item values for objects, but probably not requiring metadata processing, at least not now
-
-* `VariablesUtil` - evaluation of variables for bulk actions (can somehow sneak into objects)
-* `ScriptingTaskCreator` - customizes scripting task (the task will contain generated values)
-* `SynchronizationExpressionEvaluator.createTag` - creates tag for a projection (multi-intents)
-* `PerformerCommentsFormatterImpl` - provides approver comments in string form - this is really ugly case but still valid.
-* `ClockworkAuditHelper.auditEvent` - values for custom audit columns (not important for now, maybe in the future)
-* Individual scripting actions that modify objects using custom values (`execute-script`, `modify`, ...)
-
-So, metadata processing will be declared and executed at the level of mapping evaluation.
-But there will be some support from expression evaluators, mainly because of the combinatorial (relative) evaluation
-of scripts and other value-transforming expression evaluators.
