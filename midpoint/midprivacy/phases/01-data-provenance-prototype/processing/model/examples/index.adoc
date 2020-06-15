@@ -467,3 +467,126 @@ be obtained from the evaluation context.
 
 An alternative would be to refer directly to source prism values. (This approach is usable if the transformational
 metadata is kept only in memory i.e. during computation.)
+
+== Example 7: Knowing legal base for data processing
+
+Our users are employees (archetype `Employee`) and customers (`Customer`). We are entitled to work with personal data
+of employees by law. But for customers we have to obtain written consent to do so. Consents are represented as
+assignments to org objects with archetype `Consent`. One of them is related to processing personal information.
+
+We obtain `givenName` and `familyName` from upstream resource.
+
+1. Inbound mappings have to establish legal base for working with them.
+2. Template mappings (e.g. generation of `emailAddress` from `familyName`) have to preserve this legal base information.
+3. Outbound mappings (e.g. provisioning of email address to LDAP resource) have to check the legal base of data processing.
+
+image::example-legal-base.png["Legal base"]
+
+Inbound mapping for `familyName`:
+----
+<attribute>
+    <ref>ri:lastName</ref>
+    <inbound>
+        <target>
+            <path>familyName</path>
+        </target>
+    </inbound>
+</attribute>
+----
+
+Corresponding metadata mapping:
+----
+<metadataMapping>
+    <!-- no source -->
+    <expression>
+        <script>
+            <code>
+                EMPLOYEE_OID = 'e5817be4-b8ce-46de-9e67-00786dda07cb'
+
+                if (midpoint.focusHasArchetype(EMPLOYEE_OID)) {
+                    'employee'
+                } else {
+                    consent = custom.findRelevantConsent(focus)
+                    if (consent != null) {
+                        'consent:' + consent.oid
+                    } else {
+                        null
+                    }
+                }
+            </code>
+        </script>
+    </expression>
+    <target>
+        <path>legal</path>
+    </target>
+</metadataMapping>
+----
+
+Object template mapping:
+----
+<item>
+    <ref>emailAddress</ref>
+    <mapping>
+        <strength>strong</strength>
+        <source>
+            <path>familyName</path>
+        </source>
+        <expression>
+            <script>
+                <code>familyName + iterationToken + '@example.org'
+            </script>
+        </expression>
+    </mapping>
+</item>
+----
+
+Related metadata mapping (can be replaced by default):
+----
+<metadataMapping>
+    <source>
+        <path>legal</path>
+    </source>
+    <target>
+        <path>legal</path>
+    </target>
+</metadataMapping>
+----
+
+Outbound mapping:
+
+----
+<attribute>
+    <ref>ri:mail</ref>
+    <outbound>
+        <source>
+            <path>emailAddress</path>
+        </source>
+        <condition>
+            <script>
+                <valueVariableMode>prism</valueVariableMode> <!-- provides values as prism values (including metadata) -->
+                <code>
+                    custom.hasValidLegalBase(emailAddress)
+                </code>
+            </script>
+        </condition>
+    </outbound>
+</attribute>
+----
+
+The `hasValidLegalBase` in the custom library method that something like this:
+
+----
+private static String PERSONAL_DATA_PROCESSING_CONSENT_OID = "884156eb-7917-4b3b-83b4-2c4389cf5f20";
+private static String PERSONAL_DATA_PROCESSING_CONSENT_VALUE = "consent:" + PERSONAL_DATA_PROCESSING_CONSENT_OID;
+private static String EMPLOYEE_LEGAL_BASE_VALUE = "employee";
+
+public boolean hasValidLegalBase(PrismValue value) {
+    if (value != null) {
+        legal = value.valueMetadata().getPropertyRealValue(new QName("legal"), String.class);
+        return EMPLOYEE_LEGAL_BASE_VALUE.equals(legal)
+            || PERSONAL_DATA_PROCESSING_CONSENT_VALUE.equals(legal);
+    } else {
+        return false;
+    }
+}
+----
