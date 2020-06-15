@@ -1,0 +1,141 @@
+= Metadata mapping model
+
+See also:
+
+* link:https://wiki.evolveum.com/display/midPoint/Expression[Expression] for background information on expression evaluation,
+* link:../../plain/expressions/[Processing expressions] for information on processing "simple" data expressions,
+* link:../../plain/mappings/[Processing mappings] for information on processing "simple" data mappings.
+
+== Data mapping
+
+Data mappings transform source item(s) - e.g. S~A~, S~B~, ..., S~Z~ - to output (target) item - e.g. O - in the
+context of a single object.
+
+image::data-mapping-simplified.png["Data mapping (simplified)"]
+
+Each source has some old and new values. Let us denote them a~1~, a~2~, ..., a~na~ ->
+a~1~', a~2~', ... , a~ma~' for source S~A~, and similarly for other sources.
+
+The output consists of plus, minus and zero set of values, denoted
+op~1~, op~2~, ..., op~k~ for plus, om~1~, om~2~, ..., om~l~ for minus, and oz~1~, oz~2~, ..., oz~m~ for zero set.
+
+So the above picture can be augmented with the values like this:
+
+image::data-mapping.png["Data mapping"]
+
+An example:
+
+image::data-mapping-example.png["Data mapping example"]
+
+NOTE: Why is there only one source object? In fact, with the advent of
+link:https://wiki.evolveum.com/display/midPoint/Linked+objects[linked objects] one can imagine a mapping that would
+operate on a set of all objects connected to the focus via particular link type. See
+link:../multi-object-mappings/[Multi-objects mappings].
+
+If we use combinatorial evaluation (this is the case for most of the time) the values are constructed like this:
+
+image::data-mapping-values.png["Data mapping (values)"]
+
+i.e. output value o~j~ (or, sometimes, more values e.g. o~k~, o~l~, ...) are computed from values
+a~ia~, b~ib~, ..., z~iz~ from sources S~A~, ..., S~Z~, respectively, taking a combination of i~a~, ..., i~z~-th
+value from respective value sets of these sources. (It is also possible that the set of output values
+for an input combination is empty.)
+
+An example:
+
+image::data-mapping-values-example.png["Data mapping (values, example)"]
+
+== Metadata mapping
+
+Here we have to start thinking of metadata.
+
+We need to compute metadata for each of the output values produced. For simplification, we can assume that
+if a mapping produces more than one output value for a given combination of input values, all of them will
+get the same metadata. Therefore, we can restrict our thinking to metadata for single output value.
+
+From the metadata point of view it is not important if the (data) values are being added or kept unmodified by
+the mapping. The only thing we look at is that we want to skip computing metadata for values that go
+into the output minus set. footnote:[Even this is questionable. Consider e.g. assigned focus mappings
+for an assignment that is being deleted. We have to review such a situation eventually.]
+
+Metadata for given value are organized into _items_ just like ordinary data in objects are. Standard data
+mappings reference their sources and target as items. It is natural for metadata mappings to do the same.
+In this way we could have partial mappings for (e.g.) level of assurance item, confidentiality item,
+creation time item, and so on. These mappings can be applied independently (and selectively, if needed),
+just like ordinary mappings are applied to data objects.
+
+There are some differences, though.
+
+1. While for standard data mapping we have exactly one input object, for metadata mappings we have
+multiple input metadata collections. For each input data value there is separate metadata.
+(Represented as a set of metadata items. Technically, metadata is represented by prism container value.)
+
+2. At the metadata level we have no deltas. An input value (kept unchanged or being added) has its own
+metadata, and this metadata is immutable. It was attached to the value when the value was created, and
+will never be changed. (As the value itself does not change. It can be created or deleted, but never changed.)
+footnote:[What about container value e.g. assignment modifications? Can we view that as value deletion and
+creation operations?] footnote:[Also interesting is the following use case: _Have information about
+provisioning targets for data. Know where the data are provisioned to or where they were provisioned
+in the past._ This would probably require modifications of metadata in the opposite direction, i.e.
+going from outputs to source values.]
+
+== Metadata mapping model
+
+So, we have a situation where we combine input values a, b, ..., z from sources S~A~, S~B~, ..., S~Z~ into
+an output value. (For example, S~A~ = `givenName`, S~B~ = `familyName`, output = `fullName`).
+
+A _metadata mapping_  has _sources_ and _output_ just like ordinary data mapping. However, sources do not reference
+S~A~, S~B~, ..., S~Z~. They are orthogonal to data mapping sources. Metadata mapping sources reference
+metadata items, like level of assurance, confidentiality, value origin, creation time, and so on.
+Each source corresponds to a single _metadata item_, just like mapping source corresponds
+to a single object item. Also, the output corresponds to a single metadata item; just like in mappings.
+
+So, for example, our metadata mapping can have two sources: `loa` (level of assurance) and `source` (source system)
+and one output `loa` (resulting level of assurance). The rule could be simple: take the lowest level of assurance
+of all inputs. However, if `source` is `socialLogin` then override the computation and use `loa` of `unknown`.
+(This example is weird. It is here only to demonstrate metadata mapping with two sources.)
+----
+<metadataMapping>
+    <source>
+        <path>loa</path>
+    </source>
+    <source>
+        <path>source</path>
+    </source>
+    <expression> ... </expression>
+    <target>
+        <path>loa</path>
+    </target>
+</metadataMapping>
+----
+
+Example evaluation:
+
+image::metadata-mapping-values-example.png["Metadata mapping"]
+
+(Again, normally single `familyName` value would not have two sources. Here it has just for illustration purposes.)
+
+Looking at metadata evaluation only:
+
+image::metadata-mapping-exemplified.png["Metadata mapping exemplified"]
+
+And, if we slightly generalize this picture, we get the following:
+
+image::metadata-mapping.png["Metadata mapping"]
+
+Note that sources are marked S~A~, S~B~, ..., S~Z~, whereas metadata sources are orthogonal. For the lack
+of invention let's mark them MS~&#945;~, MS~&#946;~, ..., MS~&#969;~. Input values for metadata transformation
+are then given by the matrix (shown here as table):
+
+[%header]
+[cols="10,10,10,4,10"]
+|===
+| Data/metadata source          | Source A | Source B | ... | Source Z
+| MS &#945; | A&#945;~1~, A&#945;~2~, ... | B&#945;~1~, B&#945;~2~, ...  | ... | Z&#945;~1~, Z&#945;~2~, ...
+| MS &#946; | A&#946;~1~, A&#946;~2~, ... | B&#946;~1~, B&#946;~2~, ...  | ... | Z&#946;~1~, Z&#946;~2~, ...
+| ... | ... | ... | ... | ...
+| MS &#969; | A&#969;~1~, A&#969;~2~, ... | B&#969;~1~, B&#969;~2~, ...  | ... | Z&#969;~1~, Z&#969;~2~, ...
+|
+|===
+
+TODO (continue...)
