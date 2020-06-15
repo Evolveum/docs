@@ -127,6 +127,8 @@ Note that sources are marked S~A~, S~B~, ..., S~Z~, whereas metadata sources are
 of invention let's mark them MS~&#945;~, MS~&#946;~, ..., MS~&#969;~. Input values for metadata transformation
 are then given by the matrix (shown here as table):
 
+.Metadata-data source matrix
+[[metadata-data-matrix]]
 [%header]
 [cols="10,10,10,4,10"]
 |===
@@ -138,4 +140,86 @@ are then given by the matrix (shown here as table):
 |
 |===
 
-TODO (continue...)
+Imagine we want to compute output values using a Groovy (or JavaScript, Python, etc.) script. What variables
+will the script expect?
+
+=== General case (detailed information)
+
+If the script would like to consider the whole situation, it would need to obtain the whole matrix. For example,
+it would need to know that
+
+* value of `JACK` for data source `givenName` has `loa` of `high` and `source` of `HR`,
+* value of `Sparrow` for data source `familyName` has `loa` of `low` and `source` of `HR` and `CRM`.
+
+This information is simply accessible from the data values (`JACK`, `Sparrow`) if they are represented
+as `PrismValue` objects - via `valueMetadata()` or similar method.
+
+=== Simplified case (summarization on metadata source items)
+
+However, often we want simply gather all values for specified metadata item and process them as set.
+Referring to our example, we would like to know that:
+
+* `loa` = { `high`, `low` }
+* `source` = { `HR`, `CRM` }
+
+The mapping would then look like this:
+
+----
+<expression>
+    <script>
+        <code>
+            source.contains(`socialLogin`) ? 'unknown' : custom.minLoa(loa)
+        </code>
+    </script>
+</expression>
+----
+
+We assume that `custom.minLoa` is a function that takes a collection of LoA values
+and returns the lowest one of them.
+
+In the notation of <<metadata-data-matrix>> we can define the variables as:
+
+* &#945; = { A&#945;~1~, A&#945;~2~, ... , B&#945;~1~, B&#945;~2~, ..., Z&#945;~1~, Z&#945;~2~, ... }
+* &#946; = { A&#946;~1~, A&#946;~2~, ... , B&#946;~1~, B&#946;~2~, ..., Z&#946;~1~, Z&#946;~2~, ... }
+* ...
+* &#969; = { A&#969;~1~, A&#969;~2~, ... , B&#969;~1~, B&#969;~2~, ..., Z&#969;~1~, Z&#969;~2~, ... }
+
+for metadata sources &#945;, &#946;, ..., &#969;.
+
+=== Combinatorial evaluation?
+
+Does it make sense to think about combinatorial evaluation of metadata values? I.e. something like:
+
+* `JACK` - loa `high` - source `HR` - Sparrow - loa `low` - source `HR` -> `o1`
+* `JACK` - loa `high` - source `HR` - Sparrow - loa `low` - source `CRM` -> `o2`
+
+and then using `o1` and `o2` as a set of output values for resulting level of assurance?
+
+Again, referring to <<metadata-data-matrix>> we would create script inputs as:
+
+* A&#945; = A&#945;~iA&#945;~
+* A&#946; = A&#946;~iA&#946;~
+* ...
+* A&#969; = A&#969;~iA&#969;~
+* B&#945; = B&#945;~iB&#945;~
+* B&#946; = B&#946;~iB&#946;~
+* ...
+* B&#969; = B&#969;~iB&#969;~
+* ...
+* Z&#945; = Z&#945;~iZ&#945;~
+* Z&#946; = Z&#946;~iZ&#946;~
+* ...
+* Z&#969; = Z&#969;~iZ&#969;~
+
+For all possible combinations of indices i~A&#945;~, i~A&#946;~, ..., i~Z&#969;~.
+
+In our example, A = `givenName` with `JACK` value, B = `familyName` with `Sparrow` value,
+&#945; = `loa`, &#946; = `source`, so
+
+* A&#945; (givenName/loa) &#8712; { `high` }
+* A&#946; (givenName/source) &#8712; { `HR` }
+* B&#945; (familyName/loa) &#8712; { `low` }
+* B&#946; (familyName/source) &#8712; { `HR`, `CRM` }
+
+So, is this important and worth implementing?
+Maybe. Let us just remember this option to eventually implement it when needed.
