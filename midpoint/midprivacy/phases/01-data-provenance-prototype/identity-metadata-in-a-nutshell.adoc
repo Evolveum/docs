@@ -1,0 +1,278 @@
+= Identity Metadata In A Nutshell
+
+== Data In Motion
+
+Identity management is all about identity *data in motion*.
+This may be quite surprising especially for people that are new to identity management.
+Of course, identity management also deals with data at rest.
+But that is not the interesting part.
+Data at rest are mostly a concern for database technologies.
+Using data at rest may be interesting for access management, but not that much for identity management.
+Identity management gets involved when the data need to _change_: when new accounts need to be created, when user needs to be disabled, new roles needs to be assigned and so on.
+That is where things get interesting.
+
+There are always many copies and forms of identity data.
+You may think that your name is `Jane Doe` and that is it.
+But if you need an LDAP account, the record looks like this:
+
+[source,ldif]
+----
+dn:uid=jdoe,ou=people,dc=example,dc=com
+...
+cn: Jane Doe
+givenName: Jane
+sn: Doe
+----
+
+The HR application can see your name like this:
+
+[source,csv]
+----
+"empno","first_name","middle_name","last_name","academic_title"
+"01234",'Jane","Random","Doe","PhD."
+----
+
+Your simple web applications know you simply as `jdoe`, fancier apps may know that you are in fact `Jane Doe`, academic applications will probably need to give you credit as `Jane R. Doe, PhD. <jrd@example.edu>` and third-party applications will probably address you as `Dr. Doe`.
+
+Most of those applications will need to store your name in its own data store.
+Each of them may use slightly different variation or format.
+There will be copies of the data in various application using various forms.
+It is a job of identity management systems to set up those copies and to _maintain_ them.
+Especially the maintenance part is where the story gets really interesting.
+
+One day Jane meets John, they fall in love and decide to get married.
+Now we have `Jane Smith` instead of `Jane Doe`.
+All the copies of the data need to be updated.
+There will be `jsmith`, `Jane R. Smith, PhD.` and `Dr. Smith` from now on.
+This happens all the time.
+Even though the data seem to be calm and serene, this is just an illusion.
+Data are in a constant state of flux.
+They need to be copied, transformed, combined, transferred, received, forwarded, compared, refreshed, updated, corrected and, finally, erased.
+Data are in _motion_ all the time.
+
+== Metadata and Data Protection
+
+Data move around all the time.
+And as they move, they leave traces.
+Such traces are also data.
+Or, more precisely, they are _data about data_.
+That is what we call _metadata_.
+
+Let's supposed that our scientific institute has a research project that is open to participation from a broad scientific community.
+We want to welcome new researcher `Dr. Jane Doe` in our team.
+We need to set up an accounts for her, allow remote access to scientific equipment, grant access to data sets and so on.
+Which means that we will maintain copies of some of Jane's personal data.
+But we want to know more than that this account belongs to `Dr. Jane Doe`.
+We want to know:
+
+* When the account was created.
+
+* Where the information came from.
+
+* Who says that this person is Jane Doe and how reliable that information is.
+
+* How fresh the information is, when was the last time that we have checked.
+
+* How sensitive the information is and how we are supposed to protect it.
+
+* Whether we do have a legal reason to process this item of personal data.
+
+* ... and much more.
+
+These are the _metadata_, the data that we keep about data.
+
+Many of these things may be specified by simple global _polices_.
+For example, we can say that:
+
+____
+Full name of a person is always considered public information.
+It is not sensitive from confidentiality perspective, we only need to protect its integrity.
+____
+
+Such approach might work in the past.
+But it is 21^st^ century already.
+People may not like such a public exposure of their names.
+They may not approve.
+Or you may have a legal reason to process information about some persons, but you may not have the right to publicly expose such information.
+This may vary on case-by-case basis.
+And we may need to know where the data came from, how they were processed and what were the person's decisions about the data to tell which case it is.
+As our world becomes more complex and more dynamic, it is difficult to imagine any privacy-preserving application that does not need to care about metadata.
+
+Perhaps the most important reason that we need to maintain metadata is *accountability*.
+
+Many people believe that the primary and most important mechanism for data protection is secrecy.
+While reasonable confidentiality of data is undoubtedly important, secrecy is not going to work for data protection as the primary mechanism.
+There is an old saying that two people can keep a secret if one of them is dead.
+The whole point of secrecy is to *not* share data with anyone.
+But secret data are not really useful.
+They will do no harm, but they will do no good either.
+
+Therefore data protection is based on controlled sharing and processing of data.
+There is a legal obligation to process the data only in certain ways and only under certain conditions.
+This usually means that we can process personal data only when it is necessary or when we have explicit consent.
+Any other processing of personal data is illegal.
+Therefore whenever we process personal data we need to be sure that we are doing that legally.
+Metadata play a key role in this process.
+The metadata can demonstrate that we have obtained the data from a legal source.
+There can be a metadata record for all processing of the data, describing the path from the origin to target.
+Metadata can point to the legal basis that is used to process the data, such as employment contract or participation agreement.
+Metadata can record when and how we have obtained user's consent to use the data.
+And metadata can tell us which data we need to erase when such consent is revoked.
+Metadata are absolutely necessary building block for data protection mechanisms.
+
+Also, we are under an obligation to the user to be able to demonstrate that we are processing the data legally.
+User can request a report about our processing of his or her data, known as the dreaded _subject access request_ (SAR).
+But in case that we keep proper metadata, answer to the most difficult parts of SAR are mostly easy.
+We know where the data came from, we know how they were transformed and processed, we know whether we can process them.
+
+Some metadata can be handled indirectly.
+For example midPoint records meta data about _assignment_, which represents user's relation to organizations and roles.
+This mechanism was also used to record relations to legal basis of data processing, such as contracts, agreements and consents.
+Such relations can be used as a partial replacement for full metadata.
+It works to some degree, but there are inherent limitations.
+Full metadata support is going to be necessary, sooner or later.
+
+== Data Model Enters New Dimension
+
+The difficult thing about metadata is that they are adding a whole new dimension to our data model.
+We need to keep metadata for every _value_ of every item in our data.
+
+Let's have a look at a very simple JSON data about a user:
+
+[source,json]
+----
+{
+  "username" : "jdoe",
+  "fullName" : "Jane Doe",
+  "title" : "Data Protection Specialist"
+}
+----
+
+This is a nice and simple data model.
+We have three data items, they are all simple strings, life is nice and easy.
+Even junior developers won't have much trouble describing this in any schema language, such as JSON Schema.
+This example is way too simple for practical use.
+But even here we can see how metadata can complicate the model:
+
+[source,json]
+----
+{
+  "username" : {
+    "@value" : "jdoe",
+    "@metadata" : {
+      "timestamp" : "2020-06-22T15:29:35Z",
+      "origin" : "system-generated",
+      "actor" : "sync-agent-0543"
+    }
+  },
+  "fullName" : {
+    "@value" : "Jane Doe",
+    "@metadata" : {
+      "timestamp" : "2020-06-22T15:29:28Z",
+      "origin" : "federation",
+      "actor" : "idp.example.edu"
+    }
+  },
+  "title" : {
+    "@value" : "Data Protection Specialist",
+    "@metadata" : {
+      "timestamp" : "2020-06-24T15:31:06Z",
+      "origin" : "user-provided",
+      "actor" : "asmith"
+    }
+  }
+}
+----
+
+We have three data items (`username`, `fullName` and `title`) and we have three metadata items (`timestamp`, `origin` and `actor`).
+However, the resulting data structure is very complex.
+If you wanted to use JSON Schema to model this data structure you will end up with a complicated definition with a lot of boilerplate.
+And it gets worse.
+Let's consider that `title` can have multiple values:
+
+[source,json]
+----
+{
+  "username" : {
+    "@value" : "jdoe",
+    "@metadata" : {
+      "timestamp" : "2020-06-22T15:29:35Z",
+      "origin" : "system-generated",
+      "actor" : "sync-agent-0543"
+    }
+  },
+  "fullName" : {
+    "@value" : "Jane Doe",
+    "@metadata" : {
+      "timestamp" : "2020-06-22T15:29:28Z",
+      "origin" : "federation",
+      "actor" : "idp.example.edu"
+    }
+  },
+  "title" : [
+    {
+      "@value" : "Data Protection Specialist",
+      "@metadata" : {
+        "timestamp" : "2020-06-24T15:31:06Z",
+        "origin" : "user-provided",
+        "actor" : "asmith"
+      }
+    },
+    {
+      "@value" : "Meta-wizard",
+      "@metadata" : {
+        "timestamp" : "2020-07-14T10:02:54Z",
+        "origin" : "user-provided",
+        "actor" : "jdoe"
+      }
+    }
+   ]
+  }
+}
+----
+
+This is still quite a simple example - three data items, three metadata items.
+Typical data models have hundreds of data items and tens of metadata items.
+Metadata are _orthogonal_ to data, therefore they add a whole new dimension to data model.
+The resulting data structure is effectively an cartesian product of data and metadata models.
+Which makes it huge and complex.
+This is clearly beyond the capabilities of any conventional schema language.
+We do not recommend to try to model real scenarios in JSON Schema - for the sake of your sanity.
+
+== Bad News For Schema-Based Systems
+
+New data modeling dimension needed to support metadata can be quite nasty.
+But what is even worse is its impact on schema-based systems.
+It is a big problem for systems that are completely based on a data modeling principles.
+Such as midPoint.
+
+Every important data structure in midPoint is modeled using a data modeling language.
+This has huge benefits.
+Code can be generated from the data model description, making sure that code and data are aligned.
+Data model documentation can be maintained in a structured form aligned with the model.
+User interface can automatically adapt to data model.
+It makes the system easy to extend and customize.
+There are significant benefits for interfaces (APIs), data storage, authorizations and so on.
+It is a huge difference for long-term maintainability and sustainability of the system.
+But all of this breaks down when metadata are added to the mix.
+
+Historically, midPoint schema was expressed in XML Schema Definition (XSD) language.
+Even though this is technically a schema for XML data, midPoint has grown beyond XML many years ago.
+MidPoint schema can be used to describe JSON data structure, even though the schema is technically encoded in XSD.
+We have made many abstractions and extensions of XSD and we have re-engineered a good part of the old code to make this possible.
+This effort has brought us almost to the point where we can support metadata.
+But actually _supporting_ metadata would push XSD beyond the point where it makes sense.
+It would be too much.
+Change of schema language to something like JSON Schema would not help either.
+JSON Schema and XSD are mostly equivalent.
+Where XSD breaks, JSON Schema is going to break as well.
+
+We are no big fans of re-invention of a wheel.
+We can easily prove that as we have lived with XSD for almost a decade and we have never switched to JSON Schema.
+But no link:../existing-languages-analysis/[existing schema language] that we could find seems to be suitable for our needs.
+This time we just need to invent something new.
+We have decided to call it _Axiom_.
+
+== Axiom
+
+TODO
