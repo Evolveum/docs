@@ -474,129 +474,260 @@ be obtained from the evaluation context.
 An alternative would be to refer directly to source prism values. (This approach is usable if the transformational
 metadata is kept only in memory i.e. during computation.)
 
-== Example 7: Knowing legal base for data processing
 
-Our users are employees (archetype `Employee`) and customers (`Customer`). We are entitled to work with personal data
-of employees by law. But for customers we have to obtain written consent to do so. Consents are represented as
-assignments to org objects with archetype `Consent`. One of them is related to processing personal information.
+== Example 7: Knowing lawful base for data processing
 
-We obtain `givenName` and `familyName` from upstream resource.
+Our users are employees on university (teachers, staff) or students.
+Local law mandates to have list of employees publicly available, but we have no right to publish list of students.
+For internal systems we need (and are allowed to) use students data. 
+We want to know what the lawful base for data processing for all data we have including the data in target systems.
 
-1. Inbound mappings have to establish legal base for working with them.
-2. Template mappings (e.g. generation of `emailAddress` from `familyName`) have to preserve this legal base information.
-3. Outbound mappings (e.g. provisioning of email address to LDAP resource) have to check the legal base of data processing.
+We have HR resource and Students registry resource. We obtain `fullName` and `affiliation` from both of them.
+This is quite common setup for universities. FullName is guaranteed to be the same in both resources, but each resource handles own values for affiliation.
+A user can be both student and employee at the same time.
+Person database is target system, which is used to find a person on university. 
+Each person has a flag which tells the Peron database if the name of the person should be publicly available or not. 
 
-image::example-legal-base.png["Legal base"]
 
-Inbound mapping for `familyName`:
+1. Inbound mappings have to establish lawful base for working with them as well as the scope of allowed processing.
+2. Outbound mappings have to respect the scope and lawful base.
+
+image::example-lawful-base.png["Lawful base"]
+
+Inbound mappings for HR resource.
 
 ----
 <attribute>
-    <ref>ri:lastName</ref>
+    <ref>ri:fullName</ref>
+    <inbound>
+            <strenght>strong</strenght>
+            <exclusiveStrong>true</exclusiveStrong>
+        <target>
+            <path>fullName</path>
+        </target>
+    </inbound>
+</attribute>
+
+<attribute>
+    <ref>ri:affiliation</ref>
     <inbound>
         <target>
-            <path>familyName</path>
+            <path>extension/affiliation</path>
         </target>
     </inbound>
 </attribute>
 ----
 
-Corresponding metadata mapping:
+Corresponding metadata mapping for both attributes.
 
 ----
 <metadataMapping>
     <!-- no source -->
     <expression>
-        <script>
-            <code>
-                EMPLOYEE_OID = 'e5817be4-b8ce-46de-9e67-00786dda07cb'
-
-                if (midpoint.focusHasArchetype(EMPLOYEE_OID)) {
-                    'employee'
-                } else {
-                    consent = custom.findRelevantConsent(focus)
-                    if (consent != null) {
-                        'consent:' + consent.oid
-                    } else {
-                        null
-                    }
-                }
-            </code>
-        </script>
+         <value>public</value>
     </expression>
     <target>
-        <path>legal</path>
+        <path>gdprReleaseScope</path>
+    </target>
+
+    <expression>
+         <value>legal obligation</value>
+    </expression>
+    <target>
+        <path>gdprLawfulBase</path>
     </target>
 </metadataMapping>
 ----
 
-Object template mapping:
+
+Inbound mappings for Students Registry resource.
 
 ----
-<item>
-    <ref>emailAddress</ref>
-    <mapping>
-        <strength>strong</strength>
-        <source>
-            <path>familyName</path>
-        </source>
-        <expression>
-            <script>
-                <code>familyName + iterationToken + '@example.org'
-            </script>
-        </expression>
-    </mapping>
-</item>
+<attribute>
+    <ref>ri:fullName</ref>
+    <inbound>
+            <strenght>normal</strenght>
+            <exclusiveStrong>true</exclusiveStrong>
+        <target>
+            <path>fullName</path>
+        </target>
+    </inbound>
+</attribute>
+
+<attribute>
+    <ref>ri:affiliation</ref>
+    <inbound>
+        <target>
+            <path>extension/affiliation</path>
+        </target>
+    </inbound>
+</attribute>
 ----
 
-Related metadata mapping (can be replaced by default):
+Corresponding metadata mapping for both attributes.
 
 ----
 <metadataMapping>
-    <source>
-        <path>legal</path>
-    </source>
+    <!-- no source -->
+    <expression>
+         <value>local</value>
+    </expression>
     <target>
-        <path>legal</path>
+        <path>gdprReleaseScope</path>
+    </target>
+
+    <expression>
+         <value>legitimate interest</value>
+    </expression>
+    <target>
+        <path>gdprLawfulBase</path>
     </target>
 </metadataMapping>
 ----
+
+
+
 
 Outbound mapping:
 
 ----
 <attribute>
-    <ref>ri:mail</ref>
+    <ref>ri:fullName</ref>
     <outbound>
         <source>
-            <path>emailAddress</path>
+            <path>fullName</path>
         </source>
-        <condition>
-            <script>
-                <valueVariableMode>prism</valueVariableMode> <!-- provides values as prism values (including metadata) -->
-                <code>
-                    custom.hasValidLegalBase(emailAddress)
-                </code>
-            </script>
-        </condition>
+    </outbound>
+</attribute>
+
+<attribute>
+    <ref>ri:affiliation</ref>
+    <outbound>
+        <source>
+            <path>extension/affiliation</path>
+        </source>
+            <expression>
+                  <script>
+                        <valueVariableMode>prism</valueVariableMode> <!-- provides values as prism values (including metadata) -->
+                        <code>
+                              custom.filterByGdprReleaseScope(extension/affiliation, 'public')
+                        </code>
+                  </script>
+            </expression>
+    </outbound>
+</attribute>
+
+<attribute>
+    <ref>ri:fullNamePublic</ref>
+    <outbound>
+        <source>
+            <path>fullName</path>
+        </source>
+            <expression>
+                  <script>
+                        <valueVariableMode>prism</valueVariableMode> <!-- provides values as prism values (including metadata) -->
+                        <code>
+                           releaseScope = fullName.valueMetadata().getPropertyRealValue(new QName("gdprReleaseScope"), String.class);
+                           return "public".equals(releaseScope)
+                        </code>
+                  </script>
+            </expression>
     </outbound>
 </attribute>
 ----
 
-The `hasValidLegalBase` in the custom library method that something like this:
+Corresponding metadata mapping for both attributes.
 
 ----
-private static String PERSONAL_DATA_PROCESSING_CONSENT_OID = "884156eb-7917-4b3b-83b4-2c4389cf5f20";
-private static String PERSONAL_DATA_PROCESSING_CONSENT_VALUE = "consent:" + PERSONAL_DATA_PROCESSING_CONSENT_OID;
-private static String EMPLOYEE_LEGAL_BASE_VALUE = "employee";
+<metadataMapping>
+    <source>
+        <path>gdprReleaseScope</path>
+    </source>
+    <target>
+        <path>gdprReleaseScope</path>
+    </target>
 
-public boolean hasValidLegalBase(PrismValue value) {
+    <source>
+        <path>gdprLawfulBase</path>
+    </source>
+    <target>
+        <path>gdprLawfulBase</path>
+    </target>
+</metadataMapping>
+----
+
+
+
+
+
+
+
+== Example 8: Privacy preserving email provisioning
+
+Our company allows our customers to use services provided by third parties.
+But we want to protect privacy of our users at at same time.
+Therefore we are generating unique opaque email address for each user and we are operating a service which are forwarding emails from this generated addres to real email address of a user.
+Users can decide if the real email address or the opaque one will be provisioned to third party services. 
+The opaque one is being released by default.
+Having this implemented, the third party services can send an email to users without knowing the real email address.
+Moreover, the users are empowered to share their real address if they want to.
+
+
+
+We obtain `givenName` and `familyName` from upstream resource.
+
+1. The person email address is stored in emailAddess attribute of a user
+2. emailAddess attribute metadata might contain consent to share the address with third party services
+3. The opaque email address on an user is generated in an object template and will be stored in extension/opaqueEmailAddres attribute
+4. Outbound mapping for third party resource will use emailAddess if it's metatada contain the consent to do so, otherwise extension/opaqueEmailAddres will be used.
+
+
+image::example-privacy-preserving-email.png["Privacy preserving email provisioning"]
+
+image::example-privacy-preserving-email2.png["Privacy preserving email provisioning 2"]
+
+Outbound mapping for a third party service:
+
+----
+<attribute>
+    <ref>ri:email</ref>
+    <outound>
+        <source>
+            <path>emailAddess</path>
+        </source>
+        <source>
+            <path>extension/opaqueEmailAddres</path>
+        </source>
+            <expression>
+               <script>
+                  <valueVariableMode>prism</valueVariableMode> <!-- provides values as prism values (including metadata) -->
+                  <code>
+                     if(custom.hasConsentToShareWithThirdParties(emailAddess)) {
+                        return emailAddess;
+                     }
+                     return extension/opaqueEmailAddres;
+                  </code>
+               </script>
+        </expression>
+    </outound>
+</attribute>
+----
+
+
+
+The `hasConsentToShareWithThirdParties` in the custom library method that something like this:
+
+----
+private static String SHARE_WITH_THIRD_PARTIES_CONSENT_OID = "884156eb-7917-4b3b-83b4-2c4389cf5f20";
+private static String SHARE_WITH_THIRD_PARTIES_CONSENT_VALUE = "consent:" + SHARE_WITH_THIRD_PARTIES_CONSENT_OID;
+
+public boolean hasConsentToShareWithThirdParties(PrismValue value) {
     if (value != null) {
         legal = value.valueMetadata().getPropertyRealValue(new QName("legal"), String.class);
-        return EMPLOYEE_LEGAL_BASE_VALUE.equals(legal)
-            || PERSONAL_DATA_PROCESSING_CONSENT_VALUE.equals(legal);
+        return SHARE_WITH_THIRD_PARTIES_CONSENT_VALUE.equals(legal);
     } else {
         return false;
     }
 }
 ----
+
