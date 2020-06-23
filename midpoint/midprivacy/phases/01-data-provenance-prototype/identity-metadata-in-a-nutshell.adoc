@@ -1,5 +1,8 @@
 = Identity Metadata In A Nutshell
 
+TODO: intro about purpose of this document
+TODO: mention midPrivacy
+
 == Data In Motion
 
 Identity management is all about identity *data in motion*.
@@ -275,4 +278,278 @@ We have decided to call it _Axiom_.
 
 == Axiom
 
+Axiom is a data modeling language.
+Primary goal of Axiom is to model data in a way that is independent from any specific representation format, such as JSON or XML.
+That makes Axiom quite different from JSON Schema and XSD.
+But there is yet another fundamental difference.
+Axiom has a concept of _inframodel_, which means that it allows to change the fundamental infrastructure of data.
+Inframodel can be used to add metadata to the data in a very systemic and clean way.
+
+The metadata case above can be easily modeled in Axiom:
+
+[source,axiom]
+----
+model identity {
+
+    type User {
+        item username { type String }
+        item fullName { type String }
+        item title {
+            type String;
+            maxOccurs unbounded;
+        }
+    }
+
+    metadata IdentityMetadata {
+        item timestamp { type DateTime }
+        item origin { type String }
+        item actor { type String }
+    }
+}
+----
+
+Data and metadata concepts are neatly separated in Axiom.
+The code that is processing the model can generate nice and readable code for data that is not polluted by metadata concepts.
+Metadata concepts can be "weaved" orthogonally to the data by data access frameworks.
+This makes work with complex data and metadata feasible.
+
+This may look simple, maybe even too simple.
+But creating Axiom was a significant amount of work.
+We could not simply copy and reuse concepts from XSD the same way as JSON Schema did.
+That would not work for metadata.
+We had to build up a whole new link:axiom/concepts/[conceptual model].
+On the other hand we still need data compatibility with JSON and XML.
+It was not easy to fit all the concepts together to avoid hacks and contradictions.
+But the effort was successful and link:axiom/[Axiom 0.1] was born.
+
+Axiom is still very experimental, it is still in development.
+And it is expected that it will be in development for quite some time until it can be proclaimed to be _stable_.
+There is still a long way to get to Axiom 1.0.
+We really want to make sure that Axiom works before we "standardize" it.
+
+Even though Axiom is still in its early life, it is already used in midPoint to implement metadata concepts.
+
+== Metadata In MidPoint
+
+MidPoint is an open source identity management and governance platform.
+MidPoint is a very comprehensive platform, it is perhaps the most substantial identity management solution that open source world have ever seen.
+The data model of midPoint is very rich, tens of thousands lines are used just to specify the basic data model.
+
+MidPoint is using XSD for data model specification.
+Using XSD for _metadata_ would not really be feasible - not without a huge pile of ugly hacks.
+But Axiom makes this a different story entirely.
+While the main midPoint data model sticks to the XSD definition for the time being, Axiom will be used to add metadata to it.
+
+MidPoint 4.2 has a build-in metadata model for basic metadata items - those that are tightly bound with midPoint processing.
+When metadata processing is enabled, midPoint will store metadata for every value:
+
+[source,json]
+----
+{
+  "@ns" : "http://midpoint.evolveum.com/xml/ns/public/common/common-3",
+  "user" : {
+    "oid" : "4afaf483-bd10-4ff5-bea9-b380bd6ce500",
+    "name" : {
+      "@value" : "aanderson",
+      "@metadata" : {
+        "storage" : {
+          "creation" : {
+            "timestamp" : "2020-06-23T14:45:12Z",
+            "actorRef" : {
+              "oid" : "00000000-0000-0000-0000-000000000002",
+              "type" : "UserType"
+            },
+            "channel" : "http://midpoint.evolveum.com/xml/ns/public/gui/channels-3#user",
+            ...
+          }
+        }
+      }
+    },
+    "fullName" : {
+      "@value" : "Alice Anderson",
+      "@metadata" : {
+        "storage" : {
+          "creation" : {
+            "timestamp" : "2020-06-23T15:05:42Z",
+            "actorRef" : {
+              "oid" : "00000000-0000-0000-0000-000000000002",
+              "type" : "UserType"
+            },
+            "channel" : "http://midpoint.evolveum.com/xml/ns/public/gui/channels-3#user",
+            ...
+          }
+        }
+      }
+    },
+    ...
+  }
+}
+----
+
+The object above was simply added to midPoint and then `fullName` was modified shortly after.
+It shows only _storage_ metadata, that describe how the object was stored and modified in midPoint repository.
+But there are other metadata types:
+
+* *Provenance* metadata provide high-level information about origin of the value.
+It specifies system, process, partner or organization that was used to obtain the data.
+This is a high-level information without excessive details, designed for long-term storage with the data.
+
+* *Storage* metadata tell about storing and modifications of objects in midPoint repository.
+
+* *Process* metadata provide details about the business process in which the value was processed.
+It specifies the person who requested the change, a person who approved it, when the value was re-certified and so on.
+
+* *Transformation* metadata provide the details of how the value was transformed, which mappings were used and so on.
+This is a detailed information meant mostly for diagnostic purposes.
+It is unlikely that this will be massively stored for a long time.
+
+* *Provisioning* metadata provide details about provisioning of the value to other systems.
+
+== Provenance Metadata
+
+Perhaps the most interesting part from data protection perspective is the _provenance_ part of metadata:
+
+[source,json]
+----
+{
+  "user" : {
+    ...
+    "employeeNumber" : {
+      "@value" : "012345",
+      "@metadata" : {
+        "provenance" : {
+          "origin" : {
+            "timestamp" : "2020-06-23T14:45:12Z",
+            "mechanism" : "resource",
+            "resourceRef" : {
+              "oid" : "52230868-b555-11ea-887a-93a6d192ea87"
+            },
+            "originRef" : {
+              # points to "HR employee feed" service to specify origin  from HR system
+              "oid" : "fe330038-b562-11ea-ac2f-c344cd591e26",
+              "type" : "ServiceType"
+            }
+          }
+        }
+      }
+    },
+    "givenName" : {
+      "@value" : "Bob",
+      "@metadata" : {
+        "provenance" : {
+          "origin" : {
+            "timestamp" : "2020-06-25T17:02:38Z",
+            "mechanism" : "ui",
+            "actorRef" : {
+              "oid" : "86297ce0-b556-11ea-a2d8-bb97a1c03570"
+            },
+            "originRef" : {
+              # points to "Self-service user entry" service to specify that this was entered by the user
+              "oid" : "d6064cb8-b563-11ea-aabf-cb0e70300dd1",
+              "type" : "ServiceType"
+            }
+          }
+        }
+      }
+    },
+    "fullName" : {
+      "@value" : "Bob Brown",
+      "@metadata" : {
+        "provenance" : {
+          "origin" : [
+              # Two origin values, as this value was composed from two sources
+              {
+                "timestamp" : "2020-06-23T14:45:12Z",
+                "mechanism" : "resource",
+                "resourceRef" : {
+                  "oid" : "52230868-b555-11ea-887a-93a6d192ea87"
+                },
+                "originRef" : {
+                  # points to "HR employee feed" service to specify origin from HR system
+                  "oid" : "fe330038-b562-11ea-ac2f-c344cd591e26",
+                  "type" : "ServiceType"
+                }
+              },
+              {
+                "timestamp" : "2020-06-25T17:02:38Z",
+                "mechanism" : "ui",
+                "actorRef" : {
+                  "oid" : "86297ce0-b556-11ea-a2d8-bb97a1c03570"
+                 },
+                "originRef" : {
+                  # points to "Self-service user entry" service to specify that this was entered by the user
+                  "oid" : "d6064cb8-b563-11ea-aabf-cb0e70300dd1",
+                  "type" : "ServiceType"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    ...
+  }
+}
+----
+
+The example above shows metadata for two items: `employeeNumber` and `fullName`.
+The `employeeNumber` was obtained from the HR system using an automated data feed.
+The `fullName` value is a combination of two values.
+One of them (probably last name) was obtained from HR data feed, the other (probably first name) was entered by the user.
+You can see that _provenance_ metadata do not specify all the details, they just provide a high-level overview of data origin.
+The details can be recorded in _transformation_ metadata if needed.
+
+Key concept of data provenance is a concept of _origin_.
+However, _origin_ is a very abstract concept, it is many things to many people.
+It is very hard to design one unified conceptual model for provenance that will suit every need.
+Therefore we have left a considerable leeway in what can be an _origin_ in midPoint provenance metadata.
+
+The above example is using midPoint _service_ objects to specify data origins:
+
+[source,json]
+----
+{
+  "service" : {
+    "oid" : "d6064cb8-b563-11ea-aabf-cb0e70300dd1",
+    "name" : "Self-service data entry",
+    "description" : "Data entered by the user using a self-service user interface."
+  }
+}
+----
+
+[source,json]
+----
+{
+  "service" : {
+    "oid" : "fe330038-b562-11ea-ac2f-c344cd591e26",
+    "name" : "HR employee feed",
+    "description" : "Automated feed of employee data from the HR system."
+  }
+}
+----
+
+Services may be a suitable choice as they are designed to represent such abstract concepts.
+Service objects are first-class citizen in midPoint, therefore they may have associated policies,
+owner may be assigned to the service to represent a responsible person, services may have lifecycle and so on.
+All of that may contribute to a proper governance procedures for data sources.
+
+However, other midPoint objects may be used to represent data origins if needed.
+_Orgs_ that represent organizational units or organizations can be used instead.
+Use of _roles_, especially those that represent data protection scopes may be a good choice too.
+Data origins are also completely optional.
+Specification of source resource for the data may be sufficient provenance information for simpler midPoint deployments.
+
+== Extensible Metadata
+
+TODO: Data model extensibility was always a crucial feature for midPoint deployments.
+TODO: extensibility with custom metadata
+
+TODO: Examples of custom metadata
+
+== Metadata Mappings
+
 TODO
+
+== Future Of MidPoint Data Model
+
+TODO: Step 1: combine XSD with Axiom, switch to pure Axiom later when Axiom matures
