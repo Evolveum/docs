@@ -1,140 +1,206 @@
-= How to attach metadata mappings to data mappings?
+= Metadata items processing
 
-It would be awkward to specify metadata mappings for every data mapping where they should be applied.
+== Requirements
 
-Many of the metadata mappings have global applicability. For example, we want to propagate level of assurance
-or confidentiality level across mappings without an explicit notion. Or we want to provide value origin
-(source/transformation) mapping to values of all or selected items.
+For any given metadata item in any data value we need to know the following:
 
-Metadata mappings for any given data mapping (DM) are selected from the following pools:
+1. Whether to compute its value(s) or not.
+2. If computing the value(s), how to deal with them:
+ - store them persistently along with the data value,
+ - provide them transiently (e.g. as a result of preview changes functionality),
+ - or hide them completely from the caller.
+3. How to compute the value(s):
+ - what mapping(s) to apply (built-in and/or custom ones),
+ - how to consolidate the metadata values if we need to combine multiple equivalent data values into one instance.
 
-1. Mappings directly attached to the DM.
-2. Mappings provided by focus archetype (or archetypes).
-3. Mappings provided by object policy configuration.
-4. Global metadata mappings.
-5. Built-in metadata mappings.
+== Implementation overview
 
-We have to be able to enable/disable processing of metadata mappings for given place:
+These requirements bear a close match to traditional _object template_ specification. So it's quite natural to
+propose creation of _metadata template_ that would contain definition of processing for individual metadata items.
 
-1. When declaring mapping (at levels 2-5 above) we need to specify which data items it should or should not be applied to.
-2. When declaring metadata handling for given mapping (level 1) we need to specify which "inherited" metadata mappings
-should or should not be applied.
+From practical point of view (considering e.g. repository changes necessary to introduce a new object type)
+perhaps the easiest implementation is to add the following metadata-specific definitions to existing
+`ObjectTemplateType`:
 
-== Directly attached metadata handling instructions
+* `metadataItem` - defines processing for given metadata item (analogous to `item`, that defines processing for data item)
+* `metadataMapping` - defines "extra" metadata mapping (analogous to `mapping` for regular data mappings)
+
+Most of the times there will be templates devoted specifically to metadata handling. In simple cases,
+though, we can envision also templates that combine data and metadata handling definitions.
+
+== Implementation details
+
+Object template was augmented with the following items:
+
+* `metadataItem` (expected to be the most frequent)
+* `metadataMapping` (rare)
+* `metadataApplicability` (rare)
+
+Metadata item definition contains the same properties as regular data item definition, with the following special features:
+
+* `mapping` references `MetadataMappingType`, not `MappingType`,
+* `persistence` can specify whether metadata are persisted (this property formally exists also for data items but is not
+implemented yet),
+* `limitations/processing` has special meaning - it controls whether built-in metadata mappings are applied.
+
+Metadata processing can be defined at the following levels:
+
+* system configuration level (`metadataTemplateRef` in the system configuration object),
+* object type or archetype configuration (`metadataTemplateRef` in object configuration or archetype policy),
+* object template level (metadata-defining elements mixed into the object template that is used in any relevant scope),
+* particular data item (`metadataTemplateRef` or metadata-defining elements in item definition in object template),
+* particular data mapping (`metadataTemplateRef` or metadata-defining elements in definition of specific data mapping).
+
+=== Example 1: Sensitivity propagation
+
+This definition tells midPoint to propagate `extension/sensitivity` metadata item (for all data values in the scope of the
+metadata template) and to store its values persistently.
 
 ----
-<mapping>
-    <source> ... (e.g. givenName, familyName) ... </source>
-    <expression> ... </expression>
-    <target> ... (e.g. fullName) ... </target>
-    <metadataHandling>
-       ... either defining mappings directly ...
-       ... or select existing mappings to be applied ...
-    </metadataHandling>
-</mapping>
-----
-
-=== Examples of directly attached metadata mapping specification
-
-Specific metadata mapping:
-
-----
-<mapping>
-    ... source, expression, target ...
-    <metadataHandling>
+<objectTemplate ...>
+    <metadataItem>
+        <ref>extension/sensitivity</ref>
         <mapping>
             <source>
-                <path>extension/loa</path>
+                <path>extension/sensitivity</path>
             </source>
             <expression>
-                <script>
-                    <code>custom.getMinLoa(loa)</code>
-                </script>
+                <asIs/> <!-- this is the default -->
             </expression>
-            <target>
-                <path>extension/loa</path>
-            </target>
         </mapping>
-    </metadataHandling>
-</mapping>
+        <persistence>persistent</persistence> <!-- this is the default -->
+    </metadataItem>
+</objectTemplate>
 ----
 
-Specific metadata mapping(s) reference - includes the most specific mapping having `extension/loa` as their target.
+The minimalistic version of the definition:
 
 ----
-<mapping>
-    ... source, expression, target ...
-    <metadataHandling>
-        <includeMapping>
-            <selection>single</selection>
-            <target>
-                <path>extension/loa</path>
-            </target>
-        </includeMapping>
-    </metadataHandling>
-</mapping>
+<objectTemplate ...>
+    <metadataItem>
+        <ref>extension/sensitivity</ref>
+        <mapping>
+            <source>
+                <path>extension/sensitivity</path>
+            </source>
+        </mapping>
+    </metadataItem>
+</objectTemplate>
 ----
 
-Specific metadata mapping(s) reference - includes mapping(s) by name:
+(Could we make even the source to be the default? It would be nice; but sometimes we need to have
+source-less mappings. So we won't do this.)
+
+=== Example 2: Enabling recording of value creation metadata
+
+The following definition enables built-in recording of value creation metadata i.e. something that
+is usually kept and recorded only on the object and assignment level.
 
 ----
-<mapping>
-    ... source, expression, target ...
-    <metadata>
-        <includeMapping>
-            <name>loa-mapping</name>
-        </includeMapping>
-    </metadata>
-</mapping>
+<objectTemplate ...>
+    <metadataItem>
+        <ref>storage/creation</ref>
+        <limitations>
+            <processing>auto</processing>
+        </limitations>
+    </metadataItem>
+</objectTemplate>
 ----
 
-=== Examples of globally defined mappings
+The `processing` can have the following levels:
 
-This is how we can specify applicability of a metadata mapping specified e.g. in an archetype:
+[%header]
+|===
+| Level | Meaning
+| ignore | Metadata item is ignored. No processing is done at all.
+| minimal | Metadata is processed only by custom mappings. Built-in mappings are turned off.
+This is the default.
+| auto | Metadata is processed by both custom and built-in mappings. (Or `full`? See note below.)
+|===
 
-----
-<archetype ...>
-    <archetypePolicy>
-        <metadataHandling>
-            <mapping>
-                ...
-                <applicability>
-                    <include>
-                        <path>fullName</path>
-                    </include>
-                    <include>
-                        <path>extension</path>
-                    </include>
-                    <exclude>
-                        <path>extension/trash</path>
-                    /exclude>
-                <applicability>
-            </mapping>
-        </metadataHandling>
-    </archetypePolicy>
-</archetype>
-----
+For regular data, the default `processing` is `auto`. For metadata, built-in mappings could present quite a burden
+to execute, so we suggest it to be enabled explicitly. The consideration is whether `auto` is the most correct name
+for this option. Maybe `full` would be better.
 
-The same can be specified in object policy configuration:
+=== Example 3: Enabling recording of value creation metadata but only for specified items
+
+Let's assume we want to record creation metadata for selected user properties. We have two options here:
+
+A. Define metadata handling (using `metadataItem` or referencing metadata template) in each particular data item.
+B. Define metadata handling once and restrict it to particular data items later.
+
+==== Option A: Attaching metadata handling to data item definition
 
 ----
-<systemConfiguration>
+<objectTemplate ...>
+    <!-- Using metadata template reference -->
+    <item>
+        <ref>organization</ref>
+        <metadataTemplateRef oid="..." />
+    </item>
+    <item>
+        <ref>organizationalUnit</ref>
+        <metadataTemplateRef oid="..." />
+    </item>
+
+    <!-- Using explicit metadata definitions -->
+    <item>
+        <ref>extension/attestationLevel</ref>
+        <metadataItem>
+            <ref>storage/creation</ref>
+            <limitations>
+                <processing>auto</processing>
+            </limitations>
+        </metadataItem>
+    </item>
     ...
-    <defaultObjectPolicyConfiguration>
-        <type>UserType</type>
-        ...
-        <metadataHandling> ... </metadataHandling>
-    </defaultObjectPolicyConfiguration>
-    ...
-</systemConfiguration>
+</objectTemplate>
 ----
 
-Or even globally:
+==== Option B: Defining metadata handling and restricting it to selected data items
 
 ----
-<systemConfiguration>
-    ...
-    <metadataHandling> ... </metadataHandling>
-    ...
-</systemConfiguration>
+<objectTemplate ...>
+    <metadataItem>
+        <ref>storage/creation</ref>
+        <limitations>
+            <processing>auto</processing>
+        </limitations>
+    </metadataItem>
+    <metadataApplicability>
+        <include>
+            <path>organization</path>
+        </include>
+        <include>
+            <path>organizationalUnit</path>
+        </include>
+        <include>
+            <path>extension/attestationLevel</path>
+        </include>
+        <!-- ... -->
+    </metadataApplicability>
+</objectTemplate>
 ----
+
+The `metadataApplicability` (or `applicability` when used in context where relation to metadata is obvious) can be used on:
+
+* object template,
+* metadata item definition,
+* metadata mapping definition.
+
+=== Example 4: Enabling gathering of value transformation metadata
+
+----
+<objectTemplate ...>
+    <metadataItem>
+        <ref>transformation</ref>
+        <limitations>
+            <processing>auto</processing>
+        </limitations>
+        <persistence>transient</persistence>
+    </metadataItem>
+</objectTemplate>
+----
+
+Specific parts of the schema can be seen e.g.
+link:https://github.com/Evolveum/midpoint/commit/eb48a2ab1c82712bb4a370b1b438d276a3b55580[here].
