@@ -1,6 +1,9 @@
-= Axiom Implementation Notes
+= Provenance/Axiom Implementation Notes
+:page-toc: top
 
-== Namespace Resolution
+== Axiom Namespace Resolution
+
+NOTE: Needs review
 
 Models are identified by using namespace.
 That's what import statement specifies.
@@ -12,7 +15,7 @@ There are two options:
 * *Online: web resolution*: Use HTTP get on namespace to get model spec.
 This needs to be a bit more complex as we need to specify model verion (or version range).
 
-== Item Namespace resolution
+=== Item Namespace resolution
 
 In `Axiom`, `JSON`, `YAML` and `XML`, item names are serialized using prefixed
 name syntax.
@@ -211,3 +214,37 @@ Full specification, allow certain data items and certain metadata for them
     </scope>
   </authorization>
 ----
+
+== Metadata, Mappings and Value Overrides
+
+Usecase: We have inbound mapping for `fullName` from the HR system to midPoint user.
+We want to map the HR value automatically (inbound mapping).
+However, we want to suppress the mapping in case that user manually overrides the `fullName` value by changing it in the user interface.
+If the user clears the value, we want the mapping to take over again and set the value from HR.
+
+Solution: We can use provenance metadata for this.
+Provenance metadata record that the value was derived from a particular resource.
+Therefore the mapping knows which values were derived by inbound mapping and which came from other sources.
+The mapping can skip setting the value if a value from a different source already exists in target item.
+The mapping does not know whether it was this particular mapping that set the value or whether it was a different inbound mapping.
+But that does not make much difference.
+And in fact it may be even to our benefit, as several conditional mappings may derive the same value.
+
+The situation is slightly more complex in object template.
+For example, if we want to have a mapping that derives `fullName` from `givenName` and `familyName`, but only if used haven't specified `fullName` explicitly.
+We can apply a universal principle for _overridable_ mappings:
+
+____
+Overridable mapping will set value only in case that the target value has the same provenance metadata that the mapping would produce (or if there are no values at all).
+____
+
+All values that have matching provenance metadata can be automatically part of mapping range.
+Therefore the mapping will replace all such values by default.
+
+Idea: we should consider to make this behavior of range easily reusable.
+E.g. it may be very useful when we want to combine inbound mapping from several resource into the same user property.
+Maybe we can create new `matchingProvenance` option for `predefined` set in mapping range.
+
+It would be nice to have similar mechanisms on the outbound side.
+But target attributes have no metadata (yet).
+Therefore we have to rely on the usual mapping range on the outbound side.
