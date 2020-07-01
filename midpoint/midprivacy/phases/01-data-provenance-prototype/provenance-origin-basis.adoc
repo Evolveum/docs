@@ -1,0 +1,213 @@
+= Provenance, Origin and Basis
+
+This is a design note explaining midPoint functionality planned for the future.
+
+== Provenance Metadata
+
+MidPoint values may have _provenance metadata_ associated with them.
+Simply speaking, provenance metadata describe origin of the data.
+
+Following example shows the value of `employeeNumber` property that was automatically synchronized from the HR system.
+Provenance metadata are referring to the HR resource (`52230868-b555-11ea-887a-93a6d192ea87`).
+
+[source,json]
+----
+{
+  "user" : {
+    ...
+    "employeeNumber" : {
+      "@value" : "012345",
+      "@metadata" : {
+        "provenance" : {
+          "yield" : {
+            "acquisition" : {
+              "timestamp" : "2020-06-23T14:45:12Z",
+              "mechanism" : "resource",
+                "resourceRef" : {
+                  "oid" : "52230868-b555-11ea-887a-93a6d192ea87"
+                }
+              },
+              "originRef" : {
+                "oid" : "fe330038-b562-11ea-ac2f-c344cd591e26",
+                "type" : "ServiceType"
+              }
+            }
+          }
+        }
+      }
+    }
+    ...
+  }
+}
+----
+
+Provenance metadata also refer to _origin_ object.
+_Origin_ is an abstract concept that represents business-wise source of the data.
+Origins usually refers to concepts such as "HR data feed" or "Self-service user entry".
+Any midPoint object can represent an origin, but _Service_ is perhaps the most suitable object type.
+Following origins are used in the examples:
+
+
+[source,json]
+----
+{
+  "service" : {
+    "oid" : "d6064cb8-b563-11ea-aabf-cb0e70300dd1",
+    "name" : "Self-service data entry",
+    "description" : "Data entered by the user using a self-service user interface."
+  }
+}
+----
+
+[source,json]
+----
+{
+  "service" : {
+    "oid" : "fe330038-b562-11ea-ac2f-c344cd591e26",
+    "name" : "HR employee feed",
+    "description" : "Automated feed of employee data from the HR system."
+  }
+}
+----
+
+
+Example above looks simple, but data provenance is often quite a complicated manner.
+Data can be derived from other data.
+Therefore practical examples of provenance metadata are usually more complex.
+Next example illustrates a situation where `fullName` property is created as a combination of `givenName` and `familyName`.
+One of those properties is acquired from HR system, the other is entered by the used using user interface.
+As the data came from two different sources, provenance metadata have two `acquisition` entries.
+
+[source,json]
+----
+{
+  "user" : {
+    ...
+    "fullName" : {
+      "@value" : "Bob Brown",
+      "@metadata" : {
+        "provenance" : {
+          "yield" : {
+            "acquisition" : [
+                {
+                  "timestamp" : "2020-06-23T14:45:12Z",
+                  "mechanism" : "resource",
+                  "resourceRef" : {
+                    "oid" : "52230868-b555-11ea-887a-93a6d192ea87"
+                  }
+                  "originRef" : {
+                    "oid" : "fe330038-b562-11ea-ac2f-c344cd591e26",
+                    "type" : "ServiceType"
+                  }
+                },
+                {
+                  "timestamp" : "2020-06-25T17:02:38Z",
+                  "mechanism" : "ui",
+                  "actorRef" : {
+                    "oid" : "86297ce0-b556-11ea-a2d8-bb97a1c03570"
+                   },
+                  "originRef" : {
+                    "oid" : "d6064cb8-b563-11ea-aabf-cb0e70300dd1",
+                    "type" : "ServiceType"
+                  }
+                }
+              ]
+          }
+        }
+      }
+    },
+    ...
+  }
+}
+----
+
+The `acquisition` data structure represent an ultimate origin of the data.
+Even though the data were automatically processed by midPoint mapping and expression, the metadata still indicate both HR feed and user entry as data origins.
+Acquisition information is preserved in data transformation, it is passed from the very beginning to the very end of data processing.
+Therefore it always shows the ultimate origins of the data.
+
+However, this may get even more complicated.
+The value may not be a combination of two sources as it is in case of mappings and expressions.
+The same value may come from two independent sources that are not combined.
+Following example illustrates the case when `familyName` was entered manually by system administrator when the user was created.
+The same value was provided by the HR system the next day.
+
+[source,json]
+----
+{
+  "user" : {
+    ...
+    "familyName" : {
+      "@value" : "Brown",
+      "@metadata" : {
+        "provenance" : {
+          "yield" : [
+              {
+                "acquisition" : {
+                  "timestamp" : "2020-06-22T10:52:03Z",
+                  "mechanism" : "ui",
+                  "actorRef" : {
+                    "oid" : "b877827a-bbb2-11ea-b762-afdf710daac4"
+                   },
+                  "originRef" : {
+                    "oid" : "d6064cb8-b563-11ea-aabf-cb0e70300dd1",
+                    "type" : "ServiceType"
+                  }
+                }
+              },
+              {
+                "acquisition" : {
+                  "timestamp" : "2020-06-23T14:45:12Z",
+                  "mechanism" : "resource",
+                  "resourceRef" : {
+                    "oid" : "52230868-b555-11ea-887a-93a6d192ea87"
+                  },
+                  "originRef" : {
+                    "oid" : "fe330038-b562-11ea-ac2f-c344cd591e26",
+                    "type" : "ServiceType"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    ...
+  }
+}
+----
+
+Each value of `yield` data structure represent an output or product of data processing.
+Inbound synchronization _yields_ data values, as do mappings and users entering data in user interface.
+When we have learned the same value from two independent origins, there will be two `yield` entries.
+
+TODO: adding and removing yields
+
+TODO: how yield relates to projection value consolidation
+
+== Origin
+
+TODO: More detailed explanation of origin concept.
+
+TODO: The resource itself may not do. Several resources may represent the same origin, one resource may have many origins (e.g. multi-tenancy, multi-affiliation)
+
+TODO: Origin used for user-friendly display now.
+
+== Assignments
+
+TODO: recording assignments as sources of "yield"
+
+== Data Processing Basis
+
+TODO: item-level and value-level basis
+
+TODO: recording basis in provenance
+
+TODO: processing basis assigned to focus on object origin (e.g. inbound sync)
+
+TODO: mandatory processing basis for inbound sync
+
+TODO: removing/expiring the basis
+
+TODO: follow-up assignments (e.g. student->alumnus, employee->ex-employee)
