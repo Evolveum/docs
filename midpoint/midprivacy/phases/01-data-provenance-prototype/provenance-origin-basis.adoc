@@ -70,6 +70,7 @@ Following origins are used in the examples:
 }
 ----
 
+== Acquisition
 
 Example above looks simple, but data provenance is often quite a complicated manner.
 Data can be derived from other data.
@@ -126,7 +127,8 @@ Even though the data were automatically processed by midPoint mapping and expres
 Acquisition information is preserved in data transformation, it is passed from the very beginning to the very end of data processing.
 Therefore it always shows the ultimate origins of the data.
 
-However, this may get even more complicated.
+== Yield
+
 The value may not be a combination of two sources as it is in case of mappings and expressions.
 The same value may come from two independent sources that are not combined.
 Following example illustrates the case when `familyName` was entered manually by system administrator when the user was created.
@@ -182,23 +184,101 @@ Each value of `yield` data structure represent an output or product of data proc
 Inbound synchronization _yields_ data values, as do mappings and users entering data in user interface.
 When we have learned the same value from two independent origins, there will be two `yield` entries.
 
-TODO: adding and removing yields
+This means that we will need to modify `yield` entries when a new source of the data becomes available or when it is no longer available.
 
-TODO: how yield relates to projection value consolidation
+Computation of yields is related to _value consolidation_ mechanism in midPoint projector component.
+MidPoint computes values that came from all the sources such as mappings and expressions.
+This often means that the same value is computed by several mappings.
+MidPoint "squashes" such values together in a process that is called _consolidation_.
+Redundant values are removed during this process.
+However, with provenance metadata the values are not removed without a trace.
+Each consolidated value corresponds to one `yield` in provenance metadata.
 
 == Origin
 
-TODO: More detailed explanation of origin concept.
+Acquisition data describe the technological aspect of data provenance quite well.
+Such metadata record acquisition mechanism, resource, actor and so on.
+However, such technical information alone is often not sufficient to show logical sources of data.
+It would be quite difficult to present the acquisition metadata in a way that can be understood by ordinary users.
+Understandability of the information is an essential aspect of data protection solutions.
+Therefore acquisition metadata refer to the _origin_ of data.
 
-TODO: The resource itself may not do. Several resources may represent the same origin, one resource may have many origins (e.g. multi-tenancy, multi-affiliation)
+_Origin_ is an abstract, high-level representation of data source.
+It represents something that the users will understand, such as _human resource data_, _marketing data broker_ or _self-service user data entry_.
 
-TODO: Origin used for user-friendly display now.
+Origin is an ordinary midPoint object, it is expected that _org_ or _service_ will usually be used to represent origin.
+There are several reasons for this.
+Firstly, name of the object will be used to present the origin in the UI, provide proper internationalization and so on.
+Secondly, origins may have owners, denoting the person responsible for the source data.
+And most importantly, having origin as a first-class midPoint object opens up possibilities for the future, especially for data protection.
+Origins might contain policies that can specify reliability of the data, sensitivity and so on.
+There are also practical considerations.
+The resource may not be enough to fully specify data source just by itself.
+Several resources may represent the same origin in case that one data set is distributed over several data stores.
+Or one resource may have many origins, e.g. in multi-tenancy and multi-affiliation cases.
+Therefore having _origin_ as a separate concept may be very useful.
+
+In midPoint 4.2, origins are used only for presentation purposes.
+However, it is planned that origins will take more prominent place as mode data protection features are developed.
+
+Acquisition metadata are set by "edges" of the system.
+These are resources, user interface, REST and other interfaces.
+Therefore the "edges" have to be configured to set proper origins in acquisition metadata.
+This is especially apparent in resource configuration:
+
+[source,json]
+----
+{
+  "resource" : {
+    "oid" : "52230868-b555-11ea-887a-93a6d192ea87",
+    "name" : "HR",
+    ...
+        "objectType" : {
+          "kind" : "account",
+          ...
+          "originRef" : {
+            "oid" : "fe330038-b562-11ea-ac2f-c344cd591e26"
+          }
+        },
+    ...
+  }
+}
+----
+
+Origin can be different for every resource object type, therefore the origin definition is placed inside `objectType`.
+Later versions of midPoint may support origin expressions instead of static origin reference.
+This may be achieved by using object reference with runtime-resolved filter and expressions inside it.
+
+We need similar configuration for user interface:
+
+TODO: where to put configuration for GUI and REST? We obviously need expressions there.
+TODO: how to deal with REST?
 
 == Assignments
 
+MidPoint mappings often need complicated definition of mapping _range_ to properly remove values that were added by the mapping.
+There is clear benefit if a mapping can identify the values that were previously created by the same mapping.
+Provenance metadata may be a good place to record this information.
+
 TODO: recording assignments as sources of "yield"
 
-== Data Processing Basis
+TODO: record assignemntId? definitionOid? Both? Do we need to record mapping name?
+
+TODO: how will this work with mapping range?
+
+== Basis for Data Processing
+
+_Basis for data processing_ also known as _legal basis_ is one the basic concepts of data protection.
+Personal data should not be processed unless there is a _basis_ for the processing.
+Employment contract is an example of legal basis for data processing.
+As long as a person is employee of a company, the company can process reasonable set of data about that person.
+Student's relation to the school, membership in a research team and business contract are further examples of bases for data processing.
+_Consent_ is also basis for data processing, even though it has a different lifecycle than other bases.
+
+Basis for data processing can be understood as our privilege to process the data.
+We cannot process data without that privilege.
+In addition to that, we should be able to clearly demonstrate that we have valid basis for processing all the data in our system.
+The best way to do this would be to record the basis for item of the data.
 
 TODO: item-level and value-level basis
 
@@ -211,3 +291,7 @@ TODO: mandatory processing basis for inbound sync
 TODO: removing/expiring the basis
 
 TODO: follow-up assignments (e.g. student->alumnus, employee->ex-employee)
+
+== Origin and Basis
+
+TODO: How origins relate to basis: combinations
