@@ -1,0 +1,429 @@
+= Provenance, Origin and Basis
+
+This is a design note explaining midPoint functionality planned for the future.
+
+== Provenance Metadata
+
+MidPoint values may have _provenance metadata_ associated with them.
+Simply speaking, provenance metadata describe origin of the data.
+
+Following example shows the value of `employeeNumber` property that was automatically synchronized from the HR system.
+Provenance metadata are referring to the HR resource (`52230868-b555-11ea-887a-93a6d192ea87`).
+
+[source,json]
+----
+{
+  "user" : {
+    ...
+    "employeeNumber" : {
+      "@value" : "012345",
+      "@metadata" : {
+        "provenance" : {
+          "yield" : {
+            "acquisition" : {
+              "timestamp" : "2020-06-23T14:45:12Z",
+              "mechanism" : "resource",
+                "resourceRef" : {
+                  "oid" : "52230868-b555-11ea-887a-93a6d192ea87"
+                }
+              },
+              "originRef" : {
+                "oid" : "fe330038-b562-11ea-ac2f-c344cd591e26",
+                "type" : "ServiceType"
+              }
+            }
+          }
+        }
+      }
+    }
+    ...
+  }
+}
+----
+
+Provenance metadata also refer to _origin_ object.
+_Origin_ is an abstract concept that represents business-wise source of the data.
+Origins usually refers to concepts such as "HR data feed" or "Self-service user entry".
+Any midPoint object can represent an origin, but _Service_ is perhaps the most suitable object type.
+Following origins are used in the examples:
+
+
+[source,json]
+----
+{
+  "service" : {
+    "oid" : "d6064cb8-b563-11ea-aabf-cb0e70300dd1",
+    "name" : "Self-service data entry",
+    "description" : "Data entered by the user using a self-service user interface."
+  }
+}
+----
+
+[source,json]
+----
+{
+  "service" : {
+    "oid" : "fe330038-b562-11ea-ac2f-c344cd591e26",
+    "name" : "HR employee feed",
+    "description" : "Automated feed of employee data from the HR system."
+  }
+}
+----
+
+== Acquisition
+
+Example above looks simple, but data provenance is often quite a complicated manner.
+Data can be derived from other data.
+Therefore practical examples of provenance metadata are usually more complex.
+Next example illustrates a situation where `fullName` property is created as a combination of `givenName` and `familyName`.
+One of those properties is acquired from HR system, the other is entered by the used using user interface.
+As the data came from two different sources, provenance metadata have two `acquisition` entries.
+
+[source,json]
+----
+{
+  "user" : {
+    ...
+    "fullName" : {
+      "@value" : "Bob Brown",
+      "@metadata" : {
+        "provenance" : {
+          "yield" : {
+            "acquisition" : [
+                {
+                  "timestamp" : "2020-06-23T14:45:12Z",
+                  "mechanism" : "resource",
+                  "resourceRef" : {
+                    "oid" : "52230868-b555-11ea-887a-93a6d192ea87"
+                  }
+                  "originRef" : {
+                    "oid" : "fe330038-b562-11ea-ac2f-c344cd591e26",
+                    "type" : "ServiceType"
+                  }
+                },
+                {
+                  "timestamp" : "2020-06-25T17:02:38Z",
+                  "mechanism" : "ui",
+                  "actorRef" : {
+                    "oid" : "86297ce0-b556-11ea-a2d8-bb97a1c03570"
+                   },
+                  "originRef" : {
+                    "oid" : "d6064cb8-b563-11ea-aabf-cb0e70300dd1",
+                    "type" : "ServiceType"
+                  }
+                }
+              ]
+          }
+        }
+      }
+    },
+    ...
+  }
+}
+----
+
+The `acquisition` data structure represent an ultimate origin of the data.
+Even though the data were automatically processed by midPoint mapping and expression, the metadata still indicate both HR feed and user entry as data origins.
+Acquisition information is preserved in data transformation, it is passed from the very beginning to the very end of data processing.
+Therefore it always shows the ultimate origins of the data.
+
+== Yield
+
+The value may not be a combination of two sources as it is in case of mappings and expressions.
+The same value may come from two independent sources that are not combined.
+Following example illustrates the case when `familyName` was entered manually by system administrator when the user was created.
+The same value was provided by the HR system the next day.
+
+[source,json]
+----
+{
+  "user" : {
+    ...
+    "familyName" : {
+      "@value" : "Brown",
+      "@metadata" : {
+        "provenance" : {
+          "yield" : [
+              {
+                "acquisition" : {
+                  "timestamp" : "2020-06-22T10:52:03Z",
+                  "mechanism" : "ui",
+                  "actorRef" : {
+                    "oid" : "b877827a-bbb2-11ea-b762-afdf710daac4"
+                   },
+                  "originRef" : {
+                    "oid" : "d6064cb8-b563-11ea-aabf-cb0e70300dd1",
+                    "type" : "ServiceType"
+                  }
+                }
+              },
+              {
+                "acquisition" : {
+                  "timestamp" : "2020-06-23T14:45:12Z",
+                  "mechanism" : "resource",
+                  "resourceRef" : {
+                    "oid" : "52230868-b555-11ea-887a-93a6d192ea87"
+                  },
+                  "originRef" : {
+                    "oid" : "fe330038-b562-11ea-ac2f-c344cd591e26",
+                    "type" : "ServiceType"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    ...
+  }
+}
+----
+
+Each value of `yield` data structure represent an output or product of data processing.
+Inbound synchronization _yields_ data values, as do mappings and users entering data in user interface.
+When we have learned the same value from two independent origins, there will be two `yield` entries.
+
+This means that we will need to modify `yield` entries when a new source of the data becomes available or when it is no longer available.
+
+Computation of yields is related to _value consolidation_ mechanism in midPoint projector component.
+MidPoint computes values that came from all the sources such as mappings and expressions.
+This often means that the same value is computed by several mappings.
+MidPoint "squashes" such values together in a process that is called _consolidation_.
+Redundant values are removed during this process.
+However, with provenance metadata the values are not removed without a trace.
+Each consolidated value corresponds to one `yield` in provenance metadata.
+
+== Origin
+
+Acquisition data describe the technological aspect of data provenance quite well.
+Such metadata record acquisition mechanism, resource, actor and so on.
+However, such technical information alone is often not sufficient to show logical sources of data.
+It would be quite difficult to present the acquisition metadata in a way that can be understood by ordinary users.
+Understandability of the information is an essential aspect of data protection solutions.
+Therefore acquisition metadata refer to the _origin_ of data.
+
+_Origin_ is an abstract, high-level representation of data source.
+It represents something that the users will understand, such as _human resource data_, _marketing data broker_ or _self-service user data entry_.
+
+Origin is an ordinary midPoint object, it is expected that _org_ or _service_ will usually be used to represent origin.
+There are several reasons for this.
+Firstly, name of the object will be used to present the origin in the UI, provide proper internationalization and so on.
+Secondly, origins may have owners, denoting the person responsible for the source data.
+And most importantly, having origin as a first-class midPoint object opens up possibilities for the future, especially for data protection.
+Origins might contain policies that can specify reliability of the data, sensitivity and so on.
+There are also practical considerations.
+The resource may not be enough to fully specify data source just by itself.
+Several resources may represent the same origin in case that one data set is distributed over several data stores.
+Or one resource may have many origins, e.g. in multi-tenancy and multi-affiliation cases.
+Therefore having _origin_ as a separate concept may be very useful.
+
+In midPoint 4.2, origins are used only for presentation purposes.
+However, it is planned that origins will take more prominent place as mode data protection features are developed.
+
+Acquisition metadata are set by "edges" of the system.
+These are resources, user interface, REST and other interfaces.
+Therefore the "edges" have to be configured to set proper origins in acquisition metadata.
+This is especially apparent in resource configuration:
+
+[source,json]
+----
+{
+  "resource" : {
+    "oid" : "52230868-b555-11ea-887a-93a6d192ea87",
+    "name" : "HR",
+    ...
+        "objectType" : {
+          "kind" : "account",
+          ...
+          "originRef" : {
+            "oid" : "fe330038-b562-11ea-ac2f-c344cd591e26"
+          }
+        },
+    ...
+  }
+}
+----
+
+Origin can be different for every resource object type, therefore the origin definition is placed inside `objectType`.
+Later versions of midPoint may support origin expressions instead of static origin reference.
+This may be achieved by using object reference with runtime-resolved filter and expressions inside it.
+
+We need similar configuration for user interface:
+
+[source,json]
+----
+{
+  "systemConfiguration" : {
+    ...
+    "providedService" : {
+      "name" : "gui",
+      "identifier" : "gui",
+      ...
+      "originRef" : {
+        "oid" : "d6064cb8-b563-11ea-aabf-cb0e70300dd1"
+      }
+    },
+    ...
+  }
+}
+----
+
+Similar configuration can later apply to REST and potentially also other midpoint-provided services.
+
+TODO: How to make dynamic origin? E.g. self-user-entry if the user is changing his own record, admin-user-entry otherwise.
+Expressions in filters may be quite inconvenient in this case. Or are they OK?
+
+== Assignments
+
+MidPoint mappings often need complicated definition of mapping _range_ to properly remove values that were added by the mapping.
+There is clear benefit if a mapping can identify the values that were previously created by the same mapping.
+Provenance metadata may be a good place to record this information.
+
+TODO: recording assignments as sources of "yield"
+
+TODO: record assignemntId? definitionOid? Both? Do we need to record mapping name?
+
+TODO: how will this work with mapping range?
+
+== Basis for Data Processing
+
+_Basis for data processing_ also known as _legal basis_ is one the basic concepts of data protection.
+Personal data should not be processed unless there is a _basis_ for the processing.
+Employment contract is an example of legal basis for data processing.
+As long as a person is employee of a company, the company can process reasonable set of data about that person.
+Student's relation to the school, membership in a research team and business contract are further examples of bases for data processing.
+_Consent_ is also basis for data processing, even though it has a different lifecycle than other bases.
+
+Basis for data processing can be understood as our privilege to process the data.
+We cannot process data without that privilege.
+In addition to that, we should be able to clearly demonstrate that we have valid basis for processing all the data in our system.
+The best way to do this would be to record the basis for item of the data.
+
+Basis for data protection are represented by role-like objects in midPoint.
+When a particular basis is applicable to the user, aj object that represents such basis is _assigned_ to the user.
+Assignment is a rich data structure that can represent the particulars of user-basis relations.
+For example, assignment can be used to represent time-wise validity of the basis (from/to dates).
+
+The assignment of the basis usually happens at the time when midPoint acquires the data.
+Which means that the basis is assigned during inbound synchronization or during interactions in user interface.
+Basis assignment may be quite complex, e.g. handling of consent lifecycle.
+Particular details of basis assignment are not yet entirely clear at this point.
+However, it looks like the _basis_ will become one of the most important concepts for data protection.
+E.g. basis is likely to be a mandatory part of inbound data synchronization processes.
+
+Assignment of a basis demonstrates that the basis applies to user.
+But we still do not know to which _data_ the basis applies.
+It seems that the basis can apply to data in two different ways:
+
+* Item-level basis applies to entire data item, regardless of what value it contains.
+For example, employment contract is a basis to process user's full name.
+This basis applies regardless of the provenance of the full name value.
+It does not matter if the value was synchronized from the HR system or it was entered by the user, the basis applies to the item regardless.
+
+* Value-level basis applies to a specific value of the item.
+For example, organization or affiliation is usually stored in multi-value item.
+Employment contract basis applies only to `ACME, Inc.` value of that item.
+Other values may refer to organizations that are not related to employment, such as volunteering or activism.
+We cannot deal with the item uniformly, provenance of every single value is significant in this case.
+
+Particular method how are the bases going to express data protection policies is not yet entirely clear.
+The item-level policy will probably be expressed in the basis itself.
+There is no need to indicate that in metadata, except perhaps for troubleshooting purposes.
+Value-level bases will need to be indicated in the metadata, most like provenance metadata (inside a `yield`).
+
+.Basis does not imply reliability of data.
+NOTE: Basis gives us right to process the data, but that does not mean that the data are reliable or verified.
+For example, full name value taken from HR may be replaced by a user-provided value.
+While we still have the right to process full name, we do not know whether user-provided value is reliable.
+Reliability of the data is addressed by orthogonal concepts, such as _assurance_ concepts.
+
+Bases for data processing are not permanent.
+They can be cancelled, they can expire and consent can be revoked at any time.
+Removal od data processing basis should trigger erasure of data we are not entitled to process any longer.
+However, the situation may be more complex as the bases are often related.
+For example, employers are often required to process some data about former employees.
+When the `employment` basis ends, another basis is applied.
+This `ex-employment` basis allows us to keep process some data about employees.
+MidPoint has to be aware of this transition because it must not erase `employment` data that are needed for `ex-employment` basis.
+Actual mechanism to implement this feature is not yet clear.
+But there are two obvious possibilities:
+
+* Specify a _follow-up_ basis.
+The `ex-employment` basis will be specified as a follow-up basis to `employment` basis.
+When employment ends, it is replaced by ex-employment.
+This should be relatively easy to do.
+However, it is introducing a new concept into the system.
+
+* Further develop concept of _assignment lifecycle_.
+In this case both employment and post-employment are covered by the same `employment` basis.
+The difference is the lifecycle status of the assignment of the basis.
+Employment part of the relation is specified by `active` lifecycle status of basis assignment.
+Post-employment part is specified by `archived` lifecycle status of the assignment.
+Data protection policies of the basis have to take assignment lifecycle into account.
+This may make the policies quite complex.
+In addition to that, we will need to find a way how to manipulate the validity dates and probably also other properties of the assignment when assignment lifecycle status changes.
+
+The situation may be even more complicated if we need to ask for consent.
+For example, when _student_ turns to _alumnus_, a consent may be required to make that transition.
+We may need to pre-acquire the consent while the student is still a student.
+Therefore it is possible, that we will need to have much more detailed knowledge about the lifecycles.
+
+== Origin and Basis
+
+It may be attractive to combine _origins_ and _bases_ into one concept.
+Even though those are related, they are not the same thing.
+For example, employee data may originate from the HR system.
+But they may also be entered by an administrator in emergency situations (e.g. outages).
+HR data may be manually corrected by the user.
+Those are three different origins of the data.
+But we are processing the data on the same `employment` basis.
+
+Similarly, data coming from a single origin may be processed on several bases.
+For example, only _identifier_ and _affiliation_ is strictly required to provide a particular service `S`.
+Therefore we cannot use `S` as the basis for processing full name of the person.
+However, we would like to know full names of the users as it makes system administration easier.
+Users may want to provide full name as well, as it improves interaction with other users.
+However, we need user's consent to process full name.
+Consent is a separate basis for data processing.
+Even though both identifier and full name are coming from the same _origin_, there are different _bases_ for their processing.
+
+While the entire design of origins and (especially) bases is not complete, it looks like it may be possible to combine basis and origin in one object in cases that they are in fact the same concept.
+But midPoint must allow to have _origin_ and _basis_ as two separate concepts.
+
+== Personas
+
+Data protection is not a trivial concept even if it is applied in "singleton" scenarios.
+By "singleton" we mean scenarios where we are processing data for a single purpose.
+Such as an enterprise processing employee data.
+This can also be extended to scenarios where several identity types are processed, but they do not overlap.
+For example, an enterprise may process employee data as well as data on contractors and support staff.
+But as long as a person cannot be an employee and an contractor at the same time the situation is still relatively simple.
+Usual identity lifecycle models can be applied in such cases.
+
+However, the situation is much more complex when it comes to "multiplicity" scenarios, such as those commonly found in academic environment.
+A person can be a student of a school, employee of one of its organizations and a volunteer cooperator in a research program at the same time.
+This may be further complicated by _affiliations_ to different organizations.
+Simple identity lifecycle models cannot be applied here, as each of the relations or affiliations may have different lifecycle - and even a differing set of data.
+
+There are two ways how to deal with the "multiplicity" scenarios:
+
+* One user, affiliations, contracts and other relations are modeled by assignments.
+There is just one set of identity data, therefore this may seem like a natural way to users.
+However, this approach is likely to be problematic if the data do not converge.
+For example if user want to present name `John Doe` in some cases and `Prof. John R. Doe` in other cases.
+Also, user lifecycle model may not work here or it may be limited.
+Its function has to be replaced by assignment lifecycle.
+
+* Multiple personas, one persona for each purpose.
+This makes the situation easier as each persona has its own set of data, its own lifecycle and so on.
+However, the management of personas may be complicated and it may not be convenient for the user.
+Especially in cases where most of the data in personas are the same.
+
+These two approaches may obviously be combined.
+But the details are not yet entirely clear.
+
+This affects data protection approach as well.
+Data that relate to different affiliations or purposes are likely to be governed by different bases for data processing.
+The "no persona" case may require parametrization of basis assignments.
+The "multiple personas" case may be simpler when it comes to basis management, however the complexity of persona management may be prohibitive.
