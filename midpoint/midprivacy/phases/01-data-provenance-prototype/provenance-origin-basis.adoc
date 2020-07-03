@@ -280,18 +280,130 @@ We cannot process data without that privilege.
 In addition to that, we should be able to clearly demonstrate that we have valid basis for processing all the data in our system.
 The best way to do this would be to record the basis for item of the data.
 
-TODO: item-level and value-level basis
+Basis for data protection are represented by role-like objects in midPoint.
+When a particular basis is applicable to the user, aj object that represents such basis is _assigned_ to the user.
+Assignment is a rich data structure that can represent the particulars of user-basis relations.
+For example, assignment can be used to represent time-wise validity of the basis (from/to dates).
 
-TODO: recording basis in provenance
+The assignment of the basis usually happens at the time when midPoint acquires the data.
+Which means that the basis is assigned during inbound synchronization or during interactions in user interface.
+Basis assignment may be quite complex, e.g. handling of consent lifecycle.
+Particular details of basis assignment are not yet entirely clear at this point.
+However, it looks like the _basis_ will become one of the most important concepts for data protection.
+E.g. basis is likely to be a mandatory part of inbound data synchronization processes.
 
-TODO: processing basis assigned to focus on object origin (e.g. inbound sync)
+Assignment of a basis demonstrates that the basis applies to user.
+But we still do not know to which _data_ the basis applies.
+It seems that the basis can apply to data in two different ways:
 
-TODO: mandatory processing basis for inbound sync
+* Item-level basis applies to entire data item, regardless of what value it contains.
+For example, employment contract is a basis to process user's full name.
+This basis applies regardless of the provenance of the full name value.
+It does not matter if the value was synchronized from the HR system or it was entered by the user, the basis applies to the item regardless.
 
-TODO: removing/expiring the basis
+* Value-level basis applies to a specific value of the item.
+For example, organization or affiliation is usually stored in multi-value item.
+Employment contract basis applies only to `ACME, Inc.` value of that item.
+Other values may refer to organizations that are not related to employment, such as volunteering or activism.
+We cannot deal with the item uniformly, provenance of every single value is significant in this case.
 
-TODO: follow-up assignments (e.g. student->alumnus, employee->ex-employee)
+Particular method how are the bases going to express data protection policies is not yet entirely clear.
+The item-level policy will probably be expressed in the basis itself.
+There is no need to indicate that in metadata, except perhaps for troubleshooting purposes.
+Value-level bases will need to be indicated in the metadata, most like provenance metadata (inside a `yield`).
+
+.Basis does not imply reliability of data.
+NOTE: Basis gives us right to process the data, but that does not mean that the data are reliable or verified.
+For example, full name value taken from HR may be replaced by a user-provided value.
+While we still have the right to process full name, we do not know whether user-provided value is reliable.
+Reliability of the data is addressed by orthogonal concepts, such as _assurance_ concepts.
+
+Bases for data processing are not permanent.
+They can be cancelled, they can expire and consent can be revoked at any time.
+Removal od data processing basis should trigger erasure of data we are not entitled to process any longer.
+However, the situation may be more complex as the bases are often related.
+For example, employers are often required to process some data about former employees.
+When the `employment` basis ends, another basis is applied.
+This `ex-employment` basis allows us to keep process some data about employees.
+MidPoint has to be aware of this transition because it must not erase `employment` data that are needed for `ex-employment` basis.
+Actual mechanism to implement this feature is not yet clear.
+But there are two obvious possibilities:
+
+* Specify a _follow-up_ basis.
+The `ex-employment` basis will be specified as a follow-up basis to `employment` basis.
+When employment ends, it is replaced by ex-employment.
+This should be relatively easy to do.
+However, it is introducing a new concept into the system.
+
+* Further develop concept of _assignment lifecycle_.
+In this case both employment and post-employment are covered by the same `employment` basis.
+The difference is the lifecycle status of the assignment of the basis.
+Employment part of the relation is specified by `active` lifecycle status of basis assignment.
+Post-employment part is specified by `archived` lifecycle status of the assignment.
+Data protection policies of the basis have to take assignment lifecycle into account.
+This may make the policies quite complex.
+In addition to that, we will need to find a way how to manipulate the validity dates and probably also other properties of the assignment when assignment lifecycle status changes.
+
+The situation may be even more complicated if we need to ask for consent.
+For example, when _student_ turns to _alumnus_, a consent may be required to make that transition.
+We may need to pre-acquire the consent while the student is still a student.
+Therefore it is possible, that we will need to have much more detailed knowledge about the lifecycles.
 
 == Origin and Basis
 
-TODO: How origins relate to basis: combinations
+It may be attractive to combine _origins_ and _bases_ into one concept.
+Even though those are related, they are not the same thing.
+For example, employee data may originate from the HR system.
+But they may also be entered by an administrator in emergency situations (e.g. outages).
+HR data may be manually corrected by the user.
+Those are three different origins of the data.
+But we are processing the data on the same `employment` basis.
+
+Similarly, data coming from a single origin may be processed on several bases.
+For example, only _identifier_ and _affiliation_ is strictly required to provide a particular service `S`.
+Therefore we cannot use `S` as the basis for processing full name of the person.
+However, we would like to know full names of the users as it makes system administration easier.
+Users may want to provide full name as well, as it improves interaction with other users.
+However, we need user's consent to process full name.
+Consent is a separate basis for data processing.
+Even though both identifier and full name are coming from the same _origin_, there are different _bases_ for their processing.
+
+While the entire design of origins and (especially) bases is not complete, it looks like it may be possible to combine basis and origin in one object in cases that they are in fact the same concept.
+But midPoint must allow to have _origin_ and _basis_ as two separate concepts.
+
+== Personas
+
+Data protection is not a trivial concept even if it is applied in "singleton" scenarios.
+By "singleton" we mean scenarios where we are processing data for a single purpose.
+Such as an enterprise processing employee data.
+This can also be extended to scenarios where several identity types are processed, but they do not overlap.
+For example, an enterprise may process employee data as well as data on contractors and support staff.
+But as long as a person cannot be an employee and an contractor at the same time the situation is still relatively simple.
+Usual identity lifecycle models can be applied in such cases.
+
+However, the situation is much more complex when it comes to "multiplicity" scenarios, such as those commonly found in academic environment.
+A person can be a student of a school, employee of one of its organizations and a volunteer cooperator in a research program at the same time.
+This may be further complicated by _affiliations_ to different organizations.
+Simple identity lifecycle models cannot be applied here, as each of the relations or affiliations may have different lifecycle - and even a differing set of data.
+
+There are two ways how to deal with the "multiplicity" scenarios:
+
+* One user, affiliations, contracts and other relations are modeled by assignments.
+There is just one set of identity data, therefore this may seem like a natural way to users.
+However, this approach is likely to be problematic if the data do not converge.
+For example if user want to present name `John Doe` in some cases and `Prof. John R. Doe` in other cases.
+Also, user lifecycle model may not work here or it may be limited.
+Its function has to be replaced by assignment lifecycle.
+
+* Multiple personas, one persona for each purpose.
+This makes the situation easier as each persona has its own set of data, its own lifecycle and so on.
+However, the management of personas may be complicated and it may not be convenient for the user.
+Especially in cases where most of the data in personas are the same.
+
+These two approaches may obviously be combined.
+But the details are not yet entirely clear.
+
+This affects data protection approach as well.
+Data that relate to different affiliations or purposes are likely to be governed by different bases for data processing.
+The "no persona" case may require parametrization of basis assignments.
+The "multiple personas" case may be simpler when it comes to basis management, however the complexity of persona management may be prohibitive.
