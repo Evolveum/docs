@@ -31,7 +31,9 @@ run.
 
 _Consolidation_ is a process of converting _output triple map_ to _item deltas_, considering _source object_ along with
 its pre-existing _delta_. Because this process is executed independently for each item in question, we can describe _item
-consolidation_ that converts single _output triple_ to an _item delta_, considering source _item-delta-item_.
+consolidation_ that converts single _output triple_ to an _item delta_, considering source _item-delta-item_. In some cases
+the actual value of item is not known: this can occur if we are consolidating values for resource object attribute, and
+we do not have full shadow for the object.
 
 ==== Item consolidation
 
@@ -45,14 +47,72 @@ to comparing values.]
 
 image::item consolidation detailed.png["Item consolidation detailed"]
 
-The algorithm then goes like this (slightly simplified - assuming mapping selector is ALL, filterExistingValues is true,
-exclusiveStrong is false):
+The algorithm then goes like this (slightly simplified - assuming mapping selector is ALL and exclusiveStrong is false):
 
-1. Let P, M, Z be sets of values in plus, minus, and zero sets, respectively.
+Let:
+
+[cols="4,8a"]
+[%header]
+|===
+| Symbol(s) | Meaning
+| P, M, Z
+| Sets of values in plus, minus, and zero sets, respectively.
 So P = { v~1~^plus^, v~2~^plus^, ..., v~k~^plus^ }, M = { v~1~^minus^, v~2~^minus^, ..., v~l~^minus^ },
-Z = { v~1~^zero^, v~2~^zero^, ..., v~m~^zero^ }.
-2. Let P~0~ &#x2286; P, M~0~ &#x2286; M, Z~0~ &#x2286; Z be sets of values equivalent with v~0~ in P, M, and Z, respectively.
-In the figure above they are depicted in red.
+Z = { v~1~^zero^, v~2~^zero^, ..., v~m~^zero^ }
+
+| P~0~ &SubsetEqual; P, M~0~ &SubsetEqual; M, Z~0~ &SubsetEqual; Z
+| Sets of values-with-origins having values equivalent with v~0~ in P, M, and Z, respectively.
+Because of value equivalence we can view these as simply _origins_ or _mappings_.
+In the figure above they are depicted in pink.
+
+| addUnchanged
+| Consolidation parameter that tells that all unchanged (zero-set) values should be considered for "add" part of resulting
+item delta. It is typically set to true when the whole target object is being added. (And also for attribute reconciliation
+when apriori delta is REPLACE.)
+
+| addUnchangedValuesExceptForNormalMappings
+| Consolidation parameter that tells that some of the unchanged values should be considered for "add" part of resulting
+item delta. In particular, all values backed by strong, weak, and sourceless normal mappings. It is set for
+object template evaluation for focus or personas and assigned focus mappings evaluation. It may be renamed/changed
+in the future.
+
+| existingItemKnown
+| Consolidation parameter that tells that we know the existing item. It is false for resource object mappings
+that operate on non-full shadows.
+
+| v~ex~
+| Presence of v~0~ in existing item. (May be null if v~0~ is not present there or if existing item is not known.)
+|===
+
+===== Deletion of strongly-mandated values
+
+Before the value is consolidated the following check is executed:
+
+If v~0~ is deleted by apriori delta and, at the same time, it is present in P or Z in connection with
+strong mapping (i.e. there is a strong mapping for v~0~ that thinks the value should be added or unchanged) then we
+throw an exception. This is to avoid conflict between user-provided delta and a strong mapping.
+footnoteref:[unclear,It is not quite clear if this behavior is 100% correct, because in this way we prioritize
+not only user-specified values but all values that were computed by (any) previously evaluated mappings. However,
+we are not going to remove this behavior now.]
+
+See `IvwoConsolidator.checkDeletionOfStrongValue()` method.
+
+===== Value consolidation
+
+First, we determine A~0~ - origins that suggest we need to put v~0~ to the delta "add" set.
+These are:
+
+[cols="5,8"]
+[%header]
+|===
+| Condition | A~0~ (add-suggesting origins for v~0~)
+| addUnchanged |  P~0~ &#8746; Z~0~
+| &#172; addUnchanged &#8743; addUnchangedValuesExceptForNormalMappings
+| P~0~ &#8746; { z &isinv; Z~0~ \| z.isStrong &or; z.isNormal &and; z.isSourceless &or; z.isWeak }
+
+| otherwise
+| P~0~
+|===
 
 There are the following cases:
 
@@ -60,111 +120,76 @@ There are the following cases:
 [%header]
 |===
 | Condition | Description | Action
-| &#172; addUnchanged &#8743; Z~0~ &#8800; &#8709;
-| At least one mapping thinks that v~0~ is unchanged: was present before and should be present after.
-| We do not add v~0~ to the delta. Unless we execute special zero set processing (enabled for template mappings) and
-one of the following is true for any z~0~ &#x2286; Z~0~ and mapping that produced z~0~:
-
-1. mapping is strong
-2. mapping is normal, has no sources, and a priori delta is empty
-3. mapping is weak, and existing item is empty footnote:[and item delta does not add any values, but this is a consequence
-of the fact that existing item is empty, isn't it?]
-
-| P~0~ &#8800; &#8709;
-| At least one mapping thinks that the value is being added.
+| A~0~ &#8800; &#8709;
+| At least one mapping indicates that v~0~ is being added.
 | We invoke "value being added" part of the algorithm (see below).
 
-| addUnchanged &#8743; Z~0~ &#8800; &#8709;
-| At least one mapping thinks that v~0~ is unchanged: was present before and should be present after.
-| We invoke "value being added" part of the algorithm (see below).
-
-| (all other cases)
-| We have no reason to think that the value should be added.
+| A~0~ = &#8709;
+| No mapping indicates that the value is being added.
 | We invoke "value not being added" part of the algorithm (see below).
 |===
 
 ===== Value being added
 
-Let R~0~ "reasons to add" be
+We have to check if we really have to add the value. See `IvwoConsolidator.shouldAddValue()` method.
 
-- R~0~ = P~0~ if &#172; addUnchanged,
-- R~0~ = P~0~ &#8746; Z~0~ if addUnchanged.
-
-The meaning of R~0~ is: _mappings that think that this value should be added to the object_.
-
-Now we decide in this way:
-
-[cols="5,8a,8a,1a"]
+[cols="2,5,8,8a"]
 [%header]
 |===
-| Condition | Description | Action | Code
-| All mappings in R~0~ are weak.
-| We don't know if we should apply this value. We can do it only if there is no other value for the item.
-| We wait until all values are consolidated. Then weak mappings are considered. (I.e. we skip this value now.)
-| link:https://github.com/Evolveum/midpoint/blob/d58615616b2b7b4501a31e3176c0a58c9c3ab524/model/model-impl/src/main/java/com/evolveum/midpoint/model/impl/lens/IvwoConsolidator.java#L433-L437[here]
+| ID | Condition | Description | Action
+| AW | All mappings in A~0~ are weak.
+| We don't know if we should apply v~0~. We can do it only if there is no other value for the item.
+| We wait until all values are consolidated. Then weak mappings are considered. (I.e. we skip v~0~ now.)
 
-| There is at least one strong mapping in R~0~ and we have deleted this value in apriori delta
-| We thought this should cause an exception. But is it correct? Obviously, if the deletion was part of the
-_original_ client-supplied delta, then the exception is OK. But our apriori delta is a composition of
-client-supplied delta with all computed (secondary) deltas.
-| We throw an exception. (Maybe incorrectly.)
-| link:https://github.com/Evolveum/midpoint/blob/d58615616b2b7b4501a31e3176c0a58c9c3ab524/model/model-impl/src/main/java/com/evolveum/midpoint/model/impl/lens/IvwoConsolidator.java#L446-L450[here]
+| ExS | existingItemKnown &and; v~ex~&nbsp;&ne;&nbsp;null
+| We _know_ the value v~0~ is present in the existing item.
+| We skip addition of v~0~.
 
-| There is no strong mapping in R~0~ and there is apriori delta
-| We thought we should skip the value because there is a delta that is "more concrete". But again,
-this assumes that apriori delta is the one supplied by the client, which is not necessarily the case.
-| We skip this value. (Maybe incorrectly.)
-| link:https://github.com/Evolveum/midpoint/blob/d58615616b2b7b4501a31e3176c0a58c9c3ab524/model/model-impl/src/main/java/com/evolveum/midpoint/model/impl/lens/IvwoConsolidator.java#L457-L462[here]
+| ExA | &not;existingItemKnown &and; &exist;z &in; Z~0~: &not;z.isWeak
+| We _assume_ the value v~0~ is present in the existing item. (Although we do not know the current value
+of the item, we have at least one non-weak mapping that thinks the value was unchanged.)
+| We skip addition of v~0~.
 
-| The value is present in the existing item.
-| We are going to add a value that is already present.
-| We skip this value.
-| link:https://github.com/Evolveum/midpoint/blob/d58615616b2b7b4501a31e3176c0a58c9c3ab524/model/model-impl/src/main/java/com/evolveum/midpoint/model/impl/lens/IvwoConsolidator.java#L464-L472[here]
+| NSwA | There is no strong mapping in A~0~ and there is apriori delta for this item (with any value).
+| In order to prioritize user-specified values before the ones that are computed by mappings we skip
+v~0~ and do not pass it to the resulting delta.
+footnoteref:[unclear]
+| We skip addition of v~0~.
 
-| (all other cases)
-| We should add the value.
-| We put the value to the plus set.
-| link:https://github.com/Evolveum/midpoint/blob/d58615616b2b7b4501a31e3176c0a58c9c3ab524/model/model-impl/src/main/java/com/evolveum/midpoint/model/impl/lens/IvwoConsolidator.java#L473[here]
+| Other | (all other cases)
+| We should add v~0~.
+| We put v~0~ to the "add" set of the delta.
 |===
 
-Illustration of the apriori delta issue (not related to the these two cases but to
-link:https://github.com/Evolveum/midpoint/blob/d58615616b2b7b4501a31e3176c0a58c9c3ab524/model/model-impl/src/main/java/com/evolveum/midpoint/model/impl/lens/IvwoConsolidator.java#L366-L375[`checkDeletionOfZeroStrongValue` method]):
-
-----
-<objectTemplate>
-    <mapping>
-        <expression>
-            <script>
-                <code>null</code>
-            </script>
-        </expression>
-        <target>
-            <path>description</path>
-            <set>
-                <predefined>all</predefined>
-            </set>
-        </target>
-        <evaluationPhase>beforeAssignments</evaluationPhase>
-    </mapping>
-    <mapping>
-        <strength>strong</strength>
-        <expression>
-            <value>after</value>
-        </expression>
-        <target>
-            <path>description</path>
-        </target>
-        <evaluationPhase>afterAssignments</evaluationPhase>
-    </mapping>
-</objectTemplate>
-----
-
-On user recomputation we get an exception of:
-
-`Attempt to delete value PPV(String:after) from item description but that value is mandated by a strong mapping {...common/common-3}description in objectTemplate:22e9e560-ddc5-45f8-bf1a-121042d73995(test) (for object template objectTemplate:22e9e560-ddc5-45f8-bf1a-121042d73995(test) for focus user:15221c59-1788-4c4c-a777-4d4299fbb530(t))`
-
-TODO
+NOTE: From the metadata processing perspective, cases NSwA and ExS/ExA are different. In the former, the value v~0~
+is really discarded, along with its metadata. However, in the latter, metadata of v~0~ should be taken into account
+and merged with the metadata of the existing value that is equivalent with v~0~.
 
 ===== Value not being added
 
-TODO
+If Z~0~ = &varnothing; &and; M~0~ &ne; &varnothing; i.e. no mapping thinks that v~0~ should be kept and at least one
+thinks that v~0~ should be removed, then the following is checked. (See `IvwoConsolidator.shouldDeleteValue()` method.)
+
+[cols="2,5,8,8a"]
+[%header]
+|===
+| ID | Condition | Description | Action
+| AW-Ex | All mappings in M~0~ are weak and existing item has a value.
+| ???
+| We skip deletion of v~0~.
+
+| ExS | existingItemKnown &and; v~ex~&nbsp;=&nbsp;null
+| The value v~0~ is not present in the existing item.
+We are requested to delete a value that is not there.
+| We skip deletion of v~0~.
+
+| NSwA | There is no strong mapping in M~0~ and there is apriori delta for this item (with any value).
+| In order to prioritize user-specified values before the ones that are computed by mappings we skip
+v~0~ and do not pass it to the resulting delta.
+footnoteref:[unclear]
+| We skip deletion of v~0~.
+
+| Other | (all other cases)
+| We should delete v~0~.
+| We put v~0~ to the "delete" set of the delta.
+|===
