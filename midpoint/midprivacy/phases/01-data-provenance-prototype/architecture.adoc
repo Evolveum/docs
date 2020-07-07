@@ -1,6 +1,6 @@
 = Solution Architecture of Data Provenance Features
 
-Data provenance is all about _meta-data_: data about data.
+Data provenance is all about _metadata_: data about data.
 Simply speaking, we have to maintain meta-data about every data item.
 For example, midPoint may learn that a name of particular person is `John Doe`.
 It is not enough to just store that value in our database.
@@ -8,62 +8,201 @@ We need to remember when we have learned that value, from which system it came, 
 MidPoint is an identity management system, therefore the value is likely to be transformed and provisioned to other systems.
 We may want to remember how the value was transformed and which mappings were used.
 We want to maintain information about the original source of the value all the way, through all the transformation, for all the copies of the data.
-Finally, we have to display the meta-data values in the user interface.
+Finally, we have to display the metadata values in the user interface.
 
-== Metadata Schema
+== Axiom
 
-However, meta-data add a whole new dimension of complexity: we have to maintain meta-data for each and every value of every data item.
+However, metadata add a whole new dimension of complexity: we have to maintain metadata for each and every value of every data item.
 For example if we maintain three values for a telephone number, we have to main three separate sets of meta-data, one for each value.
 Which means maintaining complex meta-data structures for simple string data values.
 This is very difficult to do with a conventional data modelling languages.
 MidPoint was using XML Schema Definition (XSD) language since the very beginning.
 However, XSD falls a bit short in several ways.
-But when it comes to meta-data, XSD is not suitable at all.
+And when it comes to metadata, XSD is not suitable at all.
 
 We have been link:../existing-languages-analysis/[looking for existing data modelling languages] with the hope to find a language that is more suitable for this task.
 However, all popular schema languages seem to be focused in modelling data in a particular format (XML, JSON) rather than describing an abstract data model.
 We estimate that we would need to significantly "bend" the language to suit even the basic needs of midPoint data modelling, in a similar way that we have modified XSD.
 This would be a lot of effort that will not move us forward in any significant way.
-What is even less favorable is that none of the existing languages have any signs of meta-data schema (meta-schema) support.
+What is even less favorable is that none of the existing languages have any signs of metadata schema support.
 
 Therefore we have decided to create link:../axiom/[Axiom] - a new data modeling language.
-The ambition is to replace XSD in midPoint by Axiom.
-However, the first practical use of Axiom will be definition of _meta-schema_: schema for meta-data.
-The meta-schema defines data structures that will be maintained as meta-data for every value of an ordinary schema.
+The ambition is to replace XSD in midPoint by Axiom eventually.
+However, the first practical use of Axiom will be definition of _metadata schema_: a schema for metadata.
+The metadata schema defines data structures that will be maintained as metadata for every value of an ordinary schema.
 
-But when it comes to meta-schema, there is one big problem.
-There is no standard for data provenance meta-data.
-Every deployment is likely to work with a different set of meta-data.
-And even if there was a standard, it is almost certain that the meta-schema has to be adjusted for every deployment.
-Therefore midPoint user (or rather _deployer_) needs a simple way how to adjust and extend meta-schema to the need to a particular deployment.
+Unlike other languages, Axiom goes link:../axiom/concepts/[deeper into conceptual layers of data modeling].
+Axiom introduces a concept of _inframodel_ that is used to manipulate the data structure itself.
+Concept of _inframodel_ allows implementation of orthogonal data structures, such as metadata.
+
+However, there is one big problem when it comes to metadata schema.
+There is no standard for data provenance metadata.
+Every deployment is likely to work with a different set of metadata.
+Even if there was a standard, it is almost certain the metadata schema has to be adjusted for every deployment.
+Therefore midPoint user (or rather _deployer_) needs a simple way how to adjust and extend metadata schema to the needs to a particular deployment.
 MidPoint already has a mechanism to extend existing schema by defining schema _extension_.
-We would like to reuse the same concept for meta-schema.
-Our plan is to create a pre-defined meta-schema with basic meta-data structures that are likely to be used in almost all deployments.
-MidPoint deployment will have ability to extend that meta-schema with custom meta-data items to suit their deployments.
+We would like to reuse the same concept for metadata schema.
+Our plan is to create a pre-defined metadata schema with link:../metadata-usecases/[basic metadata structures] that are likely to be used in almost all deployments.
+There will be structures such as storage metadata, transformation metadata and high-level provenance metadata.
+MidPoint will be use such metadata structures natively.
+MidPoint deployers will have ability to extend that metadata schema with custom metadata items to suit their deployments.
 
 MidPoint data handling is based on https://wiki.evolveum.com/display/midPoint/Prism+Objects[Prism framework].
 Fortunately, we have foreseen the need for meta-data and Prism has a concept of `PrismValue` class.
 `PrismValue` is maintained for every value of every data item that goes through midPoint.
 This is a suitable place to wire meta-data with data.
 
-== Mappings
+Axiom data models will be used to model metadata schemas.
+Axiom processors will be partially integrated into midPoint code, which will be first real-world validation of Axiom language and implementation.
+We have paid a lot of attention to the design of Axiom, but we are more than aware that a language such as Axiom cannot be designed on a whiteboard.
+The design needs to be prototyped and validated, most likely resulting in corrections and adjustments.
+Using Axiom for midPoint metadata is first validation of Axiom.
+We plan to further develop Axiom after this phase of the project is finished (see below).
 
-Meta-data support is a basic building block, but we also have to populate the meta-data.
-MidPoint is using https://wiki.evolveum.com/display/midPoint/Mapping[mappings] to populate and transform the data.
-We plan to re-use the concept to populate and maintain the meta-data as well.
+The details are available in following documents:
+
+* link:../existing-languages-analysis/[Existing Languages Analysis]: Analysis of existing schema languages.
+
+* link:../axiom/spec/[Axiom Specification]: Specification of Axiom language that is used to model metadata in midPoint
+
+* link:../metadata-usecases/[Metadata Usecases]: Conceptual description of metadata structures.
+
+* link:../axiom/concepts/[Axiom Concepts]: Conceptual model of Axiom, explaining the _inframodel_.
+
+== Transformations
+
+Metadata schema is a basic building block of identity provenance solution, but it is not sufficient just by itself.
+We also have to populate, maintain and transform the metadata.
+MidPoint is using https://wiki.evolveum.com/display/midPoint/Mapping[mapping mechanism] to populate and transform the data.
+We plan to link:../processing/model/thoughts/metadata-mapping-model/[re-use the concept] to populate and maintain the metadata as well.
+There will be metadata mappings that are applied globally in a form similar to metadata transformation policy.
+We also plan to implement a way how to configure a specific metadata handling for each mapping specifically.
+
+The details are available in following documents:
+
+* link:../processing/model/[Metadata processing model]: Description of mapping mechanism applied both to data and metadata.
 
 == User Interface
 
-MidPoint user inteface is completely schema-aware.
-Most parts of user interface are dynamically generating forms based on data definicions (schema).
+MidPoint user interface is completely schema-aware.
+Most parts of user interface are dynamically generating forms based on data definitions (schema).
 We would like to reuse this ability to display meta-data.
-The preliminary plan is to add buttons to the input fields in user interface that will display meta data.
-The meta data will be shown in generated forms that are generated according to meta-schema definitions.
+The preliminary plan is to add buttons to the input fields in user interface that will display metadata.
+The metadata will be shown in generated forms that are generated according to meta-schema definitions.
 However, we will need to evaluate whether this approach will provide acceptable user experience.
 This evaluation is one of the motivation for this project, as we expect that several iterations may be needed to get the user experience part of the system right.
+
+First simple prototype of metadata user interface was implemented early in the project.
+Goal of this prototype was to evaluate the extent of possible reuse of existing midPoint code.
+Secondary goal was to gain a basic understanding of user experience challenges of metadata.
+Feedback from that prototype partially influenced design of metadata schemas built into midPoint.
+That early feedback was the reason that we have decided to implement the GUI prototype ahead of the plan.
+The prototype was successful, but further development was postponed until Axiom code is integrated into midPoint to limit unnecessary re-write and re-engineering of prototype code.
+The plan is to resume development of user interface according to plan, right after the second milestone (M2).
+
+== Validation
+
+Last part of the project is dedicated to validation.
+There are three major areas to focus on:
+
+. Axiom and metadata schemas.
+Integration of Axiom processors into midPoint code base has to be tested and validated.
+This also provides basic validation for design of Axiom language.
+Emphasis of this area is on automated testing of backend functionality.
+We expect that there will be bugfixes, but also improvements of the code.
+It is possible that even design of Axiom language and metadata schemas will need improvements.
+
+. User interface for metadata.
+Basic user interface prototype will be expanded to a richer form in this part of the project.
+Metadata schema for built-in metadata structure will be available in this phase, therefore we could consider practical aspects of metadata presentation.
+We plan to focus on user experience and manual user interface testing for this area.
+
+. User satisfaction.
+Metadata-enabled systems are quite a novelty in identity management field.
+Users are not accustomed to work with rich and omnipresent metadata.
+Therefore it is difficult to predict expectations and reactions of users.
+We have conducted a survey that should give us some data about user expectations during milestone 2.
+However, presentable prototype was not available at that time.
+We would like to conclude the project by presenting the resulting prototype to users and gathering feedback.
+The feedback should guide further development of the provenance prototype.
+
+== Provenance and Data Protection
+
+Many data protection concepts are _orthogonal_ to the data.
+Accountability heavily relies on data provenance, which has to be recorded for every individual data value.
+Management of bases for data processing is tightly entwined with data of each individual identity.
+Data portability requires a record of data transfers and origins.
+All of that creates a new dimension in the data, dimension that _metadata_ mechanisms can provide.
+
+However, metadata and identity data provenance are just building blocks for comprehensive data protection functionality.
+Identity provenance provides some accountability features, but it is still not complete.
+The next missing part is management of _bases for data processing_.
+_Basis for data processing_ also known as _legal basis_ is one the basic concepts of data protection.
+Personal data should not be processed unless there is a _basis_ for the processing.
+Employment contract is an example of legal basis for data processing.
+As long as a person is employee of a company, the company can process reasonable set of data about that person.
+Student's relation to the school, membership in a research team and business contract are further examples of bases for data processing.
+_Consent_ is also basis for data processing, even though it has a different lifecycle than other bases.
+
+Basis for data processing is intimately related to identity data modeling and even metadata.
+Bases for processing need to be tracked for each identity individually.
+Each particular basis related to specific items and sometimes even values of a specific identity.
+Basis have their lifecycle, they may have validity dates, they are related to particular context (such as employment), and some of them (such as consent) can be revoked at any time.
+Metadata can be reused to track some information about bases, especially when basis relates to data values.
+However, a different mechanism is needed to manage high-level aspects of basis management such as their assignment, validity and revocation.
+
+MidPoint team has already experimented with management of bases for data processing before the midPrivacy initiative was foramlly established.
+The experiments shown promising results, most notably a potential to reuse midPoint _assignment_ mechanism for management of basis for data processing.
+Metadata functionality was not available at that time, therefore it was not possible to build a complete prototype.
+However, implementation of identity provenance prototype opens up this development path.
+We have even taken the liberty to link:../provenance-origin-basis/[sketch the rough design] to guide future development.
+
+Also, implementation of provenance capabilities opens interesting opportunities in the area of data portability.
+Data are always in motion and one of the primary responsibilities of identity management system is to _manage_ that motion of data.
+Identity provenance provides a record of data movements.
+However, it provides neither _control_ over the movement nor _means_ of interoperable data transfer.
+MidPoint could be extended to provide control over data transfer, using identity connectors and implementation of existing protocols to provide means of the transfer.
+Metadata, together with additional functionality such as auditing, will provide accountability of the data transfer.
+
+There are undoubtedly other data protection features that will need to be added later.
+MidPrivacy initiative was never intended to be a short one-off project.
+It is a long-term initiative aimed at implementing data protection functionality using an iterative and incremental approach.
+Identity provenance functionality provided an essential first step on a long journey towards data protection.
+
+The details are available in following documents:
+
+* link:../provenance-origin-basis/[Provenance, Origin and Basis]: Explanation how identity provenance concepts relate to other data protection features, especially management of bases for data processing.
+
+== Future Development of MidPoint and Axiom
+
+Axiom is a novel and very exciting development.
+The focus of Axiom is on fundamental concepts of data, not just data representation in a particular language.
+Axiom is a genuine game-changer for midPoint development.
+Axiom features are eliminating development limitations that held us back for almost a decade.
+
+However, Axiom is still very new and therefore unproven technology.
+This project provides partial validation of Axiom concepts.
+It is an essential validation, as the focus on metadata is validating the very novel aspects of Axiom.
+If successful, this phase of midPrivacy initiative can validate the concept of Axiom _inframodel_ and its practical usability.
+
+However, deep concepts of data modeling are not the only thing that makes a practical data modeling language.
+There are many things to consider, starting from elimination of internal inconsistencies, through feature-completeness, all the way to implementation feasibility.
+Axiom is built for people to read, therefore also readability and understandability of the language is an important aspect to consider.
+
+So far Axiom is still very young and it is only partially validated.
+It should still be considered a highly experimental technology.
+However, we have a plan how to provide stronger validation of Axiom.
+We would like to express the entire midPoint schema in Axiom.
+MidPoint is a comprehensive system and origins of midPoint schema go back more than a decade.
+If ten of thousands of lines of midPoint XSD schema can be expressed in Axiom, it can provide a significant validation of Axiom capabilities.
+Therefore that is what we plan to do in near future.
+The plan is completely replace XSD with Axiom.
+Which means that Axiom has to be developed further to include all the capabilities that midPoint schema needs.
+That is probably the point where Axiom stabilizes and we will reach Axiom 1.0 milestone.
+We do not have a specific dates yet, but it will happen eventually.
 
 == See Also
 
 * link:../identity-metadata-in-a-nutshell/[Identity Metadata in a Nutshell]: Introduction to identity metadata and metadata implementation in midPoint.
-* link:../axiom/spec/[Axiom Specification]: Specification of Axiom language that is used to model metadata in midPoint
+
 * link:../challenges/[Challenges of Data Provenance]: Documentation of challenges that we have faced during the project.
