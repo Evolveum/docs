@@ -59,6 +59,53 @@ Should each resource schema use a separate namespace?
 That is perhaps a clean way, but it may be difficult for the users.
 What we should do?
 
+=== Metadata, Deltas and Equality
+
+There are established ways how to update the data.
+There are also mechanisms for data consistency, such as pessimistic and optimistic locking.
+However, metadata complicate those things as well.
+There are cases where metadata from a new value need to be combined with existing metadata.
+There may be cases when metadata change while the data value does not.
+
+MidPoint is not relying on optimistic/pessimistic locking for data consistency.
+It cannot rely on such mechanism, as identity management system is essentially a "distributed" integration system.
+Systems that are data sources usually do not provide transaction or data consistency guarantees.
+Target systems may be even worse in this aspect.
+In addition to that, midPoint often combines values from many source systems that is distributed to many target systems.
+This could create a massively distributed transaction.
+It would be a nightmare to coordinate that.
+Such system will not work in practice.
+
+Therefore midPoint is using an alternative mechanism based on a concept of _relative changes_.
+Modifications are specified in form of additions and deletions that do not affect original value of an item.
+Such modifications are referred to as _deltas_.
+Deltas have a very nice property that they can be merged and applied in any order.
+The result will still be correct.
+This concept is very suitable for data integration and it worked for midPoint for almost a decade.
+
+However, it is difficult to extend that concept to metadata.
+If the data value does not change, we have no way how to express metadata change.
+Yet another challenge is combination of metadata from several sources.
+It looks like the ideal solution would be to apply the relativistic change model to the metadata.
+However, that creates additional dimension inside the _delta_.
+This may be a feasible solution eventually.
+But it is too complex for this (prototype) phase of the project.
+Therefore the decision was to always replace the metadata when a value is changed.
+The problem with metadata-only modifications will be solved by sending a "redundant" modification of existing value to the same value, just to convey metadata modification.
+The "always replace" approach is opening up some possibility od metadata inconsistencies.
+However, chances of that happening are very small and the impact is almost negligible.
+Even if metadata get corrupted, midPoint reconciliation mechanism could be used to correct them.
+
+Yet another complication is related to concept of data _equality_.
+Let's have two values that both contain string `foo`, but they have different metadata.
+Are those values the same or are they different?
+It looks like the answer to this question varies according to situation.
+Such values are the same when we are concerned just with the data.
+For example presenting two values of full name to the user will be very confusing.
+But the values are different when we care about the metadata.
+For example midPoint consolidation process has to distinguish between them in order to correctly process the metadata.
+Overall, seeming simple concept of data _equality_ is in fact very complex and multi-faceted problem.
+
 == Metadata Mapping
 
 Integrating link:../processing/model/thoughts/metadata-mapping-model/[meta-data mappings] in midPoint proven to be more challenging than we have expected.
