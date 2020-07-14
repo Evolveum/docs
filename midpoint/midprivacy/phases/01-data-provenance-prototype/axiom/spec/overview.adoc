@@ -13,7 +13,7 @@ Models can be extended, allowing one model to add items to the extension point d
 Axiom data models can describe constraints to be applied to the data.
 
 Axiom defines a set of built-in types and has a type mechanism through which additional types may be defined.
-Derived types can restrict their base type's set of valid values using mechanisms like range or pattern restrictions and extend their base type by addition of additional items in case of complex types.
+Derived types can restrict their base type's set of valid values using mechanisms like range or pattern restrictions and extend their base type by addition of additional items in case of structured types.
 
 Axiom is a self-descriptive language.
 Axiom modeling language could be also modeled using Axiom.
@@ -49,51 +49,110 @@ It is recommended to use _kebab-case_ for model names.
 
 Axiom defines basic concepts for data modeling - items, values and data types.
 
-TODO: further explain items and values
 
-TODO: composition: type reuse from other models
+=== Item
 
-TODO: insensitive to item ordering
+Item is named collection of values. There are three basic types of items in Axiom:
 
-== Built-in Types
+Identifier-less item:: Item which does not have value identifiers specified.
+Map item:: Item which has value identifiers specified, and values could be retrieved by their identifier.
+Substitution item:: Item with different name and different value type which subsitutes other less-specific item.
 
-Axiom provides following built-in simple types:
+NOTE: Value ordering is not defined for item. Use explicitly modeled ordering (eg. order item) for values, which requires order.
 
-.Built-in types from XSD
-boolean,
-base64,
-byte,
-date,
-dateTime,
-dateTimeStamp,
-decimal,
-double,
-duration,
-float,
-int,
-integer,
-language,
-long,
-negativeInteger,
-nonNegativeInteger,
-nonPositiveInteger,
-normalizedString,
-positiveInteger,
-precisionDecimal,
-QName,
-short,
-string,
-time,
-token,
-unsignedByte,
-unsignedInt,
-unsignedLong,
-unignedShort,
-yearMonthDuration,
+==== Item Name
 
-Axiom-specific built-in types:
+Each item (in actual data or in model) has name. This name can be local (to the value type)
+or fully qualified name (if item is augmented into type).
 
-AxiomIdentifier:: Represent item or type identifier
+
+
+Item names (local) by conventions use lower camel case (as is common for elements in XML or keys in JSON/YAML).
+
+
+==== Item Defitions
+
+Axiom models defines structure, behaviour and restrictions imposed on items by item definitions.
+Item definitions are part of type definitions for nested data, or as root item definitions for models.
+
+Item definitions in types could be:
+
+ * declared in type - <<Item Declaration>>
+ * inherited from supertype - <<Item Inheritance>>
+ * overriden by subtype - <<Item Override>>
+ * added by augmentation - <<Augmentation>>
+ * substituted by more specialized item - <<Substitution>>
+
+
+=== Type
+
+Type is specification of value structure (for structured types) or possible set of values (for simple types).
+
+==== Simple type
+A type, which has simple value (eg. integer, string) and does not have nested items.
+
+Simple type must be subtyped from one of built-in types.
+
+An instance of simple type is simple unstructured value.
+
+An simple type may be:
+
+ * derived from super type <<Simple Type Subtyping>>
+ ** restricting possible value set
+ ** expanding possible value set
+ ** adding semantic information
+
+==== Structured type
+
+Type, which has structured value - does allows nested items and contains their definition.
+An instance of structured type is structured value, which consists of items.
+
+A structured type could be:
+* derived - type is derived from other structured type by <<Structured Type Subtyping>>
+* augmented - type definition is expanded by external model <<Augmentation>>
+
+=== Value
+
+Actual data value, which has its type and represents instance of that type.
+Value must conform to definition of the type.
+
+
+
+=== Structured Value
+
+Instance of structured type. Consists of items and their values, which conforms to item definitions present in its type definition.
+
+NOTE:: Item ordering is undefined and may not be preserved.
+
+
+== Built-in Simple Types
+
+NOTE: This list represents set of current built-in types, in following versions of draft
+additional base types will be introduced.
+
+Axiom provides following built-in *simple types*:
+
+String::
+  Character sequence. Equivalent XSD type is `string`
+Boolean::
+  Boolean value. Equivalent XSD type is `boolean`
+Uri::
+  An URI (IRI).
+Number::
+  Number. This type is abstract and is supertype for all number types.
+Integer::
+  Whole number. Equivalent type is `integer`.
+Binary::
+  Variable length binary data. In text format data are serialized using Base64 encoding.
+  Equivalent XSD type is
+DateTime::
+  Time-zone qualified date time. Type is serialized as ISO8601 date time with
+  time zone offset. Equivalent XSD type is `dateTimeStamp`.
+QName::
+  Namespace qualified name - an URI identifying Axiom concept such as item or type.
+  This type adds semantic meaning to URI and allows for additional serialization
+  format as _prefixed name_.
+
 
 == Model Imports
 
@@ -146,11 +205,44 @@ As a rule of thumb it is strongly recommended to avoid circular dependencies whe
 
 == Subtyping
 
-Axiom allows subtyping (type derivation) for both simple and complex types.
+Axiom allows subtyping (type derivation) for both simple and structured types.
 Derived simple type may limit possible value set by imposing restrictions.
-Derived complex type may introduce additional items (properties, container, object references).
+Derived structured type may introduce additional items (properties, container, object references).
 
-Complex type subtyping is extending the set of items that are defined for the type:
+=== Simple Type Subtyping
+
+New simple types could be created by using <<Built-in Simple Types,built-in types>> as super type.
+
+.Adding semantic simple type
+[source, axiom]
+----
+type TypeName {
+  supertype Uri;
+  documentation """
+    An URI representing type name qualified by model URI and type local name.
+  """;
+}
+----
+
+Simple type subtyping is useful for adding additional semantic layer to types and
+to modifying possible value set by restricting or extending it.
+
+NOTE: Current value restriction / extension concepts are still work-in-progress and will de defined in later revision of draft.
+
+.Extending value set
+----
+// Note This is proposed syntax only
+type OccurenceLimit {
+  union Integer;
+  union Enum {
+    enum unbounded;
+  }
+}
+----
+
+=== Structured Type Subtyping
+
+Structured type subtyping is extending the set of items that are defined for the type:
 
 [source, axiom]
 ----
@@ -180,11 +272,12 @@ user:
     username: foo
 ----
 
-.Subtyping and inheritance
-TIP: Subtyping is often confused with inheritance.
+==== Subtyping and inheritance
+
+Subtyping is often confused with inheritance.
 Axiom is a data modeling language and not a programming language.
 Therefore it is quite obvious that Axiom is focusing on subtyping instead of inheritance.
-However, there is also a bit of inheritance involved in complex type subtyping.
+However, there is also a bit of inheritance involved in structured type subtyping.
 Subtype automatically "inherits" definitions of all items of a supertype.
 This is a natural thing to do, as subtype has to satisfy the contract of the supertype and the common method how to do that is to reuse supertype items.
 However, this is only a default behavior.
@@ -196,7 +289,6 @@ Whenever supertype changes, the changes may affect subtype in a very severe way.
 The use of subtyping is recommended only in cases that there is a strong coordination of evolution of supertype and subtype, ideally when they are part of the same model.
 
 CAUTION: Simple type subtyping is planned for the future, but it is not supported yet.
-// TODO: more on simple type subtyping
 
 == Mixins
 
@@ -232,7 +324,7 @@ object:
 
 Mixins are used when a set of items is repeated in may data types.
 It would be possible to just copy definitions of such items.
-But that would not be really readable and maintainable, especially if the items have complex type definitions, documentation or other annotations.
+But that would not be really readable and maintainable, especially if the items have structured type definitions, documentation or other annotations.
 Mixins make it all easier, bundling all the complexity in a single definition and then allowing its reuse.
 There is also a benefit for platforms that are generating code from the models, as mixins can be translated to native programming language concepts (e.g. Java interfaces).
 
