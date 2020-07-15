@@ -20,6 +20,19 @@ It was also difficult to align provenance with other planned data protection fea
 
 Axiom was motivated by a lot of *challenges with XSD*, documented in https://evolveum.com/a-road-to-axiom/[blog post].
 
+=== Theory, Concepts and Terminology
+
+Axiom is a new language.
+It was inspired by several of its predecessors (XSD, JSON Schema, even SCIM Schema).
+But each of the existing languages has its problems, even problems going all the way down to conceptual level.
+Therefore we could not simple take existing concepts, we had to invent a completely new way how to look at data (and metadata) modeling.
+This is related to terminology.
+We would prefer to use existing terminology to make understanding of Axiom easier.
+But the existing terminology is often quite convoluted, no precise and it is using a lot of overloaded terms.
+Therefore we had to adjust the terminology as well and even invent a completely new terms (such as _inframodel_).
+
+See link:../axiom/concepts/[Axiom Concepts] and link:../axiom/spec/terminology/[Axiom Terminology] for more details.
+
 === Namespaces
 
 *Namespaces* are a big nuisance for users, they complicate the modelling.
@@ -34,7 +47,12 @@ E.g. we do not need a namespace for every item (element), as we can compute that
 But we need namespaces (or _context_) for top-level element, to reliably identify the model.
 We also need namespaces for augmentation, as we want to make sure that the models do not conflict.
 
-See also link:../axiom/namespaces/[Axiom Namespaces]
+Namespaces should also be presented in item paths, qualified names and possibly other "microstructures".
+Using full URIs can be prohibitive here, it would be much better to use prefixes.
+But prefixes are problematic.
+Solution: make prefixes fixed, defined by the schema.
+
+More details: link:../axiom/spec/namespaces/[Axiom Namespaces]
 
 === Model Identification
 
@@ -51,6 +69,8 @@ Question: what about model names? Do we need them? How to use them?
 
 Answer: Name are useful for diagnostics. They also make a nice default prefix.
 
+See link:../axiom/spec/namespaces/[Axiom Namespace] for more details.
+
 === MidPoint Resource Schema and Shadow Attributes
 
 Each midPoint resource is bringing its own schema.
@@ -58,6 +78,56 @@ How to use it cleanly?
 Should each resource schema use a separate namespace?
 That is perhaps a clean way, but it may be difficult for the users.
 What we should do?
+
+This issue is not strictly related to metadata or provenance, therefore we are leaving the solution for later.
+The rough idea: we need concept of _dynamic_ type that will be determined in runtime.
+
+=== Metadata, Deltas and Equality
+
+There are established ways how to update the data.
+There are also mechanisms for data consistency, such as pessimistic and optimistic locking.
+However, metadata complicate those things as well.
+There are cases where metadata from a new value need to be combined with existing metadata.
+There may be cases when metadata change while the data value does not.
+
+MidPoint is not relying on optimistic/pessimistic locking for data consistency.
+It cannot rely on such mechanism, as identity management system is essentially a "distributed" integration system.
+Systems that are data sources usually do not provide transaction or data consistency guarantees.
+Target systems may be even worse in this aspect.
+In addition to that, midPoint often combines values from many source systems that is distributed to many target systems.
+This could create a massively distributed transaction.
+It would be a nightmare to coordinate that.
+Such system will not work in practice.
+
+Therefore midPoint is using an alternative mechanism based on a concept of _relative changes_.
+Modifications are specified in form of additions and deletions that do not affect original value of an item.
+Such modifications are referred to as _deltas_.
+Deltas have a very nice property that they can be merged and applied in any order.
+The result will still be correct.
+This concept is very suitable for data integration and it worked for midPoint for almost a decade.
+
+However, it is difficult to extend that concept to metadata.
+If the data value does not change, we have no way how to express metadata change.
+Yet another challenge is combination of metadata from several sources.
+It looks like the ideal solution would be to apply the relativistic change model to the metadata.
+However, that creates additional dimension inside the _delta_.
+This may be a feasible solution eventually.
+But it is too complex for this (prototype) phase of the project.
+Therefore the decision was to always replace the metadata when a value is changed.
+The problem with metadata-only modifications will be solved by sending a "redundant" modification of existing value to the same value, just to convey metadata modification.
+The "always replace" approach is opening up some possibility od metadata inconsistencies.
+However, chances of that happening are very small and the impact is almost negligible.
+Even if metadata get corrupted, midPoint reconciliation mechanism could be used to correct them.
+
+Yet another complication is related to concept of data _equality_.
+Let's have two values that both contain string `foo`, but they have different metadata.
+Are those values the same or are they different?
+It looks like the answer to this question varies according to situation.
+Such values are the same when we are concerned just with the data.
+For example presenting two values of full name to the user will be very confusing.
+But the values are different when we care about the metadata.
+For example midPoint consolidation process has to distinguish between them in order to correctly process the metadata.
+Overall, seeming simple concept of data _equality_ is in fact very complex and multi-faceted problem.
 
 == Metadata Mapping
 
@@ -98,34 +168,3 @@ When to display meta-data at all?
 Provenance data can be complex and they are maintained for every value.
 We certainly cannot display them all the time, this would make the user interface very complicated.
 
-== Open Questions
-
-Terminology and keywords: extension/extends/uses or augmentation/inherit/use? Answer: augmentation/subtyping/inclusion.
-
-minOccurs/maxOccurs or required/multivalue?
-
-Three conceptual layers:
-
-* Axiom: abstract data modeling, data types, items, schema versioning, identifier, path(?), metadata
-
-* Prism: object, basic object structure (oid,name), containers (with identifiers), properties, object referecences, deltas, query language, polystring, expressions, item display properties?
-
-* MidPoint: IDM-specific data structures, relation, orgstruct (also in query), special expression evaluators
-
-The question of object identifier: UUID? URI? Mapping between UUID and URI?
-UUID is better for local use.
-But we want to be Web/REST-friendly.
-URI/URL will be needed for that.
-
-Is the identifier concept right? Especially the `space` thing, it looks like an implementation detail.
-Should be use something more abstract?
-
-Path and namespaces?
-
-== TODOs
-
-* Axiom item/container/property theory, definition of AxiomTypeReference and primitive types
-
-* Are primitive types (e.g. string) extendable? Can we inhering from them? Can we augment them?
-
-* Enumerations

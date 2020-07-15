@@ -1,7 +1,5 @@
 = Identity Metadata In A Nutshell
 
-NOTE: This document is still *work in progress*.
-
 Metadata are both old and new concept in identity management.
 It is an old concept as identity management systems were always dealing with some identity matadata, although the metadata were usually very simple.
 Metadata is also a new concept that just being explored in depth quite recently.
@@ -70,9 +68,9 @@ Such traces are also data.
 Or, more precisely, they are _data about data_.
 That is what we call _metadata_.
 
-Let's supposed that our scientific institute has a research project that is open to participation from a broad scientific community.
+Let's suppose that our scientific institute has a research project that is open to participation from a broad scientific community.
 We want to welcome new researcher `Dr. Jane Doe` in our team.
-We need to set up an accounts for her, allow remote access to scientific equipment, grant access to data sets and so on.
+We need to set up accounts for her, allow remote access to scientific equipment, grant access to data sets and so on.
 Which means that we will maintain copies of some of Jane's personal data.
 But we want to know more than that this account belongs to `Dr. Jane Doe`.
 We want to know:
@@ -138,7 +136,7 @@ But in case that we keep proper metadata, answer to the most difficult parts of 
 We know where the data came from, we know how they were transformed and processed, we know whether we can process them.
 
 Some metadata can be handled indirectly.
-For example midPoint records meta data about _assignment_, which represents user's relation to organizations and roles.
+For example midPoint records metadata about _assignment_, which represents user's relation to organizations and roles.
 This mechanism was also used to record relations to legal basis of data processing, such as contracts, agreements and consents.
 Such relations can be used as a partial replacement for full metadata.
 It works to some degree, but there are inherent limitations.
@@ -246,10 +244,10 @@ Let's consider that `title` can have multiple values:
 This is still quite a simple example - three data items, three metadata items.
 Typical data models have hundreds of data items and tens of metadata items.
 Metadata are _orthogonal_ to data, therefore they add a whole new dimension to data model.
-The resulting data structure is effectively an cartesian product of data and metadata models.
+The resulting data structure is effectively a cartesian product of data and metadata models.
 Which makes it huge and complex.
 This is clearly beyond the capabilities of any conventional schema language.
-We do not recommend to try to model real scenarios in JSON Schema - for the sake of your sanity.
+We do not recommend trying to model real scenarios in JSON Schema - for the sake of your sanity.
 
 == Bad News For Schema-Based Systems
 
@@ -281,14 +279,14 @@ Where XSD breaks, JSON Schema is going to break as well.
 
 We are no big fans of re-invention of a wheel.
 We can easily prove that as we have lived with XSD for almost a decade and we have never switched to JSON Schema.
-But no link:../existing-languages-analysis/[existing schema language] that we could find seems to be suitable for our needs.
+But no link:../axiom/existing-languages-analysis/[existing schema language] that we could find seems to be suitable for our needs.
 This time we just need to invent something new.
 We have decided to call it _Axiom_.
 
 == Axiom
 
 Axiom is a data modeling language.
-Primary goal of Axiom is to model data in a way that is independent from any specific representation format, such as JSON or XML.
+Primary goal of Axiom is to model data in a way that is independent of any specific representation format, such as JSON or XML.
 That makes Axiom quite different from JSON Schema and XSD.
 But there is yet another fundamental difference.
 Axiom has a concept of _inframodel_, which means that it allows to change the fundamental infrastructure of data.
@@ -326,10 +324,10 @@ This may look simple, maybe even too simple.
 But creating Axiom was a significant amount of work.
 We could not simply copy and reuse concepts from XSD the same way as JSON Schema did.
 That would not work for metadata.
-We had to build up a whole new link:axiom/concepts/[conceptual model].
+We had to build up a whole new link:../axiom/concepts/[conceptual model].
 On the other hand we still need data compatibility with JSON and XML.
 It was not easy to fit all the concepts together to avoid hacks and contradictions.
-But the effort was successful and link:axiom/[Axiom 0.1] was born.
+But the effort was successful and link:../axiom/spec/[Axiom 0.1] was born.
 
 Axiom is still very experimental, it is still in development.
 And it is expected that it will be in development for quite some time until it can be proclaimed to be _stable_.
@@ -564,8 +562,8 @@ Specification of source resource for the data may be sufficient provenance infor
 _Origin_ is one aspect of data provenance.
 It specifies where the data came from.
 However, mere availability of the data does not mean we can legally process the data.
-
-TODO
+Therefore origin is related to other data protection concepts, most notable concept of _basis for data processing_.
+But more on that later.
 
 == Extensible Metadata
 
@@ -635,7 +633,69 @@ For example, we always want to set confidentiality label of any value to the hig
 It does not matter whether we are computing `fullName`, `emailAddress` or any other item, we do not care which items are used as an input or what expression was used to create the output.
 We will always determine confidentiality labels using the same algorithm.
 
-TODO: example of metadata mappings
+The usual place where custom metadata mappings are configured is midPoint object template:
+
+[source,json]
+----
+{
+  "objectTemplate" : {
+    ... data mappings will be here ...
+    "meta" : {
+      "item" : {
+        "ref" : "extension/sensitivity",
+        "mapping" : {
+          "expression" : { ... }
+        }
+      }
+    },
+    ...
+  }
+}
+----
+
+Object template applies to all midPoint objects that it is configured for.
+Therefore also this metadata mapping will apply to all such objects.
+The mapping itself applies to `sensitivity` metadata item.
+Mapping expression will be applied whenever there is need to pass `sensitivity` metadata from one value to another.
+
+Policy-based metadata mappings such as the example above are likely to handle almost all cases of metadata transformation.
+However, there may be exceptions.
+Therefore there is a way how to specify metadata mapping for each particular data mapping:
+
+[source,json]
+----
+{
+  "objectTemplate" : {
+    ...
+    "mapping" : {
+      "source" : [
+        {
+          "path" : "givenName"
+        },
+        {
+          "path" : "familyName"
+        }
+      ],
+      "expression" : {
+        ... data mapping expression will be here ...
+      },
+      "target" : {
+        "path" : "fullName"
+      },
+      "metadataMapping" : {
+        "source" : {
+          "path" : "extension/loa"
+        },
+        "expression" : { ... medata mapping expression will be here ... }
+        "target" : {
+          "path" : "extension/loa"
+        }
+      }
+    },
+    ...
+  }
+}
+----
 
 == Using Metadata
 
@@ -644,12 +704,52 @@ Metadata are here to be _used_.
 It is still not a common practice to share metadata between systems.
 Almost no target system has an option to provision data accompanied by metadata.
 Therefore the primary use of metadata is to provide information to the user.
-At least for now.
+At least for the time being.
 
+Displaying metadata is still very important feature.
+Metadata can support decision-making, they are foundation of accountability, and the use of metadata in troubleshooting is almost impossible to overstate.
+Therefore even "simple" recording and displaying of metadata can bring significant value.
 
-TODO: GUI to display metadata: information for decision making, diagnostics
+MidPoint stores metadata, therefore midPoint can display metadata in its user interface.
+MidPoint is a schema-based system, behavior of midPoint is controlled by data models.
+Thank to Axiom we have a model for metadata.
+Therefore it is quite easy to display metadata in midPoint user interface, as it is demonstrated by a following prototype:
 
-TODO: some metadata are persistent, some are transient
+image::screenshot-m1-transformation-metadata.png[Metadata screenshot]
+
+However, one thing is to display metadata, quite a different thing is to show them in a user-friendly and readable way.
+The screenshot above shows an early prototype that received next to no user experience attention.
+We plan to improve the user interface during next steps of the project.
+
+All metadata are not created equal.
+Some metadata are meant to be remembered.
+They are _persistent_.
+They describe aspects that do not change frequently and are worth storing.
+Such as identity provenance metadata.
+Then there are metadata that are ephemeral.
+It is nice to compute them, we would like to show them, but we do not want to store them.
+They are _transient_.
+They do not provide long-term value.
+Or they are just too big to be stored.
+Such as troubleshooting metadata.
+MidPoint has to support both metadata regimes.
+
+[source,json]
+----
+{
+  "objectTemplate" : {
+    ...
+    "meta" : {
+      "item" : {
+        "ref" : "extension/sensitivity",
+        "persistence" : "persistent"
+        }
+      }
+    },
+    ...
+  }
+}
+----
 
 == Future Of MidPoint Metadata
 
@@ -727,6 +827,6 @@ But we hope that XSD will disappear from midPoint eventually.
 
 == Additional Information
 
-* link:/midpoint/midprivacy[MidPrivacy initiative]
+* link:/midpoint/midprivacy[MidPrivacy initiative home]
 
-* link:axiom/[Axiom specification]
+* link:../axiom/spec/[Axiom specification]
