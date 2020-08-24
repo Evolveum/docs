@@ -1,8 +1,6 @@
 = Metadata Multiplicity Problem
 :page-toc: top
 
-WARNING: Work in progress
-
 link:../identity-metadata-in-a-nutshell/[Metadata] are data about data.
 Metadata describe where the data came from, when they were created, how they were moved and transfromed and so on.
 Even a simple data item such as person's full name can have a very rich set of metadata.
@@ -356,15 +354,178 @@ Identity management systems will probably lead the way, as they combine data fro
 
 MidPoint is a leading open source identity management system.
 It is a comprehensive system that synchronizes, moves, combines and transforms the data.
+MidPoint has ambition to implement strong data protection features, an ambition that is materialized in link:/midpoint/midprivacy/[midPrivacy initiative].
+Metadata and especially provenance metadata are a link:../provenance-origin-basis/[basic building stone of data protection features].
+Therefore we have paid a lot of attention to metadata in midPoint.
+Metadata schemas that midPoint maintains are built for real-world operations in identity management and data protection.
 
-TODO: Working solution: midPoint
+MidPoint metadata schemas are based on principles outlined above.
+However, midPoint went one step further.
+Entire midPoint metadata are multi-value.
+There is one complete value for all the metadata structures for each individual data source.
+In midPoint parlance, we use term _yield_ to refer to each such source.
+_Yield_ may correspond to external data source, such as HR database, remote identity provider or manual user entry.
+But _yield_ may also represent internal source, such as mapping that combines data from serveral sources or a value generator.
 
-TODO: Concept of yield for all metadata types
-TODO: this thinking applied to all metadata, not just provenance.
-TODO: all metadata combined to yields, provenance part is used to evaluate equivalence
-TODO: acquisition
+Following example shows `fullName` user property with two yields in a very simplified form:
 
-TODO: UX challenhges
+[source,json]
+----
+{
+  "user" : {
+    ...
+    "fullName" : {
+      "@value" : "Larry Long",
+      "@metadata" : [
+        {
+          "provenance" : {
+            # data are combination of HR and user entry
+          }
+        },
+        {
+          "provenance": {
+            # data came from The Institute
+          }
+        }
+      }
+    },
+    ...
+  }
+}
+----
+
+Each _yield_ may contain a complex data structure that describes fine details about the value.
+For example, following data structure may provide details how and when particular data were transformed:
+
+[source,json]
+----
+{
+  "user" : {
+    ...
+    "fullName" : {
+      "@value" : "Larry Long",
+      "@metadata" : [
+        {
+          "provenance" : {
+            # data are combination of HR and user entry
+          },
+          "transformation" : {
+            # data produced by mapping in object template
+            # description of mapping inputs and output
+          }
+        },
+        {
+          "provenance": {
+            # data came from The Institute
+          },
+          "transformation" : {
+            # data produced by inbound mapping in FedXYZ resource
+            # description of mapping inputs and output
+          }
+        }
+      }
+    },
+    ...
+  }
+}
+----
+
+_Yield_ may not be entirely easy or intuitive to understand, but it is very powerful and elegant concept.
+
+While _yield_ may contain a lot of metadata structures that describe exhaustive details about data, _provenance_ metadata still have a prime position among all other details.
+Provenance metadata describe data origin on a conceptual level.
+MidPoint is using provenance metadata to find the right yield to work with, therefore provenance metadata are important for correct processing of all metadata structures.
+However, provenance metadata are also used to specify logical origin of the data.
+This is crucial for metadata presentation as it is this logical origin that makes sense to people inspecting the data.
+
+However, data _origins_ are more complex than it may seem.
+Identity management systems usually consider source system (resource) as data origin.
+This can be "HR system" or "corporate directory".
+However, one system (resource) can contain data that ultimately came from other systems.
+For example "corporate directory" may contain customer data that were synchronized from CRM system.
+But there may also be sales agent data that were entered manually by system administrator.
+Exact specification of what is an _origin_ of data is very likely to vary from deployment to deployment.
+Therefore midPoint allows to use almost any midPoint object to describe data _origin_.
+This may range from an abstract notion of _manual user entry_ to a very precise identification of _application_ or _organization_ that produced the data.
+
+However, even the concept of _origin_ is not enough to describe data provenance.
+Let us go back to the `Larry Long` example, where `Larry` is entered manually by a user, while `Long` is taken from HR database.
+This particular value is a combination of data from two origins.
+Strictly speaking, such a combination forms a (virtual) origin of its own.
+But such a strict interpretation would be difficult to manage and even more difficult to understand.
+Luckily, users are usually not interested in a fact that this value was created by a mapping in user template.
+The users want to know that this value was created by combining data entered by user with data from HR.
+Users are interested in the ultimate sources of the data.
+We use the term _acquisition_ to refer to such source, accompanied by other data, such as timestamp of data acquisition.
+
+Now, we have all the pieces to complete the puzzle.
+Yield, origin and acquisition can be combined together:
+
+[source,json]
+----
+{
+  "user" : {
+    ...
+    "fullName" : {
+      "@value" : "Larry Long",
+      "@metadata" : [
+        { # first yield
+          "provenance" : {
+            "acquisition" : [
+              {
+                "timestamp" : "2020-06-22T10:52:03Z",
+                "originRef" : {
+                  # "User entry" origin. Indicates data entered by user.
+                  "oid" : "d6064cb8-b563-11ea-aabf-cb0e70300dd1",
+                  "type" : "ServiceType"
+                }
+              },
+              {
+                "timestamp" : "2020-03-06T23:05:42Z",
+                "originRef" : {
+                  # "HR" origin. Indicates data taken from HR Database.
+                  "oid" : "006033de-e61a-11ea-a755-d789f09a46f5",
+                  "type" : "ServiceType"
+                }
+              }
+
+            ]
+          }
+        },
+        { # second yield
+          "provenance": {
+            "acquisition" : [
+              {
+                "timestamp" : "2020-08-17T14:45:12Z",
+                "originRef" : {
+                  # "The Institute" organization
+                  "oid" : "3e8256d8-e61a-11ea-b24e-432cf1451aae",
+                  "type" : "OrgType"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    ...
+  }
+}
+----
+
+This metadata structure is still simplified.
+Real-world metadata would contain identification of _resource_ and _channel_ in acquisition data structures.
+There will be _storage_ metadata and there may be _transformation_ metadata.
+But this example gives general overview of how provenance metadata work in midPoint.
+
+== User Experience Challenge
+
+The concepts of multi-valued metadata, yields, acquisitions and origins seems to be logical, elegant and practical.
+However, they are far from being intuitive.
+This makes presentation of provenance information to users a huge challenge.
+
+Metadata presentation code in midPoint user interface went through several design and implementation iterations during the midPrivacy initiative.
+Despite that, the user interface is still not ideal and it would certainly benefit from usability improvements.
 
 == See Also
 
