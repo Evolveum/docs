@@ -113,30 +113,146 @@ TODO: demos
 
 == Discoveries and Challenges
 
-TODO: Progress on the prototype was not entirely smooth. There were some interesting and surprising discoveries.
-
-=== Metadata Multiplicity
-
-See link:../metadata-multiplicity-problem/[Metadata Multiplicity Problem] for more details.
+Progress on the prototype was not entirely smooth.
+Which was mostly expected due to the exploratory nature of this project.
+However, the difficulties during project execution brought some interesting and surprising discoveries.
 
 === Data Equality Problem
 
-TODO: equality problem: when to consider value to be equal? Same metadata? How much same?
+Data equality is relatively simple matter.
+Strings `John Doe` and `John Doe` are clearly the same.
+There are some issues such as case sensitivity and canonization, but overall, it is not very complicated.
 
-=== Metadata User Experience
+However, metadata significantly complicate the equality problem.
+Should `John Doe` and `John Doe` be considered equal, even if such values have different metadata?
+There seems to be no clear answer here.
+Obviously, we want to consider the values to be equal even if the metadata differ, unless the metadata differ too much.
+But how much is too much?
+We have not found any theoretical data on this issue, therefore we have experimented with this problem from a practical side.
+MidPoint has a built-in mechanism for value _consolidation_.
+The consolidation, simply speaking, puts together values that are considered to be equal - or similar enough.
+The result is an authoritative value that has to be provisioned or deprovisioned (or rather a _delta_).
+The consolidation algorithm was originally used to merge values produced by midPoint _mappings_.
+In midPoint 4.2 we have added metadata to the mix and made the consolidation process metadata-aware.
+This moved proved to be much more complex than expected, but it resulted in a lot of "experimental data" and experiences.
+
+It looks like that _provenance_ metadata play a crucial role in value equality evaluation.
+We made our algorithms work by relying on the provenance metadata when comparing values.
+If provenance metadata match, then we assume that the value was produced by the same source and it is considered to be equal.
+If provenance metadata do not match, then we consider the values to be different.
+Now, there is still an issue what provenance metadata _match_ means.
+We have not required complete equality of the provenance metadata and we have ignored differences in some fields, such as timestamps.
+This approach seems to work as a general rule.
+
+However, this leads to an interesting situation: data values are equal, but metadata do not match.
+We cannot simply eliminate one of the values, as they technically are not the same.
+Yet we cannot keep the both as the data part is the same.
+This problem lead to the discovery of metadata multiplicity and to the design of the concept of _yield_.
+
+=== Metadata Multiplicity
+
+One of the least expected discoveries was metadata multiplicity.
+It looks like metadata are inherently multi-valued, as a single data value may come from several places.
+
+See link:../metadata-multiplicity-problem/[Metadata Multiplicity Problem] for detailed explanation of the issue.
+
+We have not suspected this issues at the beginning of the project.
+There was nothing in the initial research that would suggest this kind of issues.
+We have observed first signs of this issue approximately in the middle of the project, but at that time we have thought that the issues is limited to _provenance_ metadata.
+It was only quite late in the project that we have realized that this multiplicity is an inherent property of all metadata.
+We were already in the validation phase of the project.
+However, we have decided that this is a significant discovery and that we have to adapt our data structures and algorithms, otherwise the validation phase would be much less meaningful.
+We have invested our own funds to support this effort.
+Improvements to prototype code worked well.
+There are still some link:../future-work/[remaining issues] and inspiration for future work, but the prototype functions acceptably well.
+
+Yet, the metadata multiplicity, the concept of _yields_ and its relation to data protection is perhaps the most surprising discoveries in this project.
 
 === Data Protection
 
-TODO: intimate relationship with data protection features
+It is perhaps an intuitive understanding that metadata, and especially _provenance_ metadata, are related to data protection.
+However, the depth of this relationship that we have discovered during this project came as surprise nevertheless.
 
-TODO: overlap to data portability (DAPSI?)
+MidPrivacy initiative is a long-term initiative to implement data protection and privacy features in midPoint.
+Also, in midPoint, we have a tradition to design data structures and mechanism in such a way that we are looking ahead to quite a long future.
+Therefore we took the opportunity to validate our provenance metadata schema using a "thought experiment".
+We tried to create a rough design for link:../provenance-origin-basis/[interaction of provenance metadata and data protection features].
+
+_Basis for data processing_ is one of the fundamental concepts of data protection.
+We have experimented with the concept of _basis_ in initial phase of midPrivacy initiative (phase 0).
+The results were promising.
+Unfortunately, we were not able to secure funding for further experiments.
+Despite the limited resources, we were able to gain some insights how the concept of _basis_ can work in identity management and data protection systems.
+Therefore, we have tried to explore how provenance metadata relate to the concept of _basis for data processing_.
+
+Even though it may seem obvious in the hindsight, we have found that there is a very deep relation between data _provenance_ and the _basis for data processing_.
+In fact, it almost looks like the _basis_ is part of data provenance information.
+
+Most data protection principles mandate, that the data can be processed only if there is a valid _basis_ for the processing.
+The data are acquired from the source for a particular reason, and that reason forms _basis_ form the processing.
+The basis seems to be integral part of the provenance information, as the data cannot be processed for any other reasons and for any other purpose.
+If there is a desire to process data for a different purpose, the data need to be _re-acquired_ -
+even data values are the same and the data originate from the same source as the data that we already have.
+For example, the re-acquisition may take form of securing additional consent from the user.
+The re-acquisition "unlocks" the data to be used for additional purpose.
+
+The situation may be even more complex.
+When we have a _basis_ to process person's name, we can legally process the value `Jane Smith`.
+And when Jane gets married, we can probably go on and update that value to `Jane Brown` and still do that legally.
+The _basis_ applies to data _item_ (person's name), not to a particular _value_ of the item (`Jane Smith`).
+This is relatively simple case.
+We have focused on this case during the initial phase of midPrivacy initiative.
+We have used concept of midPoint _assignment_ to represent the _basis for data processing_.
+
+However, there is a different case.
+There are multi-valued items that combine information from several sources.
+_Affiliation_ is a good example of this case.
+Each value if the _affiliation_ data item may originate from a different source.
+Different _bases_ for processing may apply to every individual value.
+Therefore we have to record the _basis_ in the value metadata.
+An _assignment_ may still be needed to represent the _bases_ (e.g. scope of the consent, duration, etc.).
+Assignment is likely to be needed to make sure that the value is properly maintained, e.g. in case that the organization is renamed.
+However, the _affiliation_ item is likely to combine values referenced by several _assignments_.
+It would not be feasible to distinguish the values without referencing the _basis_ in the value metadata (directly or indirectly).
+
+Once again, this brings us back to the concept of _yield_.
+There may be several _bases for data processing_ that apply to a single value.
+We cannot "flatten" then, we have to manage each _basis_ individually as they may have independent lifecycle.
+The obvious solution is to record the _basis_ in _yield_, and maintain separate _yield_ for each _basis_.
+An elegant solution would be to reference the _basis_ in _provenance_ metadata, which would make management of overlapping _bases_ quite straightforward.
+
+See link:../provenance-origin-basis/[Provenance, Origin and Basis] for a more detailed explanation of the concepts.
+
+=== Relation To Data Portability
+
+Data provenance has an obvious and significant overlap to data portability.
+However, we have not dealt with data portability specifically.
+Our exploration of data provenance was limited to the "scenery" as it was seen by midPoint.
+We have considered the systems that are directly connected to midPoint, but we haven't explored any further.
+
+We have prepared a proposal to NGI Data Portability and Services Incubator (DAPSI), with an intent to follow-up on our work with metadata.
+Unfortunately, our proposal was not selected.
+We hope that we will have better success in securing funding in the future, as our work suggests that there may be interesting opportunities for exploration in data portability area.
+
+=== Metadata User Experience
+
+TODO
+
+=== Other Challenges And Inspiration For Future Work
+
+TODO
+link:../challenges/[Challenges]
+link:../future-work/[Future Work]
 
 == Side Effects
 
 TODO: link:../identity-metadata-in-a-nutshell/[Metadata In A Nutshell] as an itroduction to metadata
+
+link:../metadata-multiplicity-problem/[Metadata Multiplicity Problem]
 
 == See Also
 
 * link:../identity-metadata-in-a-nutshell/[Metadata In A Nutshell]
 * link:../future-work/[Future Work]
 * link:../metadata-multiplicity-problem/[Metadata Multiplicity Problem]
+* link:../provenance-origin-basis/[Provenance, Origin and Basis]
