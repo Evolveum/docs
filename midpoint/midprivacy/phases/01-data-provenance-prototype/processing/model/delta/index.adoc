@@ -1,0 +1,178 @@
+= Item delta
+
+Item delta specifies how a given item - property, reference, container - is (to be) modified.footnote:[A prism object,
+as it is an item as well, could be also described by item delta. But it makes little sense because objects are inherently
+single-valued items.]
+
+For an overview, please see the link:https://wiki.evolveum.com/display/midPoint/Deltas[Deltas] wiki page.
+
+== Item delta content
+
+Just to summarize, an item delta consists of three sets of values:
+
+1. values to add (`add` set),
+2. values to delete (`delete` set),
+3. values to replace (`replace` set).footnote:[In theory, `add` and `delete` sets are sufficient to describe an item change. The `replace` set is a convenient
+way how to tell "clear everything and replace by me", without having to deal with existing values.
+This also means that it is a big difference between `null` replace set (meaning replace is not being
+applied) and empty replace set (meaning "delete everything").]
+
+Any given item delta is either of "add/delete" type or of "replace" type. It is not possible to specify
+`add` and/or `delete` and `replace` sets at the same time.
+
+== Item delta application
+
+Let us describe the application of an item delta on give prism item. There are two cases:
+
+1. Application of "add/delete" deltas.
+2. Application of "replace" deltas.
+
+For the specification below, let:
+
+****
+* D = ( D~a~, D~d~, D~r~ ) be the delta,
+** D~a~, D~d~, D~r~ being add, delete, and replace sets, respectively,
+* I be the set of item values before D application,
+* I` the set of values after D application.
+****
+
+=== Application of "replace" deltas
+
+This case is very simple: A "replace" delta is applied by clearing item values and replacing them with the values in delta
+`replace` set.
+
+****
+I' = D~r~
+****
+
+=== Application of "add/delete" deltas
+
+The application is a two-step process:
+
+1. Existing item values or yields matching the delta `delete` set are deleted.
+2. Values or yields from `add` set are added.
+
+Mathematical description is divided into three parts:
+1. Simplified model (no metadata)
+2. Realistic model (no metadata)
+3. Realistic model (with metadata)
+
+==== Simplified model (no metadata)
+
+This is our first approximation:
+
+****
+I' = (I - D~d~) &cup; D~a~
+****
+
+meaning we delete values in D~d~ and then add values in D~a~.
+
+==== Realistic model (no metadata)
+
+In fact, D~d~ does not contain _values to be deleted_ but _"deletion patterns"_. Each value in I is compared
+with D~d~ and deleted if it matches.
+
+Also, when adding values that have equivalents are already present in I, we first remove those equivalents.
+Effectively it is a kind of "add-or-update" operation.
+
+So:
+****
+I' = (I - I~d~ - I~ex~) &cup; D~a~
+****
+
+where I~d~ are values from I matching the deletion patterns, i.e.
+
+****
+I~d~ = { v~i~&in;I | &exist;v~d~&in;D~d~ such that v~i~ &Tilde;~del~ v~d~ }.
+****
+
+_v &Tilde;~del~ d_ means that value _v_ matches the "deletion pattern" _d_, and is defined as:
+
+****
+v &Tilde;~del~ d if and only if:
+
+1. _v_ and _d_ are both prism container values, both have identifiers, and these identifiers are equal,
+2. or v &Tilde;~RVDI~ d
+****
+
+_v &Tilde;~RVDI~ d_ means that _v_ and _d_ are equivalent under "real value consider different IDs" equivalence strategy.
+See link:../comparing-values/[Comparing values].
+
+As for adding values: In the above definition, I~ex~ are values in I being replaced by values in D~a~:
+
+****
+I~ex~ = { v~i~&in;I | &exist;v~a~&in;D~a~ such that v~i~ &Tilde;~RVDI~ v~a~ }
+****
+
+In human words, when adding a value that already exists in I, we remove the already existing version of the value.
+
+Note that this is a slight difference introduced in midPoint 4.2. Before that version we simply ignored values from D~a~
+that were present in I (under RVDI), i.e. the old behavior was:
+
+****
+I' = (I - I~d~) &cup; (D~a~ - I~ex~)
+****
+
+Finally, as a special rule: If we are adding a single value v~a~ to a single-valued item I = {v~i~}, and v~a~ is
+different from v~i~ (v~a~ &nsim;~RVDI~ v~i~) then we consider I to be &empty; i.e. we "clear" the item before
+applying the delta. Then:
+
+****
+I' = D~a~
+****
+
+==== Realistic model (with metadata)
+
+Short description of D~d~ treatment:
+
+1. If v~d~&in;D~d~ has no metadata, simply remove v~d~ from I. This is to ensure backward compatibility.
+2. If v~d~&in;D~d~ has metadata, remove these from equivalent value v~i~&Tilde;v~d~. (And remove v~i~ if no metadata values remain.)
+
+Short description of D~a~ treatment:
+
+1. If v~a~ &notin;~RVDI~ I, add v~a~ to I.
+2. If v~a~ &in;~RVDI~ I, add yields from v~a~ to equivalent value v~i~ &Tilde;~RVDI~ v~a~.
+
+Exact description:
+
+It is not feasible to provide a specification of delta application using set operations. Let us resort to a pseudocode instead.
+
+Let:
+
+****
+* I be the item before application of specific v~a~ &in; D~a~ or v~d~ &in; D~d~.
+* I' be the result of the application.
+* M(v) be the set of metadata values for prism value v.
+* m~1~ &Tilde;~P~ m~2~ mean that metadata value m~1~ and m~2~ have equivalent provenance.
+****
+
+Then:
+
+For each v~d~ &in; D~d~:
+
+****
+1. If M(v~d~)=&empty;: The standard deletion is performed: I' = I - { v~i~&in;I | v~i~ &Tilde;~del~ v~d~ }.
+2. If M(v~d~)={ md~1~, ..., md~nd~ } (nd>0), we try to find v~i~&in;I: v~i~ &Tilde;~RVDI~ v~d~ and then:
+ a. if v~i~ does not exist, ignore v~d~ (phantom delete)
+ b. if v~i~ exists and M(v~i~)={ mi~1~, mi~2~, ..., mi~ni~ }, then:
+  A. &forall;md~x~&in;M(v~d~): delete all mi~k~ &Tilde;~P~ md~x~ from M(v~i~),
+  B. if M(v~i~)=&empty; after this operation, delete v~i~ from I, i.e. I' = I - {v~i~}.
+ c. any other v~j~ &Tilde;~RVDI~ v~d~ are ignored (we assume that they do not exist).
+****
+
+(See `Item.removeRespectingMetadata` method.)
+
+For each v~a~ &in; D~a~:
+
+****
+1. If M(v~a~)=&empty;: The standard addition is performed: I' = (I - I~ex~) &cup; {v~a~} where
+ a. I~ex~ = { v~i~ &in; I | v~i~ &Tilde;~RVDI~ v~a~)
+2. If M(v~a~)={ ma~1~, ..., ma~na~} (na>0), we try to find v~i~&in;I: v~i~ &Tilde;~RVDI~ v~a~ and then:
+ a. if v~i~ does not exist, add v~a~ to I: i.e. I' = I &cup; {v~a~} (standard addition),
+ b. if v~i~ exists and M(v~i~)={ mi~1~, mi~2~, ..., mi~ni~ }, then:
+  A. delete all conflicting-provenance metadata from v~i~, i.e. &forall;ma~x~&in;M(v~a~) delete all mi~k~ &Tilde;~P~ ma~x~ from M(v~i~),
+  B. add all M(v~a~) to M(v~i~).
+ c. any other v~j~ &Tilde;~RVDI~ v~a~ are ignored (we assume that they do not exist).
+****
+
+(See `Item.addRespectingMetadataAndCloning` method.)
