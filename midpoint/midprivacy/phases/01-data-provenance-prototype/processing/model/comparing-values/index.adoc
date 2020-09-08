@@ -1,9 +1,46 @@
 = Comparing prism values
 
-Prism values are compared in different situations, requiring different definitions of what "equality" means.
+Prism values are compared in various contexts, requiring different definitions of what "equality" means.
 Such definitions are called "equivalence strategies" in midPoint code.
 
-These can be summarized as:
-link:https://github.com/Evolveum/midpoint/blob/37e47dc797fece601603fd04aa202592e30ce9df/infra/prism-api/src/main/java/com/evolveum/midpoint/prism/equivalence/ParameterizedEquivalenceStrategy.java#L19-L43[Equivalence strategies summary].
+The two mostly used strategies are:
 
-TODO: Describe more clearly here.
+== Data
+
+Captures the full meaning of the data, while ignoring minor serialization-related aspects that are not relevant
+for the parsed data, like namespace prefixes or element names.
+
+The Data strategy is used for `hashCode`/`equals` methods in Java code.
+
+== Real value (with or without considering different IDs)
+
+Captures the "real value" of the data: it is something that we consider equivalent so that
+if prism values A and B have the same real value, we do not want to be both present
+in the same multi-valued item (like assignment, roleMembershipRef, or whatever).
+
+However, in reality, we usually take container IDs (if both are present) into account,
+so if PCV A1 and A2 have equal content but different IDs they are treated as different.
+This is reflected in "Real value considering different IDs" variant of this strategy.
+
+"Real value considering different IDs" strategy is used for link:../delta/[delta application].
+
+== Other equivalence strategies
+
+[%header]
+[cols="2,8"]
+|===
+| Strategy | Description
+| Literal |
+Currently the highest level of recognition. Roughly corresponds to comparing serialized
+forms of the data. Useful e.g. for comparing values for the purpose of XML editing.
+
+Ignores aspects that are not covered by serialization e.g. definitions, parent objects,
+origin, immutability flag, etc. (These aspects are ignored by all equivalence strategies.)
+
+| Ignore metadata |
+Something between Data and Real value: ignores operational items and values, container IDs,
+value metadata (just like Real value) but takes reference filters and reference resolution
+options (time, integrity) into account (like Data).
+
+It is not quite clear whether and when to use this strategy.
+|===
