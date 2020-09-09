@@ -1,3 +1,60 @@
-= Change representation with metadata
+= Change representation (with metadata)
 
-TODO
+The concept of value metadata brings changes to years-old data structures for change representation: item delta
+(and therefore item-delta-item), and delta set triple.
+
+== Value metadata in item deltas
+
+Treatment of value metadata in item deltas can be summarized like this:
+
+1. For "replace" deltas there is no difference: values from the `replace` set are copied into target item verbatim.
+2. For "add" and "delete" deltas we treat metadata-carrying values as instructions to add or delete specified
+yields from the target item value (if present).
+
+These changes are described in detail in the document on link:../delta/[deltas].
+
+== Value metadata in delta set triples
+
+Treatment of value metadata is currently _not_ relativistic. This means that we do not provide plus/minus/zero
+sets for individual metadata values or individual yields. The division of values into plus/minus/zero sets is
+- still - based strictly on value equivalence, with no regard for the metadata.
+
+=== Delta set triple creation
+
+[[triple-creation]]In the following we will use this notation:
+
+****
+- I is the set of values of the item before delta application.
+- I' is the set of values of the item after delta application.
+- T is the delta set triple. T = ( T~plus~, T~minus~, T~zero~ ) being plus, minus, and zero sets, respectively.
+- for any value prism v, M(v) is the set of its metadata values, and val(v) is its real value.
+****
+
+This is how it works when metadata are not taken into account:
+
+****
+1. T~plus~ = I' -~RVDI~ I
+2. T~minus~ = I -~RVDI~ I'
+3. T~zero~ = I &cap;~RVDI~ I'
+****
+
+When metadata are concerned, we can conceptually view the process as having two steps:
+
+****
+1. Defining T^0^ = ( T^0^~plus~, T^0^~minus~, T^0^~zero~ ) using the above formulas.
+2. Defining metadata for all values in T^0^.
+****
+
+The second step looks like this:
+
+****
+For any v&in;T^0^ let us compute w&in;T as having:
+
+* val(w) = val(v),
+* M(w) =
+- M(v) (for v&in;T^0^~plus~ &or; v&in;T^0^~minus~)
+- M(v~new~) where v~new~&in;I': v~new~ &Tilde;~RVDI~ v (for v&in;T^0^~zero~)
+****
+
+Note that the real implementation in `ItemDeltaImpl.toDeltaSetTriple` method is much more complex.
+However, the rather simple specification provides room for alternate - maybe more efficient - implementations in the future.
