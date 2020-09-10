@@ -13,7 +13,9 @@ There are various kinds of expression evaluators, for example script-based evalu
 `generate` evaluator, and so on. We concentrate on basic principles of expression evaluation first, and only after that
 we will describe individual evaluators' features.
 
-== Source ==
+== Inputs and outputs of expression evaluation
+
+=== Source
 [cols="2,8a"]
 |===
 | Overview | Primary input for expression evaluation.
@@ -24,7 +26,7 @@ we will describe individual evaluators' features.
 | Multiplicity | There can be zero, single, or multiple sources.
 |===
 
-== Input variable ==
+=== Input variable
 [cols="2,8a"]
 |===
 | Overview | Secondary input for expression evaluation.
@@ -37,7 +39,7 @@ we will describe individual evaluators' features.
 | Multiplicity | There can be zero, single, or multiple variables.
 |===
 
-== Output ==
+=== Output
 [cols="2,8a"]
 |===
 | Overview | Output of the expression evaluation.
@@ -53,19 +55,19 @@ Item-delta-item and delta set triple structures are described in article on
 link:../../change-representation/[change representation] (and its
 link:../../change-representation-with-metadata/[metadata-aware version]).
 
-== Evaluation parameters
+=== Evaluation parameters
 
 TIP: You can skip reading about evaluation parameters at first.
 
 There are two kinds of evaluation parameters: static (specified as part of expression definition in `ExpressionType`)
 or dynamic (provided to expression evaluator at run time).
 
-=== Parameters for all evaluators
+==== Parameters for all evaluators
 
-==== Static parameters
+===== Static parameters
 The following are contained in `ExpressionType` bean.
 
-===== Evaluator(s) definition
+====== Evaluator(s) definition
 This definition specifies the required processing. For example, a script that should be executed, a constant value that
 is to be the output of the expression evaluation, and so on.
 
@@ -78,7 +80,7 @@ is to be the output of the expression evaluation, and so on.
 | Multiplicity | Exactly one, except for default `asIs` (can be omitted) or `value` evaluator (can be more of them).
 |===
 
-===== Other parameters
+====== Other parameters
 
 [%header]
 [cols="2,8a"]
@@ -95,7 +97,7 @@ is to be the output of the expression evaluation, and so on.
 * path (referencing an item in an existing variable or source).
 |===
 
-===== Auxiliary and unused parameters
+====== Auxiliary and unused parameters
 Just for completeness let's mention here parameters that have no effect on the computation at this
 level of abstraction or are not implemented at all.
 
@@ -112,7 +114,7 @@ limited to custom function libraries.
 | `name`, `description`, `documentation` | For documentation purposes.
 |===
 
-===== Dynamic (run-time) evaluation parameters
+====== Dynamic (run-time) evaluation parameters
 
 NOTE: The following parameters are formally available to all evaluators but in fact interpreted only for value-transformation ones.
 
@@ -124,7 +126,7 @@ NOTE: The following parameters are formally available to all evaluators but in f
 | skipEvaluationMinus | Should we skip evaluation for values that would go to "minus" output set?
 |===
 
-=== Parameters for value-transformation evaluators
+==== Parameters for value-transformation evaluators
 
 These parameters are statically defined in `TransformExpressionEvaluatorType`. Their meaning is to be understood
 in the context of value-transformation evaluation algorithm.
@@ -136,6 +138,20 @@ in the context of value-transformation evaluation algorithm.
 | relativityMode | Selects between absolute and relative ("combinatorial") mode of evaluation.
 | includeNullInputs | Whether null inputs should be taken into account. TODO
 | condition | Whether to even start evaluation for a given value combination. (Currently ignored for absolute evaluation mode.)
+|===
+
+==== Parameters for the script evaluator
+
+These parameters are statically defined in `ScriptExpressionEvaluatorConfigurationType`.
+
+[%header]
+[cols="2,8"]
+|===
+| Parameter | Meaning
+| language | What language is the script written in?
+| returnType | TODO
+| objectVariableMode | TODO
+| valueVariableMode | TODO
 |===
 
 == Evaluators ==
@@ -171,10 +187,10 @@ Creates an association (or associations) based on specified condition for the as
 Creates a generic reference (or references) based on specified condition for the referenced object. (It seems to be not much used.)
 
 | `associationFromLink` | `AssociationFromLinkExpressionEvaluator` | Z |
-Creates an association (or associations) based on projections of given role. I.e. a role has projection (e.g. group), and it also
-induces a construction of a user account. Using this expression evaluator the account can obtain groups that are projections of
-that particular role. To be used in induced constructions only i.e. not in mappings! Puts all the values into zero set.
-Plus and minus sets are empty.
+Creates an association (or associations) based on projections of given abstract role. I.e. a role has projection (e.g. group),
+and it also induces a construction of a user account. Using this expression evaluator the account can obtain groups
+that are projections of that particular role. To be used in mappings in induced constructions only i.e. not in template
+mappings or assigned focus mappings! Puts all the values into zero set. Plus and minus sets are empty.
 
 | `generate` | `GenerateExpressionEvaluator` | Z |
 Generates a string value based on given value policy. Puts it into zero set. Plus and minus sets are empty.
@@ -182,7 +198,7 @@ Generates a string value based on given value policy. Puts it into zero set. Plu
 | `function` | `FunctionExpressionEvaluator` | Z/D |
 Calls specified custom function expression. It is something like a macro: Arguments for the function call (expressions themselves)
 are evaluated into delta set triples. Non-negative values from these triples become additional (zero-only) sources for the
-function expression. (This is a bit questionable.) Then the function expression is evaluated and the output triple is returned
+function expression. (This is a bit questionable.) Then the function expression is evaluated, and the output triple is returned
 as an output triple for the whole function expression evaluation.
 
 | `sequentialValue` | `SequentialValueExpressionEvaluator` | Z |
@@ -207,17 +223,17 @@ The `path` and `asIs` evaluators derive plus/minus/zero values directly from plu
 of a selected source. Categorization of `function` evaluator is not quite clear.
 | VT | Value-transforming evaluator. See below.
 |===
-== Evaluation algorithms ==
+== Evaluation algorithms
 Algorithms for `Z` (non-relativistic) and `D` (direct delta set mapping) are specific for individual evaluators.
 They are sketched out in the table above. (And could be described in more details, if needed.)
 
 What is interesting is the value-transformation algorithm used for `script` evaluator and "object search" ones
 (`assignmentTargetSearch`, `associationTargetSearch` and `referenceSearch`).
 
-=== Value-transformation algorithm ===
+=== Value-transformation algorithm
 Let us describe value-transformation algorithm here. We will use `script` evaluator as an example.
 
-Typical script evaluator configuration looks like this:
+A typical script evaluator configuration looks like this:
 
 ```
 <script>
@@ -256,11 +272,11 @@ This evaluator expects `organization` source and provides its string representat
 property, though. So what should the script expect to receive in the `organization` variable?
 
 It depends. The script can be evaluated in one of two modes. The nomenclature is not stable yet, but let's call these modes
-_absolute_ and _relative_. These are the values of `relativityMode` evaluation parameter.
+_absolute_ (single-shot) and _relative_ (combinatorial). These are the values of `relativityMode` evaluation parameter.
 
 Absolute evaluation mode provides all the values of all sources to the script _at once_. So, in this case, the script
 should expect that `organization` will be a collection of values e.g. `org1`, `org2`, `org3`. It will then provide a result
-of `"[org1, org2, org3]"` (if the collection was a list that is currently the case).
+of `"[org1, org2, org3]"` (if the collection was a list, which is currently the case).
 
 Relative evaluation mode provides the values of the sources to the script _one after another_. In this case the script would
 be invoked three times, once for `org1`, then for `org2` and `org3`, respectively. The output would be a set of values
@@ -283,7 +299,9 @@ sections on Mapping wiki page.
 What if there are more than one source?
 
 In the absolute mode the situation is the same as in single-source case. The script simply gets individual sources as
-collection-typed variables. However, in the relative mode the script will be invoked once for each _combination_ of values
+collection-typed variables.
+
+However, in the relative mode the script will be invoked once for each _combination_ of values
 from individual sources. For example, if we have a script like this:
 
 ```
@@ -349,7 +367,7 @@ Mapping request:
 ==== And now for some relativity ====
 
 Things look great. Remember, though, that evaluation source is _not_ a simple set of values. It is item-delta-item,
-i.e. old value, delta, and the new value. And the output is delta set triple (plus, minus, zero).
+i.e. old value, delta, and the new value. Also, the output is delta set triple (plus, minus, zero).
 
 For example, in the following situation, what should be the output in absolute mode? And in relative mode?
 
@@ -383,7 +401,7 @@ Or, to begin with something simpler:
 | (in relative mode) | plus: `?`, minus: `?`, zero: `?`
 |===
 
-Fortunately, the idea of output delta set triple computation is quite simple:
+How is the output delta set triple computed:
 
 1. We assume that target item (i.e. item that will contain result of the computation) in "old" state has
 values corresponding to sources in their "old" state. (That might or might not be true. But it's a reasonable
@@ -395,72 +413,7 @@ assumption we work with.)
  * after the application of output delta set triple to the target item it will contain values corresponding
 to sources in their "new" state.
 
-.(Pseudo-)mathematical window
-************************************************
-Can we define the output delta set triple computation in a more formal way? Probably we can.
-
-[.underline]*Part 1: Sources*
-
-1. Let we have n sources numbered 1, 2, ..., n.
-2. Each source can provide values of a given type. Let D~1~, D~2~, ..., D~n~ be domains for individual
-values for sources 1, 2, ..., n, respectively.
-3. Because each source can have multiple values of given type, the domains for sources 1, 2, ..., n are
-power sets (sets of sets) of D~1~, D~2~, ..., D~n~, respectively, denoted as P(D~1~), P(D~2~), ..., P(D~n~).
-4. And because each source has two states: old and new, the complete specification of input states
-can be denoted as P(D~1~) x P(D~1~), P(D~2~) x P(D~2~), ..., P(D~n~) x P(D~n~).
-
-[.underline]*Part 2: Output*
-
-1. Let R be the domain for individual values of the target (output) item, i.e. _evaluator range_.
-2. P\(R) is the power set of the evaluator range: all sets of individual values of the target item.
-3. P\(R) x P\(R) x P\(R) is the set of all possible delta set triples (plus, minus, zero sets of values).
-
-[.underline]*Part 3: Transformation function*
-
-|===
-|
-T: P(D~1~) x P(D~2~) x ... x P(D~n~) -> P\(R)
-|===
-
-is the transformation function that maps sets of source values to a set of output values (no deltas yet).
-
-[.underline]*Part 4: Delta-aware transformation function*
-
-Then the "delta-aware" transformation T~rel~ i.e.:
-
-|===
-|
-T~rel~ : P(D~1~) x P(D~1~) x P(D~2~) x P(D~2~) x ... x P(D~n~) x P(D~n~) -> P\(R) x P\(R) x P\(R)
-|===
-(in human words, a transformation function that maps couples (old, new) of sets of source values
-to the output delta set triple)
-
-can be defined in this way:
-
-* let S~1~ &#x2286; D~1~, S~2~ &#x2286; D~2~, ..., S~n~ &#x2286; D~n~ be sets of old values
-of sources 1, 2, ..., n, respectively;
-* let S~1~' &#x2286; D~1~, S~2~' &#x2286; D~2~, ..., S~n~' &#x2286; D~n~ be sets of new values
-of sources 1, 2, ..., n, respectively;
-* let O &#x2286; R is the set of output values for the "old" state, i.e. O = T(S~1~, S~2~, ..., S~n~);
-* let O' &#x2286; R is the set of output values for the "new" state, i.e. O' = T(S~1~', S~2~', ..., S~n~');
-* let (O~plus~ &#x2286; R, O~minus~ &#x2286; R, O~zero~ &#x2286; R) be resulting delta set triple.
-
-Then
-
-|===
-|
-T~rel~ (S~1~, S~1~', S~2~, S~2~', ..., S~n~, S~n~') = (O~plus~, O~minus~, O~zero~)
-|===
-
-if and only if:
-
-* O~plus~ = O' - O
-* O~minus~ = O - O'
-* O~zero~ = O &#x2229; O'
-
-Note that this description ignores the existence of variables. It is rather complicated even without them.
-If you're interested how variables are treated, please see implementation description below.
-************************************************
+See also the link:formal/[expression evaluation model].
 
 Knowing this, the expected output for the above scenarios is quite straightforward:
 
@@ -530,121 +483,74 @@ Knowing this, the expected output for the above scenarios is quite straightforwa
 NOTE: For a discussion of relativity in evaluation (again, from more user-oriented point of view) see
 link:https://wiki.evolveum.com/display/midPoint/Mapping#Mapping-Relativity[Relativity] section on Mapping wiki page.
 
-==== Implementation information ====
+==== Implementation information
+
+===== Implementation for absolute (single-shot) mode
 
 The implementation for absolute mode follows the specification quite closely.
 
-1. First, it determines whether we need to evaluate both old and new modes: it looks if any of the sources or variables contain
-a delta.
-2. If there is no delta, the computation of `O'` is carried out for new state and results are put into `O~zero~`. (See maths window above.)
-3. If there is a delta, the computation of both `O` and `O'` is carried out, and the delta set is computed according to the spec:
+1. First, it determines whether we need to evaluate both old and new modes:
+it looks if any of the sources or variables contain a delta.
+2. If there is no delta, the computation of `O'` is carried out for new state
+and results are put into `O~zero~`. (See also the link:formal/[evaluation model].)
+3. If there is a delta, the computation of both `O` and `O'` is carried out,
+and the delta set is computed according to the spec:
 * O~plus~ = O' - O
 * O~minus~ = O - O'
-* O~zero~ = O &#x2229; O'
+* O~zero~ = O ∩ O'
 
 The absolute mode computation is invoked if `relativityMode` is `absolute` or if there are no sources.
 
+===== Implementation for relative (combinatorial) mode
+
 The implementation for relative mode works currently like this.
 
-NOTE: It can be (and probably will be) slightly simplified.
+1. *Compute source triples.* Transform each source into source value triple i.e. plus/minus/zero sets.
+Add `null` values if necessary.footnote:[This is to ensure at least one execution in "plus" and in "minus" evaluation mode.
+See `CombinatorialEvaluation.addFakeNullValues`.] Put source triples into a list,
+in the same order as the sources have.
 
-1. *Compute sourceTripleList.* Transform sources into source value triples i.e. plus/minus/zero. (There is a special treatment
-of null values - TODO.) Put source triples into a list, in the same order as the sources have.
-2. *Compute sourceValuesList.* For each source triple, compute the union of plus, minus, zero sets. If the result is an
-empty set, add null value. Put such value sets into a list, in the same order as the sources (and source triples) have.
-3. Process all combinations of values from individual sources.
-
-Combination processing looks like this:
-
-1. Take Carthesian product of all values in all `n` members of sourceValueList. So, gradually process `n`-tuples of
-(v~1~, v~2~, ..., v~n~) where v~1~ is a value from source 1, v~2~ is a value from source 2, ..., v~n~ is a value from source n.
-2. For each such tuple:
-** Skip if all the values in tuple are null and includeNullInputs is false. (TODO - this requires some comment.)
-** Put values from the tuple (i.e. mix of added/deleted/unchanged values from sources 1..n) into the variables
-we are preparing for the evaluation of the condition and of the transformational function.
-** While doing that, determine if we have (in the tuple):
-*** any value from any of the plus source sets (`hasPlus`),
-*** any value from any of the minus source sets that is not in the plus set (`hasMinus`),
-*** any value from any of the zero source sets that is not in the plus nor minus set (`hasZero`).
-** Check if we can accept the tuple for further processing:
-
-[%header]
-[cols="1,1,1,1,2,5"]
-|===
-| hasPlus | hasMinus | skipEvaluationPlus | skipEvaluationMinus | Result | Comment
-| true | true | * | * | skip | There's no point in evaluating combination of values some of which are being added and some of which are being deleted.
-| true | * | true | * | skip | The results will end up in the plus set and skipEvaluationPlus is true, therefore we can skip the computation.
-| * | true | * | true | skip | The results will end up in the minus set and skipEvaluationMinus is true, therefore we can skip the computation.
-| * | * | * | * | proceed | Let us compute value for this value tuple.
-|===
-
-If the tuple can be accepted, then we determine the source state for relativistic input variables (not sources!)
-(old/new) and the target set for the output values:
-
-[%header]
-|===
-| hasPlus | hasMinus | Source for relativistic input variables | Target set for output values
-| true | * | new | plus
-| false | true | old | minus
-| false | false | new | zero
-|===
-
-Then we add variables from input variables to the variables being prepared for the invocation of the condition
-and of the transformational function. For relational variables we use old/new versions, as computed above.
-For non-relational variables we use the value as is.
-
-Then, we transform the tuple (i.e. compute output values):
-
-* If condition is present, we first evaluate the condition (on prepared variables). If it evaluates to false, the result of the transformation is considered to be an empty set.
-* If condition is non-present or true, we transform the tuple by calling the transformational function (on prepared variables).
-
-And finally, we put the result of the transformation (zero, one, or more values) to the appropriate target set (plus, minus, zero).
-
-[NOTE]
-=====================================================================
-This algorithm has a disadvantage that it computes union of the source values and then tries to backwardly determine `hasPlus`,
-`hasMinus`, `hasZero` flags by comparing them. This can probably bring some issues when metadata processing comes into play. And
-it is unnecessarily complex. Slight simplification of the algorithm is being prepared. It will be basically the same but we'll
-try to avoid value comparisons.
-
-The idea:
-
+2. *Process all combinations* of values in respective source value sets so that the following will hold:
 * O~plus~ = results of transforming combinations of values from non-negative source values sets except for all-zero sourced values
 * O~minus~ = results of transforming combinations of values from non-positive source values sets except for all-zero sourced values
 * O~zero~ = results of transforming combinations of values from zero source values sets
 
-////
-TODO
-For our example:
+Processing of combinations works like this:
 
-[cols="2,6a"]
-|===
-2+| Input
-| organization | `"ACME"`, `"Example"` -> `"ACME"`, `"ExAmPLE"`
+A. Compute 'sets occupied' information: for each source we determine the sets (plus, minus, zero) that this source
+has. We put this information to two lists: `setsOccupiedPlusZero` for plus/zero sets and `setsOccupiedMinusZero`
+for minus/zero sets. These two lists will be used to generated value tuples later.
 
-* plus: `"ExAmPLE"`
-* minus: `"Example"`
-* zero: `"ACME"`
-| organizationalUnit | `"Sales"`, `"Engineering"` -> `"Management"`, `"Engineering"`
+B. Generate values for plus and zero output sets:
+* In the first step, select a combination of "source sets" (plus vs. zero) that will provide input values for individual
+sources. For example (having 4 sources), we select "plus - plus - zero - plus", meaning that input values for sources 1, 2, 4
+will be selected from their plus sets, and input value for source 3 will be selected from its zero set.
+* Having specific source sets we now take all value combinations from the respective sets. (This is done by
+`transform(sets, outputSet)` method.)
+- If all source sets are zero, then output set is also zero.
+- Otherwise (i.e. if any of the source sets is plus), then output set is plus.
 
-* plus: `"Management"`
-* minus: `"Sales"`
-* zero: `"Engineering"`
+C. Generate values for minus set:
+* Similarly to above, select a combination of "source sets" (minus vs. zero) that will provide input values for individual
+sources. For example (having 4 sources), we select "zero - minus - minus - zero", meaning that input values for sources 2 and 3
+will be selected from their minus sets, and input values for sources 1 and 4 will be selected from their zero set.
+* Having specific source sets we now take all value combinations from the respective sets. We skip the evaluation
+when all sets are zero, because it was already done above. So at least one input set must be minus. Outputs of the
+evaluation go to the minus set.
 
-2+| Output delta set triple computation (relative mode)
-| O~plus~ | Combination of non-negative source value sets:
+Note that when evaluating, we add values from input variables to the variables being prepared for the invocation
+of the condition and of the transformational function. For relational variables we use old/new versions, depending on
+the target set (zero, plus - we use new, minus - we use old). For non-relational variables we use the value as is.
 
-* `"ExAmPLE"`, `"ACME"` x `"Management"`, `"Engineering"`
-* resulting in `"ExAmPLE:Management"`, `"ExAmPLE:Engineering"`, `"ACME:Management"`, `"ACME:Engineering"`
+Then, we transform the tuple (i.e. compute output values):
 
-* plus: `"ACME:Management"`, `"ExAmPLE:Management"`, `"ExAmPLE:Engineering"`
-* minus: `"ACME:Sales"`, `"Example:Sales"`, `"Example:Engineering"`
-* zero: `"ACME:Engineering"`
-| The difference |
-* plus: `"ACME:Management"`, `"ExAmPLE:Management"`, `"ExAmPLE:Engineering"`
-* minus: `"ACME:Sales"`, `"Example:Sales"`, `"Example:Engineering"`
-* zero: `"ACME:Engineering"`
-|===
-////
+* If condition is present, we first evaluate the condition (on prepared variables).
+If it evaluates to false, the result of the transformation is considered to be an empty set.
 
-=====================================================================
+* If condition is non-present or true, we transform the tuple by calling the transformational
+function (on prepared variables).
+
+And finally, we put the result of the transformation (zero, one, or more values) to
+the appropriate target set (plus, minus, zero).
+
+NOTE: TODO: We have to update this text with information on how metadata are processed.
