@@ -437,6 +437,7 @@ Some midPoint object-related tricks are:
 * the ability to generate a new OID when creating a new object
 * the ability tu suggest OID based on the existing project files
 * the ability to resolve object names from OIDs based on the existing project files
+* the ability to navigate to other object by CTRL+clicking the OID in references
 * *TODO* syntax highlighting (mixed xml+groovy).
 
 === Creating a New MidPoint Object
@@ -485,6 +486,13 @@ You can also start typing the object name to select from the list.
 .Suggested objects
 image::hint-object-names.png[Screenshot of object OIDs/names]
 
+
+=== Navigating to Other Referenced Objects
+
+You can navigate to referenced objects within your project by clicking the OID in references with `CTRL` key pressed.
+
+This is done for objects in the project files, not fetching the data from the repository.
+
 == Updating Project Settings
 
 To update the project settings:
@@ -526,9 +534,7 @@ properties in your source files.
 This allows to have the same source files and use them in multiple
 environments where you have different hostnames, ports etc.
 It is referenced by using the following syntax: `$(propertyName)`.
-
-*TODO* BUG: MID-6541: old Eclipse plugin supports `$(@filename)`, `$(#project.name)`, `$(#project.dir)`,
-`$(#server.displayName)` properties.
+See below for special cases.
 
 .Macro expansion example
 [source,xml]
@@ -563,13 +569,45 @@ In the above example, the following properties are used:
 * `ldapAdmin`
 * `ldapPassword`
 
+
 In Eclipse, there was a possibility to use `properties` file which would
 store the properties and their values.
 The possibilities in IntelliJ IDEA are expanded.
 You can use a standard `properties` file, or a `keepass` file, or both.
 
+Except of those, you can use the following special properties.
+
+=== Special expression-like properties
+
+The following table summarizes special expression-like properties.
+
+[cols="25%,50%,25%", options="header"]
+|===
+^|Property
+^|Description
+^|Example
+
+|`$(#project.name)`
+|Name of the current project
+|`MyFirstProject`
+
+|`$(#project.dir)`
+|The OS directory of the current project. Useful for CSV resource pointing to a file within the current project directory.
+|`/home/vix/Work/Public/IdeaProjects/MyFirstProject`
+
+|`$(#server.displayName)`
+|The name of the currently selected environment (for remote MidPoint)
+|`Default`
+
+|`$(@filename)`
+|The content of the file will be inserted at this position. Useful for example to include notification configuration in `System Configuration` object.
+|`$(@insert.txt)` or `$(@../../insert2.txt)`
+
+|===
+
 === Using Properties File
 
+The properties file contains the definitions of the properties.
 You can use the properties files which are either environment-specific or project-specific.
 It all depends on which property file is used in your specific environment configuration.
 
@@ -588,6 +626,7 @@ ldapPort=389
 ldapBaseContext=dc=example,dc=com
 ...
 ----
+
 
 Some important notes:
 
@@ -628,10 +667,39 @@ To modify the content of your Keepass file:
 * click *Encrypted Properties* tab
 * click *+* icon to add a new encrypted property and enter the following information:
 ** *Key*: property name, e.g. `ldapPassword`
-** *Environment*: select a specific environment or `All Environments`
+** *Environment*: select a specific environment or `All Environments`. MidPoint Studio will expand the macro only for that environment.
 ** *Value*: property value, e.g. `secret`
 ** *Description*: property description (optional)
 
 NOTE: The `credentials.kdbx` file is ignored from versioning using the project's `.gitignore` file. As it is encrypted, you might want to keep it under version control and share the password between your project team members using other channels.
 
 NOTE: If you refer to a property which is stored both in the keepass file and standard properties file, the keepass file takes priority.
+
+=== Example: All Properties Combined
+
+A picture is worth a thousand words.
+
+The following screenshot summarizes the possibilities and their result: midPoint role editor, the `Description` property displayed in a browser.
+
+MidPoint role `role-test2.xml` references the following properties:
+
+[cols="25%,75%", options="header"]
+|===
+^|Property
+^|Origin
+
+|`$(role.description)`
+|Properties file `test.properties` (set in the current environment)
+
+|`$(ldapPassword)`
+|Keepass file (property is encrypted)
+
+|`$(#project.dir)`, `$(#project.name)`, `$(#server.displayName)`
+|Expression - computed by MidPoint Studio
+
+|`$(@../../insert2.txt)`
+|Content of the file `../../insert2.txt`; expression - inserted by MidPoint Studio
+
+|===
+
+image::studio-with-all-macros-and-browser.png[Screenshot of MidPoint Studio with all macros expanded]
