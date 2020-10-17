@@ -40,6 +40,18 @@ LDAP is used in a way that was not intended and that the original designers neve
 A protocol created in 1990s, with roots in telecommunication world of 1980s, is used to handle 21st century use cases.
 It is no wonder it is not very well-equipped for that.
 
+=== What To Do About It?
+
+Nothing.
+That is the way it is.
+LDAP was not designed to be an authentication protocol.
+But it is.
+Whatever you do, LDAP password authentication (LDAP `bind`) is the simplest way how to centralize password authentication for simple and legacy applications.
+
+However, if your application is any good, it will probably include support for real authentication or access management protocols such as OpenID Connect (OIDC) or SAML.
+Use these methods instead of LDAP if you can.
+They can provide much more than a simple password authentication.
+
 
 == Account Management
 
@@ -89,19 +101,50 @@ Telex number _was_ much more important than _account disable_ back then.
 The problem is, that this was not corrected in 1990s when X.500 was transposed to LDAP.
 And it was not fixed up until this day.
 
-Yes, _account disable_ mechanism is needed in practice.
+Yet, _account disable_ mechanism is needed in practice.
 Therefore most LDAP servers have a proprietary mechanism to do that - with a notable exception of OpenLDAP which just does not have it.
 However, these mechanisms are proprietary.
 Therefore, LDAP clients must use non-standard ways to implement functionality that is needed by almost every deployment.
 I can understand and even tolerate lot of LDAP issues.
 But I cannot understand this one.
 
+=== What To Do About It?
+
+It depends on what LDAP server do you have:
+
+[cols="h,1"]
+|===
+| iPlanet family: (RedHat/Fedora) 389 Directory Server, Sun/Oracle DSEE
+| Use `nsAccountLock` operational attribute.
+
+| OpenDS family: OpenDS, OpenDJ, wren:DS, UnboundId
+| Use `ds-pwp-account-disabled` operational attribute.
+
+| OpenLDAP
+| Bad luck.
+You cannot do it.
+You can use password policies to disable password authentication.
+This may work for simple cases, but it will not disable all account functionality.
+E.g. alternative authentication mechanisms (such as UNIX ssh keys) will still work.
+You can create custom attribute for this, but then you need to modify all your applications to support it.
+There are tricks how to disable `bind` and hide disabled accounts using ACLs.
+But that is also problematic.
+In fact, there is no good way how to do account disable in OpenLDAP.
+
+| Active Directory
+| Use `userAccountControl` attribute.
+This is a very ugly attribute, it is difficult to work with.
+But it works, in a way.
+
+|===
 
 == Groups
 
 LDAP Groups are one of things that are completely wrong.
 There is no nice how to put it.
 Almost everything that could go wrong went wrong when LDAP grouping mechanism was designed.
+
+=== Group Has Members
 
 Typical LDAP group contains a list of member accounts (or other groups).
 This may be an obvious way to design a group schema.
@@ -117,6 +160,22 @@ This happens for every group, as there is no way how to update membership in sev
 LDAP servers pride themselves to be lightning-fast.
 But what it matters that you can create an account under 1 millisecond, when full provisioning of that account also means assigning it to groups, which literally takes several seconds to complete.
 
+==== What To Do About It?
+
+There is not much you can do about this.
+Older LDAP servers (notably the iPlanet family) are very problematic with big groups.
+Some LDAP servers (notably OpenLDAP) work quite well.
+
+However, you have to be careful in your application when working with groups.
+Frequently reading group entry with a huge amount of members is very likely to ruin your performance.
+Make sure you are explicitly requesting only the attributes you need when reading the group.
+I.e. avoid reading the `member` attribute.
+The best approach is not to read the group entry at all.
+Use the non-standard _member of_ mechanism to determine group membership.
+Use non-standard _permissive modify_ when modifying the group.
+
+=== Member Of
+
 There is a similar problem when determining group membership.
 In standard LDAP, the client has to search all groups, looking for a particular member.
 LDAP deployments often rely on groups for authorization purposes.
@@ -128,6 +187,16 @@ Therefore almost every LDAP server has a "member of" mechanism that reflects gro
 However, this mechanism is not standardized.
 The virtual attribute is `memberOf` in one server, `isMemberOf` in another.
 This is yet another non-standard mechanism that is crucial for almost all LDAP clients.
+
+==== What To Do About It?
+
+Always use the _member of_ mechanism when it is available.
+It is basic survival tool when working with groups.
+Almost all server have such mechanism, many servers have it enabled by default.
+OpenLDAP does *not* have it enabled by default, you need to use special `memberOf` overlay to enable this functionality.
+
+
+=== No Empty Groups
 
 To make the situation entirely bizarre, LDAP standard specifies that group member is a mandatory attribute.
 Yes, every group in standard-compliant LDAP server must have at least one member.
@@ -149,12 +218,75 @@ The fake member might have been removed in the time before the check and the mod
 It is even worse if we try to add fake member to an empty group, however I would like to leave that particular algorithm to the reader to figure out.
 All in all, this is how LDAP standard makes a simple thing unbelievably complex.
 
-In fact, the only reasonable way is to ignore LDAP standard and make the member attribute optional.
-That is also the way how many LDAP servers do it.
-The old iPlanet LDAP server family, which includes (Fedora/RedHat) 389 Directory Server and Sun/Oracle DSEE have optional group member attribute.
-As has Sun OpenDS family of servers.
-Active Directory family, eDirectory and similar LDAP-like servers opted for their own grouping mechanisms entirely.
+==== What To Do About It?
+
+In fact, the only reasonable way is to violate LDAP standard and make the member attribute optional.
+That is also the way how many LDAP servers do it:
+
+[cols="h,1"]
+|===
+| iPlanet family: (RedHat/Fedora) 389 Directory Server, Sun/Oracle DSEE
+| You are fine.
+The vendor has already violated LDAP specifications for you.
+
+| OpenDS family: OpenDS, OpenDJ, wren:DS, UnboundId
+| You are fine.
+The vendor has already violated LDAP specifications for you.
+
+| OpenLDAP
+| Locate server schema. You are looking for `cn={0}core.ldif` file.
+Change the entries for `groupOfNames` and `groupOfUniqueNames`, moving the member attribute from `MUST` to `MAY`.
+
+| Active Directory
+| You are fine, in a typical Microsoft way.
+Active Directory is not using LDAP grouping mechanisms.
+
+|===
+
+This is a shameless violation of LDAP specifications, which quite explicitly prohibit such changes in standard schemas.
+Yet, it is the only sensible thing to do.
+You do not need to feel bad about it.
+It is not your fault.
+Most LDAP servers, Active Directory, eDirectory and similar LDAP-like servers, pretty much everybody has some ready-made solution for this problem.
 Perhaps the only popular LDAP server that still adheres to this insane part of LDAP specifications is OpenLDAP.
+
+If you really have to strictly follow LDAP specifications there are some alternatives.
+But they are all very painful.
+
+* You can add dummy account to every group.
+Then they group will always have at least one member.
+If you do not enforce referential integrity, them it may be just a DN of non-exitent entry.
+Just make sure such entry cannot be created by mistake.
+If case of referential integrity, you will probably need real account.
+Good luck negotiating with your security officer.
+
+* You can dynamically add/remove dummy account when the group is empty.
+This is a theory.
+However, the algorithm is insane and unreliable.
+And it has almost the same disadvantage as having the dummy entry in the group all the time.
+Do not do this.
+
+* You can delete entry groups.
+Theoretically.
+However, the algorithm is not trivial.
+Even worse, system administrators will hate you.
+Support engineers will hate you.
+Try to be a nice person and do not do this.
+
+* You can forget about `groupOfNames` and `groupOfUniqueNames` and use your own grouping mechanism.
+But prepare for huge pile of problems.
+Your LDAP server will not know anything about `myCustomGroup`, therefore you will not be able to use it in ACLs and similar mechanisms.
+Your applications will not know the group either.
+Some applications are configurable, and you can make it work.
+But too many applications stubbornly expect `groupOfNames` or `groupOfUniqueNames`.
+Do not use this method unless you are really desperate.
+
+See?
+The best place is to fix the problem is at its origin.
+Therefore go ahead, violate LDAP specification and never talk about it again.
+
+
+=== Groups, Groups and Groups
 
 Now, the LDAP group saga still does not end here.
 LDAP has two object classes for groups, that are entirely the same, except that they are different.
@@ -167,6 +299,18 @@ Most applications just resigned to standards and made this configurable.
 And then there are other grouping mechanisms, such as `posixGroup`.
 Even more grouping mechanisms was proposed or implemented in various LDAP servers in proprietary forms.
 LDAP grouping mechanisms would fill a mid-size ZOO and a large lunatic asylum.
+
+==== What To Do About It?
+
+There is no good solution here.
+Try to figure out whether your applications would like `groupOfNames` or `groupOfUniqueNames`.
+Luckily, many applications are configurable, but certainly not all of them.
+Also, look at your LDAP server.
+Some LDAP servers support just one of them in ACLs.
+This is an acrobatic balancing act.
+In the worst case you will need both `groupOfNames` and `groupOfUniqueNames` and you will need to manage membership in both.
+This is also the case if you need `posixGroup`.
+Decent Identity Management (IDM) system is a must here.
 
 
 == Search, Paging and Sorting
@@ -212,6 +356,15 @@ None of these approaches work universally for all the servers.
 Therefore it is quite hard to write an interoperable LDAP client.
 Which somehow diminishes the value of having a standard in the first place.
 
+==== What To Do About It?
+
+Fortunately, most servers support both SPR and VLV and the support is also enabled by default.
+Again, with a notable exception of OpenLDAP, where you need `sssvlv` overlay.
+However, that does not mean that all servers behave the same.
+There are subtle differences in server behavior, especially for VLV.
+For example, OpenLDAP needs to set a special `prtotal` limit even for VLV searches.
+Probably the only thing you can do is to experiment with your specific server and configuration.
+
 
 == Permissive Modify
 
@@ -236,6 +389,37 @@ Also, it is not supported by all LDAP servers.
 In particular, (Fedora/RedHat) 389 Directory Server does not support this control.
 Which makes it very painful to work with that server.
 
+=== What To Do About It?
+
+It depends on what LDAP server do you have:
+
+[cols="h,1"]
+|===
+| (RedHat/Fedora) 389 Directory Server,
+| Bad luck.
+No support for permissive modify.
+I'm sorry, there is nothing we can do for you.
+
+| Sun/Oracle DSEE
+| Not sure.
+Do you know if _permissive modify_ is supported here?
+Let me know.
+
+| OpenDS family: OpenDS, OpenDJ, wren:DS, UnboundId
+| You are fine.
+Permissive modify is supported.
+
+| OpenLDAP
+| Permissive modify is supported, but it is not advertised in root DSE.
+Therefore applications cannot discover it automatically.
+You have to explicitly force the applications to use it.
+
+| Active Directory
+| You are fine.
+Permissive modify is supported.
+
+|===
+
 
 == OIDs
 
@@ -252,6 +436,14 @@ Therefore, the OIDs do not really work any more.
 They just make the entire LDAP world look quite scary, especially for younger engineers.
 In fact, many LDAP servers do not require numeric OIDs at all.
 Perhaps the only two things were OIDs are still used are LDAP controls and extensions.
+
+=== What To Do About It?
+
+Try to enjoy the geeky look of OIDs.
+When you talk about OIDs with your colleagues, you will gain an aura of an engineering wizard.
+You can pretty much ignore OIDs otherwise.
+Even if you are extending schema, many servers (e.g. iPlanet and OpenDS family) allow you to use plain stings instead of OIDs.
+It is OK to use this option.
 
 
 == Replication and Synchronization
@@ -272,6 +464,56 @@ There is one "standard" replication protocol (https://tools.ietf.org/html/rfc453
 Standardized replication would be an ideal method to implement synchronization mechanisms, e.g. to synchronize content of directory system with identity management systems.
 However, directory servers provide proprietary, and often inferior mechanisms for synchronization.
 This means that every integration of LDAP server synchronization mechanisms is an adventure.
+
+=== What To Do About It?
+
+For replication, please contact your vendor.
+
+Forget about cross-vendor replication, that almost never works reliably.
+Some servers have it, e.g. OpenLDAP can replicate to AD.
+However, AD does not follow standard schema - and as we have seen, strictly following LDAP specifications does not really makes sense.
+Therefore it is almost certain that you will need to transform the data as they move between servers.
+Identity management (IDM) system can help you with that.
+
+Which leads us to synchronization capabilities.
+These vary for each server:
+
+[cols="h,1"]
+|===
+| iPlanet family: (RedHat/Fedora) 389 Directory Server, Sun/Oracle DSEE
+| There is "Retro changelog" capability, exposing changes in `cn=changelog` LDAP subtree.
+This mechanisms somehow works.
+However, server based on older code (such as 389 Directory Server) have ingerior implementation of the changelog.
+Detecting deleted objects and renames is problematic.
+
+| OpenDS family: OpenDS, OpenDJ, wren:DS, UnboundId
+| These servers have "Retro changelog" capability as well.
+This version of the changelog works quite well.
+
+| OpenLDAP
+| There are several mechanism.
+There is syncrepl (https://tools.ietf.org/html/rfc4533[RFC4533]), which could theoretically be used for synchronization.
+However, for some reason, this mechanism is not popular and it is poorly supported by the clients.
+Then there is an access log mechanism.
+We do not have sufficient data about the reliability of this mechanism so far.
+(Do you have the data? Please contact us.)
+
+| Active Directory
+| This is Microsoft, of course there is a proprietary mechanism.
+Microsoft mechanism is called DirSync.
+It is a special LDAP control that is added to a regular search request.
+Quite surprisingly, this is a very simple and effective mechanism and it seems to work well.
+
+|===
+
+There is always an option to use `modifyTimestamp` for synchronization.
+This is a simple and popular method.
+The only problem is that is does not really work.
+Firstly, it cannot detect deleted objects.
+Secondly, it is sensitive to good time synchronization (on millisecond granularity).
+Thirdly, some objects need to be processed twice to make it reliable.
+Overall, this is very bad and unreliable method.
+Use only in case when there is no other option available.
 
 
 == More
@@ -296,6 +538,31 @@ Every server has some issues with standard compliance.
 As far as I am aware, there is no LDAP server that is 100% standard-compliant.
 Which means that standard-compliant LDAP client is a completely useless piece of software.
 
+=== What To Do About It?
+
+You have to live with these.
+Every server has its own way.
+Every server has its own quirks and peculiarities.
+It is what it is.
+You need to learn them and work around them.
+
+== Interoperability
+
+Do not rely on "LDAPv3 compliant" and other marketing declarations.
+As you have seen, LDAP compliance is not a sufficient condition for interoperability.
+In fact, strict LDAP compliance is often an obstacle.
+
+Build your solution with the specific server (and version) that you have chosen.
+Test the solution with that server.
+Test the solution, even if it comes from a vendor and it has "LDAPv3 compliant" stamp.
+Test everything before making a commitment.
+
+Creating LDAP client that is interoperable with several servers is a huge undertaking.
+I know, I have done it, in a form of midPoint https://github.com/Evolveum/connector-ldap[LDAP Connector].
+It took man-months of intense work, years of time, it involved building of testing environment, many trials and errors.
+There were non-trivial fixes that we needed to make in Apache Directory API and Apache MINA.
+After all that work, the connector is still not 100% interoperable with all major LDAP servers.
+Even more work will be need in the future.
 
 == Conclusion
 
@@ -332,3 +599,37 @@ My recommendation is to consider LDAP specifications to be guidelines rather tha
 LDAP is still useful for many use cases.
 However, it is very likely that you need to deviate from the standards to make your solution work.
 Welcome to the LDAP world!
+
+== Contributing
+
+This document is quite obviously missing some details.
+Some things may not be entirely correct.
+If you have corrections or additional details, please contact us.
+We will gradually correct and update the document.
+Just please keep your comments factual and pragmatic.
+
+If you think that this is all wrong and that LDAP is perfect, then there is no need to contact us.
+I hear that opinion way too often.
+Yet, reality shows a different picture.
+
+If you want to accuse me that I just hate LDAP, there is need to do that either.
+Several people did it for you already.
+Yet, that is far from the truth.
+I actually *like* LDAP.
+I like it very much.
+I think that LDAP is simple, elegant in its own way, and there are many good things about it.
+It is very sad that few bad things are completely ruining the experience.
+Many of these things are easy to fix, even while maintaining almost full compatibility.
+It is almost unbelievable that there is no will to fix these problems.
+
+You may think that these problems should be fixed in LDAP specifications rather than guiding engineers to violate the specs.
+In that case you are right!
+I agree with you completely.
+You should make your voice heard in LDAP community.
+I've tried to discuss these issues with LDAP community for many years.
+I tried to explain, I tried to suggest solutions, but to no avail.
+LDAP community is in deep denial.
+I'm done trying to persuade people that won't listen.
+However, you can give it a try.
+You may have better luck.
+Maybe there is still a chance to save LDAP.
