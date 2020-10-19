@@ -1,0 +1,124 @@
+= Schrödinger Testing Framework
+
+Schrödinger is a testing framework designed to test midPoint user interface in a user-friendly and maintainable way.
+The idea is to hide the details of GUI look and feel design from the tester.
+The tester should focus on the presentation and application logic, rather than concern themselves with specific location of particular button on the screen.
+
+Schrödinger provides fluent API to build the tests.
+Code of a Schrödinger test is meant to follow the path that an ordinary user would follow in midPoint GUI:
+
+[source,java]
+---
+    UserPage user = basicPage.newUser();
+    user.selectTabBasic()
+            .form()
+                .addAttributeValue("name", "jdoe007")
+                .addAttributeValue(UserType.F_GIVEN_NAME, "John")
+                .addAttributeValue(UserType.F_FAMILY_NAME, "Doe")
+                .and()
+            .and()
+        .clickSave();
+---
+
+Schrödinger is built to support two basic modes of operation:
+
+* *Development tests*.
+The tests start from empty midPoint.
+The test initializes the test and environment and runs test cases.
+The environment is torn down after the test.
+The goal is to have repeatable testing process that can be fully automated.
+Development tests are usually executed automatically as part of continuous integration environment.
+
+* *Deployment tests*.
+The test starts with initialized, configured and populated midPoint instance.
+The test runs on real data, usually in customer testing environment.
+Test cases start with an initialized environment, and the environment stays operational after the test.
+The goal is to semi-automate the tests with real configuration and real resources.
+Deployment tests are usually started manually by a deployment engineer.
+
+Schrödinger is developed by Evolveum.
+It is designed specifically to test midPoint.
+It is not directly reusable for other software.
+However, the concepts of Schrödinger may be applicable for other testing framework.
+
+.Why Schrödinger?
+TIP: The name "Schrödinger" is based on https://en.wikipedia.org/wiki/Erwin_Schr%C3%B6dinger[Erwin Schrödinger], an Austrian-Irish physicist.
+Erwin Schrödinger is famous, among other works, for https://en.wikipedia.org/wiki/Schr%C3%B6dinger%27s_cat["Schrödinger's cat"] thought-experiment, in which a cat in a box may be simultaneously dead and alive, util the box is opened.
+Similarly to Schrödinger's cat, the system is both working and not working until it is tested.
+
+== Implementation
+
+Source code of the _framework_ are in https://github.com/Evolveum/midpoint/tree/master/tools/schrodinger[`tools/schrodinger` directory of midPoint source code].
+The tests are in https://github.com/Evolveum/midpoint/tree/master/testing/schrodingertest[`testing/schrodingertest` directory].
+
+NOTE: The proper name of the platform is "Schrödinger".
+However, in the 7bit ASCII world we use its non-diacritic version: `schrodinger`.
+The German transliteration (Schroedinger) is not used.
+
+Schrödinger is built on top of https://selenide.org/[Selenide] framework.
+Schrödinger has a small server-side part, that adds special markers to HTML elements.
+The markers make it easier for the tests to recognize important GUI elements, such as tabs, form fields and buttons.
+The markers remain the same, even if the GUI look and feel changes.
+This helps to make the tests maintainable.
+
+Majority of Schrödinger code is on client side.
+There are libraries that hide all the details about the markers and HTML structure from the tester.
+Obviously, there need to be a class or a method for every type of GUI element that is used in midPoint user interface.
+That makes maintenance of Schrödinger a bit hard, but it makes maintenance of tests much easier.
+We have only one framework to maintain, but there are a lot of tests to write, therefore the benefit is quite clear.
+
+Schrödinger expects that midPoint runs as a separate process.
+This allows use of Schrödinger for deployment tests.
+For development testing, the test driver must start up clean midPoint instance.
+
+The markers in HTML elements that Schrödinger generates are not supposed to be globally-unique.
+E.g. a marker for `name` input field may appear on a page several times, if it is used in several GUI components.
+All the fields will have the same marker.
+However, the enclosing element that represents the GUI component should provide sufficient context information for the test to reliably locate the correct input field.
+As of today, Schrödinger API should be prepared for this, however, the implementation may not be complete.
+
+Schrödinger server-side code is not enabled by default, to avoid polluting the HTML code in production.
+The server side part of Schrödinger needs to be explicitly enabled.
+
+=== Current State
+
+Schrödinger is still in development.
+It is not complete yet.
+It is not officially "stable".
+There may be some changes to the API, or to any other part of the system.
+
+Despite that, Schrödinger may be still useful for testing, even for midPoint deployments.
+However, you should be prepared to maintain the tests in case the framework changes.
+Of course, contributions to the framework or the tests is more than welcome.
+
+== Future
+
+Our plan is to maintain Schrödinger as the primary GUI testing framework for midPoint.
+It would be also a recommended way for semi-automated testing of midPoint deployments, once the framework is production-ready.
+
+=== Planned Improvements
+
+We have some specific plans for short-term and mid-term development of Schrödinger:
+
+* Improve test initialization, especially for development tests.
+This will most likely involve integration of REST client for REST-based initialization.
+
+* Improve handling of HTML element markers, e.g. better support for repeated fields.
+
+* Performance testing involving Schrödinger tests, most likely involving hybrid load/functionality tests.
+
+* Better coverage of GUI functionality.
+
+* Improve Schrödinger documentation.
+
+See TODO for the Schrödinger development in link:/midpoint/midscale/[midScale] project.
+
+=== Long-Term Future
+
+We have an ambition to extend/integrate Schrödinger with end-to-end testing capabilities.
+We would like to involve real-world resources in Schrödinger tests, such as databases, CSV files, directory servers and so on.
+For that to happen, we will need an efficient way to set up, configure and prepare the resources, as well as assert their state in the tests.
+
+The result should be a complete "midCredible" end-to-end testing platform.
+
+However, there are no specific plans or dates at the moment.
