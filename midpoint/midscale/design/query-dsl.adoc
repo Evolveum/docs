@@ -1,0 +1,309 @@
+= Query DSL
+NOTE: All examples are only for discussion and does not represent any current
+functionality
+
+
+.Terminology
+Filter:: A set of conditions / predicates used to select subset of data
+
+Query:: Combination of filter and transformation / ranking / ordering
+specification to retrieve set of data
+
+
+NOTE: Primary design should be put into filter part, with most common use-cases
+being less verbose
+
+
+[cols="a,a,a,a"]
+|===
+| XML | 1:1 Axiom | Axiom with Argument | Axiom, type as equals special case, top clause is always AND
+|
+
+----
+<filter>
+  <type>
+    <type>UserType</type>
+    <filter>
+      <ref>
+        <path>
+          assignment/orgRef
+        </path>
+        <value oid="OID" />
+      </ref>
+    </filter>
+  </type>
+</type>
+----
+|
+
+----
+filter {
+  type {
+    type UserType;
+    filter {
+      ref {
+        path assignment/orgRef;
+        value "OID";
+      }
+    }
+  }
+}
+----
+
+|
+----
+filter {
+  type {
+    type UserType;
+    filter {
+      ref assignment/orgRef {
+        value "OID";
+      }
+    }
+  }
+}
+----
+|
+----
+filter {
+  type UserType;
+  ref assignment/orgRef {
+    value "OID";
+  }
+}
+----
+
+.XPath like
+----
+@type=UserType && assignment/orgRef="OID"
+----
+
+.JIRA /SQL like
+----
+type = UserType AND assignment/orgRef = "OID"
+----
+
+
+.Google like
+----
+type:UserType assignment/orgRef:OID
+----
+
+|
+|===
+
+
+
+
+
+
+
+
+=== Notes & Scribles
+
+Existing state:
+
+Namespaces?
+
+axiom?
+----
+or {
+  substring {
+    path c:employeeType;
+    value A;
+  }
+  substring {
+    path c:employeeType;
+    value B
+    anchorStart true;
+  }
+}
+
+
+exists assignment { // arg is path
+  filter {
+    ref tenantRef { // arg is path
+      value oid1; // value
+    }
+    ref orgRef { // arg is path
+      value oid2; // arg is oid
+    }
+  }
+}
+----
+
+
+[cols="a,a,a"]
+|===
+----
+<or>
+    <and>
+        <greater>
+            <path>c:costCenter</path>
+            <value>100000</value>
+        </greater>
+        <less>
+            <path>c:costCenter</path>
+            <value>999999</value>
+        </less>
+    </and>
+    <and>
+        <greaterOrEqual>
+            <path>c:costCenter</path>
+            <value>X100</value>
+        </greaterOrEqual>
+        <lessOrEqual>
+            <path>c:costCenter</path>
+            <value>X999</value>
+        </lessOrEqual>
+    </and>
+</or>
+----
+|
+----
+or {
+  and {
+    greater c:costCenter {
+      value 100000;
+    }
+    less c:costCenter {
+      value 999999;
+    }
+  }
+  and {
+    greaterOrEqual c:costCenter {
+      value X100;
+    }
+    lessOfEqual c:costCenter {
+      value X999;
+    }
+  }
+}
+----
+|
+----
+or {
+  valueOf c:costCenter {
+    and {
+      greater 100000;
+      less 999999;
+    }
+  }
+  valueOf c:costConter {
+    and {
+      greaterOrEquals X100;
+      lessOrEquals X999;
+    }
+  }
+----
+
+----
+valueOf c:costCenter { // Select(c:costCenter)
+  or {
+    and {
+      greater 100000;
+      less    999999;
+    }
+    and {
+      greaterOrEquals X100;
+      lessOrEquals X999;
+    }
+  }
+}
+----
+|===
+
+----
+
+c:costCenter:: (>100000 and <999999 ) | (>= X100 and <= X999)
+
+
+Predicate and(Predicate...);
+Predicate or(Predicate...);
+
+Selector
+
+
+Predicate
+Selector
+----
+
+type ValuePredicate {
+  // Value enumerations
+  item anyOf; // Effectivelly OR
+  item allOf; // Effectivelly AND
+  item equals;
+
+
+  // All subitems are and
+  item smallerThan;
+  item largerThan;
+
+
+
+  // String predicates
+  item startsWith;
+  item endsWith;
+  item contains;
+}
+
+
+valueOf c:costCenter {
+
+}
+
+
+
+
+
+
+
+
+
+
+|===
+|Condition | Arguments | Description
+
+|all | | All items
+|none | | None
+|undefined | | Undefined, NOOP filter
+
+3+| *Value comparison*
+
+|equal | path, ValueSpec |
+|greater | path, ValueSpec |
+|greaterOrEqual | path, ValueSpec |
+|less | path, ValueSpec |
+|lessOrEqual | path, ValueSpec |
+|substring | path, ValueSpec |
+
+3+| *Special*
+|ref | path, ValueSpec<ObjectReference> |
+|org | |
+|inOid | Oid | Currently special case of 'equal' filter
+|fullText | |
+|present | |
+|true | |
+|and | Predicate... |
+|or | Predicate... |
+|not | Predicate... |
+|type | Type, Filter | Accepts if the object is of type T and filter F passes.
+|exists | Path, Filter | Accepts iff there exists a value v of item I so that F(v) passes. This is useful e.g. to find an assignment with a given tenantRef and orgRef.
+|===
+
+
+
+----
+Search: FilterClause
+FilterClause: All | None | Undefined | LogicOperation | ValueComparison | Ref | Org | Type | Exists
+LogicOperation: And | Or | None
+And: "AND" FilterClause+
+Or: "OR" FilterClause+;
+Not: "NOT" FilterClause;
+ValueComparison: Operation Path ValueSpec+;
+ValueSpec: Path | Value;
+Ref: ...
+Org: ...
+Type: TypeSpec FilterClause
+Exists:
+----
