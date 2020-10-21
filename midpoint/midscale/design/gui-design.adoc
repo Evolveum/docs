@@ -1,0 +1,64 @@
+= GUI Design Meeting
+
+* use model where possible - do not do complex loading outside the model when possible. Think about Hollywood principle: "Don't Call Us, We'll Call You". But be careful, using Model.of(someLoadingFromModel) is not the model we are talking about.
+* use compiled GUI profile where possible - there is a system config, credentials config, etc. We don't need to load them again when they were loaded before
+* create DTO or other GUI related object when needed - e.g. don't try to make complex transformation and acrobatics when it's simpler to create custom DTO object
+* think about model resolution - how many times getObject() is called?
+* use visible enable behavior and not do any if-else statements. Especially if there is a need to call model/repo/provisioning
+* when there is a need to set css or styles in Java code, think if there isn't native way of using CSS instead. Every component.add() method costs something
+* read wicket documentation, especially the part about anti-patterns
+* when you change, refactor panel, method, anything. If there is a parameter in the method which is not used in the method body, remove it from method signature. It doesn't have any
+meaning to keep it there!
+* improve error handling little by little, e.g. if there is something like this:
+----
+try {
+    allowAddNew = parentPage.isAuthorized(ModelAuthorizationAction.ADD.getUrl(),
+    AuthorizationPhaseType.REQUEST, (new OrgType(parentPage.getPrismContext())).asPrismObject(),
+    null, null, null);
+} catch (SchemaException | ExpressionEvaluationException | ObjectNotFoundException
+| CommunicationException | ConfigurationException | SecurityViolationException ex) {
+    LoggingUtils.logUnexpectedException(LOGGER, "Failed to check menu items authorizations", ex);
+}
+----
+
+change it to:
+----
+try {
+    allowAddNew = parentPage.isAuthorized(ModelAuthorizationAction.ADD.getUrl(),
+    AuthorizationPhaseType.REQUEST, (new OrgType(parentPage.getPrismContext())).asPrismObject(),
+    null, null, null);
+} catch (Throwable ex) {
+    LoggingUtils.logUnexpectedException(LOGGER, "Failed to check menu items authorizations", ex);
+}
+----
+It might seem as an anti-pattern, but we have to think that we are in GUI, the most upper layer in the system. So if we don't have any reasonable way how
+to handle exceptions, it's safer and better to catch them all, log them, add to the result and show the error message to the user and so prevent GUI crashes
+
+
+== Known Issues
+* toolbarButtons on the main table component - buttons descriptions are loaded out of the model scope. It leads to more calls then needed. Use model instead. Review and fix
+MultifunctionalButton
+* left menu panel - everything is loaded every time the page is loaded. When there is a lot of dashboards or collections defined, it might slow the entire GUI. Questions
+** do we need to load everything every time? Even when it's not display? Can't we use models somehow?
+** What about dashboards? They are displayed automatically when new dashboard is created? Don't we want similar mechanism as with collections which have to be explicitly enabled in
+adminGuiConfig?
+* There is a problem with wrappers and generated forms - the model object has to be loaded before the _createPanel_ is called. It's because the panels are registered while
+creating wrapper and wrapper is created only if the model.getObject() is called. Could this be a memory problem with many simultaneous sessions? We need probably different mechanism,
+e.g. what about having generic panels for PrismProperty, PrismReference, PrismContainer and all compile-time know panels? And then, using system configuration or some override mechanism,
+other then implemented now (directly while creating wrapper) could be those panels overridden and custom panels used instead?
+* Page org tree (TreeTablePanel):
+** a lot of components with bad handling, e.g. there is a member panel and manager panels. Both makes call to load members/managers. As there is misuse of models, these calls are repeated several times.
+** member panel use MainObjectListPanel which has the perf. issues itself (toolbarButtons).
+** manager panel - why to create objectWrapper which isn't event used?
+** loading of the children of org.
+** setParent (as well as in AbstractOrgTabPanel)
+* AbstractRoleMemberPanel:
+** initSearch - use models!
+** initDefaultSearchParameters - use models! what is this acrobatics about?
+* AssignmentPanel
+** newButtonDescription
+* Search panel - support for "static" filters, e.g. on member table, there is "static" filer for _type, indirect, scope (org), relation_. On repository
+objects, when searching shadows, there is _resource, objectClass_, for all objects, there is _oid_
+
+
+
