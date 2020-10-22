@@ -2,8 +2,8 @@
 
 WARNING: This document is draft of preliminary notes for Prism Design meeting
 
+== Participants
 
-.Guests:
 * Radovan Semancik
 * Katarina Bolemant
 * Pavol Mederly
@@ -12,38 +12,44 @@ WARNING: This document is draft of preliminary notes for Prism Design meeting
 * Kamil Jires
 * Richard Richter
 
+== Motivation and Requirements
 
+=== Motivation
 
-== Overview
+Prism is use by every component of midPoint and provides basic infrastructure for data representation and manipulation.
+The performance, scalability and features of Prism directly affects scalability of midPoint as a whole.
 
-The goal of _design meeting_ is to figure out design details about evolution of Prism in order to improve performance and scaling of Prism and MidPoint.
+=== Primary Problems
 
-Design meeting is a creative, free-form discussion.
-It may be following an agenda, but it is usually closer to a free-form brainstorming.
+We are trying to solve following problems:
 
-== Schedule
+* *Thread safety* of prism code.
+We need the code to work correctly even with high volume of concurrent requests.
+E.g. systematically avoid race conditions.
+Allow objects to be safely cached, boosting performance.
+Potential problems:
+** JAXB code (complex properties).
+** DOM, inside partially-parsed XNodes.
+** GregorianCalendar, PolyString and similar primitive properties implemented by complex Java classes.
+** OperationResult?
 
-NOTE: Design meetings are schedules as needed, the schedule is not fixed.
-For midPoint, the design meeting usually happens at the beginning of a development cycle or milestone cycle.
+* *Performance*.
+Do not waste CPU or memory, avoid high complexity, e.g. we know we have some O(n^2^) code there.
+Prism is used everywhere, it is used often.
+Even small performance problems are likely to significantly amplify.
+Likely problems:
+** O(n^2^) code, e.g. checking for value existence before adding new value
+** schema clone & modify, e.g. application of security+obj.template+archetypes for GUI
 
-== What To Discuss
+* *API stability*.
+Prism is used everywhere in midPoint, it is used in midPoint client, it is used by midPoint expressions and customizations.
+Every incompatible change in midPoint API is likely to cause cascading changes at many places.
+Lot of customers may be affected.
+*Note:* Solution to this problem is likely to appear as a side-effect during Prism improvement.
 
-=== Motivation and Requirements
+=== Use cases
 
-NOTE: What is the *motivation* to discuss this topic at all?
-Do customers need it?
-What are the *use cases*?
-Will it help make deployments better/faster?
-How exactly?
-
-==== Motivation
-
-Prism is present at every component of midPoint and provides basic infrastructure for data representation and manipulation. The performance, scalability and features of Prism directly affects scalability of midPoint as a whole.
-
-
-==== Use cases
-
-* Prism provides schema for data, which is used for data (un)marshalling, data  processing and validaiton
+* Prism provides schema for data, which is used for data (un)marshalling, data  processing and validation
 
 * Prism provides data marshalling / unmarshalling capabilities based on schema
 
@@ -53,15 +59,10 @@ Prism is present at every component of midPoint and provides basic infrastructur
 
 * Prism as base for client and midPoint
 
+=== Assumptions
 
-NOTE: What are the *assumptions*?
-What we expect that customers will do?
-Maybe we are not certain about some requirements and we just assume something?
-
-==== Assumptions
-
- * For foreseable future Prism is in midPoint context
- * Axiom based schema
+ * For foreseeable future Prism is in midPoint context (used in midPoint client, not used by any third-party software)
+ * Axiom based schema - eventually, but we need to live with XSD for now
 
 // * Focus is to make it work in our private cloud. No effort shall be spend on the abstractions and preparation on the other clouds.
 
@@ -70,16 +71,16 @@ Maybe we are not certain about some requirements and we just assume something?
 //* We will focus on docker and dockerization, not hybrids for now (VM/Windows).
 
 
-==== Ideal State
+=== Ideal State
 
 
 
-==== Requirements
+== Requirements
 
 * Profiling - open question for now
 
 
-===== Testing Environment Requirements
+=== Testing Environment Requirements
 
 * 1-2 source systems
   ** PostgreSQL
@@ -96,8 +97,7 @@ Maybe we are not certain about some requirements and we just assume something?
 - DB server: 16GB RAM
 
 
-
-==== Performance and scalability goals
+=== Performance and scalability goals
 
 NOTE: Do we have some *performance* or *scalability* targets?
 Do we know how big a system do we want to support?
@@ -111,9 +111,7 @@ How many users, how many requests per second, special usage patterns (bursts), a
 
 
 
-
-
-=== Ideas and Concepts
+== Ideas and Concepts
 
 
 [NOTE]
@@ -131,17 +129,17 @@ We want to combine mechanisms together into more flexible and more powerful solu
 
 
 
-==== Thread Safety
+=== Thread Safety
 
 * Thread safety
   - Thread safety issues & immutability
     - Pure JAXB beans - immutable, replace Gregorian Calendar, ordered lists
     - XNodes with DOM (locking on DOM document)
     - OperationResult
-    - ReadOnly flag for clients (default)
+    - ReadOnly flag in midPoint APIs, we want it do be true by default. But how to migrate?
     - Schema
 
-==== Performance
+=== Performance
 
 * Big Items
 //** Container with lot of items -  Problem of many attributes for an object (100+).
@@ -157,7 +155,7 @@ We want to combine mechanisms together into more flexible and more powerful solu
     * Parsing & Serialization
 
 
-==== Memory
+=== Memory
 
 * Application of Authorization & Schema
    - Smart schema builders
@@ -170,51 +168,42 @@ We want to combine mechanisms together into more flexible and more powerful solu
 
 
 
-=== Implementation
+== Implementation
 
 TODO: feasibility
 
-=== Performance and Scalability Considerations
+== Performance and Scalability Considerations
 
 TODO
 
-=== Testability Considerations
+== Testability Considerations
 
-Make sure that the functionality can be tested.
+NOTE: Make sure that the functionality can be tested.
 Think about the testing process.
 Can this be teste by the ususal mechanisms that we have?
 Will we need some special environment or setup?
 
+=== Diagnostics and Visibility
 
-=== Security Considerations
+* Java profiling: for use on developer's machines
+
+* MidPoint tracing capabilities: for use in (clustered) testing environment
+
+== Security Considerations
 
 TODO
 
-=== Rolling Wave Design
 
-TODO
+== Open Questions
 
-== Write It Down
+We need to further discuss:
 
-Notes from design meeting at the appropriate place.
-For midPoint, the appropriate place is usually https://docs.evolveum.com/midpoint/devel/design/[Design Notes at docs] for public notes, or https://guide.priv.evolveum.com/midpoint/notes/[MidPoint Design Notes at guide] for private notes.
+* Prism complex properties, how the will be seen by Prism schema code, code generation approach.
 
-Do not forget to document:
+* Thread safety approach, design of mechanisms (immutability? freezing?, etc.)
 
-* *Requirements* and *assumptions*. Interesting *use cases*.
+* Application of schema for GUI/REST (security, obj.template, etc.)
 
-* Outline of the *approach*, important aspects of algorithms, schemas and so on.
+* Item equivalence
 
-* *Decisions* that were made, also the explanation or *motivation* _why_ the decision was made.
-
-* Outline of a *plan*.
-What do we implement now?
-What parts will remain to be implemented later?
-
-* *Risks* and challenges.
-What parts are likely to be problematic?
-Where can the design fail?
-
-* *Open questions*.
-What we cannot answer now?
-What problems remain to be solved later?
+* Vission for Prism5/midPoint5, future of Axiom; to guide the design of Prism improvements
