@@ -1,0 +1,252 @@
+= "Tasks" Design Meeting #1 Notes: 2020-10-27
+
+== Participants
+
+* ...
+
+== Agenda
+
+1. Identification of issues
+2. Misc
+
+== 1. Identification of issues
+
+Areas:
+
+* Visibility (progress, errors, effects, audit)
+* Manageability (setup/config, state management, automation)
+* Performance (cluster, errors, overhead)
+
+=== Visibility
+
+[%header]
+[cols="2,8a,8a,8a,4"]
+|===
+| Sub-area
+| Goal
+| Rationale
+| Current status
+| JIRA
+
+
+| State and progress
+|
+Task state and progress should be reported in a clear and consistent way. It should be shown
+how much work has been done, and how much is yet to be done. Time per item, throughput,
+and estimated completion time should be visible.
+|
+For tasks that run for hours or days it is crucial to see where we are on the road, and
+how long that road is.
+|
+There are several progress and performance indicators, e.g.
+
+* "progress" vs "objects processed" vs "percent complete",
+* "average time" vs. "wall-clock average time".
+
+These are sometimes imprecise, or even outright conflicting. Estimated completion information
+is missing. It is often not clear which counters are reset on task re-execution (e.g. for
+live sync or async update tasks) and which are not.
+
+Task state is misleading for multi-node tasks ("Waiting").
+|
+MID-6453, MID-6011, MID-4093, ...
+
+| Errors
+|
+Errors should be reported appropriately.
+|
+Failures inevitably occur. They are not only caused by configuration issues, but often by
+external factors: wrong data, infrastructure outages, and so on. Failures and their effects
+have to be diagnosed and fixed quickly, and without inappropriate effort.
+|
+There are some mechanisms for error reporting: audit records, operation execution records,
+iterative task information, operation result. They sometimes complement each other, sometimes
+they overlap, often leading to inconsistent overall view.
+|
+MID-4832 (still relevant?), MID-4991, ...
+
+| Effects
+|
+Effects - i.e. actions done by the task - should be reported in a clear and consistent way.
+|
+When a task is started, administrator usually has some assumptions on the tasks effects. For
+example if it's a first execution of an import task, it is expected that new users will be
+created in midPoint, and accounts on target resources will be created as well. By comparing
+expected and actual task effects the administrator can estimate if his/her configuration is good,
+or there is something wrong with it.
+|
+There are "actions executed" and "states of processed objects". Although they basically work,
+there are many corner situations in which they provide data that are either plain wrong, or
+- although technically correct - they are misleading.
+|
+MID-6384, MID-4811, ...
+
+| Audit
+|
+Relevant task changes should be audited.
+|
+This is a basic prerequisite for security and troubleshooting.
+|
+Auditing is not consistent now.
+|
+...
+
+|===
+
+Notes:
+
+* For "composite" tasks, the notion of progress is quite complex. For example, reconciliation task
+goes through three stages, with different number of objects to process at each stage. In a similar
+way, the cleanup task goes through 6 stages.
+
+
+=== C. Manageability
+
+[%header]
+[cols="2,8a,8a,8a,4"]
+|===
+| Sub-area
+| Goal
+| Rationale
+| Current status
+| JIRA
+
+| Setup and configuration
+|
+Creation and configuration of the tasks should be easy.
+
+// There should be also more configuration options,
+//like nice GUI for object selection (e.g. by archetype).
+|
+Lower the entry barrier.
+|
+Creation of a multi-node task is currently hard and error-prone process. The XML notation is powerful
+but too complex for a "standard" user. No templates/wizards are available. The only way is to
+study wiki pages and play with some samples.
+|
+MID-6367, MID-5319, ...
+
+| State management
+|
+Operations like task suspension, resuming, "start now", and so on, must be simple
+and reliable, even for multithreaded/multinode tasks.
+
+//Other partial improvements are needed, e.g. converting single-run vs recurring tasks.
+|
+Better user experience.
+|
+Needs improvement, especially for multi-node tasks.
+|
+MID-5133, ...
+
+| Automation
+|
+Automated monitoring
+and management:
+
+Situations that require human operation attention (excessive errors, slow or even stalled
+tasks) should be detected automatically, and appropriate notification should be carried out.
+
+Thresholds for operations should be observed and maintained.
+|
+Administrative effort should be kept at reasonable level. For example, requiring an operator to
+inspect a list of tasks and to try to detect anomalies is counter-productive.
+|
+We have dashboards and notifications, but they are of limited use now. We have some diagnostics
+tools (like collecting thread dumps for stalled tasks automatically) but they are also limited
+in scope. Not all crucial information (e.g. staleness flag) is available to external clients by REST.
+Do we have thresholds for success/failure operations?
+|
+MID-6345, MID-6412, MID-6152, MID-5348, ...
+
+|===
+
+=== Performance
+
+[%header]
+[cols="2,8a,8a,8a,4"]
+|===
+| Sub-area
+| Goal
+| Rationale
+| Current status
+| JIRA
+
+| Cluster utilization
+|
+MidPoint should utilize multiple nodes effectively. The load should be evenly
+distributed, taking into account user requirements (where appropriate). Node addition
+and removal should be dynamically taken into account.
+|
+This is a basic requirement for scalability.
+|
+There is some missing functionality and issues with existing features. Dynamic clusters
+are not supported at all. As the issues are concerned, for example, when a cluster is
+restarted, all tasks try to execute on the first node that goes live.
+|
+MID-6421, MID-6116, ...
+
+| Error recovery
+|
+The recovery from errors should be efficient, both from the point of user's time
+(partially covered by Visibility:Errors) but also from the point of processing time.
+|
+The system should be able to get into consistent state (cf. eventual consistency)
+even when having millions or tens of millions objects in total.
+|
+We do have consistency mechanism for handling failures during outbound provisioning.
+It allows us to efficiently resolve (typically by retrying) failures that have occurred there.
+But we need a similar mechanism for *inbound* processing, i.e. synchronization: either live sync,
+import, or reconciliation. So a few failed records should be able to be fixed without the need of
+manual intervention or massive reconciliation effort. (An experimental work has been done in this
+area.)
+|
+MID-6417, MID-4557, ...
+
+| Overhead reduction
+|
+Bucket management should be efficient and reliable. Overhead incurred should be low.
+|
+Performance increase.
+
+But an indirect effect is that bucket configuration will be less fragile
+and more forgiving, improving ease of use and lowering entry barrier.
+//Ease of use. Low barrier of entry.
+//Setting up bucket management parameters should be easy. It should not require
+//trial-and-error processes, nor a lot of experience.
+|
+The bucket management works but requires elaborate tuning to be efficient enough.
+It does not always work reliably.
+|
+MID-6468, MID-5041, MID-6367, ...
+
+|===
+
+Notes:
+
+* Overhead reduction: Direct support from repository (using custom tables) should help.
+
+== Other / unrelated
+
+[%header]
+[cols="2,6,8"]
+|===
+| JIRA
+| Name
+| Comments
+| MID-4094
+| Preview changes for import/recon
+|
+
+| MID-4073
+| Cleanup task (part 2)
+| Old errors, operation execution info, lingering tasks. General system housekeeping.
+
+| MID-3940
+| Bulk actions: searchIterative and delete
+| The old "search iteratively vs. delete" problem.
+
+| ...
+| ...
+| ...
+|===
