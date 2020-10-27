@@ -1,6 +1,4 @@
-= Repository Design Meeting
-
-== Meeting notes 2020-10-20
+= Repository Design
 
 * Capacity
 ** Goal to support up to 20M around end of 2021 (e.g. now 8M, growing around 300K monthly).
@@ -47,13 +45,60 @@ Replacing core repository should not have impact on `task-quartz-impl` module.
 ** In 1-2 months to have representative DB schema covering most issues mentioned above.
 Testing on SQL level with many rows, etc.
 
+* Extensions:
+** Currently both single- and multi-values stored in tables (per data type), multi-values as multiple lines.
+*** There are separate sets of tables for "object extensions" and "assignment extensions".
+** Possible solution:
+*** Single valued extensions directly in the owning table.
+*** Multi values in separate tables created on demand for each extension attribute.
+Can indexable JSON array be solution?
+** Shadow is a bit different, there are various attributes depending on resource schema.
+Normally we don't cache attributes, in that case there is no problem, but what if we want to?
+There are still identifiers, primary is in `M_SHADOW`, we don't have secondary/tertiary.
+Problem also https://wiki.evolveum.com/display/midPoint/Identifier+Theory[described here].
+** https://wiki.evolveum.com/display/midPoint/Advanced+Hybrid+RBAC[Parametric roles]
+can/will contain definition of extended attributes, how to apply these to DB schema?
+*** Assignment parameters are more like "shadow attributes" while schema extensions are global.
+** Ability to apply necessary DB schema changes without the restart would be nice,
+but reportedly not critical depending on the needed development effort.
+*** DB part of this is perhaps easier than the refresh of Prism schemas...?
+*** How to distribute new column information (or any change) across the cluster?
+If DB has a new column and runtime mapping doesn't, what happens? Or the other way around.
+
+* Uniqueness - of names but also other attributes, often depending on other attributes.
+** E.g. user name is normally unique, but we may need to change it to name+tenantId (deployment specific).
+** Should midPoint self-managed indexes and constraints (perhaps in 5.0 or later)?
+** What before that? Separate part of schema that can be customized (various options, some commented)?
+
+* Partial queries of objects without `FULL_OBJECT`, no LOB, no parsing:
+** E.g. for some UI views or REST "return users only with names and..." (other data from columns).
+See `GetOperationOptions` and `RetrieveOption` for existing mechanism.
+** How to map it into schema types?
+How to indicate the object is not complete?
+** Performance of `getObject` must not get worse.
+
+* Asynchronous audit - optional, per node, no cluster-wide microservice.
+** Point of audit should be still able to work like today (synchronous audit).
+** Additionally, if async-audit is on it queues the audit event.
+** Consumer batches the inserts.
+** What if audit query is executed? Should it trigger the flush operation first?
+
 TODO:
 
-* extension, table vs column, collections
-** Will we just create new custom columns or new tables as well?
-** can indexable JSON cover this?
-** What about management? Can we allow MP to alter tables?
+* Extensions contd.
+** Audit custom properties? How is this different from extension columns (schema-wise and DB-wise)?
+** can indexable JSON cover this? later research
+
+* DB schema management capabilities.
+** What if MP will not be allowed to alter tables?
 If not what will create the columns conveniently yet safely (no typos, indexes when necessary)?
+** Objects to manage:
+*** Custom indexes - for extension columns.
+*** Custom constraints - uniqueness customizations.
+*** Custom tables - for to-many extensions, unless JSON can solve this.
+Dynamic table creation can be also needed for shadow extensions (per resource).
+Possibly, this can also be used for assignments (per dynamic role?) or other objects
+(archetypes with dynamic schema extensions).
 
 * audit considerations? what is missing now? what about audit archiving (unsearchable?)
 ** Time partitions?
@@ -61,8 +106,6 @@ If not what will create the columns conveniently yet safely (no typos, indexes w
 * module design, currently audit is implemented in repo-sql-impl
 ** don't we want `audit-impl` use only some `repo-...` (common? but not our "common = all")
 ** what about `repo-cache`, do we need (or want) to change it?
-
-* what else?
 
 == Current schema to repository mapping
 
