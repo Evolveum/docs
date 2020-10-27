@@ -100,6 +100,39 @@ type:UserType assignment/orgRef:OID
 
 
 
+.Value Filters
+|===
+| Existing | Right Side | Modifiers | Proposed Name | True State
+
+.3+| Equals
+| Value .3+| matchingStrategy | Equals |Any value of left property matches value on right
+| Multiple Values, Path | In | Any value of left property matches any value on right
+| Null | IsEmpty | Property does not have value
+
+
+| Comparison  | Value | matchingStrategy | Comparison | Any value of property is smaller / larger / equals then right value.
+
+
+.4+| Substring .4+| Value, Property
+
+| matchingStrategy, anchorLeft=false, anchorRight=false | Substring | Any value of property contains any substring from right
+| matchingStrategy, anchorLeft=true, anchorRight=false | StartsWith | Any value of property starts with any substring from right
+| matchingStrategy, anchorLeft=false, anchorRight=true | EndsWith | Any value of property ends with any substring from right
+| matchingStrategy, anchorLeft=true, anchorRight=true | Equals? | Any value of property equals to any string from right
+
+| Ref filter | Value, Property | oidNullAsAny, targetTypeAsAny, relationTypeAsAny | References? Matches? | Any value of reference matches any value from right side
+
+
+
+
+| Org filter |
+
+.2+| InOid filter .2+| Value, Property |
+
+|===
+
+
+
 == Notes & Scribles
 
 Existing state:
@@ -314,19 +347,52 @@ Exists:
 * Assignment as (almost) first-class object?
 Or make it possible to query any container?
 
+
 * Ad-hoc joins (joins that do not follow prism reference): do we need them?
 Do not support them, at least for now.
 But this may change in the future.
 
+** We would need aliases for objects in order to distuinguish path
+
+----
+// Not linked shadows
+FROM ShadowType AS s
+LEFT JOIN UserType AS u ON s/oid = u/linkRef
+FILTER u NOT EXISTS
+----
+
+
 * Syntax for "reference match", "polystring match" and similar.
+
 
 * Are matching rules for polystring a good idea?
 Maybe we need patterns instead of matching rules.
 
+
 * Should matching rules be in fact _string_ matching rules?
 Do we need other cases, e.g. matching of IP address and netmask?
+** Tony: Similar special case is _DistuinguishName_, this feels more like
+   separate value types for DN, IP Address with their own matching rules
+   (eg. in DB serialized like `dn_orig` and `dn_norm`, where `dn_norm` is used for filters).
+
 
 * Make sure that NOT queries are supported.
 E.g. "find users that do not have any linked account".
 
+----
+TYPE UserType AND linkRef IsEmpty
+TYPE UserType AND linkRef NOT EXISTS
+
+// Users which do not have manager relationship
+TYPE UserType AND assigment/targetRef NOT MATCHES (relationship="manager")
+----
+
 * How to do "group by" queries?
+** Does group by creates ad-hoc schema?
+
+----
+SELECT s/resouceRef, count(s) FROM ShadowType AS s
+LEFT JOIN UserType AS u ON s/oid = u/linkRef
+FILTER u NOT EXISTS
+GROUP BY s/resourceRef
+----
