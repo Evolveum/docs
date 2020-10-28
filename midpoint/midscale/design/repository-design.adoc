@@ -13,10 +13,10 @@
 Indexes are not enough, little variance in data (resource, object class, kind, intent).
 TODO: Can this be split/partitioned by resource and/or object class?
 Is there application-transparent (fully DB-managed) solution or do we need to manage table hierarchy as we go?
-Let's try partitions first and test the performance.
+Let's try https://www.postgresql.org/docs/current/ddl-partitioning.html[partitions first] and test the performance.
 Check limitations about contstraints for partitioned tables.
 ** `M_REFERENCE` can be too big (goal >100M), can be split by `REFERENCE_TYPE` which is always used for query.
-TODO: Check PostgreSQL https://www.postgresql.org/docs/9.1/ddl-inherit.html[table hierarchy].
+TODO: Check PostgreSQL https://www.postgresql.org/docs/current/ddl-inherit.html[table hierarchy].
 
 * Scalability, table hierarchy, relations:
 ** Separate oid/type table for all objects (quick searches by oid)?
@@ -55,7 +55,7 @@ Can indexable JSON array be solution?
 ** Shadow is a bit different, there are various attributes depending on resource schema.
 Normally we don't cache attributes, in that case there is no problem, but what if we want to?
 There are still identifiers, primary is in `M_SHADOW`, we don't have secondary/tertiary.
-Problem also https://wiki.evolveum.com/display/midPoint/Identifier+Theory[described here].
+Problem also describe on the https://wiki.evolveum.com/display/midPoint/Identifier+Theory[Identifier Theory wiki page].
 ** https://wiki.evolveum.com/display/midPoint/Advanced+Hybrid+RBAC[Parametric roles]
 can/will contain definition of extended attributes, how to apply these to DB schema?
 *** Assignment parameters are more like "shadow attributes" while schema extensions are global.
@@ -64,6 +64,9 @@ but reportedly not critical depending on the needed development effort.
 *** DB part of this is perhaps easier than the refresh of Prism schemas...?
 *** How to distribute new column information (or any change) across the cluster?
 If DB has a new column and runtime mapping doesn't, what happens? Or the other way around.
+** Audit custom properties (officially experimental) replace with schema extensions.
+*** Also consider `MAuditPropertyValue` what it is and why is it needed.
+Unify if possible - which is very likely.
 
 * Uniqueness - of names but also other attributes, often depending on other attributes.
 ** E.g. user name is normally unique, but we may need to change it to name+tenantId (deployment specific).
@@ -77,35 +80,64 @@ See `GetOperationOptions` and `RetrieveOption` for existing mechanism.
 How to indicate the object is not complete?
 ** Performance of `getObject` must not get worse.
 
-* Asynchronous audit - optional, per node, no cluster-wide microservice.
-** Point of audit should be still able to work like today (synchronous audit).
-** Additionally, if async-audit is on it queues the audit event.
-** Consumer batches the inserts.
-** What if audit query is executed? Should it trigger the flush operation first?
+* Audit performance considerations? what is missing now? what about audit archiving (unsearchable?)
+** Time partitions first, then we'll see.
+*** OPTIONAL: Consider alternative of old audit archival without search options.
+Detaching partitions is another option, if the data can stay in the same DB.
+Or we don't solve it at all and it's left to DB admin.
+** Asynchronous audit - optional, per node, no cluster-wide microservice.
+*** Point of audit should be still able to work like today (synchronous audit).
+*** Additionally, if async-audit is on it queues the audit event.
+*** Consumer batches the inserts.
+*** What if audit query is executed? Should it trigger the flush operation first?
+** How to change audit custom columns during existence of old partitions?
+We probably don't want to solve this now and it will probably require manual DB admin intervention.
+** TODO: search know-how by Vilo
+** Audit schema type currently does not contain DB primary key (serial).
+This limits scenario search + go to detail later, unless we use different "ID" like `eventIdentifier`.
+It seems we want to align the schema type with the repository identifier.
+Drowbacks: No way to distribute ID creation, but we accept this.
 
-TODO:
-
-* Extensions contd.
-** Audit custom properties? How is this different from extension columns (schema-wise and DB-wise)?
-** can indexable JSON cover this? later research
+* API changes?
+Minimal changes, mostly cleanup.
+** Clean deprecated stuff like `searchShadowOwner`.
+** If some queries are prominent (e.g. by name), better recognize the query inside the current
+`searchObjects` method instead of introducing `searchByName`.
+** Possibly add low-level query capability for management/monitoring reports/dashboards.
+It would be described by input prism structure (parameters), output prism structure (projection)
+and query directly in SQL.
+Some (most used) reports would be predefined, the rest is up to the power user.
+Upgrade problems possible, admin user must deal with those.
 
 * DB schema management capabilities.
 ** What if MP will not be allowed to alter tables?
 If not what will create the columns conveniently yet safely (no typos, indexes when necessary)?
+Ninja or MP can fail on start if it can't create missing stuff, ideally all things, not just the first one.
+Admin can then see the log (or Ninja output) and act accordingly.
 ** Objects to manage:
 *** Custom indexes - for extension columns.
-*** Custom constraints - uniqueness customizations.
+*** Custom constraints (likely experimental) - uniqueness customizations.
+In 4.4 this still can be done manually, but the option must be there - separation of customizable
+constraints in SQL file? See notes at uniqueness above.
+*What if it collides with default index?*
 *** Custom tables - for to-many extensions, unless JSON can solve this.
-Dynamic table creation can be also needed for shadow extensions (per resource).
-Possibly, this can also be used for assignments (per dynamic role?) or other objects
+**** OPTIONAL: Dynamic table creation can be also needed for shadow attributes (per resource).
+If additional identifier columns cover the search cases, we don't want this at all.
+**** UNWANTED: Possibly, this can also be used for assignments (per dynamic role?) or other objects
 (archetypes with dynamic schema extensions).
 
-* audit considerations? what is missing now? what about audit archiving (unsearchable?)
-** Time partitions?
+* DB schema creation and upgrade between versions.
+** Cration can be done with SQL file execution for a fresh DB.
+** Schema still needs to be examined for custom columns (extensions) anyway.
+** Update between versions should be effortless, e.g. execution of `+*-upgrade-*.sql+`.
 
-* module design, currently audit is implemented in repo-sql-impl
-** don't we want `audit-impl` use only some `repo-...` (common? but not our "common = all")
-** what about `repo-cache`, do we need (or want) to change it?
+* Module design, currently audit is implemented in `repo-sql-impl`.
+This is left for later, it's not such a problem to restructure Maven modules for new code.
+Existing audit, although separate, can still stay in `repo-sql-impl`.
+Unused Hibernate entities for audit are still used for automatic DB creation, especially handy for H2/tests.
+** Common SQL support (current "pure" package from repo impl) should be extracted.
+** What about `repo-cache`, do we need (or want) to change it?
+*** Can be a performance problem on its own when there are too many queries.
 
 == Current schema to repository mapping
 
