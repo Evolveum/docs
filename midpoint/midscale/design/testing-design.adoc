@@ -46,3 +46,101 @@ This can be work for infrastructure team.
 * Results must be postprocessed somehow - first there are various monitors from single run.
 We want to add each monitor to its time series (results of multiple runs).
 Here the run identification is important.
+
+
+== Test NG Performance tests
+
+TestNG Performance tests are based on usual abstract test classes specific to module,
+but in addition to that they implement `PerformanceTestMixin`, which provides automatic
+handling of `TestMonitor` (class responsible for measuring time and writing out measurements).
+
+.Simple TestNG Performance test
+[source, java]
+----
+public class PerfTestExample implements PerformanceTestMixin {
+
+    ItemPath PATH  = ... ;
+
+    @Test
+    void testPerfomance() {
+      // Invariant section
+      PrismContainer root = ...;
+      Stopwatch watch = stopwatch("prism", "findItem"); // <1>
+
+      // Measurement cycle
+      for(int i = 0; i <= 1000; i++) { // <2>
+          Object result = null; // <3>
+          // Actual measurement
+          try(Split s = watch.start()) { // <4>
+            result = root.findItems(PATH); // <5>
+          }
+          assertNotNull(result); // <6>
+      }
+
+    }
+}
+----
+<1> Creates a named stopwatch which computes min, max, avg, and total for measured time
+<2> Repetition cycle - we need to make multiple measurements to obtain more precise result
+<3> We need to have side effect so `JIT` does not optimize our test code out.
+<4> Actual measurement, `start` returns `Autocloseable` which when closes stops time measurement.
+    Ideally used as try-with-resources.
+<5> Actual operation to be measured.
+<6> Side-effect, so call is not optimized out.
+
+=== Parametric (comparison) measurements
+
+Sometimes is good to run similar test with different parameters, which may
+have different timing characteristics.
+
+Proposed format for measurements is: {measurementName}.{param1Value}.{param2Value}
+
+.Comparison of Parsing formats
+[source, java]
+----
+public class PerfTestCodecObject extends AbstractSchemaTest implements PerformanceTestMixin {
+
+    List<String> FORMAT = ImmutableList.of("xml", "json", "yaml");
+    List<String> NS = ImmutableList.of("no-ns", "ns");
+    int REPETITIONS = 20_000;
+
+    @Test
+    void testAll() throws SchemaException, IOException {
+        for (String format : FORMAT) {
+            for (String ns : NS) {
+                testCombination(format, ns);
+            }
+        }
+    }
+
+    void testCombination(String format, String ns) throws SchemaException, IOException {
+        String inputStream = getCachedStream(Paths.get("common", format , ns ,"user-jack." + format));
+        Stopwatch timer = stopwatch("parse", format, ns);
+        for(int i = 1; i <=REPETITIONS;i++) {
+            PrismObject<Objectable> result = null;
+            try(Split parsingSplit = timer.start()) {
+                PrismParser parser = PrismTestUtil.getPrismContext().parserFor(inputStream);
+                result  = parser.parse();
+            };
+            assertNotNull(result);
+
+        }
+    }
+
+      private String getCachedStream(Path path) throws IOException {
+          ....
+      }
+}
+----
+
+.Example output of test
+,===
+test,name,count,total(us),avg(us),min(us),max(us)
+
+PerfTestCodecObject,parse.xml.no-ns,20000,10478899,523,449,43386
+PerfTestCodecObject,parse.xml.ns,20000,9698787,484,454,4053
+PerfTestCodecObject,parse.json.no-ns,20000,9147537,457,413,91878
+PerfTestCodecObject,parse.json.ns,20000,8565905,428,403,4358
+PerfTestCodecObject,parse.yaml.no-ns,20000,10334993,516,476,19830
+PerfTestCodecObject,parse.yaml.ns,20000,9920693,496,472,4824
+,===
