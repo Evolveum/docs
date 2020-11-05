@@ -34,69 +34,91 @@ effectively running midPoint in its entirety.
 Tooling must work both for testing on some reference setup and when run on the developer's machine.
 Obviously, results can only be compared with other results in the same environment.
 
+=== Jenkins job
+
+Jenkins can run the tests repeatedly, but we don't want to run all the other tests,
+just as we don't want to slow down existing quick/nightly tests with performance tests.
+For this reason the performance tests are controlled by Maven profile `perftest`.
+This profile modifies surefire (or, in some modules, failsafe) plugin configuration to run only
+tests from `testng-perf.xml` suite.
+No other tests are run during the build.
+Maven test plugin configuration also sets the system property that causes `TestMonitor` to report to files.
+
+See https://jenkins.evolveum.com/job/MidPoint_performance/[MidPoint_performance] Jenkins job.
+Test outputs are archived with the post-build shell-script step.
+
 == Performance test output
 
 * Monitor name conventions?
-* Distinguish test and production monitors?
-* The metric name is test+monitor name.
+First part is implied - it's the class simple name.
+Second part is simple symbolic name, prefer `lowerCamelCase` parts separated by `.`.
+Avoid any CSV related separator and quoting like any of `"|;,'` and spaces.
+Note was added to describe the monitor in human readable form.
+* Distinguish the symbolic name for test and production monitors?
+TBD, no need yet.
+* The metric name is the tuple [test, monitor's symbolic name].
 * How do we want to identify the run?
-Jenkins job run? Test run date? Git commit ID? Commit date? Branch? Symbolic name (M1, etc.)?
+Report file name contains test class name, build number, short commit ID and build timestamp.
+File contains header section with BUILD_NUMBER, BRANCH, full GIT_COMMIT and test class name.
 * How to chart it?
-This can be work for infrastructure team.
+TBD: This can be work for infrastructure team.
 * Results must be postprocessed somehow - first there are various monitors from single run.
 We want to add each monitor to its time series (results of multiple runs).
 Here the run identification is important.
 
-
 == Test NG Performance tests
 
-TestNG Performance tests are based on usual abstract test classes specific to module,
-but in addition to that they implement `PerformanceTestMixin`, which provides automatic
-handling of `TestMonitor` (class responsible for measuring time and writing out measurements).
+TestNG performance tests are based on usual midPoint abstract test classes, ultimately either
+`AbstractUnitTest` or `AbstractSpringTest`, and mixin interface `PerformanceTestMixin`.
+`PerformanceTestMixin` must be added to the test class directly, not to the superclass,
+otherwise the lifecycle methods (`@Before/AfterClass`) don't work.
+These are important to initialize the `TestMonitor` and then report the results.
 
 .Simple TestNG Performance test
-[source, java]
+[source,java]
 ----
-public class PerfTestExample implements PerformanceTestMixin {
+public class PerfTestExample extends AbstractUnitTest implements PerformanceTestMixin { // <1>
 
     ItemPath PATH  = ... ;
 
     @Test
     void testPerfomance() {
-      // Invariant section
-      PrismContainer root = ...;
-      Stopwatch watch = stopwatch("prism", "findItem"); // <1>
+        // Invariant section
+        PrismContainer root = ...;
+        Stopwatch watch = stopwatch(monitorName("prism", "findItem"), "human readable description"); // <2>
 
-      // Measurement cycle
-      for(int i = 0; i <= 1000; i++) { // <2>
-          Object result = null; // <3>
-          // Actual measurement
-          try(Split s = watch.start()) { // <4>
-            result = root.findItems(PATH); // <5>
-          }
-          assertNotNull(result); // <6>
-      }
-
+        // Measurement cycle
+        for(int i = 0; i <= 1000; i++) { // <3>
+            Object result; // <4>
+            // Actual measurement
+            try (Split ignored = watch.start()) { // <5>
+                result = root.findItems(PATH); // <6>
+            }
+            assertNotNull(result); // <7>
+        }
     }
 }
 ----
-<1> Creates a named stopwatch which computes min, max, avg, and total for measured time
-<2> Repetition cycle - we need to make multiple measurements to obtain more precise result
-<3> We need to have side effect so `JIT` does not optimize our test code out.
-<4> Actual measurement, `start` returns `Autocloseable` which when closes stops time measurement.
-    Ideally used as try-with-resources.
-<5> Actual operation to be measured.
-<6> Side-effect, so call is not optimized out.
+<1> Test class extends from midPoint support unit-test abstract class and implements
+`PerformanceTestMixin` - both classes work in tandem to support `TestMonitor`.
+<2> Creates a named stopwatch which computes min, max, avg, and total for measured time.
+Convenience method provided by `PerformanceTestMixin` is a shortcut to `testMonitor.stopwatch()`.
+<3> Repetition cycle - we need to make multiple measurements to obtain more precise result
+<4> We need to have side effect so `JIT` does not optimize our test code out.
+<5> Actual measurement, `start` returns `Autocloseable` which when closes stops time measurement.
+Ideally used as try-with-resources.
+<6> Actual operation to be measured.
+<7> Side effect, doing anything with the result so the call is not optimized out.
 
 === Parametric (comparison) measurements
 
-Sometimes is good to run similar test with different parameters, which may
+Sometimes it is good to run similar test with different parameters, which may
 have different timing characteristics.
 
-Proposed format for measurements is: {measurementName}.{param1Value}.{param2Value}
+The proposed format for measurement name is: {measurementName}.{param1Value}.{param2Value}
 
 .Comparison of Parsing formats
-[source, java]
+[source,java]
 ----
 public class PerfTestCodecObject extends AbstractSchemaTest implements PerformanceTestMixin {
 
@@ -115,10 +137,11 @@ public class PerfTestCodecObject extends AbstractSchemaTest implements Performan
 
     void testCombination(String format, String ns) throws SchemaException, IOException {
         String inputStream = getCachedStream(Paths.get("common", format , ns ,"user-jack." + format));
-        Stopwatch timer = stopwatch("parse", format, ns);
+        Stopwatch timer = stopwatch(monitorName("parse", format, ns),
+            "Parsing user as " + format + " with " + ns);
         for(int i = 1; i <=REPETITIONS;i++) {
-            PrismObject<Objectable> result = null;
-            try(Split parsingSplit = timer.start()) {
+            PrismObject<Objectable> result;
+            try(Split ignored = timer.start()) {
                 PrismParser parser = PrismTestUtil.getPrismContext().parserFor(inputStream);
                 result  = parser.parse();
             };
@@ -133,14 +156,14 @@ public class PerfTestCodecObject extends AbstractSchemaTest implements Performan
 }
 ----
 
-.Example output of test
+.Example output of test (header parts excluded)
 ,===
-test,name,count,total(us),avg(us),min(us),max(us)
+test,monitor,count,total(us),avg(us),min(us),max(us),note
 
-PerfTestCodecObject,parse.xml.no-ns,20000,10478899,523,449,43386
-PerfTestCodecObject,parse.xml.ns,20000,9698787,484,454,4053
-PerfTestCodecObject,parse.json.no-ns,20000,9147537,457,413,91878
-PerfTestCodecObject,parse.json.ns,20000,8565905,428,403,4358
-PerfTestCodecObject,parse.yaml.no-ns,20000,10334993,516,476,19830
-PerfTestCodecObject,parse.yaml.ns,20000,9920693,496,472,4824
+PerfTestCodecObject,parse.xml.no-ns,20000,11317688,565,494,85792,Parsing user as xml with no-ns
+PerfTestCodecObject,parse.xml.ns,20000,10310138,515,494,3910,Parsing user as xml with ns
+PerfTestCodecObject,parse.json.no-ns,20000,9645527,482,440,208260,Parsing user as json with no-ns
+PerfTestCodecObject,parse.json.ns,20000,8694757,434,425,4927,Parsing user as json with ns
+PerfTestCodecObject,parse.yaml.no-ns,20000,11243275,562,527,53407,Parsing user as yaml with no-ns
+PerfTestCodecObject,parse.yaml.ns,20000,10790540,539,526,2997,Parsing user as yaml with ns
 ,===
