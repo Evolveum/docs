@@ -1,0 +1,125 @@
+= Thread Safety: Requirements and Design
+
+The purpose of this document is to guide the development of midPoint code regarding
+the aspect of _thread safety_.
+
+NOTE: For the time being, this is just a skeleton.
+
+== Requirements
+
+What we want to achieve in the area of thread safety? Which objects will be shared and which
+need not be?
+
+=== Data structures
+
+We need midPoint to be massively scalable, so it is understandable that majority of its actions
+will be executed in parallel threads. Fortunately, many of the data structures can be confined to
+a single thread, but there are others, which have to be safely shared.
+
+[cols="2,1,10"]
+[%header]
+|===
+| Objects | Shared | Description
+
+| Mutable prism structures
+| No
+| Mutable prism structures (including constituent generated beans) are not to be shared. We assume that the cost
+of making them thread-safe outweighs benefits of doing so. These structures are often short-lived, created
+e.g. for processing a single user, and destroyed afterwards. On the other side, their use in GUI is limited
+to a single user session, so again, they do not need to be thread-safe.footnote:[TODO: Is it true that
+during a single user session there is no concurrent access to prism objects? What about wicket/servlet
+serialization? Could it somehow collide with the "main" processing of session objects?]
+
+| Immutable prism structures
+| Yes
+| On the other hand, there is a lot of data that is long-lived, and potentially shared among threads.
+For example, all objects that are cached (e.g. repository objects, "live" resource and connector objects)
+are used by many threads simultaneously.
+
+| `RunningTask` instances
+| Yes
+| If a task is running, it is accessed both by task manager and the respective task handler.
+(Probably also by handlers of lightweight subtasks.) This applies to all data structures
+that constitute the task and are reachable through it.
+
+| Other task instances
+| No
+| A "plain" task should be accessed only by the thread that as associated to it.
+
+| Operation result
+| Probably not
+| Any given operation result should be accessed only by a single thread at a time.
+(As these results form trees, it is legal for multiple threads access different parts
+of such a tree.)
+
+This can present some complications related to tasks, because operation result is a part
+of any running task. This is something to be resolved in the future.
+| TODO ... | ... | ...
+|===
+
+=== MidPoint components
+
+The majority of components represented by Spring beans (like `RepositoryService`, `ProvisioningService`,
+`ModelService`, and so on) are accessed in parallel, so they must be thread-safe.
+
+TODO ...
+
+== Design guidelines
+
+What specific rules should we obey when constructing thread-safe code?
+(We can skip listing obvious things here. But what is obvious in this are, anyway?)
+
+NOTE: Majority of these guidelines stem from link:https://jcip.net/[Java Concurrency in Practice] (JCIP) book.
+
+* Each class (except for evident cases) should have a _synchronization policy_, typically:
+ - *Thread-confined.* Objects of this class are accessed only from a single thread at any given time.
+(The "ownership" may change, but only in a well-defined and safe way.)
+ - *Shared read-only.* These objects are accessed by multiple threads, but never modified.
+ - *Shared thread-safe.* These objects perform any needed synchronization internally, so they are
+safely used from multiple threads.
+ - *Guarded.* These objects can be accessed by multiple threads, provided that a specified lock
+is held upon access.
+
+* If possible, a synchronization policy should be declared using appropriate class-level annotation,
+like `@ThreadSafe`, `@NotThreadSafe`, `@Immutable`.footnote:[See also Appendix A of JCIP.]
+
+* Generally, we prefer immutability. All classes should be immutable unless strictly needed.
+(In other words, immutability should be considered as the first option.) Even if the class as
+a whole cannot be mutable, one should make `final` as many of its fields as possible.
+
+* When using locking, it should be clear which locks guard which state variables, for example by using
+`@GuardedBy` annotation. Quoting JCIP:
+
+====
+The design process for a thread-safe class should include these three basic elements:
+
+* Identify the variables that form the object’s state;
+* Identify the invariants that constrain the state variables;
+* Establish a policy for managing concurrent access to the object’s state.
+====
+
+* Besides avoiding concurrent access to shared data structures, _memory visibility_ must be addressed
+as well. Each publication of a shared object must be safe.
+
+Again, from JCIP:
+
+====
+To publish an object safely, both the reference to the object and the object’s
+state must be made visible to other threads at the same time. A properly constructed object
+can be safely published by:
+
+* Initializing an object reference from a static initializer;
+* Storing a reference to it into a `volatile` field or `AtomicReference`;
+* Storing a reference to it into a `final` field of a properly constructed object; or
+* Storing a reference to it into a field that is properly guarded by a lock.
+====
+
+* ... TODO ...
+
+To be considered as well:
+
+* For shared thread-safe classes, the mechanism(s) for ensuring thread safety must be
+(at least very briefly) described in the class-level comment.
+
+* Should we (at least in minimal way) specify class invariants for thread-safe classes with more
+complex mutable state?
