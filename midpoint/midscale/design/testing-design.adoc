@@ -1,6 +1,13 @@
-= Infrastructure Design Meeting
+= Testing Design Meeting
 
 *Guests:*
+
+Igor
+Rado
+Katka
+Pavol
+Tony
+Richard
 
 * midPoint monitoring (performance, actuators, ...) - who?
 
@@ -19,12 +26,18 @@ It may be following an agenda, but it is usually closer to a free-form brainstor
 
 == Schedule
 
+Evaluation of existing state for the first Milestone.
+
+We would have another design meeting for the overal project testing, once design meetings are far in progress.
+
 Design meetings are schedules as needed, the schedule is not fixed.
 For midPoint, the design meeting usually happens at the beginning of a development cycle or milestone cycle.
 
 == What To Discuss
 
 === Motivation and Requirements
+
+We have to improve performance by order of magnitude
 
 What is the *motivation* to discuss this topic at all?
 Do customers need it?
@@ -58,19 +71,56 @@ Maybe we are not certain about some requirements and we just assume something?
 
 * We will focus on docker and dockerization, not hybrids for now (VM/Windows).
 
+* Developers profiling only local: Prism (Pavol, Tony), partially Repo (Riso, maybe in combination with some DB profiler), GUI (open question for profiler)
+
+* System level profiling (mP built in tool - Tracing by Pavol)
+
+* We will concentrate on new implementation, do not concentrate on existing implementation in new releases
 
 *Requirements:*
 
-* Monitoring - we would need to sample environment
+* Monitoring - we would need to sample environment metrics, ideally to provide with a context of a test being executed
+** midPoint metrics - midPoint is doing itself, but how to leverage those data is open question
+** Spring actuators - we will sample also these. open question - what data?
+** Profiling - open question for now
+** PSQL - performance monitoring and tuning. Open question
 
-* midPoint metrics - midPoint is doing itself, but how to leverage those data is open question
+* We shall update system requirement page with all the information and recommendations we compile during this project
+** Include also requirements for garbage collector configuration recommendations
 
-* Spring actuators - we will sample also these. open question - what data?
+* Space optimization - systems with tens of mio records are sensitive to consumed space. We have to measure and evaluate space consumption for new old/new versions.
+We have to take into consideration DB, Filesystem, memory.
+** DB mainly Auditing, but also storage for all main objects. There are also problems some indexes are much bigger than the actual data (audit index is 5:1 audit data).
+** Filesystem ( logs, reports, ...).
+*** For logs, we are polluting logs with much unnecessary information, log stacks, wrong log levels for typical operations, repeating the same errors (MID-5632, MID-5511)
+** For memory mainly heap, when working with so many objects in the IDM logic, caches, connectors, assignments, report processing.
 
-* Profiling - open question for now
+* Generic/system performance requirements
+** Entitlement membership handling for large entitlements (groups) (MID-5785)
+** Optimize change execution (MID-5566)
+** Improve performance of typical operations (MID-5539)
+*** Reduce number of unnecessary operation, number of evalutations and so on (templates, mappings, ...)
+** Optimize the number of repository operations (MID-6147)
+** Thresholds and limits (MID-5348)
 
-* PSQL - performance monitoring and tuning.
+* Repository
 
+* Tasks
+** User friendliness, user experience, data visibility (MID-6384, MID-5840)
+** Resiliency, error recovery (MID-6674, MID-6417, MID-6416, MID-6412, MID-6345, MID-6011)
+** Auto-scaling (cluster management/auto reconfig, (semi)automatic tasks distribution) (MID-6421, MID-6367)
+
+* GUI
+
+* Thread safety (aka Prism)
+** Raw type thread safety MID-6542
+** Resource and connector manager thread safety MID-5954
+** Optimize object cloning on RepositoryCache MID-5465
+** (Optional) Reporting/dashboards (space/performance) improvements.
+
+* Schrodinger
+
+* Query DSL
 
 Do we have some *performance* or *scalability* targets?
 Do we know how big a system do we want to support?
@@ -86,7 +136,17 @@ How many users, how many requests per second, special usage patterns (bursts), a
 
 * Problem of many attributes for an object (100+).
 
+Performance issues areas identified so far:
+* To slow Tasks (multi-threads, multi-nodes, ...), re-indexing
+* Handling of large groups
+* slow large org structures (Maybe just GUI problem)
+
+
+
 === Ideas and Concepts
+
+Idea is to have unit performance and system performance.
+
 
 When thinking about the use cases, do not limit your thoughts to just that one specific use case.
 Think about generic mechanisms, broader principles.
@@ -100,20 +160,7 @@ We want to combine mechanisms together into more flexible and more powerful solu
 
 === Implementation
 
-Kubernetes
-
-** Goal: running on at least 2 different machines
-
-** AI: Patrik: Decide if we would like to go to physical or virtual machines
-
-** Logging & Monitoring: AI: Patrik: Is Prometheus the right for us?
-*** Goal: monitoring with context (not only basic stats, but also collect and display logs)
-*** Logging: collect logging data to one place. what component shall do that? Maybe the goal above will decide for us
-
-** Deployment: AI: Kamil: Decide if Lens IDE is the right way to go for us? Or anything else? Hybrid web UI + Lens?
-
-** Testing: TODO: wait few more weeks to complete other design sessions
-*** Connect to Jenkins, collect test outputs
+TODO: feasibility
 
 === Performance and Scalability Considerations
 
@@ -123,7 +170,7 @@ TODO
 
 Make sure that the functionality can be tested.
 Think about the testing process.
-Can this be tested by the ususal mechanisms that we have?
+Can this be teste by the ususal mechanisms that we have?
 Will we need some special environment or setup?
 
 === Security Considerations
