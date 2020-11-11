@@ -1,0 +1,88 @@
+= SQL Repository - problematic queries
+:page-toc: top
+
+This document identifes problematic queries existing in 4.0-4.2 versions and ideas what to do with them.
+The queries may not be critical in smaller deployments, but proved to be in large scale ones.
+
+== Partitioned validity scanner task
+
+* Symptoms: extremely high disk IO
+* Called occassionally
+* Database: Oracle
+* Known fact: JOIN to `m_focus` and `m_user` is useless, `m_user.oid` can be replaced with `m_object.oid`.
+(Hibernate in Action)
+* Questions: What is the count of returned rows when the problem occures?
+
+[source,sql]
+----
+SELECT
+ruser0_.oid            AS col_0_0_,
+ruser0_2_.fullobject   AS col_1_0_
+FROM m_user ruser0_
+INNER JOIN m_focus ruser0_1_ ON ruser0_.oid = ruser0_1_.oid
+INNER JOIN m_object ruser0_2_ ON ruser0_.oid = ruser0_2_.oid
+LEFT OUTER JOIN m_assignment assignment1_
+  ON ruser0_.oid = assignment1_.owner_oid AND ( assignment1_.assignmentowner =:1 )
+WHERE assignment1_.validfrom >:2
+  AND assignment1_.validfrom <=:3
+OR assignment1_.validto >:4
+  AND assignment1_.validto <=:5
+order by nlssort(ruser0_.oid,'NLS_SORT=BINARY_AI') asc
+fetch first :6 rows only
+----
+
+* Both `validfrom` and `validto` are indexed and the indexes should be used.
+Both `(date > x and date <= y)` should result in `FILTER` with `INDEX RANGE SCAN`.
+This can be good depending on the range of the scan.
+* Both clauses are joined with `OR` which internally performs `UNION-ALL` with the two `FILTER` results.
+* `ORDER BY` on experimental tables (without any joins, just oid + two timestamps) shows much higher
+"Total cost" than both filters.
+E.g., with 2-3k of rows order cost is 72, filter cost is 7+3 with over 100k total rows.
+The tenfold factor stays roughly the same with 13k rows of result.
+* Also, actual select uses function in ORDER, the question is whether function based index could help.
+* Assignment table is very big (tens of millions rows and more).
+
+=== Related count search
+
+The same problem as above, but obviously without order this time.
+
+[source,sql]
+----
+SELECT
+COUNT(ruser0_.oid) AS col_0_0_
+FROM m_user ruser0_
+INNER JOIN m_focus ruser0_1_ ON ruser0_.oid = ruser0_1_.oid
+INNER JOIN m_object ruser0_2_ ON ruser0_.oid = ruser0_2_.oid
+LEFT OUTER JOIN m_assignment assignment1_
+  ON ruser0_.oid = assignment1_.owner_oid AND ( assignment1_.assignmentowner =:1 )
+WHERE assignment1_.validfrom >:2
+  AND assignment1_.validfrom <=:3
+OR assignment1_.validto >:4
+  AND assignment1_.validto <=:5
+----
+
+== Shadow search
+
+* Called very often.
+* Cause of slowness seems to be the sheer amount of shadows and their string extensions.
+* This may be improved by partitioning by `objectclass` and `resourceref_targetoid`,
+which otherwise have very low variability for a normal (b-tree) index.
+* FK `m_object_ext_string.owner_oid` is coverd by PK index.
+
+[source,sql]
+----
+SELECT
+rshadow0_.oid            AS col_0_0_,
+rshadow0_1_.fullobject   AS col_1_0_
+FROM
+m_shadow rshadow0_
+INNER JOIN m_object rshadow0_1_ ON rshadow0_.oid = rshadow0_1_.oid
+LEFT OUTER JOIN m_object_ext_string strings1_
+  ON rshadow0_.oid = strings1_.owner_oid -- covered by PK, owner_oid is first there
+    AND ( strings1_.ownertype =:1 AND strings1_.item_id =:2 )
+WHERE strings1_.stringvalue =:3
+AND rshadow0_.objectclass =:4
+AND rshadow0_.resourceref_targetoid =:5
+AND ( rshadow0_.resourceref_relation IN ( :6, :7, :8 ) )
+AND ( rshadow0_.dead =:9 OR rshadow0_.dead IS NULL )
+----

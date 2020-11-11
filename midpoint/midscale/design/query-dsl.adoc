@@ -342,7 +342,7 @@ Type: TypeSpec FilterClause
 Exists:
 ----
 
-== Open Questions
+== Discussion 2020-10-28
 
 * Assignment as (almost) first-class object?
 Or make it possible to query any container?
@@ -379,6 +379,7 @@ Do we need other cases, e.g. matching of IP address and netmask?
 * Make sure that NOT queries are supported.
 E.g. "find users that do not have any linked account".
 
+
 ----
 TYPE UserType AND linkRef IsEmpty
 TYPE UserType AND linkRef NOT EXISTS
@@ -387,12 +388,83 @@ TYPE UserType AND linkRef NOT EXISTS
 TYPE UserType AND assigment/targetRef NOT MATCHES (relationship="manager")
 ----
 
+
+
 * How to do "group by" queries?
 ** Does group by creates ad-hoc schema?
 
+Discussed solution was to provide 2 concepts:
+ * Simple "dashboard"-like model which allows to specify item paths to fetch,
+    and apply aggregate operations on these paths (grouping, min, avg, count)
+    and filter (this model does not allows for complex grouping / queries - easier to map to database)
+ * Experimental dashboard - Custom schema + query which retrieves data
+
+
 ----
-SELECT s/resouceRef, count(s) FROM ShadowType AS s
+SELECT s/resouceRef, count(s) AS count FROM ShadowType AS s
 LEFT JOIN UserType AS u ON s/oid = u/linkRef
 FILTER u NOT EXISTS
 GROUP BY s/resourceRef
+----
+
+.Report Syntax proposal
+----
+statusReport {
+  from UserType;
+  item count {
+    displayName "Count";
+    source {
+      count;
+    }
+  }
+  item name {
+    displayName "Resource";
+    source resourceRef/@/name {
+      type grouping;
+    }
+  }
+  item kind {
+    source kind {
+      type grouping;
+    }
+  }
+  item intent {
+    source kind {
+      type grouping;
+    }
+  }
+  item status {
+
+  }
+  filter {
+
+  }
+
+}
+----
+
+
+.Sample SQL query used for custom overview
+----
+select
+    count(*) AS (prism definiciu),
+    r.name_orig,
+    s.kind,
+    s.intent,
+    case s.SYNCHRONIZATIONSITUATION
+        when 0 then 'DELETED'
+        when 1 then 'UNMATCHED'
+        when 2 then 'DISPUTED'
+        when 3 then 'LINKED'
+        when 4 then 'UNLINKED'
+        end as SITUATION,
+    s.resourceref_targetoid
+from m_shadow s
+left join m_resource r on s.resourceref_targetoid=r.oid
+group by
+    r.name_orig,
+    s.kind,
+    s.intent,
+    s.SYNCHRONIZATIONSITUATION,
+    s.resourceref_t
 ----

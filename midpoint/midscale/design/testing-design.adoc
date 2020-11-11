@@ -1,69 +1,38 @@
+= Testing Design
+:page-toc: top
+
+This document covers only new tests needed for midScale.
+These are mostly performance tests, typically comparing state before and after.
+
+The baseline for the tests can be obtained using:
+
+* The current 4.2 version or the head of its support branch (little to no performance improvements are expected in the branch).
+* "Old" implementations of components still available in the `master`, e.g. current Hibernate-based repository.
+
+This means that some performance comparison tests may be executed in the `master` comparing
+two flavours of the component (like the repository).
+Other tests will be run both on the `support-4.2` branch and the `master` comparing the same parts
+before and after the improvements.
+
+For consistency reasons, the baseline will be measured on `support-4.2` even for cases
+where the old implementation is preserved in the `master`.
+
 = Testing Design Meeting
 
 *Guests:*
 
-Igor
-Rado
-Katka
-Pavol
-Tony
-Richard
+* Igor
+* Rado
+* Katka
+* Pavol
+* Tony
+* Richard
 
 * midPoint monitoring (performance, actuators, ...) - who?
 
 * Technical testing - advanced coordination and design decisions make it part of the infra - who?
 
-
-
-== Overview
-
-The goal of _design meeting_ is to figure out design details about particular functionality of a software, particular solution, or even a methodology or process.
-It is usualy applied to midPoint design.
-But it may be also useful for non-technical and organizational aspects.
-
-Design meeting is a creative, free-form discussion.
-It may be following an agenda, but it is usually closer to a free-form brainstorming.
-
-== Schedule
-
-Evaluation of existing state for the first Milestone.
-
-We would have another design meeting for the overal project testing, once design meetings are far in progress.
-
-Design meetings are schedules as needed, the schedule is not fixed.
-For midPoint, the design meeting usually happens at the beginning of a development cycle or milestone cycle.
-
-== What To Discuss
-
-=== Motivation and Requirements
-
-We have to improve performance by order of magnitude
-
-What is the *motivation* to discuss this topic at all?
-Do customers need it?
-What are the *use cases*?
-Will it help make deployments better/faster?
-How exactly?
-
-*Use cases:*
-
-* Our infrastructure has to support for heavy load/performance test: setup, init, execute, collect/monitor, evaluate and tear down the tests
-
-* Open question: the evaluation of data (eg logs) what are the requirements from people who will need and evaluate it? Like how to collect data from nodes, what loggers to enable, when, ...
-
-
-What will happen if we just do nothing?
-Do we really need this?
-It is worth the effort?
-
-Should we do this now?
-Maybe we can postpone it, there may be better opportunity in the future.
-
-What are the *assumptions*?
-What we expect that customers will do?
-Maybe we are not certain about some requirements and we just assume something?
-
-*Assumptions:*
+== Assumptions
 
 * Focus is to make it work in our private cloud. No effort shall be spend on the abstractions and preparation on the other clouds.
 
@@ -77,7 +46,8 @@ Maybe we are not certain about some requirements and we just assume something?
 
 * We will concentrate on new implementation, do not concentrate on existing implementation in new releases
 
-*Requirements:*
+
+== Requirements
 
 * Monitoring - we would need to sample environment metrics, ideally to provide with a context of a test being executed
 ** midPoint metrics - midPoint is doing itself, but how to leverage those data is open question
@@ -142,66 +112,153 @@ Performance issues areas identified so far:
 * slow large org structures (Maybe just GUI problem)
 
 
+== Tooling
 
-=== Ideas and Concepts
+TestNG already used for unit and integration testing will be used also for performance tests.
+MidPoint runs tests in multiple modules, often testing anything below the currently tested module.
 
-Idea is to have unit performance and system performance.
+* For Prism tests we can add more unit-style tests in the Prism module.
+These do not use Spring framework and have minimal overhead.
+* For pure repository testing we can implement them in `repo-sql-impl-testing`.
+These initialize Spring context with the repository and dependent components, but without higher-level
+midPoint components like provisioning, model or GUI.
+* GUI and end-to-end integration testing will be supported by our Schrödinger module,
+effectively running midPoint in its entirety.
+* Cluster - TBD
 
+Tooling must work both for testing on some reference setup and when run on the developer's machine.
+Obviously, results can only be compared with other results in the same environment.
 
-When thinking about the use cases, do not limit your thoughts to just that one specific use case.
-Think about generic mechanisms, broader principles.
-Focus on *concepts* and ideas, rather than algorithms.
-Design mechanism that can handle your use case, and thousands of similar use cases as well.
-Design *generic re-usable mechanisms*.
+=== Jenkins job
 
-Make sure the new mechanisms work well with existing mechanisms.
-We are looking for *synergies*.
-We want to combine mechanisms together into more flexible and more powerful solutions.
+Jenkins can run the tests repeatedly, but we don't want to run all the other tests,
+just as we don't want to slow down existing quick/nightly tests with performance tests.
+For this reason the performance tests are controlled by Maven profile `perftest`.
+This profile modifies surefire (or, in some modules, failsafe) plugin configuration to run only
+tests from `testng-perf.xml` suite.
+No other tests are run during the build.
+Maven test plugin configuration also sets the system property that causes `TestMonitor` to report to files.
 
-=== Implementation
+See https://jenkins.evolveum.com/job/MidPoint_performance/[MidPoint_performance] Jenkins job.
+Test outputs are archived with the post-build shell-script step.
 
-TODO: feasibility
+== Performance test output
 
-=== Performance and Scalability Considerations
+* Monitor name conventions?
+First part is implied - it's the class simple name.
+Second part is simple symbolic name, prefer `lowerCamelCase` parts separated by `.`.
+Avoid any CSV related separator and quoting like any of `"|;,'` and spaces.
+Note was added to describe the monitor in human readable form.
+* Distinguish the symbolic name for test and production monitors?
+TBD, no need yet.
+* The metric name is the tuple [test, monitor's symbolic name].
+* How do we want to identify the run?
+Report file name contains test class name, build number, short commit ID and build timestamp.
+File contains header section with BUILD_NUMBER, BRANCH, full GIT_COMMIT and test class name.
+* How to chart it?
+TBD: This can be work for infrastructure team.
+* Results must be postprocessed somehow - first there are various monitors from single run.
+We want to add each monitor to its time series (results of multiple runs).
+Here the run identification is important.
 
-TODO
+== Test NG Performance tests
 
-=== Testability Considerations
+TestNG performance tests are based on usual midPoint abstract test classes, ultimately either
+`AbstractUnitTest` or `AbstractSpringTest`, and mixin interface `PerformanceTestMixin`.
+`PerformanceTestMixin` must be added to the test class directly, not to the superclass,
+otherwise the lifecycle methods (`@Before/AfterClass`) don't work.
+These are important to initialize the `TestMonitor` and then report the results.
 
-Make sure that the functionality can be tested.
-Think about the testing process.
-Can this be teste by the ususal mechanisms that we have?
-Will we need some special environment or setup?
+.Simple TestNG Performance test
+[source,java]
+----
+public class PerfTestExample extends AbstractUnitTest implements PerformanceTestMixin { // <1>
 
-=== Security Considerations
+    ItemPath PATH  = ... ;
 
-TODO
+    @Test
+    void testPerfomance() {
+        // Invariant section
+        PrismContainer root = ...;
+        Stopwatch watch = stopwatch(monitorName("prism", "findItem"), "human readable description"); // <2>
 
-=== Rolling Wave Design
+        // Measurement cycle
+        for(int i = 0; i <= 1000; i++) { // <3>
+            Object result; // <4>
+            // Actual measurement
+            try (Split ignored = watch.start()) { // <5>
+                result = root.findItems(PATH); // <6>
+            }
+            assertNotNull(result); // <7>
+        }
+    }
+}
+----
+<1> Test class extends from midPoint support unit-test abstract class and implements
+`PerformanceTestMixin` - both classes work in tandem to support `TestMonitor`.
+<2> Creates a named stopwatch which computes min, max, avg, and total for measured time.
+Convenience method provided by `PerformanceTestMixin` is a shortcut to `testMonitor.stopwatch()`.
+<3> Repetition cycle - we need to make multiple measurements to obtain more precise result
+<4> We need to have side effect so `JIT` does not optimize our test code out.
+<5> Actual measurement, `start` returns `Autocloseable` which when closes stops time measurement.
+Ideally used as try-with-resources.
+<6> Actual operation to be measured.
+<7> Side effect, doing anything with the result so the call is not optimized out.
 
-TODO
+=== Parametric (comparison) measurements
 
-== Write It Down
+Sometimes it is good to run similar test with different parameters, which may
+have different timing characteristics.
 
-Notes from design meeting at the appropriate place.
-For midPoint, the appropriate place is usually https://docs.evolveum.com/midpoint/devel/design/[Design Notes at docs] for public notes, or https://guide.priv.evolveum.com/midpoint/notes/[MidPoint Design Notes at guide] for private notes.
+The proposed format for measurement name is: {measurementName}.{param1Value}.{param2Value}
 
-Do not forget to document:
+.Comparison of Parsing formats
+[source,java]
+----
+public class PerfTestCodecObject extends AbstractSchemaTest implements PerformanceTestMixin {
 
-* *Requirements* and *assumptions*. Interesting *use cases*.
+    List<String> FORMAT = ImmutableList.of("xml", "json", "yaml");
+    List<String> NS = ImmutableList.of("no-ns", "ns");
+    int REPETITIONS = 20_000;
 
-* Outline of the *approach*, important aspects of algorithms, schemas and so on.
+    @Test
+    void testAll() throws SchemaException, IOException {
+        for (String format : FORMAT) {
+            for (String ns : NS) {
+                testCombination(format, ns);
+            }
+        }
+    }
 
-* *Decisions* that were made, also the explanation or *motivation* _why_ the decision was made.
+    void testCombination(String format, String ns) throws SchemaException, IOException {
+        String inputStream = getCachedStream(Paths.get("common", format , ns ,"user-jack." + format));
+        Stopwatch timer = stopwatch(monitorName("parse", format, ns),
+            "Parsing user as " + format + " with " + ns);
+        for(int i = 1; i <=REPETITIONS;i++) {
+            PrismObject<Objectable> result;
+            try(Split ignored = timer.start()) {
+                PrismParser parser = PrismTestUtil.getPrismContext().parserFor(inputStream);
+                result  = parser.parse();
+            };
+            assertNotNull(result);
 
-* Outline of a *plan*.
-What do we implement now?
-What parts will remain to be implemented later?
+        }
+    }
 
-* *Risks* and challenges.
-What parts are likely to be problematic?
-Where can the design fail?
+      private String getCachedStream(Path path) throws IOException {
+          ....
+      }
+}
+----
 
-* *Open questions*.
-What we cannot answer now?
-What problems remain to be solved later?
+.Example output of test (header parts excluded)
+,===
+test,monitor,count,total(us),avg(us),min(us),max(us),note
+
+PerfTestCodecObject,parse.xml.no-ns,20000,11317688,565,494,85792,Parsing user as xml with no-ns
+PerfTestCodecObject,parse.xml.ns,20000,10310138,515,494,3910,Parsing user as xml with ns
+PerfTestCodecObject,parse.json.no-ns,20000,9645527,482,440,208260,Parsing user as json with no-ns
+PerfTestCodecObject,parse.json.ns,20000,8694757,434,425,4927,Parsing user as json with ns
+PerfTestCodecObject,parse.yaml.no-ns,20000,11243275,562,527,53407,Parsing user as yaml with no-ns
+PerfTestCodecObject,parse.yaml.ns,20000,10790540,539,526,2997,Parsing user as yaml with ns
+,===
