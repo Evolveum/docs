@@ -10,16 +10,42 @@
 ** If it's optimized for PG, tests must be run against PG as well, H2 will not cover the new repo at all.
 ** Primary goal is PG, but let's not close the door for Oracle too soon.
 
+== Current design assumptions
+
+* Focus on PostgreSQL only, without necessarily making Oracle usage impossible.
+* New repository will be SQL/JDBC based with http://www.querydsl.com/[Querydsl library] used for
+dynamic query construction.
+No Hibernate, ORM, JPA will be used.
+https://martinfowler.com/eaaCatalog/unitOfWork.html[Unit of work pattern] will not be utilized.
+Reasons are:
+** We need more control over query construction without switching between HQL (or JPQL) and native SQL.
+** We need dynamic columns for extensions - this is generally impossible with JPA/ORM solutions.
+** Unit of work pattern (Hibernate "session" or JPA "persistence context") is not beneficial for
+a repository clearly separated from midPoint model.
+There is no direct mapping of object model to the repository, repository is more operation oriented,
+even though the opreations are generic and may resemble typical "ORM repository" operations.
+** Each repository operation is transaction on its own.
+This is another reason why "unit of work" is meaningless in midPoint.
+** Without "unit of work" repository should be more memory efficient (no implicitly held data in session)
+and CPU efficient (no dirty checking, all modifications will be explicit).
+* We will start with DB objects close to existing repository, but
+https://www.postgresql.org/docs/13/ddl-inherit.html[table inheritance] will be used for `m_object`
+and related tables.
+* Because `m_shadow` is also object and declarative paritioning can't be combined with inheritance,
+we will use "application managed partitioning" (implemented with inherited tables) for `m_shadow`
+if the data volume requires it.
+
+* FK problem against parent table?
+Possible solution - common `m_object_oid` table.
+
 == Database schema
 
 * Current DB schema problems:
 ** `M_OBJECT` is too heavy (full object?)
 ** `M_SHADOW` table is too big (10-20 times `M_USER` size), talk 200M expected soon.
 Indexes are not enough, little variance in data (resource, object class, kind, intent).
-TODO: Can an inherited table be split/partitioned by resource and/or object class?
+*But inherited table cannot be partitioned* resulting in error: `[42P17] ERROR: cannot create partitioned table as inheritance child`
 Is there application-transparent (fully DB-managed) solution or do we need to manage table hierarchy as we go?
-Let's try https://www.postgresql.org/docs/current/ddl-partitioning.html[partitions first] and test the performance.
-Check limitations about constraints for partitioned tables.
 *** Unique "constraint" across table hierarchy is solvable by triggers, http://blog.ioguix.net/postgresql/2015/02/05/Partitionning-and-constraints-part-1.html[example here].
 ** `M_REFERENCE` can be too big (goal >100M), can be split by `REFERENCE_TYPE` which is always used for the query.
 
