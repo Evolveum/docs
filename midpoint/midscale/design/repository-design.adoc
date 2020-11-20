@@ -35,9 +35,6 @@ and related tables.
 we will use "application managed partitioning" (implemented with inherited tables) for `m_shadow`
 if the data volume requires it.
 
-* FK problem against parent table?
-Possible solution - common `m_object_oid` table.
-
 == Database schema
 
 * Current DB schema problems:
@@ -276,7 +273,7 @@ CREATE CONSTRAINT TRIGGER m_resource_oid_check_tr AFTER INSERT OR UPDATE ON m_re
 
 Following table show the effects of the count of inherited tables and volume of already inserted
 rows on the time for adding 100k of new rows:
-+
+
 |===
 | Inherited{nbsp}tables / Existing rows | 4 | 20 | 50 | 100
 
@@ -285,3 +282,26 @@ rows on the time for adding 100k of new rows:
 | 1M | 6s | 10s | 20/33/33s| 66/66/45s
 | 5M | 16/10/21/7/7s | 11/13/13/12s | - | -
 |===
+
+Following loop was used, which is roughly 2x slower than `INSERT from SELECT` with `generate_series`
+but I assume loop better represents many INSERTs from the application:
+
+----
+DO
+$$
+    BEGIN
+        FOR r IN 1000001..1100000
+            LOOP
+                INSERT INTO m_user (name_orig, version)
+                VALUES ('user-' || LPAD(r::text, 10, '0'), 1);
+
+                -- regular commit to avoid running out of memory with locks (NOT NECESSARY NOW)
+                IF r % 1000 = 0 THEN
+                    COMMIT;
+                END IF;
+            END LOOP;
+    END;
+$$;
+----
+
+Commit after each 1000 rows had little-to-no impact on the performance.
