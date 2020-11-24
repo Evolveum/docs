@@ -381,15 +381,70 @@ Do we need other cases, e.g. matching of IP address and netmask?
 * Make sure that NOT queries are supported.
 E.g. "find users that do not have any linked account".
 
-
+.Some Examples
 ----
 TYPE UserType AND linkRef IsEmpty
 TYPE UserType AND linkRef NOT EXISTS
 
 // Users which do not have manager relationship
 TYPE UserType AND assigment/targetRef NOT MATCHES (relationship="manager")
+
+TYPE UserType AND assigment/targetRef/relationship != "manager"
+
+assigment MATCHES (construction=order AND )
+
+
+SELECT * FROM FocusType
+WHERE /assigment MATCHES (construction=a AND order = b)
+
+WHERE /assigment MATCHES ( targetRef EXISTS)
+
+SELECT * FROM FocusType
+WHERE /assigment MATCHES (construction=a AND order = b)
+
+
+FIND FocusType/assigment WHERE construction=a AND order=b
+FIND UserType/assigment WHERE construction=a AND order=b
+
+FIND UserType WHERE /assignment MATCHES EMPTY // contains empty assignment
+FIND UserType WHERE /assignment NOT EXISTS // does not exits
+FIND UserType WHERE /assignment EXISTS // has any value
+FIND UserType WHERE /assignment MATCHES () // has any value
+FIND UserType WHERE /assignment NOT EXISTS AND /assignment/@assurance > HIGH
 ----
 
+.Existence filters for containers
+[cols=",,a"]
+|===
+| Filter | Usage | Description
+
+| MATCHES
+| path MATCHES ( filter )
+| True if any value of path matches specified nested filter. Filter evaluation
+  root is value.
+
+| MATCHES EMPTY
+| path MATCHES EMPTY
+| Special case, returns true if path contains value, which is 'empty' - does not
+  contain any containers, properties
+
+| EXISTS
+| path EXISTS
+| True if path contains any value (even empty). This is same as `path MATCHES ()`
+
+|NOT EXISTS
+| path NOT EXISTS
+| True if path does not contain any values or does not exist. Path may physically exists, because of metadata,
+  but without values.
+
+[source]
+----
+/assignment NOT EXISTS AND /assignment/@assurance > 4`.
+----
+This is true, if path container /assigment does not contain any values, but item metadata
+for /assigment are present and @assurance is higher than 4.
+
+|===
 
 
 * How to do "group by" queries?
@@ -412,43 +467,70 @@ GROUP BY s/resourceRef
 .Report Syntax proposal
 ----
 statusReport {
-  from UserType;
-  item count {
-    displayName "Count";
-    source {
-      count;
-    }
-  }
-  item name {
+  from ShadowType;
+
+  collumn name {
     displayName "Resource";
     source resourceRef/@/name {
       type grouping;
     }
   }
-  item kind {
+  collumn kind {
     source kind {
       type grouping;
     }
   }
-  item intent {
-    source kind {
+  collumn intent {
+    source intent {
       type grouping;
     }
   }
-  item status {
-
+  collumn status {
+    source status {
+      type grouping;
+    }
   }
-  filter {
-
+  collumn count {
+    displayName "Count";
+    source  {
+      count;
+    }
   }
 
 }
 ----
 
 
+----
+
+statusReport {
+  from UserType;
+  collumn directorate {
+    displayName "Name";
+    source extension/directorateRef/@/name {
+      grouping;
+    }
+  }
+  collumn count {
+    source {
+      count;
+    }
+  }
+  filter """
+    activation/efectiveStatus = disabled
+  """;
+
+}
+
+
+
+----
+
+
 .Sample SQL query used for custom overview
 ----
 select
+
     count(*) AS (prism definiciu),
     r.name_orig,
     s.kind,
