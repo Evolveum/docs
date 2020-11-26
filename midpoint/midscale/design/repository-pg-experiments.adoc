@@ -1,0 +1,168 @@
+= Repository - PostgreSQL Experiments
+:page-toc: top
+
+== Large object storage (TOAST)
+
+When storing BLOBs to `m_user.fullobject` these are stored into separate
+https://www.postgresql.org/docs/13/storage-toast.html[TOAST table].
+Following function was used to insert `random_bytea(100, 20000)` (byte array between 100B and 20kB):
+
+[source,sql]
+----
+-- based on https://dba.stackexchange.com/a/22571
+CREATE OR REPLACE FUNCTION random_bytea(min_len integer, max_len integer)
+    RETURNS bytea
+    LANGUAGE sql
+AS $$
+    SELECT decode(string_agg(lpad(to_hex(width_bucket(random(), 0, 1, 256) - 1), 2, '0'), ''), 'hex')
+    -- width_bucket starts with 1, we counter it with series from 2; +1 is there to includes upper bound too
+    -- should be marginally more efficient than: generate_series(1, $1 + trunc(random() * ($2 - $1 + 1))::integer)
+    FROM generate_series(2, $1 + width_bucket(random(), 0, 1, $2 - $1 + 1));
+$$;
+----
+
+Insert the rows:
+
+[source,sql]
+----
+DO $$ BEGIN
+    FOR r IN 1..10000 LOOP
+        INSERT INTO m_user (name_norm, name_orig, fullobject, version)
+        VALUES ('user-' || LPAD(r::text, 10, '0'), 'user-' || LPAD(r::text, 10, '0'),
+            random_bytea(100, 20000), 1);
+    END LOOP;
+END; $$;
+----
+
+With 10k rows the sizes of tables were:
+
+[source,sql]
+----
+-- top 20 biggest tables or their TOAST (large object storage) from public schema
+SELECT
+    t.oid,
+    CASE
+        WHEN tft.relname IS NOT NULL
+            THEN tft.relname || ' (TOAST)'
+        ELSE t.relname
+    END AS object,
+    pg_size_pretty(pg_relation_size(t.oid)) AS size
+FROM pg_class t
+    INNER JOIN pg_namespace ns ON ns.oid = t.relnamespace
+    -- table for toast
+    LEFT JOIN pg_class tft ON tft.reltoastrelid = t.oid
+    LEFT JOIN pg_namespace tftns ON tftns.oid = tft.relnamespace
+WHERE 'public' IN (ns.nspname, tftns.nspname)
+ORDER BY pg_relation_size(t.oid) DESC
+LIMIT 20;
+----
+
+The results are (rows after the second one are small and the rest is omitted):
+
+,===
+oid,object,size
+
+16503,m_user (TOAST),102 MB
+16498,m_user,2008 kB
+16452,m_object_oid,440 kB
+,===
+
+Size of the toast for `m_user` is about right (10k rows times 10kB).
+With random bytes the TOAST compression could not do much.
+To demonstrate the compression, let's generate byte arrays full of zeroes:
+
+[source,sql]
+----
+CREATE OR REPLACE FUNCTION zero_bytea(min_len integer, max_len integer)
+    RETURNS bytea
+    LANGUAGE sql
+AS $$
+    SELECT decode(string_agg('00', ''), 'hex')
+    FROM generate_series(2, $1 + width_bucket(random(), 0, 1, $2 - $1 + 1));
+$$;
+
+DELETE FROM m_object;
+
+DO $$ BEGIN
+    FOR r IN 1..1000 LOOP
+            INSERT INTO m_user (name_norm, name_orig, fullobject, version)
+            VALUES ('user-' || LPAD(r::text, 10, '0'), 'user-' || LPAD(r::text, 10, '0'),
+--                     random_bytea(100, 20000), 1);
+                    zero_bytea(100, 20000), 1);
+        END LOOP;
+END; $$;
+----
+
+Now, let's see the sizes using the query from above - the results are:
+
+,===
+oid,object,size
+
+16498,m_user,880 kB
+16516,m_user_name_orig_idx,480 kB
+16517,m_user_name_norm_key,480 kB
+16456,m_object_oid_pk,448 kB
+16506,m_user_pkey,448 kB
+16452,m_object_oid,128 kB
+,===
+
+The rest is 8kB or less - and the toast table for user is not even mentioned here.
+It actually shows 0 bytes of size at this moment.
+
+Now switch the commented/uncommented lines in the loop above to use `random_bytea` (and loop
+range from 1001 to 2000 to keep user names unique) - and let's see what happens:
+
+,===
+oid,object,size
+
+16503,m_user (TOAST),10 MB
+16498,m_user,880 kB
+16517,m_user_name_norm_key,480 kB
+16516,m_user_name_orig_idx,480 kB
+16506,m_user_pkey,448 kB
+16456,m_object_oid_pk,448 kB
+16452,m_object_oid,128 kB
+,===
+
+Toast table for `m_user` is immediately leader of our chart.
+This is good - this keeps `m_user` small and also shows that the data is compressed by default.
+
+== Creating many sub-tables dynamically
+
+When measuring the impact of the number of inherited tables the following block was used
+to generate arbitrary number of tables inherited from both `m_object` and `m_focus`:
+
+[source,sql]
+----
+-- creating more tables inherited from m_object or m_focus
+DO
+$$
+    BEGIN
+        FOR r IN 1..25
+            LOOP
+                EXECUTE 'CREATE TABLE m_omore' || r || '(
+                    objectTypeClass INT4 GENERATED ALWAYS AS (101) STORED,
+                    PRIMARY KEY (oid)
+                )
+                    INHERITS (m_object)';
+                EXECUTE 'CREATE TABLE m_fmore' || r || '(
+                    objectTypeClass INT4 GENERATED ALWAYS AS (101) STORED,
+                    PRIMARY KEY (oid)
+                )
+                    INHERITS (m_focus)';
+            END LOOP;
+    END;
+$$;
+
+-- and to drop them
+DO
+$$
+    BEGIN
+        FOR r IN 1..25
+            LOOP
+                EXECUTE 'DROP TABLE m_fmore' || r ;
+                EXECUTE 'DROP TABLE m_omore' || r ;
+            END LOOP;
+    END
+$$;
+----
