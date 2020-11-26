@@ -1,375 +1,524 @@
-= Query Language Design Notes
+= Query Language Design
 :page-nav-title: Query Language
 
 NOTE: All examples are only for discussion and does not represent any current
 functionality
 
+== Work Items
 
-== Terminology
+.Query Language Support
+1. Design grammar and parser for Query Language
+2. Implement transformation from Query language to Java Query API
+3. Extends Prism, Query API and in-memory implementation for missing concepts
+  * ExistsFilter for:
+    ** <<Exists>> support (no nested filter)
+    ** <<Matches Empty>> support
+    ** <<Matches>> support for Object Reference and PolyString. Two possible options:
+    *** Short term - Matches delegates to special code for Object Reference and PolyString
+    *** Long term (Prism 5) - Allow item path to reference nested "structured simple" value
+        elements
+4. Implement repository support for new Query API concepts
+  * Extends 'repo-sql-impl' to support new Query API concepts
+  * Implement Query / language Query API support in new repository
+
+.Custom Dashboard Support
+ * Design simple "grouping" dashboard model and APIs for it
+ * Design experimental dashboard model with SQL query support
+
+== Basic Concepts
+
 
 Filter:: A set of conditions / predicates used to select subset of data
+Query:: Combination of filter and transformation / ranking / ordering specification to retrieve set of data
 
-Query:: Combination of filter and transformation / ranking / ordering
-specification to retrieve set of data
+== Filters
 
-== Design
+=== Logic Filters
 
-NOTE: Primary design should be put into filter part, with most common use-cases
-being less verbose
+Logic filters are use to compose / modify multiple filters together, currently
+there are 3 logic filters present:
+
+<<And>>::
+  Object / item must match all of specified filters.
+<<Or>>::
+  Object / item matches any of specified filters.
+<<Not>>::
+  Negates subfilter, object / item must not match filter.
 
 
-[cols="a,a,a,a"]
+==== And
+Matches if all subfilters matches.
+
+.Grammar
+[source]
+----
+AndFilter: Filter "AND" Filter ("AND" Filter)*
+----
+
+.Examples
+[source]
+----
+fName="Foo" AND lName="Bar" <1>
+fName="Foo" AND lName="Bar" AND birthDate="31-12-1970" <2>
+fName="Foo" AND ( lName="Bar" OR lName="Baz" ) <3>
+----
+<1> Matches objects with fName "Foo" and lName "Bar"
+<2> Multiple AND conditions
+<3> Combination of AND and OR filter
+
+Java Query API: `AndFilter`
+
+==== Or
+Matches if any subfilter matches.
+
+.Grammar
+[source]
+----
+OrFilter: Filter "OR" Filter ("OR" Filter)*
+----
+
+.Examples
+[source]
+
+----
+fName="John" OR fName="Bar" <1>
+fName="Foo" OR fName="Bar" OR fName="Baz" <2>
+fName="Foo" OR ( fName="John" AND lName="Baz" ) <3>
+----
+<1> fName is John or Bar
+<2> fName is John or Bar or Baz
+<3> Combination of OR filter and AND filter
+
+Java Query API: `OrFilter`
+
+==== Not
+
+Negates specified filter - matches items, which do not conform to specified nested filter.
+
+`NOT` keyword can be used also between `path` and filter keyword to
+improve readability (eg. `path NOT EXISTS` instead of `NOT path EXISTS`).
+
+.Grammar
+[source]
+----
+Negation: "NOT"
+NotFilter: Negation Filter
+----
+
+
+.Examples
+[source]
+----
+NOT fName="John" <1>
+fName NOT STARTS WITH "John" <2>
+assigment NOT EXITS <3>
+assigment NOT MATCHES (relationship = "default") <4>
+----
+
+Java Query API: `NotFilter`
+
+=== Item Filters
+
+Item filters performs check on item values (reference, property, container) specified by path.
+
+.<<Generic Item Filters>>
+  <<Exists>>::
+    Matches if specified item has any values.
+
+.<<Property Specific Filters>>
+  <<Equals>>::
+    Matches if any value equals to any of specified values.
+  <<Comparison>>::
+    Matches if any value is greater/smaller than specified value.
+
+  <<Starts With>>::
+    Matches if any value starts with specified string.
+  <<Ends With>>::
+    Matches if any value ends with specified string.
+  <<Contains>>::
+    Matches if any value contains specified substring.
+
+.<<Container Specific Filters>>
+  <<Matches>>::
+    Matches if specified item has value (container, PolyString or reference) matching subfilter.
+  <<Matches Empty>>::
+    Matches if specified container has empty value (value with no nested properties or containers).
+  <<In Oid>>::
+    Matches if container is nested inside object with specified `oid`.
+
+.<<Object Specific Filters>>
+  <<Type>>::
+    Matches if object is of specified type
+  <<In Org>>::
+    Matches if object is member of specified organization
+  <<Fulltext>>::
+    Matches if fulltext search finds specified value
+
+
+//.Grammar
+//[source]
+//----
+//ItemFilter: Path ItemFilterSpec
+//ItemFilterSpec: (FilterNegation)? (  PropertyValueFilter | ExistsFilter | MatchesFilter)
+//
+//----
+
+
+
+==== Exists
+
+Matches is specified item has any value (even empty).
+
+[WARNING]
+`NOT EXISTS` also matches, when item does exists (because of non-empty item metadata), but does have any values.
+
+
+.Grammar
+[source]
+----
+ExistsFilter: path (Negation)? "EXISTS"
+----
+
+.Examples
+[source]
+----
+linkRef EXISTS <1>
+linkRef NOT EXISTS <2>
+assignment NOT EXISTS <3>
+assignment NOT EXISTS AND assignment/@assurance > 4 <4>
+----
+<1> Matches if object reference `linkRef` has any value
+<2> Matches if object reference `linkRef` does not have value, or does not exists
+<3> Matches if container `assigment` does not have any value, or does not exists
+<4> Matches if path `assigment` does not contain any values, but item metadata
+for `assigment` are present and ``@assurance` is higher than 4.
+
+Java Query API: `ExistsFilter`, probably some modification needed
+
+=== Property Specific filters
+
+Property-specific filters allows to specify <<Matching Rules,Matching Rule>> for strings, which specifies rules how strings are compared.
+
+.Grammar
+[source]
+----
+PropertyFilterOperand: Comparison
+MatchingRule: "[" MatchingRuleName "]"
+PropertyValueFilter: PropertyFilterOperand (MatchingRule)? ValueSpecification
+----
+
+==== Equals
+
+Matches if any value of specified property is equal to any of right-hand side values
+
+.Not Equals
+`!=` is negation - NOT EQUALS - matches if all values of specified property does not equal
+to any of right-hand sided values.
+
+.Grammar
+----
+ComparisionFilter: Path ("!")? "=" (MatchingRule)? MultiValueSpecification
+----
+
+.Examples
+[source]
+----
+name =  "jsmith" <1>
+fName = lName <2>
+primaryIdentifier =[distinguishedName] "UID=jsmith,DC=example,DC=net" <3>
+----
+<1> Matches if name has value jsmith
+<2> Matches if fName has same value as lName
+<3> Matches if primaryIdentifier (interpreted as Ldap DN) equals to `UID=jsmith,DC=example,DC=net` LDAP DN
+
+==== Comparison
+
+Filter matches if any values of specified property is smaller/greater then right side value.
+
+.Grammar
+[source]
+----
+Greater: "<"
+GreaterOrEqual: ">="
+Less: "<"
+LessOrEqual: "<="
+ComparisisonOperand: Greater | GreaterOrEqual | Less | LessOrEqual
+ComparisionFilter: Path ComparisonOperand (MatchingRule)? SingleValueSpecification
+----
+
+.Examples
+[source]
+----
+
+----
+
+
+==== Starts With
+
+.Grammar
+[source]
+----
+StartsWithFilter: Path "STARTS WITH" (MatchingRule)? ValueSpecification
+----
+
+.Examples
+[source]
+----
+lName STARTS WITH "foo"
+lNaME STARTS WITH "bar"
+----
+
+
+Java Query API: `SubstringFilter` with `anchorStart=true`
+
+==== Ends With
+
+Grammar
+[source]
+----
+EndsWithFilter: Path "ENDS WITH" (MatchingRule)? ValueSpecification
+----
+
+.Examples
+[source]
+----
+----
+
+Java Query API: `SubstringFilter` with `anchorEnd=true`
+
+==== Contains
+Matches if any String/PolyString value contains specified substring.
+
+.Grammar
+[source]
+----
+ContainsFilter: Path "CONTAINS" (MatchingRule)? ValueSpecification
+----
+
+.Examples
+[source]
+----
+----
+
+Java Query API: `SubstringFilter`
+
+==== Matching Rules
+
+Matching rule allows to further specify how to interpret strings during matching
+(comparison, substring or equality).
+
 |===
-| XML | 1:1 Axiom | Axiom with Argument | Axiom, type as equals special case, top clause is always AND
-|
+| Matching Rule | Description
 
-----
-<filter>
-  <type>
-    <type>UserType</type>
-    <filter>
-      <ref>
-        <path>
-          assignment/orgRef
-        </path>
-        <value oid="OID" />
-      </ref>
-    </filter>
-  </type>
-</type>
-----
-|
+| *default* | Fallback to default matching strategy
+| *polyStringOrig* | Tests only original form of PolyString
+| *polyStringNorm* | Tests only normalized form of PolyString
+| *polyStringStrict* | Compares both forms of PolyString
+| *stringIgnoreCase* | Compares strings with ignore case
+| *uuid* | Matches strings as UUIDs
+| *xml* | Matches strings as XML
+| *exchangeEmailAddresses* | Microsoft Exchange EmailAddresses attribute consisting of SMTP:/smtp: prefix and email address. Prefix case is preserved, email address is matched case insensitive.
+| *distinguishedName* | Matches strings as LDAP distinguish name
 
-----
-filter {
-  type {
-    type UserType;
-    filter {
-      ref {
-        path assignment/orgRef;
-        value "OID";
-      }
-    }
-  }
-}
-----
+|===
 
-|
-----
-filter {
-  type {
-    type UserType;
-    filter {
-      ref assignment/orgRef {
-        value "OID";
-      }
-    }
-  }
-}
-----
-|
-----
-filter {
-  type UserType;
-  ref assignment/orgRef {
-    value "OID";
-  }
-}
-----
+=== Container Specific Filters
 
-.XPath like
-----
-@type=UserType && assignment/orgRef="OID"
-----
+==== In Oid
 
-.JIRA /SQL like
-----
-type = UserType AND assignment/orgRef = "OID"
-----
+Filter matches if container value is nested in specified object.
 
 
-.Google like
+.Grammar
+[source]
 ----
-type:UserType assignment/orgRef:OID
+filter: IN OID ValueSpecification
 ----
 
-|
+.Examples
+[source]
+----
+IN OID "eb33bf4e-b093-42ff-9400-6f87c1b9ab2b"
+----
+
+Java Query API: InOidFilter
+
+
+==== Matches
+
+Filter matches if path contains any value which matches specified subfilter
+(subfilter criteria are matched against contents of value).
+
+Matches filter can be used also on PolyString and object reference, with following virtual properties:
+
+|===
+| Property | Description
+
+2+| *PolyString*
+| orig | Original form
+| norm | Normalized form
+
+2+| *Object Reference*
+| targetOid | Target OID
+| targetType | Type of target
+| relationship | Relationship
 |===
 
 
 
 
+.Grammar
+[source]
+----
+MatchesFilter: path (Negation)? "MATCHES" "(" Filter ")"
+----
+
+.Examples
+[source]
+----
+lName MATCHES (norm="smith") <1>
+linkRef MATCHES (targetOid="eb33bf4e-b093-42ff-9400-6f87c1b9ab2b") <2>
+
+assignment MATCHES ( relationship="manager") <3>
+assignment MATCHES (relationship="manager" AND targetRef/targetOid="eb33bf4e-b093-42ff-9400-6f87c1b9ab2b") <4>
 
 
-.Value Filters
+----
+<1> lName property matches if PolyString value has norm "smith"
+<2> linkRef matches only if targetOid is specified UUID
+<3> Matches only if assigment container has value, which has property relationship with manager value. This is same as `assigment/relationship="manager"`
+<4>  Matches only if assigment has value, whose properties relatioship and targetRef meet specified criteria
+
+
+Java Query API: `ExistsFilter`, probably modification needed for PolyString / Object Reference
+
+==== Matches Empty
+A special case of <<Matches>> filter which matches empty container value (value which does not have any nested items).
+
+.Grammar
+[source]
+----
+MatchesEmptyFilter: path "MATCHES EMPTY"
+----
+
+.Examples
+[source]
+----
+mapping MATCHES EMPTY <1>
+----
+<1> Matches object, which has empty mapping (mapping containe exists, but one of its value does not have any nested items).
+
+Java Query API: New Filter
+
+
+=== Object Specific Filters
+
+==== Type
+
+
+.Grammar
+[source]
+----
+TypeFilter: "TYPE" ValueSpecification "AND" Filter
+----
+
+.Examples
+[source]
+----
+TYPE UserType AND fName = "John" <1>
+----
+<1> Matches user with first name John
+
+==== In Org
+Matches if object is member of specified organization or root.
+
+.Grammar
+[source]
+----
+InOrgFilter: "IN ORG" ( ValueSpecification | "ROOT" );
+----
+
+
+==== Fulltext
+Filters objects based on fulltext search.
+
+.Examples
+[source]
+----
+FULLTEXT "john"
+----
+
+
+
+
+
+
+
+== Java Query API
+
+|===
+| Java Filter | Query Language Filters | Description
+| AllFilter | N/A | Explicitly match everything
+| AndFilter | <<And>> | All subfilters must be true
+| EqualFilter | <<Equals>> | True if both sides are equal based on matching rule
+| OrFilter | <<Or>> | True if any subfilter is true
+| ExistsFilter | <<Matches>> | True if container matching subfilter exists
+| FullTextFilter | <<Fulltext>> | True if fulltext database search contains value
+| GreaterFilter | <<Comparison>> | True if left side is greater then right side
+| InOidFilter | <<In Oid>> | True if container is part of object with specified oid
+| LessFilter | <<Comparison>> | True if left side is smaller then right side
+| SubstringFilter | <<Starts With>>, <<Contains>>, <<Ends With>> | True if left side contains specified substring
+| TypeFilter | <<Type>> and <<And>> | True if object matches type and subfilter
+| RefFilter | <<Matches>> | True, if reference matches specification
+| NoneFilter | N/A | Always false
+| UndefinedFilter | N/A | Special marker filter, always true
+| NotFilter | <<Not>> | Logic filter, negates value of subfilter
+| OrgFilter | <<In Org>> | True if object is part of organization
+|===
+
+== Notes
+
+.Existing Filters to Query Language
 |===
 | Existing | Right Side | Modifiers | Proposed Name | True State
 
 .3+| Equals
-| Value .3+| matchingStrategy | Equals |Any value of left property matches value on right
-| Multiple Values, Path | In | Any value of left property matches any value on right
-| Null | IsEmpty | Property does not have value
+| Value .3+| matchingStrategy | <<Equals>> |Any value of left property matches value on right
+| Multiple Values, Path | <<Equals>> | Any value of left property matches any value on right
+| Null | NOT <<Exists, EXISTS>> | Property does not have value
 
 
-| Comparison  | Value | matchingStrategy | Comparison | Any value of property is smaller / larger / equals then right value.
+| Comparison  | Value | matchingStrategy | <<Comparison>> | Any value of property is smaller / larger / equals then right value.
 
 
 .4+| Substring .4+| Value, Property
 
-| matchingStrategy, anchorLeft=false, anchorRight=false | Substring | Any value of property contains any substring from right
-| matchingStrategy, anchorLeft=true, anchorRight=false | StartsWith | Any value of property starts with any substring from right
-| matchingStrategy, anchorLeft=false, anchorRight=true | EndsWith | Any value of property ends with any substring from right
-| matchingStrategy, anchorLeft=true, anchorRight=true | Equals? | Any value of property equals to any string from right
+| matchingStrategy, anchorLeft=false, anchorRight=false | <<Contains>> | Any value of property contains any substring from right
+| matchingStrategy, anchorLeft=true, anchorRight=false | <<Starts With>> | Any value of property starts with any substring from right
+| matchingStrategy, anchorLeft=false, anchorRight=true | <<Ends With>> | Any value of property ends with any substring from right
+| matchingStrategy, anchorLeft=true, anchorRight=true | <<Equals>> | Any value of property equals to any string from right
 
-| Ref filter | Value, Property | oidNullAsAny, targetTypeAsAny, relationTypeAsAny | References? Matches? | Any value of reference matches any value from right side
+| Ref filter | Value, Property | oidNullAsAny, targetTypeAsAny, relationTypeAsAny | <<Matches>> | Any value of reference matches any value from right side
 
+| Org filter | Value, Property || <<In Org>> | Object is member of organization
 
-
-
-| Org filter |
-
-.2+| InOid filter .2+| Value, Property |
+| InOid filter | Value, Property ||||
 
 |===
 
 
+== Discussions
 
-== Notes & Scribles
-
-Existing state:
-
-Namespaces?
-
-axiom?
-----
-or {
-  substring {
-    path c:employeeType;
-    value A;
-  }
-  substring {
-    path c:employeeType;
-    value B
-    anchorStart true;
-  }
-}
-
-
-exists assignment { // arg is path
-  filter {
-    ref tenantRef { // arg is path
-      value oid1; // value
-    }
-    ref orgRef { // arg is path
-      value oid2; // arg is oid
-    }
-  }
-}
-----
-
-
-[cols="a,a,a"]
-|===
-|
-----
-<or>
-    <and>
-        <greater>
-            <path>c:costCenter</path>
-            <value>100000</value>
-        </greater>
-        <less>
-            <path>c:costCenter</path>
-            <value>999999</value>
-        </less>
-    </and>
-    <and>
-        <greaterOrEqual>
-            <path>c:costCenter</path>
-            <value>X100</value>
-        </greaterOrEqual>
-        <lessOrEqual>
-            <path>c:costCenter</path>
-            <value>X999</value>
-        </lessOrEqual>
-    </and>
-</or>
-----
-|
-----
-or {
-  and {
-    greater c:costCenter {
-      value 100000;
-    }
-    less c:costCenter {
-      value 999999;
-    }
-  }
-  and {
-    greaterOrEqual c:costCenter {
-      value X100;
-    }
-    lessOfEqual c:costCenter {
-      value X999;
-    }
-  }
-}
-----
-|
-----
-or {
-  valueOf c:costCenter {
-    and {
-      greater 100000;
-      less 999999;
-    }
-  }
-  valueOf c:costConter {
-    and {
-      greaterOrEquals X100;
-      lessOrEquals X999;
-    }
-  }
-----
-
-----
-valueOf c:costCenter { // Select(c:costCenter)
-  or {
-    and {
-      greater 100000;
-      less    999999;
-    }
-    and {
-      greaterOrEquals X100;
-      lessOrEquals X999;
-    }
-  }
-}
-----
-|===
-
-----
-
-c:costCenter:: (>100000 and <999999 ) | (>= X100 and <= X999)
-
-
-Predicate and(Predicate...);
-Predicate or(Predicate...);
-
-Selector
-
-
-Predicate
-Selector
-----
-
-type ValuePredicate {
-  // Value enumerations
-  item anyOf; // Effectivelly OR
-  item allOf; // Effectivelly AND
-  item equals;
-
-
-  // All subitems are and
-  item smallerThan;
-  item largerThan;
-
-
-
-  // String predicates
-  item startsWith;
-  item endsWith;
-  item contains;
-}
-
-
-valueOf c:costCenter {
-
-}
-
-
-
-
-
-
-
-
-
-
-|===
-|Condition | Arguments | Description
-
-|all | | All items
-|none | | None
-|undefined | | Undefined, NOOP filter
-
-3+| *Value comparison*
-
-|equal | path, ValueSpec |
-|greater | path, ValueSpec |
-|greaterOrEqual | path, ValueSpec |
-|less | path, ValueSpec |
-|lessOrEqual | path, ValueSpec |
-|substring | path, ValueSpec |
-
-3+| *Special*
-|ref | path, ValueSpec<ObjectReference> |
-|org | |
-|inOid | Oid | Currently special case of 'equal' filter
-|fullText | |
-|present | |
-|true | |
-|and | Predicate... |
-|or | Predicate... |
-|not | Predicate... |
-|type | Type, Filter | Accepts if the object is of type T and filter F passes.
-|exists | Path, Filter | Accepts iff there exists a value v of item I so that F(v) passes. This is useful e.g. to find an assignment with a given tenantRef and orgRef.
-|===
-
-
-
-----
-Search: FilterClause
-FilterClause: All | None | Undefined | LogicOperation | ValueComparison | Ref | Org | Type | Exists
-LogicOperation: And | Or | None
-And: "AND" FilterClause+
-Or: "OR" FilterClause+;
-Not: "NOT" FilterClause;
-ValueComparison: Operation Path ValueSpec+;
-ValueSpec: Path | Value;
-Ref: ...
-Org: ...
-Type: TypeSpec FilterClause
-Exists:
-----
-
-== Discussion 2020-10-28
-
-* Assignment as (almost) first-class object?
-Or make it possible to query any container?
-
+* Assignment as (almost) first-class object? Or make it possible to query any container?
+** Still treated as containers, option to query specific containers only
 
 * Ad-hoc joins (joins that do not follow prism reference): do we need them?
-Do not support them, at least for now.
-But this may change in the future.
-
+** Do not support them, at least for now. But this may change in the future. `Joins` are supported only via object references in <<Path,paths>>
 ** We would need aliases for objects in order to distuinguish path
 
-----
-// Not linked shadows
-FROM ShadowType AS s
-LEFT JOIN UserType AS u ON s/oid = u/linkRef
-FILTER u NOT EXISTS
-----
+* Syntax for "reference match", "polystring match" and similar. Construct is <<Matches>>.
 
-
-* Syntax for "reference match", "polystring match" and similar.
-
-
-* Are matching rules for polystring a good idea?
-Maybe we need patterns instead of matching rules.
-
+* Are matching rules for polystring a good idea? Maybe we need patterns instead of matching rules.
 
 * Should matching rules be in fact _string_ matching rules?
 Do we need other cases, e.g. matching of IP address and netmask?
@@ -377,92 +526,28 @@ Do we need other cases, e.g. matching of IP address and netmask?
    separate value types for DN, IP Address with their own matching rules
    (eg. in DB serialized like `dn_orig` and `dn_norm`, where `dn_norm` is used for filters).
 
-
-* Make sure that NOT queries are supported.
-E.g. "find users that do not have any linked account".
-
-.Some Examples
+* Make sure that NOT queries are supported. E.g. "find users that do not have any linked account".
+** Examples
++
+[source]
 ----
-TYPE UserType AND linkRef IsEmpty
 TYPE UserType AND linkRef NOT EXISTS
 
 // Users which do not have manager relationship
 TYPE UserType AND assigment/targetRef NOT MATCHES (relationship="manager")
 
 TYPE UserType AND assigment/targetRef/relationship != "manager"
-
-assigment MATCHES (construction=order AND )
-
-
-SELECT * FROM FocusType
-WHERE /assigment MATCHES (construction=a AND order = b)
-
-WHERE /assigment MATCHES ( targetRef EXISTS)
-
-SELECT * FROM FocusType
-WHERE /assigment MATCHES (construction=a AND order = b)
-
-
-FIND FocusType/assigment WHERE construction=a AND order=b
-FIND UserType/assigment WHERE construction=a AND order=b
-
-FIND UserType WHERE /assignment MATCHES EMPTY // contains empty assignment
-FIND UserType WHERE /assignment NOT EXISTS // does not exits
-FIND UserType WHERE /assignment EXISTS // has any value
-FIND UserType WHERE /assignment MATCHES () // has any value
-FIND UserType WHERE /assignment NOT EXISTS AND /assignment/@assurance > HIGH
 ----
-
-.Existence filters for containers
-[cols=",,a"]
-|===
-| Filter | Usage | Description
-
-| MATCHES
-| path MATCHES ( filter )
-| True if any value of path matches specified nested filter. Filter evaluation
-  root is value.
-
-| MATCHES EMPTY
-| path MATCHES EMPTY
-| Special case, returns true if path contains value, which is 'empty' - does not
-  contain any containers, properties
-
-| EXISTS
-| path EXISTS
-| True if path contains any value (even empty). This is same as `path MATCHES ()`
-
-|NOT EXISTS
-| path NOT EXISTS
-| True if path does not contain any values or does not exist. Path may physically exists, because of metadata,
-  but without values.
-
-[source]
-----
-/assignment NOT EXISTS AND /assignment/@assurance > 4`.
-----
-This is true, if path container /assigment does not contain any values, but item metadata
-for /assigment are present and @assurance is higher than 4.
-
-|===
-
 
 * How to do "group by" queries?
-** Does group by creates ad-hoc schema?
+** Does group by creates ad-hoc schema? *Yes*
 
-Discussed solution was to provide 2 concepts:
- * Simple "dashboard"-like model which allows to specify item paths to fetch,
+** Discussed solution was to provide 2 concepts:
+ *** Simple "dashboard"-like model which allows to specify item paths to fetch,
     and apply aggregate operations on these paths (grouping, min, avg, count)
     and filter (this model does not allows for complex grouping / queries - easier to map to database)
- * Experimental dashboard - Custom schema + query which retrieves data
+ *** Experimental dashboard - Custom schema + query which retrieves data
 
-
-----
-SELECT s/resouceRef, count(s) AS count FROM ShadowType AS s
-LEFT JOIN UserType AS u ON s/oid = u/linkRef
-FILTER u NOT EXISTS
-GROUP BY s/resourceRef
-----
 
 .Report Syntax proposal
 ----
@@ -498,10 +583,6 @@ statusReport {
   }
 
 }
-----
-
-
-----
 
 statusReport {
   from UserType;
@@ -521,9 +602,6 @@ statusReport {
   """;
 
 }
-
-
-
 ----
 
 
