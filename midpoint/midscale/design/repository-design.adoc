@@ -42,7 +42,9 @@ if the data volume requires it.
 ** `M_SHADOW` table is too big (10-20 times `M_USER` size), talk 200M expected soon.
 Indexes are not enough, little variance in data (resource, object class, kind, intent).
 *But inherited table cannot be partitioned* resulting in error: `[42P17] ERROR: cannot create partitioned table as inheritance child`
-Is there application-transparent (fully DB-managed) solution or do we need to manage table hierarchy as we go?
+We will use inheritance for application-managed shadow partitioning.
+Open question is how to do custom shadow attributes, if primary/secondary/tertiary ID is good enough
+solution we can forgo extension attributes (or use JSON indexes).
 *** Unique OID across table hierarchy can be solved http://blog.ioguix.net/postgresql/2015/02/05/Partitionning-and-constraints-part-1.html[by triggers]
 or separate OID-pool table - the latter was used for reasons described lower in the *Explored alternatives* section.
 ** `M_REFERENCE` can be too big (goal >100M), can be split by `REFERENCE_TYPE` which is always used for the query.
@@ -239,6 +241,7 @@ it was definitely slower than a single index check (see the table below).
 
 Unique OID was assured by the following https://www.postgresql.org/docs/13/plpgsql-trigger.html[trigger]
 based on http://blog.ioguix.net/postgresql/2015/02/05/Partitionning-and-constraints-part-1.html[this article]:
+
 [source,sql]
 ----
 -- This checks that provided OID is unique across all tables inherited from m_object.
@@ -286,6 +289,7 @@ rows on the time for adding 100k of new rows:
 Following loop was used, which is roughly 2x slower than `INSERT from SELECT` with `generate_series`
 but I assume loop better represents many INSERTs from the application:
 
+[source,sql]
 ----
 DO
 $$
