@@ -42,6 +42,26 @@ The tenfold factor stays roughly the same with 13k rows of result.
 * Also, actual select uses function in ORDER, the question is whether function based index could help.
 * Assignment table is very big (tens of millions rows and more).
 
+In the new repo, this should be more like (PostgreSQL style):
+
+[source,sql]
+----
+SELECT u.oid, u.fullobject FROM m_user u
+WHERE EXISTS (
+    SELECT * FROM m_assignment a
+        WHERE a.owner_oid = u.oid -- "join", this should be super efficient
+            AND a.assignmentowner = ? -- discriminator, perhaps not necessary for user
+            AND (a.validfrom > ? AND a.validfrom <= ?
+                OR a.validto > ? AND validto <= ? ))
+ORDER BY u.oid
+LIMIT ?
+----
+
+* It's good it's limited, this in general is one of the biggest performance boosts.
+Count queries can't benefit from this and can take disproportionately longer for the same query.
+* Assignments conditions are in subquery now, this also leaves the outer query with the right number of rows.
+* No abstract table joins needed, all information is in a single table.
+
 === Related count search
 
 The same problem as above, but obviously without order this time.
