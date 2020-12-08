@@ -314,3 +314,29 @@ $$;
 ----
 
 Commit after each 1000 rows had little-to-no impact on the performance.
+
+== Pagination
+
+Various types of pagination are summed up in https://www.citusdata.com/blog/2016/03/30/five-ways-to-paginate/[this article].
+
+For *pagination in the GUI* `OFFSET`/`LIMIT` seems to be the acceptable despite the performance
+degradation with big values of `OFFSET`.
+The reason is that GUI requires random access and first pages are accessed more than later/last pages.
+Also, any inconsistency (suddenly added entry) is easy to explain and user probably knows what is happening.
+
+For long term processes that need to process many items we use *keyset pagination*, e.g. using last
+ID from current page to define the next page without any `OFFSET`, only using `LIMIT`.
+This is very efficient *even when no additional index besides PK is used* - and it's natural, too.
+It is called "top-N query" and typically the best thing is to order and filter it by the same index.
+Even when ordered by ID with filters not using the index, it tends to be very fast unless
+the required number of rows satisfying the condition is far from the beginning of the search.
+While this may skip some items that are added after we processed the page (and at the same time
+process other items added later that appear on later pages) it is more or less deterministic.
+We can also avoid processing "future" items with `WHERE` clause using creation timestamp
+(or current maximal ID, if sequential) at the processing start time.
+
+Following techniques are generally not usable for us:
+
+* *TID Scan* and *Keyset with Estimated Bookmarks* does not support `WHERE` clauses.
+* *Cursor* pagination causes high client-server coupling and is state-full.
+We don't want to hold the cursor for operations that can take longer and need transactions.
