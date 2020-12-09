@@ -4,11 +4,23 @@
 Performance was measured on default PG installation on 2GB RAM VirtualBox with 1 vCPU.
 The results can be better (or worse depending on the host) but not order-of-magnitude different.
 
-See link:sql/pgnew-eav-vs-json.sql[] for the whole source.
-
 Structure for JSON is simple, single table `tjson` with `(oid UUID PK, name VARCHAR, ext JSONB)`.
 Column `name` has a unique index and `ext` has a `GIN` index only by default.
 Other indexes are added as needed and mentioned during tests.
+
+[source,sql]
+----
+create table tjson (
+    oid UUID NOT NULL DEFAULT gen_random_uuid(),
+    name VARCHAR(255) NOT NULL,
+    ext JSONB,
+
+    CONSTRAINT tjson_oid_pk PRIMARY KEY (oid)
+);
+
+ALTER TABLE tjson ADD CONSTRAINT tjson_name_key UNIQUE (name);
+CREATE INDEX tjson_ext_idx ON tjson USING gin (ext);
+----
 
 Structure for EAV model has a master table `teav` with `(oid UUID PK, name VARCHAR)`
 with unique index on the `name`.
@@ -19,11 +31,40 @@ In PG it can be https://www.postgresql.org/docs/13/sql-cluster.html[clustered] b
 but this is potentially costly (12min for 15M rows) during which the table is unusable
 because of the used `ACCESS EXCLUSIVE` lock.
 
+[source,sql]
+----
+create table teav (
+    oid UUID NOT NULL DEFAULT gen_random_uuid(),
+    name VARCHAR(255) NOT NULL,
+
+    CONSTRAINT teav_oid_pk PRIMARY KEY (oid)
+);
+
+ALTER TABLE teav ADD CONSTRAINT teav_name_key UNIQUE (name);
+
+create table teav_ext_string (
+    owner_oid UUID NOT NULL references teav(oid),
+    key VARCHAR(32) NOT NULL,
+    value VARCHAR(255) NOT NULL,
+
+    -- this also covers the index on owner_oid FK
+    CONSTRAINT teav_ext_string_pk PRIMARY KEY (owner_oid, key, value)
+);
+
+CREATE INDEX teav_ext_string_key_value_idx ON teav_ext_string (key, value);
+----
+
 Utility `pgbench` can be used for measurements like so:
 
 ----
-pgbench -r -P 5 -f /vagrant/tmp/jsonb-eav-test.sql
+pgbench -r -P 5 -f - -t 30 << "--EOF"
+select * from teav limit 500;
+... more selects
+--EOF
 ----
+
+If `pgbench` is prefixed with `--` it can be part of SQL file as a comment, hence `--EOF` as a delimiter.
+Delimiter is quoted to avoid any accidental shell expansions within the block.
 
 Results can be taken from the final report of average latency per statement (enabled by `-r` option).
 Results may vary widely between runs, especially for shorter queries.
@@ -103,7 +144,7 @@ BEGIN
 END $$;
 ----
 
-== 15 million rows
+== Results for 15 million rows
 
 Both JSON and EAV tables contain 15M rows, EAV extension detail table contains 45.8M rows.
 
@@ -217,7 +258,7 @@ Selects - EAV:
 There was little to no difference between semi-join (`EXISTS`) and `LEFT JOIN` wherever tried.
 Not all selects were tried with both, but `EXISTS` returns the right number of rows so it was preferred.
 
-== Performance with more RAM/CPU
+=== Performance with more RAM/CPU
 
 After resizing the VirtualBox, the following parameters were used (uninformed setup using https://pgtune.leopard.in.ua/[this site]):
 ----
@@ -309,7 +350,7 @@ Last column are results with `-c 10` option added to `pgbench`, all previous tes
 | 0.5 | 0.468 (1.1x) | 2.229 (4.8x)
 |===
 
-== JSONB vs EAV comparison of similar operations
+=== JSONB vs EAV comparison of similar operations
 
 Operations are shown as JSON version selects, avg times are taken from 8GB/4CPU configuration.
 Significant victories are in bold.
