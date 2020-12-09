@@ -131,7 +131,7 @@ doesn't use PK index but if forced to, the time goes to ~2s;
 some additional index on `(ext->>'...')` can be uses and time may drop to ~1.3s
 | ... where ext @> '{"hobbies":["video"]}' | 8200 | seq-scan, low selectivity, matches 3.4M of 15M rows
 | ... where ext @> '{"hobbies":["sleeping"]}' | 181 | high selectivity, matches ~50k rows, uses GIn index, Gather / Partial Aggregate / Parallel Bitmap Heap Scan on tjson / Bitmap Index Scan on tjson_ext_idx
-| select count(*) from tjson where ext->>'email' LIKE 'user2%'; | 7174 | matches ~222k rows, seq-scan;
+| select count(*) from tjson where ext->>'email' LIKE 'user2%' | 7174 | matches ~222k rows, seq-scan;
 index `ON tjson ((ext->>'email'))` doesn't seem to help (not used, even after `ANALYZE`)
 | where UPPER(ext->>'email') LIKE 'USER2%' | 7855 | like above with little overhead because of the function;
 even ignores the index on (UPPER(ext->>'email'))
@@ -180,7 +180,7 @@ may use `tjson_ext_idx` (GIN index) or seq-scan, both is OK, takes longer to fin
 | ... order by oid | 95.0 | index scan `tjson_oid_pk` + filter
 | ... and oid>'fffe0000-0000-0000-0000-000000000000' | 5.00 | index scan `tjson_oid_pk` + filter
 | where cast(ext->'eid' as int) = 5000 | 8133 | seq-scan, inefficient version of the query bellow, don't use `=` where `@>` works better
-| where ext @> '{"eid":5000}'; | 0.32 | Bitmap Index Scan on `tjson_ext_idx` + bitmap heap scan on tjson + recheck cond
+| where ext @> '{"eid":5000}' | 0.32 | Bitmap Index Scan on `tjson_ext_idx` + bitmap heap scan on tjson + recheck cond
 |===
 
 Selects - EAV:
@@ -208,13 +208,16 @@ Selects - EAV:
 | 0.500 | index scan `teav_oid_pk` + index scan `teav_ext_string_key_value_idx`
 |===
 
+There was little to no difference between semi-join (`EXISTS`) and `LEFT JOIN` wherever tried.
+Not all selects were tried with both, but `EXISTS` returns the right number of rows so it was preferred.
+
 == Performance with more RAM/CPU
 
 After resizing the VirtualBox, the following parameters were used (uninformed setup using https://pgtune.leopard.in.ua/[this site]):
 ----
 # DB Version: 13
 # OS Type: linux
-# DB Type: oltp
+# DB Type: web
 # Total Memory (RAM): 8 GB
 # CPUs num: 4
 # Connections num: 100
@@ -224,14 +227,14 @@ max_connections = 100
 shared_buffers = 2GB
 effective_cache_size = 6GB
 maintenance_work_mem = 512MB
-checkpoint_completion_target = 0.9
+checkpoint_completion_target = 0.7 # 0.9 for DB Type: oltp
 wal_buffers = 16MB
 default_statistics_target = 100
 random_page_cost = 1.1
 effective_io_concurrency = 200
 work_mem = 10485kB
-min_wal_size = 2GB
-max_wal_size = 8GB
+min_wal_size = 1GB # 2GB for oltp
+max_wal_size = 4GB # 8GB for oltp
 max_worker_processes = 4
 max_parallel_workers_per_gather = 2
 max_parallel_workers = 4
@@ -241,54 +244,88 @@ max_parallel_maintenance_workers = 2
 Most of these are already commented out by default in `postresql.conf`, the rest was commented too,
 not to collide with the added section above.
 Benchmark was run a couple of times first to warm up the DB before results were used.
+It seems that selects are longer if `checkpoint_completion_target` is set to 0.9.
+Last column are results with `-c 10` option added to `pgbench`, all previous tests were single-client.
+10 clients should overload the configuration.
 
 |===
-| Operation | 2GB/1CPU (ms) | 8GB/4CPU (ms)
+| Operation | 2GB/1CPU (ms) | 8GB/4CPU (ms) (speedup) | with 10 clients (slowdown)
 
-| select count(*) from tjson | 6512 | 1567
-| ... where ext @> '{"hobbies":["video"]}' | 8200 | 1388
-| ... where ext @> '{"hobbies":["sleeping"]}' | 181 | 57.5
-| select count(*) from tjson where ext->>'email' LIKE 'user2%'; | 7174 | 777
-| where UPPER(ext->>'email') LIKE 'USER2%' | 7855 | 1196
-| select count(*) from teav_ext_string | 6382 | 5793
-| select count(*) from teav | 2284 | 1175
+| select count(*) from tjson | 6512 | 440 (14.8x) | 3324 (7.6x)
+| ... where ext @> '{"hobbies":["video"]}' | 8200 | 1388 (5.9x) | 8691 (6.3x)
+| ... where ext @> '{"hobbies":["sleeping"]}' | 181 | 63.4 (2.9x) | 161 (2.5x)
+| select count(*) from tjson where ext->>'email' LIKE 'user2%' | 7174 | 758 (9.5x) | 5201 (6.9x)
+| where UPPER(ext->>'email') LIKE 'USER2%' | 7855 | 1196 (6.6x) | 7080 (5.9x)
+
+| select count(*) from teav_ext_string | 6382 | 2213 (2.9x) | 7935 (3.6x)
+| select count(*) from teav | 2284 | 337 (6.8x) | 2997 (8.9x)
 | ... where exists (select from teav_ext_string es where es.owner_oid = t.oid and es.key = 'hobbies' and es.value = 'video')
-| 17,465 | 4958
+| 17465 | 3324 (5.3x) | 58565 (17.6x)
 | ... where exists (select from teav_ext_string es where es.owner_oid = t.oid and es.key = 'hobbies' and es.value = 'sleeping')
-| 1965 | 259
+| 1965 | 87 (22.6x) | 2966 (34.1x)
 | ... where exists (select from teav_ext_string es where es.owner_oid = t.oid and es.key = 'email' and es.value LIKE 'user2%')
-| 14,932 | 2646
+| 14932 | 2499 (6x) | 22974 (9.2x)
 | ... where exists (select from teav_ext_string es where es.owner_oid = t.oid and es.key = 'email' and UPPER(es.value) LIKE 'USER2%')
-| 11,869 | 2282
-| select * from tjson limit 500 | 0.949 | 0.734
-| ... where ext @> '{"hobbies":["video"]}' | 2.034 | 1.873
-| ... order by oid | 6.32 | 2.425
-| ... and oid>'fffe0000-0000-0000-0000-000000000000' | 0.97 | 0.761
-| select * from tjson where ext @> '{"hobbies":["sleeping"]}' | 44.94 | 41.82
-| ... order by oid | 92.34 | 58.79
-| where ext->>'email' LIKE 'user2%' | 2.25 | 1.93
-| ... order by oid | 90.7 | 23.19
-| ... and oid>'fffe0000-0000-0000-0000-000000000000' | 5.34 | 0.59
-| where UPPER(ext->>'email') LIKE 'USER2%' | 2.40 | 2.19
-| ... order by oid | 95.0 | 25.2
-| ... and oid>'fffe0000-0000-0000-0000-000000000000' | 5.00 | 0.65
-| where ext @> '{"eid":5000}'; | 0.32 | 0.25
-| select * from teav limit 500 | 0.494 | 0.419
+| 11869 | 2188 (5.4x) | 9253 (4.2x)
+
+| select * from tjson limit 500 | 0.949 | 0.734 (1.3x) | 5.781 (7.9x)
+| ... where ext @> '{"hobbies":["video"]}' | 2.034 | 1.873 (1.1x) | 4.815 (2.6x)
+| ... order by oid | 6.32 | 2.425 (2.6x) | 6.144 (2.5x)
+| ... and oid>'fffe0000-0000-0000-0000-000000000000' | 0.97 | 0.761 (1.3x) | 3.548 (4.7x)
+| select * from tjson where ext @> '{"hobbies":["sleeping"]}' | 44.94 | 41.82 (1.1x) | 100.546 (2.4x)
+| ... order by oid | 92.34 | 58.79 (1.6x) | 155.131 (2.6x)
+| where ext->>'email' LIKE 'user2%' | 2.25 | 1.93 (1.2x) | 5.068 (2.6x)
+| ... order by oid | 90.7 | 23.19 (3.9x) | 78.79 (3.4x)
+| ... and oid>'fffe0000-0000-0000-0000-000000000000' | 5.34 | 0.59 (9.1x) | 3.441 (5.8x)
+| where UPPER(ext->>'email') LIKE 'USER2%' | 2.4 | 2.19 (1.1x) | 5.152 (2.4x)
+| ... order by oid | 95 | 25.2 (3.8x) | 78.07 (3.1x)
+| ... and oid>'fffe0000-0000-0000-0000-000000000000' | 5 | 0.65 (7.7x) | 3.23 (5x)
+| where ext @> '{"eid":5000}' | 0.32 | 0.25 (1.3x) | 1.5 (6x)
+
+| select * from teav limit 500 | 0.494 | 0.419 (1.2x) | 1.5 (3.6x)
 | ... where exists (select from teav_ext_string es where es.owner_oid = t.oid and es.key = 'hobbies' and es.value = 'video')
-| 6.184 | 2.893
-| ... order by t.oid | 4.734 | 2.639
-| ... and t.oid>'fffe0000-0000-0000-0000-000000000000' | 11.34 | 6.045
+| 6.184 | 2.384 (2.6x) | 6.725 (2.8x)
+| ... order by t.oid | 4.734 | 2.225 (2.1x) | 7.919 (3.6x)
+| ... and t.oid>'fffe0000-0000-0000-0000-000000000000' | 11.34 | 4.815 (2.4x) | 267.21 (55.5x)
 | ... where exists (select from teav_ext_string es where es.owner_oid = t.oid and es.key = 'hobbies' and es.value = 'sleeping')
-| 24.28 | 3.369
-| ... order by t.oid | 206 | 65.1
+| 24.28 | 2.736 (8.9x) | 11.992 (4.4x)
+| ... order by t.oid | 206 | 42.8 (4.8x) | 267.21 (6.2x)
 | ... where exists (select from teav_ext_string es where es.owner_oid = t.oid and es.key = 'email' and es.value LIKE 'user2%')
-| 109 | 40.6
-| ... order by t.oid | 108 | 35.7
-| ... and t.oid>'fffe0000-0000-0000-0000-000000000000' | 78.1 | 21.9
+| 109 | 40.6 (2.7x) | 315.2 (7.8x)
+| ... order by t.oid | 108 | 35.7 (3x) | 106.5 (3x)
+| ... and t.oid>'fffe0000-0000-0000-0000-000000000000' | 78.1 | 21.9 (3.6x) | 43.26 (2x)
 | ... where exists (select from teav_ext_string es where es.owner_oid = t.oid and es.key = 'email' and UPPER(es.value) LIKE 'USER2%')
-| 117 | 39.3
-| ... order by t.oid | 116 | 39.0
-| ... and t.oid>'fffe0000-0000-0000-0000-000000000000' | 90.6 | 21.4
+| 117 | 39.3 (3x) | 114.4 (2.9x)
+| ... order by t.oid | 116 | 39 (3x) | 113.1 (2.9x)
+| ... and t.oid>'fffe0000-0000-0000-0000-000000000000' | 90.6 | 21.4 (4.2x) | 41.61 (1.9x)
 | where exists (select from teav_ext_string es where es.owner_oid = t.oid and es.key = 'eid' and es.value = '5000')
-| 0.500 | 0.468
+| 0.5 | 0.468 (1.1x) | 2.229 (4.8x)
+|===
+
+== JSONB vs EAV comparison of similar operations
+
+Operations are shown as JSON version selects, avg times are taken from 8GB/4CPU configuration.
+Significant victories are in bold.
+
+|===
+| Operation (on JSON version) | JSON avg (ms) | EAV avg (ms)
+
+| select count(*) from tjson | 440 | 337
+| ... where ext @> '{"hobbies":["video"]}' | *1388* | 3324
+| ... where ext @> '{"hobbies":["sleeping"]}' | 63.4 | 87
+| select count(*) from tjson where ext->>'email' LIKE 'user2%' | *758* | 2499
+| where UPPER(ext->>'email') LIKE 'USER2%' | *1196* | 2188
+| select * from tjson | 0.734 | 0.419
+| ... where ext @> '{"hobbies":["video"]}' | 1.873 | 2.384
+| ... order by oid | 2.425 | 2.225
+| ... and oid>'fffe0000-0000-0000-0000-000000000000' | *0.761* | 4.815
+| select * from tjson where ext @> '{"hobbies":["sleeping"]}' | 41.82 | *2.736*
+| ... order by oid | 58.79 | 42.8
+| where ext->>'email' LIKE 'user2%' | *1.93* | 40.6
+| ... order by oid | 23.19 | 35.7
+| ... and oid>'fffe0000-0000-0000-0000-000000000000' | *0.59* | 21.9
+| where UPPER(ext->>'email') LIKE 'USER2%' | *2.19* | 39.3
+| ... order by oid | 25.2 | 39
+| ... and oid>'fffe0000-0000-0000-0000-000000000000' | *0.65* | 21.4
+| where ext @> '{"eid":5000}' | 0.25 | 0.468
 |===
