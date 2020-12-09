@@ -1,4 +1,4 @@
-= Comparing JSONB and EAV model for extensions
+= Repository - comparing JSONB and EAV model for extensions
 
 [NOTE]
 Performance was measured on default PG installation on 2GB RAM VirtualBox with 1 vCPU.
@@ -107,22 +107,24 @@ END $$;
 
 Both JSON and EAV tables contain 15M rows, EAV extension detail table contains 45.8M rows.
 
+[cols="2,1,2"]
 |===
 | Object | Size | Note
 
-| teav_ext_string | 2763 MB | attribute value table (detail for EAV)
-| teav_ext_string_pk | 2312 MB | PK of AV table, nearly the same size
-| tjson | 1909 MB | JSON table (smaller than just AV table alone)
-| tjson_ext_idx | 1620 MB | GIN index for `ext` column
-| teav_ext_string_key_value_idx | 867 MB | index for searching by key+value
+| teav_ext_string | 2841 MB | attribute value table (detail for EAV)
+| teav_ext_string_pk | 2373 MB | PK of AV table, nearly the same size
+| tjson | 1927 MB | JSON table (smaller than just AV table alone)
+| tjson_ext_idx | 1616 MB | GIN index for `ext` column
+| teav_ext_string_key_value_idx | 880 MB | index for searching by key+value
 | teav | 862 MB | master table for EAV model
-| teav_oid_pk | 583 MB | primary key index of that table
-| tjson_oid_pk | 582 MB | PK of JSON table, virtually the same as for EAV
+| teav_oid_pk | 451 MB | primary key index of that table
+| tjson_oid_pk | 451 MB | PK of JSON table, virtually the same as for EAV
 | teav_name_key, tjson_name_key | 451 MB | name indexes are the same
 |===
 
 Counts JSON:
 
+[cols="3,1,3"]
 |===
 | Operation | Time avg (ms) | Note
 
@@ -139,6 +141,7 @@ even ignores the index on (UPPER(ext->>'email'))
 
 Counts EAV:
 
+[cols="3,1,3"]
 |===
 | Operation | Time avg (ms) | Note
 
@@ -162,6 +165,7 @@ All selects have `LIMIT 500` for practical reasons (unless stated differently),
 
 Selects - JSON:
 
+[cols="3,1,3"]
 |===
 | Operation | Time avg (ms) | Note
 
@@ -179,12 +183,14 @@ may use `tjson_ext_idx` (GIN index) or seq-scan, both is OK, takes longer to fin
 | where UPPER(ext->>'email') LIKE 'USER2%' | 2.40 | seq-scan; ignores the functional index on `(upper(ext->>'email'))`
 | ... order by oid | 95.0 | index scan `tjson_oid_pk` + filter
 | ... and oid>'fffe0000-0000-0000-0000-000000000000' | 5.00 | index scan `tjson_oid_pk` + filter
-| where cast(ext->'eid' as int) = 5000 | 8133 | seq-scan, inefficient version of the query bellow, don't use `=` where `@>` works better
+| where cast(ext->'eid' as int) = 5000 | 8133 (50 with index) | seq-scan, inefficient version of the query bellow, don't use `=` where `@>` works better;
+but with the index on `(((ext->'eid')::int))` this goes down and can be used also for range searches (`<`, `>`, etc.)
 | where ext @> '{"eid":5000}' | 0.32 | Bitmap Index Scan on `tjson_ext_idx` + bitmap heap scan on tjson + recheck cond
 |===
 
 Selects - EAV:
 
+[cols="3,1,3"]
 |===
 | Operation | Time avg (ms) | Note
 
@@ -248,6 +254,7 @@ It seems that selects are longer if `checkpoint_completion_target` is set to 0.9
 Last column are results with `-c 10` option added to `pgbench`, all previous tests were single-client.
 10 clients should overload the configuration.
 
+[cols="3,1,1,1"]
 |===
 | Operation | 2GB/1CPU (ms) | 8GB/4CPU (ms) (speedup) | with 10 clients (slowdown)
 
@@ -307,6 +314,7 @@ Last column are results with `-c 10` option added to `pgbench`, all previous tes
 Operations are shown as JSON version selects, avg times are taken from 8GB/4CPU configuration.
 Significant victories are in bold.
 
+[cols="3,1,1"]
 |===
 | Operation (on JSON version) | JSON avg (ms) | EAV avg (ms)
 
@@ -315,6 +323,8 @@ Significant victories are in bold.
 | ... where ext @> '{"hobbies":["sleeping"]}' | 63.4 | 87
 | select count(*) from tjson where ext->>'email' LIKE 'user2%' | *758* | 2499
 | where UPPER(ext->>'email') LIKE 'USER2%' | *1196* | 2188
+h| non-weighted counts total h| 3845 h| 10648
+
 | select * from tjson | 0.734 | 0.419
 | ... where ext @> '{"hobbies":["video"]}' | 1.873 | 2.384
 | ... order by oid | 2.425 | 2.225
@@ -328,4 +338,20 @@ Significant victories are in bold.
 | ... order by oid | 25.2 | 39
 | ... and oid>'fffe0000-0000-0000-0000-000000000000' | *0.65* | 21.4
 | where ext @> '{"eid":5000}' | 0.25 | 0.468
+
+h| non-weighted select total h| 160 ms h| 254 ms
 |===
+
+== Conclusion
+
+* JSON with index takes less space than EAV+ext table with their indexes (4GB vs 7GB, not counting unique indexes on names).
+* Performance wise they are trading blows, but JSON is ~2 times faster overall, depending on the mix of selects.
+** EAV's biggest win was finding any 500 rows with hobbies=sleeping (15x faster).
+** JSON was over 20x faster for 4 selects, all related to email LIKE searches.
+* There are ways how to improve searching with function based indexes, especially for specific
+attributes in JSON (see the slow select with `eid` above).
+* Extension table index on key+value was used only for rare multi-value values (sleeping) and for exact matches of single values (eid).
+(There may be other cases where it is used that were not tested here.)
+* Counts are always much slower than limited select.
+* Ordering slows things down
+* Avoid unlimited selects.
