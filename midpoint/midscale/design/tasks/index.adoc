@@ -6,7 +6,7 @@ A _task_ is a set of _actions_ that have to be executed on sets of _objects_.
 A combination of an action and its object set is called _task part_.footnote:[This is a preliminary term.
 In previous versions of midPoint we used the word _partition_ but it has a meaning colliding with the
 domain of databases.]
-footnote:[The action includes _options_ that determine how exactly is the action executed. An example of
+footnote:[The action includes _options_ that determine how exactly is the action executed. Examples of
 such options are _dry run_, _simulation_, or real _execution_.]
 
 image::task-composition-parts.png["Task composition (partitions)"]
@@ -199,11 +199,22 @@ worker tasks. Unfortunately, message ordering _is_ almost always important.]
 The processing is similar to the one in live synchronization, including the need for processing changes
 in the correct order.
 
-== State and progress reporting
+== State reporting
 
-=== Task state
+====
+*Requirements*
 
-Let's have a look in which states a task can be. We will describe states of conceptual tasks, not
+Task state should be reported in a clear and consistent way.
+
+*Current state*
+
+The task state is sometimes misleading. Especially for multi-node or multi-part tasks it shows
+the state of the global task as "waiting", although the task is normally operating.
+====
+
+=== Global task state
+
+Let's have a look in which states a task can be. We will describe states of global (conceptual) tasks, not
 the ones of technical tasks (task objects).
 
 [cols="1,4,4"]
@@ -263,9 +274,25 @@ level: the whole task, current part, or individual worker task.
 
 image::worker-task-state-diagram.png["Worker task state diagram"]
 
+=== Worker thread state
+
+Finally, worker threads are the simplest. They start running when their owner (a worker task)
+starts. They stop only in three cases:
+
+1. there is nothing more to do,
+2. owning task stops,
+3. or there is a fatal error.
+
+(The third case should not occur, as it quietly reduces the number of worker threads, slowing down
+the worker task progress.)
+
+There is no concept of worker thread suspension or resuming.
+
+image::worker-thread-state-diagram.png["Worker thread state diagram"]
+
 === Compound state
 
-Standard lifecycle looks like this:
+Standard task lifecycle looks like this:
 
 [cols="2,2,2,2,2,2,2"]
 [%header]
@@ -296,15 +323,17 @@ Standard lifecycle looks like this:
 
 |===
 
-Note that all parts are created when the global task execution starts. However, worker tasks
+All parts are created when the global task execution starts. In contrast, worker tasks
 are created only when the respective part starts. Completed parts and tasks remain in
 the closed state e.g. to be available for inspection.
 
+If the whole (global) task is suspended, the currently executing part and its workers are suspended as well.
+
 What about suspensions that occur at lower levels? There can be e.g. the following situations:
 
-* Some (but not all) of the workers in a task part are suspended. The task itself continues running,
-so there's no need to report the state as anything other than "running" (maybe with additional information
-that the running capacity is reduced).
+* Some (but not all) of the workers in a task part are suspended: either because of administrator's action
+or because of some unhandled fatal error. The task itself continues running, so there's no need to report
+the state as anything other than "running" (maybe with additional information that the running capacity is reduced).
 
 NOTE: There are some interesting questions: What if a node goes down? Worker tasks bound to that node
 will be stuck in suspended or runnable state (depending on the setup). Also, what if a worker task
@@ -330,11 +359,31 @@ These states are actually the same as the "running" state. They are only a kind 
 a condition that prevents the full speed of the execution. After the condition is over, the task/part
 state is shown as "running".
 
-TODO think about this
+*TODO think about this*
 
-=== Task part progress
+== Progress reporting
 
-The progress metrics available are:
+====
+*Requirements*
+
+It should be shown how much work has been done, and how much is yet to be done. Time per item,
+throughput, and estimated completion time should be visible.
+
+For tasks that run for hours or days it is crucial to see where we are on the road, and how long that road is.
+
+*Current state*
+
+There are several progress and performance indicators, e.g.
+
+* "progress" vs "objects processed" vs "percent complete",
+* "average time" vs. "wall-clock average time".
+
+These are sometimes imprecise, or even outright conflicting. Estimated completion information
+is missing. It is often not clear which counters are reset on task re-execution (e.g. for live
+sync or async update tasks) and which are not.
+====
+
+=== Task parts progress
 
 [cols="2,2,3,3"]
 [%header]
@@ -359,7 +408,9 @@ and the second and third metrics are the same.]
 2+| Total is not known.
 |===
 
-A reasonable way of displaying task part progress looks like this:
+=== Task progress
+
+A reasonable way of displaying task progress looks like this:
 
 [cols="2,2,2,2"]
 [%header]
@@ -389,3 +440,155 @@ A reasonable way of displaying task part progress looks like this:
 | 2500
 | 2500
 |===
+
+=== Estimated time to complete
+
+Given _t_ (processing time) and _pc_ (percent complete) we can calculate estimated time to complete
+_ttc_ as
+
+----
+             100%
+ttc = t x ( ------ - 1 )
+              pc
+----
+
+(assuming 100% >= _pc_ > 0, _t_ > 0)
+
+The problem is that if the task was suspended and resumed, the _t_ cannot be computed simply as
+"current time - start time". We have to know the real ("net") processing time.
+
+Another issue is that for multi-part tasks (like reconciliation) we can estimate the time-to-complete
+only for the current part. Normally, this shouldn't be a big problem, because the most prominent
+multi-part task is the reconciliation, and it has almost empty first part, significant second one,
+and almost empty third one.
+
+== Error reporting
+
+====
+*Requirements*
+
+Failures inevitably occur. They are not only caused by configuration issues, but often by external
+factors: wrong data, infrastructure outages, and so on. Failures and their effects have to be
+diagnosed and fixed quickly, and without inappropriate effort.
+
+*Current state*
+
+There are some mechanisms for error reporting: audit records, operation execution records,
+iterative task information, operation result. They sometimes complement each other,
+sometimes they overlap, often leading to inconsistent overall view.
+
+See:
+
+* MID-4832 (still relevant?),
+* MID-4991,
+* ...
+
+====
+
+The processing of objects goes through the following main phases. Let us deal with
+tasks that operate on resource objects, because their processing is the most complex.
+(For repository objects, phases of provisioning and synchronization service processing
+are skipped.)
+
+[cols="1,3"]
+[%header]
+|===
+| Phase | Description
+| Provisioning (preprocessing)
+| A ConnId object is converted into midPoint resource object,
+a shadow is found and updated (or not found and created).
+After this phase an object is presented to the processing task.
+
+| Synchronization service
+| A resource object is matched against synchronization rules.
+This includes looking up object owner. An appropriate action is selected.
+
+| Clockwork processing, part 1: Projector
+| Here midPoint computes changes
+that are to be applied to the focal object and to the projections.
+
+| Clockwork processing, part 2: Change execution
+| Computed changes are applied.
+
+| Embedded clockwork execution
+| During clockwork processing it is possible that a more or less related clockwork run
+is started. This occurs typically as a result of handling errors during change execution
+(like "object already exists"). But it can be also because of on-demand assignment target
+creation, policy rules execution, and so on.
+|===
+
+=== Current state
+
+Currently we have the following error reporting mechanisms:
+
+[cols="1,3,1"]
+[%header]
+|===
+| Mechanism | Description | Covers
+
+| Audit
+| Any operation in the clockwork is audited: both at the beginning ("request")
+and at the end ("execution"). The user can then display e.g. all executions in the last 24 hours
+that resulted in an error.
+| Clockwork only
+
+| Operation execution records
+| Any midPoint object keeps a list of N last operations executions, including related task OID
+and the result status. This allows midPoint to display all objects that failed to be processed
+by a task.footnote:[There are two kinds of errors shown here: errors occurring during a target
+resource object operation (e.g. when adding, modifying, or deleting an account), and general errors
+occurring during clockwork processing. Currently, we do not distinguish between these two kinds.
+Both are recorded in respective objects in the same way. TODO: describe this in more details.]
+| Clockwork only
+
+| Iterative task information
+| Iterative task handlers record the information on objects processed (including final status)
+into the task. These information are not detailed, though. Only the number of failed objects
+and the last object identification are recorded. As a hack, information about last 30 failed
+objects are written to the operation result upon task completion.
+| Task operation
+
+| Operation result
+| Contains detailed information about failed operations. Unfortunately, these information
+are summarized because of space constraints, so they are not usable for later diagnostics.
+| The whole operation
+|===
+
+The current state of error reporting mechanisms is like this:
+
+image::processing-errors-3.png["Processing errors"]
+
+As we can see, audit and operation execution do not cover errors occurring in provisioning
+or synchronization service. Moreover, they are written separately for each embedded clockwork
+operation.
+
+Iterative task information does not record each failed object. On the other hand, it covers
+the synchronization service processing, and also all embedded clockwork executions.
+
+The operation result covers all parts of the operation, but it is not suitable for comprehensive
+error reporting because of the summarization. Moreover, errors occurring during provisioning
+pre-processing are in a different parts of the operation result tree than the errors occurring
+in the synchronization service and clockwork components.
+
+=== The way forward
+
+The audit and operation execution recording are good mechanisms. But they need to be extended
+to cover also provisioning pre-processing and synchronization service phases of the process.
+
+We should start with the operation execution records. They should be written not only by the clockwork
+but also by the task handler involved. The details have to be thought out.
+
+As for the audit records, the errors in provisioning and synchronization service do not match
+well the existing "request-execution" style of auditing. So, most probably, the audit will not catch
+these errors in the near future.
+
+The iterative task information will need to be extended to cover provisioning pre-processing,
+but it will - most probably - maintain only statistical information (# of failures, last failed object).
+After operation execution is fixed, we will remove "last 30 failed objects" hack from this data structure.
+
+Finally, the operation result can stay as it is. It will have no role to play for routine error
+reporting. (But for diagnostics of unusual errors it will be probably the first choice.)
+
+== Other statistics
+
+TODO
