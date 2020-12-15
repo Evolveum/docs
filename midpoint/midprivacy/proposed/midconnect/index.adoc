@@ -155,55 +155,121 @@ The results of second part of the project (product) is planned to be part of mid
 
 === Inbound Data Transfer Components
 
-TODO: Picture of "inbound data transfer" components
+Inbound data transfer components (a.k.a. "enrollment components") are components that take care of processing user data when a new user lands in our system.
+The components will try to determine whether we can get user's data using some of the supported "identity protocols" such as SAML, OpenID Connect or OAuth2.
 
 image::enrollment-components.png[Enrollment components]
 
-Special front-end components, something like registration on steroids.
+The key part of the solution is the component which we now call "flexible authentication".
+This component implements the client side of the "identity protocols" (SAML is the only currently supported protocol).
+The original purpose of this component is to authenticate user for access to midPoint administration user interface.
+This component will need to be slightly re-structured and extended during this project, as we are interested in more than mere authentication.
+The component will need to determine user's data, e.g. from SAML attribute assertions send in the request.
 
-We think that registration will usually be interactive.
-The component may need to:
+It is expected that the new user entering the system will need to be routed through an interactive "enrollment" procedure.
+This may be though of as an elaborate and semi-automated user registration procedure.
+Due to the data protection rules, we need to process user's data on a specific _basis_. The _basis_ specifies what data items are required, which are optional and so on.
+The user has to be informed about the use of personal data, and there may be a need for user's consent to use optional data items (see below).
+The interaction might perhaps be skipped, in case that the sending party (identity provider) has already cleared the data requirements and choices with the user and there is a sufficient proof that it happened.
+However, even in that case, we may need to ask the user to fill in missing data items that the sending party have not provided.
+The exact details of this procedure are not yet entirely clear, as understanding of all applicable data protection regulations is not easy.
+Filling in the details may need to use legal services in the area of data protection to get relevant advice.
+However, we are almost certain that user interaction will need to take place at least in some cases.
 
-* Handle data release (data protection), e.g. ask for consent for some attributes.
-This may be already handled on the releasing side (Social network, IdP, maybe using UMA, ...).
-We may still need to ask for some attributes, or maybe make sure the user is properly informed about personal data use.
-
-* Correlate the identity.
-The user may already exist in our system.
-This may be semi-manual, e.g. asking the user to confirm (and prove) the match.
+The components may also need to correlate the identity with a database of existing identities in a system.
+This is necessary to avoid undesirable duplication of identities.
+It is also necessary for user convenience, e.g. we do not want to ask user for data that the user has already provided in previous interactions.
+However, identity correlation is not an easy task and there seem to be no single and simple solution.
+It is likely that user interaction will be required, e.g. user confirming the correlation match, even proving the identity.
+We plan to re-use identity correlation capabilities that midPoint already has.
+However, those capabilities were designed for enterprise environment, therefore the existing correlation functionality is non-interactive.
+Extension of those capabilities need to be considered.
 
 
 === Data Requirement And Release
 
-image::midconnect-data-release-inbound.png[Data release]
+It is essential the enrollment procedure - and in fact the entire personal data processing - follows the proper data protection procedures.
+We can only process those data items that are necessary to carry out the service, or data items that the user explicitly allowed to use.
+In other words, we must always process the data according to the _basis for data processing_.
 
-Basic ideas:
+_Basis for data processing_ is a fundamental concept of personal data protection.
+We have xref:/midpoint/midprivacy/phases/01-data-provenance-prototype/provenance-origin-basis/[encoutered this concept before] and identified it as one of the most important concepts for identity management.
+The _basis_ applies also in the "enrollment" case.
 
-* Enrollment/registration is never done in a vacuum.
+The fundamental insight is that enrollment/registration never happen in a vacuum.
 There is always some _basis_ for registration,
 e.g. user becoming community member, registration for interest group, etc.
 
-* The "basis" knows what attributes we need.
-This also tells us when to delete the attributes.
+The _basis_ specifies _data requirement_.
+The _data requirement_ is a light of data items that are necessary or desirable for the purpose that the _basis_ represents.
+As long as the _basis_ applies, we can store the specified data items and use them for the specific purpose.
+When the _basis_ no longer applies, we have to erase the data, unless there is another basis that applies to the data.
+The _basis_ effectively controls the lifecycle of data items.
 
-* We can cache the original data in the shadow.
-This may be an advantage when working with several data sources.
-The shadow may act as a "lightweight persona".
-However, this should be further explored.
+In midPoint, the _basis_ can be represented by an _abstract role_, which is usually a Role, Org or a Service.
+This seems to be a very good fit, which is also partially confirmed by the experiments in "phase 0" of xref:/midpoint/midprivacy/[midPrivacy initiative].
+The results of xref:/midpoint/midprivacy/phases/01-data-provenance-prototype/["provenance" phase of midPrivacy] also support this choice,
+as was described in xref:/midpoint/midprivacy/phases/01-data-provenance-prototype/provenance-origin-basis/[Provenance, Origin and Basis document].
 
-* The shadow works as "data link" back to the original SocNet account.
-We can update the information in the shadow if there is any way how to do in the protocol (e.g. OAuth/OIDC refresh token).
+While the _basis_ specifies _data requirement_, there are likely to be optional data items that the user may choose to release or choose to keep private.
+Therefore, the _basis_ itself is not enough just by itself, we need a place where to record the _choices_ of individual users.
+We need a place where we can record user's _data release_ information.
+The _data release_ needs to be bound to a particular basis, it may be time-bound, and there will certainly be metadata (e.g. date and time of the release).
+MidPoint _assignment_ data structure seems to be a suitable place to store _data release_ information.
+_Assignment_ is naturally bound to _abstract role_ that represents the _basis_.
+There are also metadata and time constraints.
+Although the choice to use _assignment_ to record _data release_ information has to be validated, it looks like a good choice at this stage of the project.
 
-Considerations:
-
-* Thought about some special data structure that would bind the "data release" to the shadow.
+.Consideration
+TIP: We have thought about some special data structure that would bind the "data release" to the shadow.
 However, this data structure looks almost exactly like assignment.
 It looks easier to use assignment, bound to the user.
 The account is linked to the user.
 However, we would probably need to refer to the shadow in the "basis/release" assignment, to make the data source explicit.
 
+The situation is schematically illustrated in the following diagram:
+
+image::midconnect-data-release-inbound.png[Data release]
+
+Traditionally, identity management systems worked with directory servers and databases in a single organization.
+The IDM systems usually assumed that the data are always available, that the data can be fetched directly from the source.
+This a fair assumption to make, it also adds a benefit of having a fresh data, which allows early detection and propagation of data changes.
+However, the situation is quite different when it comes to the cross-organizational case.
+
+When the original source of the data is in different organization then the destination of the data, we cannot assume that we have instant access to the data source.
+This is amplified by the nature of current "identity protocols" such as SAML, where the data are in fact available only at the moment of user authentication.
+This means that midPoint will need to store or cache the data, to have them available as needed.
+MidPoint has a concept of _shadow_ objects that represent the data in a remote system.
+The _shadow_ usually contains just the most essential identifiers of the remote objects.
+However, there is an experimental functionality to cache all the data in midPoint, which can be re-used in this project.
+
+In the usual intra-organizational case, midPoint stores the compiled authoritative data in the _user_ object.
+In that case there is very little motivation to cache data in the shadow.
+However, in intra-organizational case there is usually a very small number of data sources such as HR system or company directory.
+These source are known _a priori_, and the data flow are governed by organizational-wide policies that are mostly static.
+Therefore the authoritative, compiled state of the _user_ object can be easily computed as needed.
+However, the cross-organizational case is vastly different.
+There are diverse data sources, such as identity providers in a federation.
+While the federations, social networks, community sites and similar data sources cannot appear in an entirely arbitrary way, the situation is considerably much more dynamic than it is in a typical intra-enterprise case.
+However, the most significant difference is that the data flow is not controlled solely by the policies.
+Choices of the users are the ultimate determinant in allowing or prohibiting a data flow.
+Additionally, the same identity is likely to be present in several data sources (several social network or federations), or even in several instances of the same data source (several identity providers in the same federation).
+Individual data sources may have inconsistent or even conflicting data, therefore simple policy-based mapping of the data to the _user_ object will not work.
+Caching the original data in their original "raw" form may help resolve the conflicts, especially in case that user interaction will be required.
+In fact, the _shadow_ may work like a "lightweight persona", enabling various approaches to merging identity data.
+The exact mechanisms is still unknown, but we are reasonably certain that any viable mechanism will need the "raw" data from the shadow.
+
+In addition to the data caching capability, the _shadow_ creates a _data link_ to the original source of the data.
+Therefore the data could, theoretically, be refreshed when needed.
+However, there are usually protocol limitations.
+E.g. SAML protocol makes the data available only during (interactive) authentification flow.
+Yet, there may be some chances, such as using OpenID Connect refresh token, or combining the primary protocols with a more CRUD-like secondary protocols (such as SCIM).
+This is an avenue that is worth exploring in the project, although it is perhaps too early to commit to any tangible results.
+
 
 == Challenges, Questions and Ideas
+
+TODO
 
 * How to implement the "enrollment components"?
 In midPoint admin GUI? How it aligns with flexible auth?
