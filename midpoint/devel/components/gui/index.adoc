@@ -1,0 +1,159 @@
+= GUI Development Guide
+
+MidPoint GUI is based on link:https://wicket.apache.org[Apache Wicket] web framework. The styles (CSS) and page templates are based on link:https://getbootstrap.com[Bootstrap] framework and link:https://adminlte.io[AdminLTE] template.
+The good starting point is to look around Wicket documentation and tutorials. There are plenty of them. Just follow the links from the Wicket home page.
+
+== MidPoint GUI Extensibility
+
+MidPoint GUI was originally built in quite a monolithic fashion. However, recently we have been refactoring and cleaning up the GUI code and also introducing mechanisms for GUI extensibility. Currently there are several ways how to extend the GUI:
+Customize GUI styles, e.g. color scheme, fonts and so on. (CSS/LESS, see Look & Feel Customization HOWTO)
+
+* Create custom launchers for "home" page in midPoint GUI (declarative, see Admin GUI Configuration Type)
+* Create custom menu links (declarative, see Admin GUI Configuration Type)
+* Create custom tabs in the object details forms. These are created as Wicket panels (Java development)
+
+In the future we plan the following mechanisms:
+
+* Create custom GUI pages (Java development)
+* Use custom GUI forms in existing pages (declarative)
+
+== MidPoint GUI API
+
+MidPoint GUI is currently contained in a single component admin-gui. Some parts of the classes in this component are meant to be used as an API by third-party developers and for the purposes of GUI customization. These classes will be maintained in backward-compatible way. Other classes are considered private implementation and we make no guarantees about their stability. The drawback is that now there is no clear way how to distinguish API classes and implementation classes in the GUI. Other components have a very clear distinction, but as the GUI code was not originally designed for this kind of reuse there is no such distinction in the GUI component. However, we are working on this. There is a new package that contains GUI API classes:
+
+----
+com.evolveum.midpoint.gui.api
+----
+
+If you use classes and interfaces in this package you should be safe. These classes will only change in backward-compatible manner. If there is something that we would like to remove it will be marked as deprecated several midPoint releases before it is actually removed. The things in this package are considered to be stable. Use them.
+
+The things in `com.evolveum.midpoint.gui.impl` are considered to be private implementation. Do not use these. Any class or interface found in this package is considered private and it is subject to change any time without any warning. If you depend on the classes in this package you do it at your own risk. It is likely that midPoint upgrades will fail in a spectacular way and your customizations will not survive. You have been warned. If there is any class or interface in this package that you think may be useful as reusable component please contact the midPoint team. We will consider moving it to the API.
+
+The classes in `com.evolveum.midpoint.web` are unsorted. Some of these are API, some of these are implementation. There is no reliable way to tell them apart and this is currently a gray zone. These classes will eventually move either to API or impl (or disappear entirely). Therefore if you depend on them it is sure that you will have to change your code eventually. If you are lucky, you will only have to update package name. If you are not lucky you will have to rewrite the code. Anyway, if you think about using some components in this package it might be a good idea to contact us and discuss it. We might move the class to the API immediately and save you a lot of time in the future.
+
+== Base Page and Utility Classes
+
+All midPoint pages share the same things: header, footer, navigation bar, title, stylesheets, ability to display menu, etc. All of these traits are implemented in a common superclass:
+
+----
+com.evolveum.midpoint.gui.api.page.PageBase
+----
+
+All self-respecting midPoint pages should extend this class. This class also contains a lot of utility methods that are available to all subclasses.
+
+There are several general-purpose utility classes and interfaces in package:
+
+----
+com.evolveum.midpoint.gui.api.util
+----
+
+Two most prominent classes are:
+
+* WebComponentUtil: contains utility methods that are often used in Wicket components (panels, forms, ...)
+* WebModelServiceUtil: contains utility methods that interact with midPoint IDM Model Interface (ModelService, ModelInteractionService) and other midPoint components.
+* WebPrismUtil: contains utility methods mostly related to ease the work with prism wrappers
+
+== MidPoint GUI Components
+
+Apache Wicket is a component-based framework so naturally midPoint GUI has a lots and lots of components. Some of these components are a special-purpose things meant to do just one job. But most components are meant to be used on many places in the user interface. These reusable components should be part of the GUI API. But currently most of them are still in the gray zone. But we are continually sorting that out. To make the reuse easier, we are keeping a list of components that are already ready for reuse:
+
+link:reusable-gui-components[List of Reusable GUI Components]
+
+The GUI is already several years old and it has been through several redesigns and refactoring. That are some things that we are not entirely proud of but which cannot be completely removed right now. These are marked as deprecated in Java. But there are also associated CSS classes and JS scriptlets and other artifacts. Therefore the following list contains things that should not be used any more:
+
+link:deprecated-gui-components[List of Deprecated GUI Components]
+
+*How To Make a Reusable Component*
+
+. Read this guide. Then read it again.
+. Make sure you are correctly handling the model, extend BasePanel (if appropriate), etc.
+. Make sure that the component is using only the classes from `com.evolveum.midpoint.gui.api` package. It must not use classes from `com.evolveum.midpoint.gui.impl` package. If it uses classes from the old com.evolveum.midpoint.web package consider cleaning them up and moving them to com.evolveum.midpoint.gui.api package.
+. Make sure the component is using styles (CSS classes) that are either pure Bootstrap/AdminLTE or those that are in `midpoint-theme.less` (and they have appropriate comment).
+. Describe the purpose of the component in component class javadoc. Two or three sentences is enough. Describe the purpose, not the implementation. I.e. describe what the component is supposed to do.  You may also describe where do you think the component might be useful (why do you think it will be reused).
+. Place the component in `com.evolveum.midpoint.gui.api.component` package. Each component java class and associated HTML file should be placed in its own sub-package. E.g. `com.evolveum.midpoint.gui.api.component.foo.FooPanel.`
+. List the component in link:reusable-gui-components[List of Reusable GUI Components]
+
+=== Component Structure
+
+Most components in midPoint GUI are panels (subcasses of org.apache.wicket.markup.html.panel.Panel class). The basic characteristics are:
+
+* The components usually extends `com.evolveum.midpoint.gui.api.component.BasePanel` class.
+* Component constructor takes id and model as parameters. These are passed to superclass constructor.
+* The component overrides wicket's onInitialize() method that creates the structure of the components (adds sub-components). At the time when onInitialize() is called, the parent component are set, so getPageBase() will return expected value. On the contrary initializing component in constructor may result to null when calling getPageBase(), because the component is not part of the component tree yet.
+* *WARNING*: Do not invoke model.getObject() in constructor or initLayout() method. This may cause premature loading of the model (see below).
+
+=== Wicket Models
+
+Model  (IModel implementation) is one of the fundamental concepts of the Wicket framework. Models hold the information processes by the components. Understanding the models can be a bit tricky, therefore please pay attention to this concept when reading Wicket documentation. The use of models in midPoint GUI is usually quite explicit (they are explicitly passed as parameters of component constructors). This makes it a bit easier to understand which model is used at which place.
+
+MidPoint GUI often works with objects that are expensive to load. Loading a user object from repository might be relatively cheap, but even that we do not want to do unless really necessary. Loading user photo is more expensive. And loading resource objects such as accounts and entitlement associations is very expensive. We want to avoid that if possible. Therefore there is a `com.evolveum.midpoint.gui.api.model.LoadableModel` class. This class in an implementation of Wicket IModel interface that implements lazy loading. Use this class as model when dealing with objects that are expensive to load. Which is basically any midPoint object (PrismObject) that needs to be retrieved from repository or from the resource. Just implement the load() method. That's it.
+
+The important thing to keep in mind is that Wicket is processing component in several phases (lifecycle stages). Especially interesting is the phase when component constructor is called, because that's the point where the component layout (sub-components) is constructed. The model object should already exist in this phase. In midPoint GUI the model object is usually passed as an component constructor parameter and stored in the field of BasePanel class (see above). Then the initLayout() method is called. The model is already present there. But the model may be empty (not yet loaded). Loading the model is often expensive operation. We do not want to load the model unless it is necessary. E.g. we would like to load a model only if an expandable component is expanded, so can usually avoid loading the model entirely for the component that are not visible. If you need to do something with the model value in the subcomponent, do it indirectly through sub-component model and trigger loading only when subcomponent model is used.
+
+=== Object Wrappers
+
+TODO
+
+== Styles and Stylesheets
+
+MidPoint CSS style system is based on link:https://getbootstrap.com[Bootstrap] framework and link:https://adminlte.io[AdminLTE] template. The styles are processed by using LESS CSS pre-processor, specifically midPoint uses link:https://wro4j.readthedocs.io/en/latest/[wro4j].
+
+The configuration is held in the class `Wro4jConfiguration`. There is a configuration for LESS pre-processing and post-processing. For post-processing midPoint uses Less4jProcessor. This one is responsible for compiling LESS to CSS. Since  midPoint uses AdminLTE template and there should be a possibility to override AdminLTE variables, such as colors, midPoint cannot just use AdminLTE CSS styles. There is a need to have LESS files available and compile them at the right moment.
+
+MidPoint uses webjar dependency for AdminLTE and it is important that this distribution contains also uncompiled LESS files. Those are imported and compiled together with `midpoint-theme.less`. Once the css is processed, it is served on `wro/{group-name}.css`. The group-name is configured in `wro.xml`. Compiled CSS is then added to the PageBase.html, e.g.:
+
+----
+<link type="text/css" rel="stylesheet" href="wro/midpoint-theme.css"/>
+----
+
+The midpoint uses standard Bootstrap and AdminLTE CSS classes whenever possible. If a component needs a custom class, the LESS code for that class should be places in the file:
+
+----
+src/main/webapp/less/midpoint-theme.less
+----
+Each definition that is put into this file should be commented. The comment should at least mention which component uses that definition. While Java has a nice search and refactoring features, LESS has none of that. Therefore maintenance of stylesheets is a major challenge. The comments make it much easier.
+
+There are also old files `evolveum.less and midpoint.less`. These files are *deprecated*. Nothing should be added or modified in these files. Nothing. If you need to update any definition in these files move it to `midpoint-theme.less` first and comment it, so we know that the definition is still used and where it is used. The `evolveum.less` and `midpoint.less` files are going to disappear sooner or later.
+
+If customization for AdminLTE is needed, and the customization can be done by overriding AdminLTE variables, it can be done in `midpoint-theme-variables.less`. All AdminLTE (2.4.18) variables are copied there, so everything needed is to change the value of the variable, re-deploy midPoint and the customization takes effect.
+
+=== Upgrading AdminLTE
+
+There are several steps to take for upgrading AdminLTE.
+
+* Upgrade maven dependency for AdminLTE webjar. The webjar has to contain also build folder with uncompiled LESS definitions. Without them, midPoint styles won't compile.
+
+[source,xml]
+----
+<dependency>
+    <groupId>com.evolveum.webjars</groupId>
+    <artifactId>AdminLTE</artifactId>
+    <version>2.4.18</version> <!-- change version -->
+</dependency>
+----
+
+* Upgrade `@import` statements in `midpoint-theme.less`.
+
+----
+@import "classpath:/META-INF/resources/webjars/AdminLTE/2.4.18/build/less/AdminLTE.less";
+@import "classpath:/META-INF/resources/webjars/AdminLTE/2.4.18/build/less/skins/_all-skins.less";
+----
+
+* Check and compare AdminLTE variables.less and `midpoint-theme-variable.less` if there are all variables, or if any of the variable wan't changed in newer version. In midpoint-theme-variable.less AdminLTE variables are in block starting with comment `//AdminLTE VARIABLES` and ending with comment `//AdminLTE VARIABLES END`.
+
+== Error Handling
+
+TODO
+
+== Look&Feel and UX Recommendations
+
+=== Use of Dates and Times
+
+The goal is to use the same date formats in all parts of the GUI. There are several variants of the date formats, shorter and longer. The guidelines for their use are:
+TODO: Kate
+
+== Misc Recommendation
+
+* Properly use generics. Using IModel is bad. Using IModel<String> is good. This makes the code more readable, especially in places like List<IModel<ObjectWrapper<OrgType>>> (as opposed to just List<IModel> which does not really tells anything). Generics might sometimes be painful and sometimes you have to fight them to get what you want. But the benefits are huge. Learn to use generics properly.
+* TODO: serialization and serial version ID
+

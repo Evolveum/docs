@@ -24,34 +24,104 @@ However, this plan may change any time.
 ** Review/improve/stabilize Prism API
 ** GUI API for GUI customization
 
+=== Considered Goals
+
+* Separate end-user GUI
+** Tailored for self-service and simplified delegated management
+** Good UX, understandable to all users
+** User profile management
+** Credential management
+** Management of relations to other users/groups
+** Data protection: consent management, processing basis, SAR
+** Self-service registration
+** Interface to the federation: registration, etc.
+** Scalable for massive number of users
+
+* Archetype schema
+** Each archetype may bring its own schema extension
+
 == Design and Plans
 
 === Major Achievements
 
+Progress towards midPoint 5.0 that we have achieved so far.
+
 * link:/midpoint/axiom/[Axiom]
 * "Jasperless" reporting
 * link:/midpoint/studio/[MidPoint Studio]
+* https://github.com/Evolveum/midscribe[midScribe] prototype code
 
 === Prism and Schema Improvements
 
 * Move to link:/midpoint/axiom/[Axiom]
+
 * Remove `<extension>` where it is not necessary
+
 * Primitive type for definition/schema
 ** Use in: resource schema, role schema, archetype schema
+
 * Get rid of the JAXB-induced dichotomies
 ** PolyString vs PolyStringType
-* Dynamic schema, e.g. archetype schema
-* Support for "heterolists"
+** "plug in" created classes (`PolyString`) to the code generator. The generator will not create these classes, it will use them.
+
+* Avoid legacy (mutable) values, such as XMLGregorianCalendar and Duration.
+Use Java8 types instead (e.g. ZonedDateTime).
+
+* Dynamic schema
+** archetype schema, role parameters, resource connector configuration, shadow attributes
+** Problem with two parts:
+** Augmenting schema - Axiom/Prism side. How to use objects with extended schema.
+*** We need an easy and elegant way how to apply schema definitions after parsing.
+Alternatively, plug in schema "providers" to the parsing process.
+** Schema lifecycle - How to deal with schema definition changes (e.g. adding mandatory item)
+
+* Support for "heterolists": collections of items of different types
+** Special item name for each type. Not supporting the `<item xsi:type="...">` method.
+** Can contain containers, will use container IDs for pats (e.g. .../list/focus[123]/name)
+
+* Ordered items ("list")
+** Add delta for ordered items will always append.
+Not supporting inserting values inside the list or re-arranging the list.
+Replace delta must be used for better control over ordering.
+** We are not supporting _sorted_ values, e.g. list of string that is always in alphabetical order.
+The client is responsible to maintain sorting.
+
 * Support for native "map" type, e.g. {en => foo, sk => fú, ... }
-* Support for "list" or ordered values.
+
 * 100% namespace-free operation
+
 * QName and URI are the same thing.
+
 * Move to explicit versioning (no version numbers in namespaces)
-* Problem: complex properties, e.g. do we want PolyString as container? Every structured data as container?
-* New code generator
+
+* Prism definition from the top to the bottom
+** There will be prism definition for every item, including subitems in properties.
+** Property definition -> Type definition. Type definition may be primitive or structured.
+Which means, that property definition may (formally) consist of other property definitions (e.g. `orig`).
+Even though these are formally property definitions, they cannot be used as properties (e.g. cannot be addressed by delta).
+They may be used as a source of mapping (`$user/name/orig`), but they cannot be used as a target of a mapping.
+** There will be _primitive_ properties (e.g. String) and structured properties (e.g. PolyString).
+** _Containers_ and _properties_ are change boundary.
+Delta can be applied to container/property, but not to subitems in a property.
+** Axiom processors can be made to work directly with Prism definition.
+E.g. prism parser can product Prism definitions.
+
+* New code generator (Axiom-based)
+
 * Schema cleanup
 ** `resource/synchronization` -> `resource/schemaHandling/objectType`
 
+See also link:/midpoint/prism/notes/prism5-design/[Prism 5 Design Notes].
+
+=== MidPoint Studio
+
+Studio is a primary midPoint IDE now.
+
+* Studio needs to use Prism definitions instead of XSD for code completion.
+This should work in all data formats (XML, JSON, YAML).
+This will make switch to Axiom quite seamless.
+
+* We need support for Axiom editing: syntax highlight and code completion.
 
 == Decisions Made
 
@@ -62,18 +132,30 @@ However, this plan may change any time.
 * ConnId2
 * Performance improvements: midScale
 * Data protection: midPrivacy
+* midScribe documentation generator
+* Data representation formats: XML -> JSON/YAML
+** We still want to support XML, but more emphasis on JSON/YAML (defaults, documentation, etc.)
+* MidPoint Studio (IntelliJ-based)
+
+* Complex configuration in Studio
+** Move complex configurations/visualizations/wizards from web GUI to IDE
+** IDE as primary configuration tool
+** Keep identity administration in the web GUI
+** End users will use dedicated end-user GUI in the future
+** Expected som functionality overlap between end-user GUI / web / IDE
+** Three user groups: end users, identity administrators, configurators (deployment engineers)
 
 == Open Questions
 
 * Complex properties, e.g. do we want PolyString as container? Every structured data as container?
-* Matching rules: are we using them correctly? E.g. matching rules for polystring. Maybe they should be _string_ matching rules.
+* Matching rules: are we using them correctly? E.g. matching rules for polystring.
+Maybe they should be _string_ matching rules.
+Or at least matching rules for _primitive_ values.
 
 * Audit: how to store/process the data? MidPoint repo? Elastic?
 
 * What to do with resource wizard? Keep in GUI? Rework? Move to IDE?
 * Visualization? What to visualize? Where? GUI? Studio?
-
-* What to do with Hibernate repository? Decommission? Keep?
 
 * Improvement to:
 ** Diagnostics, troubleshooting, visibility
@@ -82,6 +164,22 @@ However, this plan may change any time.
 * UX?
 
 * External end-user GUI?
+
+* Explore the "next generation" tech, e.g. OpenTracing, new Spring extensions, etc.
+
+
+
+* Multivalue container IDs (keys), specificaiton in Axiom, etc.
+
+=== Survey
+
+Conduct a survey (early 2021) to help answer these questions:
+
+* What to do with Hibernate repository? Decommission? Keep?
+
+* Production-quality support for Windows platform?
+
+* Use Studio for complex configuration, git-based configuration management, less emphasis on Web configuration
 
 == Until We Get To 5.0
 
