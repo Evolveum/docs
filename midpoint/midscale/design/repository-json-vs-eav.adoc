@@ -1,0 +1,401 @@
+= Repository - comparing JSONB and EAV model for extensions
+:page-toc: top
+
+[NOTE]
+Performance was first measured on default PG installation on 2GB RAM VirtualBox with 1 vCPU.
+The results can be better (or worse depending on the host) even by an order-of-magnitude where memory/CPU (mostly counts).
+Comparison with the same box resized to 8GB/4CPU is provided.
+All tests were run on the host with Ryzen 5 1600AF and 32GB RAM.
+
+Structure for JSON is simple, single table `tjson` with `(oid UUID PK, name VARCHAR, ext JSONB)`.
+Column `name` has a unique index and `ext` has a `GIN` index only by default.
+Other indexes are added as needed and mentioned during tests.
+
+[source,sql]
+----
+create table tjson (
+    oid UUID NOT NULL DEFAULT gen_random_uuid(),
+    name VARCHAR(255) NOT NULL,
+    ext JSONB,
+
+    CONSTRAINT tjson_oid_pk PRIMARY KEY (oid)
+);
+
+ALTER TABLE tjson ADD CONSTRAINT tjson_name_key UNIQUE (name);
+CREATE INDEX tjson_ext_idx ON tjson USING gin (ext);
+----
+
+Structure for EAV model has a master table `teav` with `(oid UUID PK, name VARCHAR)`
+with unique index on the `name`.
+Detail table `teav_ext_string` contains `(owner_oid FK, key VARCHAR, value VARCHAR)`.
+Extension table has `PK(owner_oid, key, value)`, that is all columns, value could be omitted if uniqueness is not necessary.
+Because the PK covers all columns, it should be index-organized table in Oracle (PG doesn't have this feature).
+In PG it can be https://www.postgresql.org/docs/13/sql-cluster.html[clustered] by an index,
+but this is potentially costly (12min for 15M rows) during which the table is unusable
+because of the used `ACCESS EXCLUSIVE` lock.
+
+[source,sql]
+----
+create table teav (
+    oid UUID NOT NULL DEFAULT gen_random_uuid(),
+    name VARCHAR(255) NOT NULL,
+
+    CONSTRAINT teav_oid_pk PRIMARY KEY (oid)
+);
+
+ALTER TABLE teav ADD CONSTRAINT teav_name_key UNIQUE (name);
+
+create table teav_ext_string (
+    owner_oid UUID NOT NULL references teav(oid),
+    key VARCHAR(32) NOT NULL,
+    value VARCHAR(255) NOT NULL,
+
+    -- this also covers the index on owner_oid FK
+    CONSTRAINT teav_ext_string_pk PRIMARY KEY (owner_oid, key, value)
+);
+
+CREATE INDEX teav_ext_string_key_value_idx ON teav_ext_string (key, value);
+----
+
+Utility `pgbench` can be used for measurements like so:
+
+----
+pgbench -r -P 5 -f - -t 30 << "--EOF"
+select * from teav limit 500;
+... more selects
+--EOF
+----
+
+If `pgbench` is prefixed with `--` it can be part of SQL file as a comment, hence `--EOF` as a delimiter.
+Delimiter is quoted to avoid any accidental shell expansions within the block.
+
+Results can be taken from the final report of average latency per statement (enabled by `-r` option).
+Results may vary widely between runs, especially for shorter queries.
+Also, running the whole script and running smaller bulks provides different results as well,
+typically better for smaller amount of statement (this may be caused by rather limited VM performance).
+Measurements for shorter queries were repeated with longer queries commented out and option `-t 30`
+to get more repetitions per statement (30 in this case) which typically leads to lower, but also more representative, averages.
+
+== Insert
+
+Insert loop is created in such a way that both version have exactly the same data, even where randomized.
+
+[source,sql]
+----
+-- start with smaller batches 1..1000, 1001..100000, etc.
+DO
+$$
+DECLARE
+    hobbies VARCHAR[];
+    v VARCHAR;
+    id UUID;
+BEGIN
+    FOR r IN 11000001..15000000 LOOP
+
+        IF r % 10 <= 1 THEN
+            -- some entries have no extension
+            INSERT INTO tjson (name) VALUES ('user-' || LPAD(r::text, 10, '0'));
+            INSERT INTO teav (name) VALUES ('user-' || LPAD(r::text, 10, '0'));
+        ELSEIF r % 10 <= 3 THEN
+            -- email+eid (constant keys) + other-key-{r} (variable key)
+            INSERT INTO tjson (name, ext) VALUES (
+                'user-' || LPAD(r::text, 10, '0'),
+                ('{"eid": ' || r || ', "email": "user' || r || '@mycompany.com", "other-key-' || r || '": "other-value-' || r || '"}')::jsonb
+            );
+            INSERT INTO teav (name) VALUES ('user-' || LPAD(r::text, 10, '0')) RETURNING oid INTO id;
+            INSERT INTO teav_ext_string (owner_oid, key, value) VALUES (id, 'email', 'user' || r || '@mycompany.com');
+            INSERT INTO teav_ext_string (owner_oid, key, value) VALUES (id, 'eid', r);
+            INSERT INTO teav_ext_string (owner_oid, key, value) VALUES (id, 'other-key-' || r, 'other-value-' || r);
+        ELSEIF r % 10 <= 4 THEN
+            -- rarely used values of hobbies key
+            hobbies := random_pick(ARRAY['recording', 'guitar', 'beer', 'rum', 'writing', 'coding', 'debugging', 'gaming', 'shopping', 'watching videos', 'sleeping', 'dreaming'], 0.1);
+            -- JSONB
+            INSERT INTO tjson (name, ext) VALUES (
+                'user-' || LPAD(r::text, 10, '0'),
+                ('{"eid": ' || r || ', "hobbies": '|| array_to_json(hobbies)::text || '}')::jsonb
+            );
+
+            -- EAV
+            INSERT INTO teav (name) VALUES ('user-' || LPAD(r::text, 10, '0')) RETURNING oid INTO id;
+            INSERT INTO teav_ext_string (owner_oid, key, value) VALUES (id, 'eid', r);
+            FOREACH v IN ARRAY hobbies LOOP
+                    INSERT INTO teav_ext_string (owner_oid, key, value)
+                    VALUES (id, 'hobbies', v);
+                END LOOP;
+        ELSE
+            -- these values are used by many entries
+            hobbies := random_pick(ARRAY['eating', 'books', 'music', 'dancing', 'walking', 'jokes', 'video', 'photo'], 0.4);
+            -- JSONB
+            INSERT INTO tjson (name, ext) VALUES (
+                'user-' || LPAD(r::text, 10, '0'),
+                ('{"eid": ' || r || ', "hobbies": '|| array_to_json(hobbies)::text || '}')::jsonb
+            );
+
+            -- EAV
+            INSERT INTO teav (name) VALUES ('user-' || LPAD(r::text, 10, '0')) RETURNING oid INTO id;
+            INSERT INTO teav_ext_string (owner_oid, key, value) VALUES (id, 'eid', r);
+            FOREACH v IN ARRAY hobbies LOOP
+                INSERT INTO teav_ext_string (owner_oid, key, value)
+                VALUES (id, 'hobbies', v);
+            END LOOP;
+        END IF;
+
+        IF r % 1000 = 0 THEN
+            COMMIT;
+        END IF;
+    END LOOP;
+END $$;
+----
+
+== Results for 15 million rows
+
+Both JSON and EAV tables contain 15M rows, EAV extension detail table contains 45.8M rows.
+
+[cols="2,1,2"]
+|===
+| Object | Size | Note
+
+| teav_ext_string | 2841 MB | attribute value table (detail for EAV)
+| teav_ext_string_pk | 2373 MB | PK of AV table, nearly the same size
+| tjson | 1927 MB | JSON table (smaller than just AV table alone)
+| tjson_ext_idx | 1616 MB | GIN index for `ext` column
+| teav_ext_string_key_value_idx | 880 MB | index for searching by key+value
+| teav | 862 MB | master table for EAV model
+| teav_oid_pk | 451 MB | primary key index of that table
+| tjson_oid_pk | 451 MB | PK of JSON table, virtually the same as for EAV
+| teav_name_key, tjson_name_key | 451 MB | name indexes are the same
+|===
+
+Counts JSON:
+
+[cols="3,1,3"]
+|===
+| Operation | Time avg (ms) | Note
+
+| select count(*) from tjson | 6512 | seq-scan by default;
+doesn't use PK index but if forced to, the time goes to ~2s;
+some additional index on `(ext->>'...')` can be uses and time may drop to ~1.3s
+| ... where ext @> '{"hobbies":["video"]}' | 8200 | seq-scan, low selectivity, matches 3.4M of 15M rows
+| ... where ext @> '{"hobbies":["sleeping"]}' | 181 | high selectivity, matches ~50k rows, uses GIn index, Gather / Partial Aggregate / Parallel Bitmap Heap Scan on tjson / Bitmap Index Scan on tjson_ext_idx
+| select count(*) from tjson where ext->>'email' LIKE 'user2%' | 7174 | matches ~222k rows, seq-scan;
+index `ON tjson ((ext->>'email'))` doesn't seem to help (not used, even after `ANALYZE`)
+| where UPPER(ext->>'email') LIKE 'USER2%' | 7855 | like above with little overhead because of the function;
+even ignores the index on (UPPER(ext->>'email'))
+|===
+
+Counts EAV:
+
+[cols="3,1,3"]
+|===
+| Operation | Time avg (ms) | Note
+
+| select count(*) from teav_ext_string | 6382 | informational, otherwise useless, for 15M `teav` rows returns ~47M rows
+| select count(*) from teav | 2284 | seq-scan
+| ... where exists (select from teav_ext_string es where es.owner_oid = t.oid and es.key = 'hobbies' and es.value = 'video')
+| 17,465 | seq-scan, low selectivity
+| ... where exists (select from teav_ext_string es where es.owner_oid = t.oid and es.key = 'hobbies' and es.value = 'sleeping')
+| 1965 | Gather / Partial Aggregate / Nested Loop ( Parallel Bitmap Heap Scan on teav_ext_string / Bitmap Index Scan on teav_ext_string_key_value_idx, Index Only Scan using teav_oid_pk)
+| ... where exists (select from teav_ext_string es where es.owner_oid = t.oid and es.key = 'email' and es.value LIKE 'user2%')
+| 14,932 | very slow, seq-scan on ext table, `teav` PK used for semi-join (that's OK)
+| ... where exists (select from teav_ext_string es where es.owner_oid = t.oid and es.key = 'email' and UPPER(es.value) LIKE 'USER2%')
+| 11,869 | Aggregate / Nested Loop ( HashAggregate / Gather / seq-scan on the ext table, Index Only Scan using teav_oid_pk)
+| select count(owner_oid) from teav_ext_string where key = 'email' and value LIKE 'user2%'
+| ~7s | the same result for single-valued extension, hadly to be expected from query interpreter, still seq-scan
+|===
+
+[NOTE]
+All selects have `LIMIT 500` for practical reasons (unless stated differently),
+`pgbench` would try to read all the lines otherwise.
+
+Selects - JSON:
+
+[cols="3,1,3"]
+|===
+| Operation | Time avg (ms) | Note
+
+| select * from tjson | 0.949 | doesn't need index
+| ... where ext @> '{"hobbies":["video"]}' | 2.034 | doesn't need index
+| ... order by oid | 6.32 | index scan `tjson_oid_pk` + filter
+| ... and oid>'fffe0000-0000-0000-0000-000000000000' | 0.97 | PK index scan + index cond + filter,
+this demonstrates the power of keyset pagination (this returns last "page", less than 500)
+| select * from tjson where ext @> '{"hobbies":["sleeping"]}' | 44.94 | rare compared to "video",
+may use `tjson_ext_idx` (GIN index) or seq-scan, both is OK, takes longer to find 500 values than for "video"
+| ... order by oid | 92.34 | index scan `tjson_oid_pk` + filter; may also use `tjson_ext_idx` (both OK)
+| where ext->>'email' LIKE 'user2%' | 2.25 | seq-scan; ignores the index on `((ext->>'email'))` even though it matches only 1.5% of the table
+| ... order by oid | 90.7 | index scan `tjson_oid_pk` + filter
+| ... and oid>'fffe0000-0000-0000-0000-000000000000' | 5.34 | bitmap index scan `tjson_oid_pk` + filter (why bitmap?)
+| where UPPER(ext->>'email') LIKE 'USER2%' | 2.40 | seq-scan; ignores the functional index on `(upper(ext->>'email'))`
+| ... order by oid | 95.0 | index scan `tjson_oid_pk` + filter
+| ... and oid>'fffe0000-0000-0000-0000-000000000000' | 5.00 | index scan `tjson_oid_pk` + filter
+| where cast(ext->'eid' as int) = 5000 | 8133 (50 with index) | seq-scan, inefficient version of the query bellow, don't use `=` where `@>` works better;
+but with the index on `(((ext->'eid')::int))` this goes down and can be used also for range searches (`<`, `>`, etc.)
+| where ext @> '{"eid":5000}' | 0.32 | Bitmap Index Scan on `tjson_ext_idx` + bitmap heap scan on tjson + recheck cond
+|===
+
+Selects - EAV:
+
+[cols="3,1,3"]
+|===
+| Operation | Time avg (ms) | Note
+
+| select * from teav | 0.494 | seq-scan
+| select * from teav t where exists (select from teav_ext_string es where es.owner_oid = t.oid and es.key = 'hobbies' and es.value = 'video')
+| 6.184 | index scan `teav_oid_pk` + seq-scan on ext table
+| ... order by t.oid | 4.734 | index scan `teav_oid_pk` + index *only* scan `teav_ext_string_pk` (order accidentally helps to pick better plan here)
+| ... and t.oid>'fffe0000-0000-0000-0000-000000000000' | 11.34 | index scan `teav_oid_pk` + index *only* scan `teav_ext_string_pk`
+| select * from teav t where exists (select from teav_ext_string es where es.owner_oid = t.oid and es.key = 'hobbies' and es.value = 'sleeping')
+| 24.28 | index scan `teav_oid_pk` + bitmap index scan on `teav_ext_string_key_value_idx` (higher selectivity for "sleeping")
+| ... order by t.oid | 206 | index scan `teav_oid_pk` + bitmap index scan on `teav_ext_string_key_value_idx`
+| ... where exists (select from teav_ext_string es where es.owner_oid = t.oid and es.key = 'email' and es.value LIKE 'user2%')
+| 109 | index scan `teav_oid_pk` + index *only* scan `teav_ext_string_pk`
+| ... order by t.oid | 108 | index scan `teav_oid_pk` + index *only* scan `teav_ext_string_pk` + merge semi join
+| ... and t.oid>'fffe0000-0000-0000-0000-000000000000' | 78.1 | index scan `teav_oid_pk` + index *only* scan `teav_ext_string_pk` + gather merge / sort
+| ... where exists (select from teav_ext_string es where es.owner_oid = t.oid and es.key = 'email' and UPPER(es.value) LIKE 'USER2%')
+| 117 | index scan `teav_oid_pk` + index *only* scan `teav_ext_string_pk`
+| ... order by t.oid | 116 | index scan `teav_oid_pk` + index *only* scan `teav_ext_string_pk` + merge semi join
+| ... and t.oid>'fffe0000-0000-0000-0000-000000000000' | 90.6 | index scan `teav_oid_pk` + index *only* scan `teav_ext_string_pk` + gather merge / sort
+| where exists (select from teav_ext_string es where es.owner_oid = t.oid and es.key = 'eid' and es.value = '5000')
+| 0.500 | index scan `teav_oid_pk` + index scan `teav_ext_string_key_value_idx`
+|===
+
+There was little to no difference between semi-join (`EXISTS`) and `LEFT JOIN` wherever tried.
+Not all selects were tried with both, but `EXISTS` returns the right number of rows so it was preferred.
+
+=== Performance with more RAM/CPU
+
+After resizing the VirtualBox, the following parameters were used (uninformed setup using https://pgtune.leopard.in.ua/[this site]):
+----
+# DB Version: 13
+# OS Type: linux
+# DB Type: web
+# Total Memory (RAM): 8 GB
+# CPUs num: 4
+# Connections num: 100
+# Data Storage: ssd
+
+max_connections = 100
+shared_buffers = 2GB
+effective_cache_size = 6GB
+maintenance_work_mem = 512MB
+checkpoint_completion_target = 0.7 # 0.9 for DB Type: oltp
+wal_buffers = 16MB
+default_statistics_target = 100
+random_page_cost = 1.1
+effective_io_concurrency = 200
+work_mem = 10485kB
+min_wal_size = 1GB # 2GB for oltp
+max_wal_size = 4GB # 8GB for oltp
+max_worker_processes = 4
+max_parallel_workers_per_gather = 2
+max_parallel_workers = 4
+max_parallel_maintenance_workers = 2
+----
+
+Most of these are already commented out by default in `postresql.conf`, the rest was commented too,
+not to collide with the added section above.
+Benchmark was run a couple of times first to warm up the DB before results were used.
+It seems that selects are longer if `checkpoint_completion_target` is set to 0.9.
+Last column are results with `-c 10` option added to `pgbench`, all previous tests were single-client.
+10 clients should overload the configuration.
+
+[cols="3,1,1,1"]
+|===
+| Operation | 2GB/1CPU (ms) | 8GB/4CPU (ms) (speedup) | with 10 clients (slowdown)
+
+| select count(*) from tjson | 6512 | 440 (14.8x) | 3324 (7.6x)
+| ... where ext @> '{"hobbies":["video"]}' | 8200 | 1388 (5.9x) | 8691 (6.3x)
+| ... where ext @> '{"hobbies":["sleeping"]}' | 181 | 63.4 (2.9x) | 161 (2.5x)
+| select count(*) from tjson where ext->>'email' LIKE 'user2%' | 7174 | 758 (9.5x) | 5201 (6.9x)
+| where UPPER(ext->>'email') LIKE 'USER2%' | 7855 | 1196 (6.6x) | 7080 (5.9x)
+
+| select count(*) from teav_ext_string | 6382 | 2213 (2.9x) | 7935 (3.6x)
+| select count(*) from teav | 2284 | 337 (6.8x) | 2997 (8.9x)
+| ... where exists (select from teav_ext_string es where es.owner_oid = t.oid and es.key = 'hobbies' and es.value = 'video')
+| 17465 | 3324 (5.3x) | 58565 (17.6x)
+| ... where exists (select from teav_ext_string es where es.owner_oid = t.oid and es.key = 'hobbies' and es.value = 'sleeping')
+| 1965 | 87 (22.6x) | 2966 (34.1x)
+| ... where exists (select from teav_ext_string es where es.owner_oid = t.oid and es.key = 'email' and es.value LIKE 'user2%')
+| 14932 | 2499 (6x) | 22974 (9.2x)
+| ... where exists (select from teav_ext_string es where es.owner_oid = t.oid and es.key = 'email' and UPPER(es.value) LIKE 'USER2%')
+| 11869 | 2188 (5.4x) | 9253 (4.2x)
+
+| select * from tjson limit 500 | 0.949 | 0.734 (1.3x) | 5.781 (7.9x)
+| ... where ext @> '{"hobbies":["video"]}' | 2.034 | 1.873 (1.1x) | 4.815 (2.6x)
+| ... order by oid | 6.32 | 2.425 (2.6x) | 6.144 (2.5x)
+| ... and oid>'fffe0000-0000-0000-0000-000000000000' | 0.97 | 0.761 (1.3x) | 3.548 (4.7x)
+| select * from tjson where ext @> '{"hobbies":["sleeping"]}' | 44.94 | 41.82 (1.1x) | 100.546 (2.4x)
+| ... order by oid | 92.34 | 58.79 (1.6x) | 155.131 (2.6x)
+| where ext->>'email' LIKE 'user2%' | 2.25 | 1.93 (1.2x) | 5.068 (2.6x)
+| ... order by oid | 90.7 | 23.19 (3.9x) | 78.79 (3.4x)
+| ... and oid>'fffe0000-0000-0000-0000-000000000000' | 5.34 | 0.59 (9.1x) | 3.441 (5.8x)
+| where UPPER(ext->>'email') LIKE 'USER2%' | 2.4 | 2.19 (1.1x) | 5.152 (2.4x)
+| ... order by oid | 95 | 25.2 (3.8x) | 78.07 (3.1x)
+| ... and oid>'fffe0000-0000-0000-0000-000000000000' | 5 | 0.65 (7.7x) | 3.23 (5x)
+| where ext @> '{"eid":5000}' | 0.32 | 0.25 (1.3x) | 1.5 (6x)
+
+| select * from teav limit 500 | 0.494 | 0.419 (1.2x) | 1.5 (3.6x)
+| ... where exists (select from teav_ext_string es where es.owner_oid = t.oid and es.key = 'hobbies' and es.value = 'video')
+| 6.184 | 2.384 (2.6x) | 6.725 (2.8x)
+| ... order by t.oid | 4.734 | 2.225 (2.1x) | 7.919 (3.6x)
+| ... and t.oid>'fffe0000-0000-0000-0000-000000000000' | 11.34 | 4.815 (2.4x) | 267.21 (55.5x)
+| ... where exists (select from teav_ext_string es where es.owner_oid = t.oid and es.key = 'hobbies' and es.value = 'sleeping')
+| 24.28 | 2.736 (8.9x) | 11.992 (4.4x)
+| ... order by t.oid | 206 | 42.8 (4.8x) | 267.21 (6.2x)
+| ... where exists (select from teav_ext_string es where es.owner_oid = t.oid and es.key = 'email' and es.value LIKE 'user2%')
+| 109 | 40.6 (2.7x) | 315.2 (7.8x)
+| ... order by t.oid | 108 | 35.7 (3x) | 106.5 (3x)
+| ... and t.oid>'fffe0000-0000-0000-0000-000000000000' | 78.1 | 21.9 (3.6x) | 43.26 (2x)
+| ... where exists (select from teav_ext_string es where es.owner_oid = t.oid and es.key = 'email' and UPPER(es.value) LIKE 'USER2%')
+| 117 | 39.3 (3x) | 114.4 (2.9x)
+| ... order by t.oid | 116 | 39 (3x) | 113.1 (2.9x)
+| ... and t.oid>'fffe0000-0000-0000-0000-000000000000' | 90.6 | 21.4 (4.2x) | 41.61 (1.9x)
+| where exists (select from teav_ext_string es where es.owner_oid = t.oid and es.key = 'eid' and es.value = '5000')
+| 0.5 | 0.468 (1.1x) | 2.229 (4.8x)
+|===
+
+=== JSONB vs EAV comparison of similar operations
+
+Operations are shown as JSON version selects, avg times are taken from 8GB/4CPU configuration.
+Significant victories are in bold.
+
+[cols="3,1,1"]
+|===
+| Operation (on JSON version) | JSON avg (ms) | EAV avg (ms)
+
+| select count(*) from tjson | 440 | 337
+| ... where ext @> '{"hobbies":["video"]}' | *1388* | 3324
+| ... where ext @> '{"hobbies":["sleeping"]}' | 63.4 | 87
+| select count(*) from tjson where ext->>'email' LIKE 'user2%' | *758* | 2499
+| where UPPER(ext->>'email') LIKE 'USER2%' | *1196* | 2188
+h| non-weighted counts total h| 3845 h| 10648
+
+| select * from tjson | 0.734 | 0.419
+| ... where ext @> '{"hobbies":["video"]}' | 1.873 | 2.384
+| ... order by oid | 2.425 | 2.225
+| ... and oid>'fffe0000-0000-0000-0000-000000000000' | *0.761* | 4.815
+| select * from tjson where ext @> '{"hobbies":["sleeping"]}' | 41.82 | *2.736*
+| ... order by oid | 58.79 | 42.8
+| where ext->>'email' LIKE 'user2%' | *1.93* | 40.6
+| ... order by oid | 23.19 | 35.7
+| ... and oid>'fffe0000-0000-0000-0000-000000000000' | *0.59* | 21.9
+| where UPPER(ext->>'email') LIKE 'USER2%' | *2.19* | 39.3
+| ... order by oid | 25.2 | 39
+| ... and oid>'fffe0000-0000-0000-0000-000000000000' | *0.65* | 21.4
+| where ext @> '{"eid":5000}' | 0.25 | 0.468
+
+h| non-weighted select total h| 160 ms h| 254 ms
+|===
+
+== Conclusion
+
+* JSON with index takes less space than EAV+ext table with their indexes (4GB vs 7GB, not counting unique indexes on names).
+* Performance wise they are trading blows, but JSON is ~2 times faster overall, depending on the mix of selects.
+** EAV's biggest win was finding any 500 rows with hobbies=sleeping (15x faster).
+** JSON was over 20x faster for 4 selects, all related to email LIKE searches.
+* There are ways how to improve searching with function based indexes, especially for specific
+attributes in JSON (see the slow select with `eid` above).
+* Extension table index on key+value was used only for rare multi-value values (sleeping) and for exact matches of single values (eid).
+(There may be other cases where it is used that were not tested here.)
+* Counts are always much slower than limited select.
+* Ordering slows things down
+* Avoid unlimited selects.
