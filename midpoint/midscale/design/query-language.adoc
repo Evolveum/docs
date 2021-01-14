@@ -122,36 +122,37 @@ Java Query API: `NotFilter`
 Item filters performs check on item values (reference, property, container) specified by path.
 
 .<<Generic Item Filters>>
-  <<Exists>>::
+  <<exists>>::
     Matches if specified item has any values.
 
 .<<Property Specific Filters>>
-  <<Equals>>::
+  <<equal>>::
     Matches if any value equals to any of specified values.
-  <<Comparison>>::
+  <<Comparison filters>>::
     Matches if any value is greater/smaller than specified value.
 
-  <<Starts With>>::
+  <<startsWith>>::
     Matches if any value starts with specified string.
-  <<Ends With>>::
+  <<endsWith>>::
     Matches if any value ends with specified string.
-  <<Contains>>::
+  <<contains>>::
     Matches if any value contains specified substring.
 
 .<<Container Specific Filters>>
-  <<Matches>>::
+  <<matches>>::
     Matches if specified item has value (container, PolyString or reference) matching subfilter.
   <<Matches Empty>>::
     Matches if specified container has empty value (value with no nested properties or containers).
-  <<In Oid>>::
-    Matches if container is nested inside object with specified `oid`.
+  <<inOid>>::
+  <<isOwnedByOid>>::
+  Matches if container is nested inside object with specified `oid`.
 
 .<<Object Specific Filters>>
-  <<Type>>::
+  <<type>>::
     Matches if object is of specified type
-  <<In Org>>::
+  <<inOrg>>::
     Matches if object is member of specified organization
-  <<Fulltext>>::
+  <<fullText>>::
     Matches if fulltext search finds specified value
 
 
@@ -165,7 +166,7 @@ Item filters performs check on item values (reference, property, container) spec
 
 
 
-==== Exists
+==== exists
 
 Matches is specified item has any value (even empty).
 
@@ -207,7 +208,8 @@ MatchingRule: "[" MatchingRuleName "]"
 PropertyValueFilter: PropertyFilterOperand (MatchingRule)? ValueSpecification
 ----
 
-==== Equals
+[[equal]]
+==== equal
 
 Matches if any value of specified property is equal to any of right-hand side values
 
@@ -217,7 +219,7 @@ to any of right-hand sided values.
 
 .Grammar
 ----
-ComparisionFilter: Path ("!")? "=" (MatchingRule)? MultiValueSpecification
+EqualsFilter: Path ("!")? "=" (MatchingRule)? MultiValueSpecification
 ----
 
 .Examples
@@ -231,7 +233,8 @@ primaryIdentifier =[distinguishedName] "UID=jsmith,DC=example,DC=net" <3>
 <2> Matches if fName has same value as lName
 <3> Matches if primaryIdentifier (interpreted as Ldap DN) equals to `UID=jsmith,DC=example,DC=net` LDAP DN
 
-==== Comparison
+
+==== Comparison filters
 
 Filter matches if any values of specified property is smaller/greater then right side value.
 
@@ -253,7 +256,7 @@ ComparisionFilter: Path ComparisonOperand (MatchingRule)? SingleValueSpecificati
 ----
 
 
-==== Starts With
+==== startsWith
 
 .Grammar
 [source]
@@ -271,7 +274,7 @@ lName startsWith "bar"
 
 Java Query API: `SubstringFilter` with `anchorStart=true`
 
-==== Ends With
+==== endsWith
 
 Grammar
 [source]
@@ -286,7 +289,8 @@ EndsWithFilter: Path "endsWith" (MatchingRule)? ValueSpecification
 
 Java Query API: `SubstringFilter` with `anchorEnd=true`
 
-==== Contains
+[[contains]]
+==== contains
 Matches if any String/PolyString value contains specified substring.
 
 .Grammar
@@ -324,7 +328,7 @@ Matching rule allows to further specify how to interpret strings during matching
 
 === Container Specific Filters
 
-==== In Oid
+==== inOid
 
 Filter matches if container value is nested in specified object.
 
@@ -341,10 +345,12 @@ filter: "." "inOid" ValueSpecification
 . inOid "eb33bf4e-b093-42ff-9400-6f87c1b9ab2b"
 ----
 
+==== ownedByOid
+
 Java Query API: InOidFilter
 
-
-==== Matches
+[[matches]]
+==== matches
 
 Filter matches if path contains any value which matches specified subfilter
 (subfilter criteria are matched against contents of value).
@@ -359,9 +365,9 @@ Matches filter can be used also on PolyString and object reference, with followi
 | norm | Normalized form
 
 2+| *Object Reference*
-| targetOid | Target OID
-| targetType | Type of target
-| relationship | Relationship
+| oid | Target OID
+| type | Type of target
+| relation | Relationship
 |===
 
 
@@ -377,11 +383,14 @@ MatchesFilter: path (Negation)? "matches" "(" Filter ")"
 [source]
 ----
 lName matches (norm="smith") <1>
-linkRef matches (targetOid="eb33bf4e-b093-42ff-9400-6f87c1b9ab2b") <2>
+linkRef matches (oid="eb33bf4e-b093-42ff-9400-6f87c1b9ab2b") <2>
 
-assignment matches ( relationship="manager") <3>
-assignment matches (relationship="manager" matches targetRef/targetOid="eb33bf4e-b093-42ff-9400-6f87c1b9ab2b") <4>
+assignment matches ( relationship= manager) <3>
 
+assignment matches (
+  relationship = manager
+  and targetRef matches ( oid ="eb33bf4e-b093-42ff-9400-6f87c1b9ab2b") <4>
+)
 
 ----
 <1> lName property matches if PolyString value has norm "smith"
@@ -390,10 +399,10 @@ assignment matches (relationship="manager" matches targetRef/targetOid="eb33bf4e
 <4>  Matches only if assigment has value, whose properties relatioship and targetRef meet specified criteria
 
 
-Java Query API: `ExistsFilter`, probably modification needed for PolyString / Object Reference
+Java Query API: `ExistsFilter` for containers, `RefFilter` for object references, `EqualsFilter` for `PolyString`
 
-==== Matches Empty
-A special case of <<Matches>> filter which matches empty container value (value which does not have any nested items).
+==== matches empty
+A special case of <<matches>> filter which matches empty container value (value which does not have any nested items).
 
 .Grammar
 [source]
@@ -413,7 +422,7 @@ Java Query API: New Filter
 
 === Object Specific Filters
 
-==== Type
+==== type
 
 
 .Grammar
@@ -429,14 +438,17 @@ TypeFilter: path "type" ValueSpecification "and" Filter
 ----
 <1> Matches user with first name John
 
-==== In Org
+==== inOrg
 Matches if object is member of specified organization or root.
 
 .Grammar
 [source]
 ----
-InOrgFilter: "inOrg" ( ValueSpecification | "Root" );
+InOrgFilter: "inOrg" ValueSpecification;
 ----
+==== isRoot
+
+Matches if object belongs to organization root.
 
 
 ==== Fulltext
@@ -451,58 +463,68 @@ Filters objects based on fulltext search.
 
 
 
+== Different Filter representations
 
-
-
-== Java Query API
-
+.Filters Overview
 |===
-| Java Filter | Query Language Filters | Description
-| AllFilter | N/A | Explicitly match everything
-| AndFilter | <<And>> | All subfilters must be true
-| EqualFilter | <<Equals>> | True if both sides are equal based on matching rule
-| OrFilter | <<Or>> | True if any subfilter is true
-| ExistsFilter | <<Matches>> | True if container matching subfilter exists
-| FullTextFilter | <<Fulltext>> | True if fulltext database search contains value
-| GreaterFilter | <<Comparison>> | True if left side is greater then right side
-| InOidFilter | <<In Oid>> | True if container is part of object with specified oid
-| LessFilter | <<Comparison>> | True if left side is smaller then right side
-| SubstringFilter | <<Starts With>>, <<Contains>>, <<Ends With>> | True if left side contains specified substring
-| TypeFilter | <<Type>> and <<And>> | True if object matches type and subfilter
-| RefFilter | <<Matches>> | True, if reference matches specification
-| NoneFilter | N/A | Always false
-| UndefinedFilter | N/A | Special marker filter, always true
-| NotFilter | <<Not>> | Logic filter, negates value of subfilter
-| OrgFilter | <<In Org>> | True if object is part of organization
+XML, JSON, YAML | Java Class | Java DSL | Query Language | Description
+
+| all  | AllFilter | | N/A | Explicitly match everything
+| none  | NoneFilter | | N/A | Always false
+| undefined | UndefinedFilter | | N/A | Special marker filter, always true
+
+| equal | EqualFilterImpl | eq | <<equal>> | True if both sides are equal
+| greater | GreaterFilterImpl(false)| gt | <<Comparison filters,greater>> | True if left side is greater then right side
+| greaterOrEqual | GreaterFilterImpl(true)| ge | <<Comparison filters,greaterOrEqual>> | True if left side is greater or equals to the right side
+| less | LessFilterImpl(false)| lt | <<Comparison filters,less>> | True if left side is less then right side
+| lessOrEqual | LessFilterImpl(true)| le | <<Comparison filters,lessOrEqual>> | True if left side is less or equals to the right side
+| substring | SubstringFilter | startsWith, endsWith, contains | <<startsWith>>, <<endsWith>>, <<contains>> | True if left side contains specified substring
+
+| ref  | RefFilter | | <<matches>> | True, if reference matches specification
+| org | InOrg | | <<inOrg>>, <<isRoot>> | True if object is part of organization
+| inOid | InOid | | <<inOid>>, <<ownedByOid>> | True if container is part of object with specified oid
+| fullText | FullText | | . fullText 'jack' | True if fulltext database search contains value
+
+
+//<!-- B: complex filters -->
+//<!-- B1: logical filters -->
+| and | AndFilter | | and | All subfilters must be true
+| or | OrFilter | | or | True if any subfilter is true
+| not | NotFilter | | not | Logic filter, negates value of subfilter
+
+//<!-- B2: other filters -->
+| type | TypeFilter | | N/A | True if object matches type and subfilter
+| exists | Exists | exists | <<matches>> | True if container matching subfilter exists
 |===
+
 
 == Notes
 
-.Existing Filters to Query Language
+.Conversion to Query Language
 |===
-| Existing | Right Side | Modifiers | Proposed Name | True State
+| XML/JavaFilter | Right Side | Modifiers | Proposed Name | True State
 
 .3+| Equals
-| Value .3+| matchingStrategy | <<Equals>> |Any value of left property matches value on right
-| Multiple Values, Path | <<Equals>> | Any value of left property matches any value on right
+| Value .3+| matchingStrategy | <<equal>> |Any value of left property matches value on right
+| Multiple Values, Path | <<equal>> | Any value of left property matches any value on right
 | Null | not <<Exists, exists>> | Property does not have value
 
 
-| Comparison  | Value | matchingStrategy | <<Comparison>> | Any value of property is smaller / larger / equals then right value.
+| Comparison  | Value | matchingStrategy | <<Comparison filters>> | Any value of property is smaller / larger / equals then right value.
 
 
 .4+| Substring .4+| Value, Property
 
-| matchingStrategy, anchorLeft=false, anchorRight=false | <<Contains>> | Any value of property contains any substring from right
-| matchingStrategy, anchorLeft=true, anchorRight=false | <<Starts With>> | Any value of property starts with any substring from right
-| matchingStrategy, anchorLeft=false, anchorRight=true | <<Ends With>> | Any value of property ends with any substring from right
-| matchingStrategy, anchorLeft=true, anchorRight=true | <<Equals>> | Any value of property equals to any string from right
+| matchingStrategy, anchorLeft=false, anchorRight=false | <<contains>> | Any value of property contains any substring from right
+| matchingStrategy, anchorLeft=true, anchorRight=false | <<startsWith>> | Any value of property starts with any substring from right
+| matchingStrategy, anchorLeft=false, anchorRight=true | <<endsWith>> | Any value of property ends with any substring from right
+| matchingStrategy, anchorLeft=true, anchorRight=true | <<equal>> | Any value of property equals to any string from right
 
-| Ref filter | Value, Property | oidNullAsAny, targetTypeAsAny, relationTypeAsAny | <<Matches>> | Any value of reference matches any value from right side
+| Ref filter | Value, Property | oidNullAsAny, targetTypeAsAny, relationTypeAsAny | <<matches>> | Any value of reference matches any value from right side
 
-| Org filter | Value, Property || <<In Org>> | Object is member of organization
+| Org filter | Value, Property || <<inOrg>> | Object is member of organization
 
-| InOid filter | Value, Property ||||
+| InOid filter | Value || <<inOid>> ||
 
 |===
 
@@ -531,7 +553,7 @@ Do we need other cases, e.g. matching of IP address and netmask?
 +
 [source]
 ----
-. type UserType and linkRef not exits
+. type UserType and linkRef not exists
 
 // Users which do not have manager relationship
 . type UserType and assigment/targetRef not matches (relationship="manager")
