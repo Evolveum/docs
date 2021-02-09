@@ -1,0 +1,328 @@
+= Upgrade 3.7.1 to 3.8
+:page-wiki-name: Upgrade 3.7.1 to 3.8
+
+:page-toc: top
+
+== Introduction
+
+MidPoint 3.8 (Watt) is a release that is focused on performance and scalability.
+The goal is for midPoint to easily scale up to manage millions of identities.
+But it is all not just about the number of identities, the primary concerns are throughput and scalability.
+MidPoint 3.8 should perform the operations faster and it should be able to handle more operations in parallel.
+
+However, such infrastructural improvements are not easy to make.
+Algorithms are easy to improve and deliver an improved version.
+However, many midPoint performance issues were caused by data structures that were not designed with performance and scalability as a priority.
+While we were aware of this issues for a long time, we have preferred easy upgradeability over performance.
+Therefore we have maintained backward-compatible database model since midPoint 3.0, which was released in 2014.
+But in a life of every evolving software product there is a time to make a bigger change.
+And for midPoint database model such time is now.
+
+The database schemas of midPoint 3.7 and 3.8 are *not* compatible.
+Therefore the upgrade process from 3.7.1 to 3.8 is somehow more complex than usual.
+The XML/JSON/YAML data forms still *are* compatible.
+The data, configuration and (almost) all of the 3.7 functionality is still the same or compatible.
+The only thing that has changed is the way how are the data stored in database tables.
+The change in the database table structure is a substantial one.
+Therefore simple SQL script will not work here.
+
+Overall, the upgrade process goes like this:
+
+. Export all midPoint 3.7.x data to XML file.
+
+. Change the database structure to 3.8.x format, upgrade midPoint code.
+
+. Import the data to midPoint 3.8.x
+
+The rest of this page provides detailed instructions for the upgrade procedure.
+
+
+== Pre-Upgrade Considerations
+
+* Upgrade can take quite long time.
+It depends on how many objects and audit records there are in midPoint repository.
+Following list contains long running items and approximate processing speed which can be used to calculate overall length of upgrade process (tested on 4cpu/16gb ram).
+
+** Size of compressed export file is approximately 200kB per 1000 objects.
+
+** Export speed is 120-180 objects per second.
+
+** Import speed is 60-120 objects per second.
+
+** DB script was able to update ~500 audit records per second.
+
+
+* Please consider purging or reducing audit log records before the upgrade.
+MidPoint was never designed to be SIEM or data warehouse system.
+MidPoint database schema was *not* designed with an intent of a long-term storage of audit records.
+In case that your midPoint deployment has large number of audit records then it is recommended to reduce number of audit records to a reasonable amount before the upgrade.
+
+* Following procedure describes upgrade of a stand-alone midPoint deployment that became the primary deployment method in midPoint 3.7. Upgrade of midPoint that is deployed to an web container is only partially supported.
+In this case it is expected that the engineer conducting midPoint upgrade will be able to deal with the situation without a detailed guide.
+However, some notes regarding upgrade of non-standalone deployment are provided below.
+
+* Make a complete database backup of all midPoint tables before the upgrade.
+Make sure that the backup includes database table structure (database schema).
+MidPoint database table structure will be changed during the upgrade in an incompatible way.
+The only practical way how to roll back a failed upgrade is to restore data from the database backup.
+
+* Make a filesystem backup of existing midPoint installation directory.
+This is important especially in case that you have customized midPoint startup scripts as the upgrade process will replace those with new versions.
+Also make a backup of wiki:MidPoint+Home+Directory[midPoint home directory] in case that it is not part of midPoint installation directory (e.g. if a non-standalone deployment is used).
+
+* JDBC drivers for some databases have limited distribution policies.
+These drivers cannot be distributed together with midPoint.
+Therefore there is a need to download and use the explicitly.
+The drivers used by existing midPoint 3.7 installation should work just fine.
+The only thing is that they need to be explicitly mentioned on the ninja37 command-line.
+The users of PostgreSQL database do not need to do anything.
+PostgreSQL driver is already bundled with midPoint distribution.
+
+Paths and folders:
+
+[%autowidth]
+|===
+| Path | Description | Example
+
+| `<MIDPOINT_3.8_DISTRIBUTION_PATH>`
+| Path where midPoint 3.8 distribution package was downloaded and extracted.
+| `/home/foo/downloads/midpoint-3.8`
+
+
+|
+| Path where midPoint 3.7 is installed. +
+This is also the path where upgraded midPoint 3.8 will be running.
+| `/opt/midpoint`
+
+
+| `<JDBC_DRIVER_JAR>`
+| Path to JDBC driver for MySQL, MariaDB, Oracle, SQL Server.
+| `/opt/midpoint/lib/mysql-connector-java-8.0.11.jar`
+
+
+|===
+
+
+
+
+== Upgrade Procedure
+
+
+=== Pre-Database Upgrade Phase
+
+The goal of the pre-upgrade steps is to prepare midPoint deployment for an upgrade.
+
+. Suspend all tasks:
+
+.. Make note of all tasks which will be suspended.[TIP]
+====
+It is recommended to suspend the tasks, although it is not entirely necessary.
+The reason for suspending the tasks is to avoid error right after upgrade.
+When midPoint starts for the first time after the upgrade there may be still some inconsistencies in configuration.
+E.g. resource may refer to old versions of the connectors.
+In that case a running task may end up with an error.
+Therefore either suspend the tasks before upgrade or fix the errors after the configuration is updated to a new version.
+
+====
+
+
+
+
+
+. Stop midPoint application.
+
+.. (non-standalone deployment only) If standalone deployment is not used, please undeploy midpoint from application server.
+New version will be deployed in next steps.
+
+
+
+. Back up midPoint repository database
+
+. Back up midPoint installation directory (MIDPOINT\_INSTALLATION\_PATH)[NOTE]
+====
+Make sure the backup is complete and restoreable.
+In the next steps, script will delete and recreate midPoint tables and replace files in midPoint directories.
+
+====
+
+
+
+
+=== Database Upgrade Phase
+
+. *Update midPoint installation files.*
+
+.. Download and extract release 3.8 distributable version, available link:https://evolveum.com/downloads/midpoint/3.8[here], to a chosen folder.
+
+.. Update existing installation[source,bash]
+----
+cd <MIDPOINT_3.8_DISTRIBUTION_PATH>
+./bin/upgrade.sh <MIDPOINT_INSTALLATION_PATH>
+----
+
+Where:
+
+*** `MIDPOINT_3.8_DISTRIBUTION_PATH `is a folder where midPoint 3.8 distribution package was downloaded and extracted.
+
+*** `MIDPOINT_INSTALLATION_PATH` points to existing 3.7.1 midPoint installation folder
+
+[TIP]
+.upgrade.sh
+====
+The `upgrade.sh` script will copy and move a lot of files from the distribution package (`MIDPOINT_3.8_DISTRIBUTION_PATH`) to the midPoint installation folder (`MIDPOINT_INSTALLATION_PATH`). This includes scripts (such as `midpoint.sh`) and libraries (such as `midpoint.war`). The `upgrade.sh` script will create backup of the target directories (`bin.backup` and `lib.backup`). +
+The script will also copy `ninja37` tool that will be needed to extract midPoint 3.7.1 data.
+
+====
+
+
+
+.. (Optional) If one needs to count objects in midPoint before proceeding with the database upgrade, the following can be used:[source,bash]
+----
+<MIDPOINT_INSTALLATION_PATH>/bin/ninja37.sh [-j <JDBC_DRIVER_JAR>] -v count
+----
+
+Where:
+
+*** `MIDPOINT_INSTALLATION_PATH` points to the midPoint installation folder (originally containing 3.7.1, now upgraded to 3.8)
+
+*** `JDBC_DRIVER_JAR` points to JDBC driver for MySQL, MariaDB, Oracle, SQL Server.
+The `-j` is only necessary for these databases
+
+ +
+(Note that if you want to count the objects before upgrading midPoint files, it is possible to run `ninja37.sh/.bat` also from the folder into which you originally extracted 3.8 distributable version.
+However, it is necessary to set `MIDPOINT_HOME` environment variable to point to existing 3.7.1 home.) +
+ +
+
+
+
+
+. *Export objects from midPoint.* +
+The following command will export the whole midPoint repository to a (compressed) XML archive.
+It will not export the audit records.[source,bash]
+----
+<MIDPOINT_INSTALLATION_PATH>/bin/ninja37.sh [-j <JDBC_DRIVER_JAR>] -v export -r -z -O backup.zip -l <NUMBER_OF_THREADS_FOR_EXPORT_WORKERS>
+----
+
+Where:
+
+** `MIDPOINT_INSTALLATION_PATH` points to existing 3.7.1 midPoint installation folder
+
+** `JDBC_DRIVER_JAR` points to JDBC driver for MySQL, MariaDB, Oracle, SQL Server.
+The `-j` is only necessary for these databases
+
+** `NUMBER_OF_THREADS_FOR_EXPORT_WORKERS` should be set roughly to number of database CPU cores, but as ninja runs locally on client it also depends on how many CPU cores can client use.
+Generally the number should be in between 2 and 8 +
+ +
+
+
+
+
+. *Modify database schema.* +
+Use your database client tools to execute `<MIDPOINT_INSTALLATION_PATH>/doc/config/sql/_all/<DB_VENDOR>-upgrade-3.7-3.8.sql` against midPoint database.
+It will update the audit records tables. +
+Where:
+
+** `MIDPOINT_INSTALLATION_PATH` points to existing 3.7.1 midPoint installation folder
+
+** `DB_VENDOR` is either: `h2`, `mysql`, `oracle`, `postgresql`, `sqlserver`
+
+
+
+. *Import objects to midPoint.* +
+The following command will import the (previously) exported midPoint repository from a (compressed) archive.[source,bash]
+----
+<MIDPOINT_INSTALLATION_PATH>/bin/ninja.sh [-j <JDBC_DRIVER_JAR>] -v import -r -z -i <MIDPOINT_INSTALLATION_PATH>/backup.zip -l <NUMBER_OF_THREADS_FOR_IMPORT_WORKERS>
+----
+
+Where:
+
+** `MIDPOINT_INSTALLATION_PATH` points to existing 3.7.1 midPoint installation folder
+
+** `JDBC_DRIVER_JAR` points to JDBC driver for MySQL, MariaDB, Oracle, SQL Server.
+The `-j` is only necessary for these databases
+
+** `NUMBER_OF_THREADS_FOR_IMPORT_WORKERS` should be set roughly to number of database CPU cores, but as ninja runs locally on client it also depends on how many CPU cores can client use.
+Generally the number should be in between 2 and 8
+
+
+
+Note that the export was done using `ninja37`, while import is done using `ninja` (i.e. the 3.8 version).
+
+
+=== Post-Database Upgrade Phase
+
+. If you had customized anything in the start scripts in `bin/` subdirectory (such as JVM options), please merge the changes back.
+The original files are in `<MIDPOINT_INSTALLATION_PATH>/bin.backup`
+
+. Start midPoint.
+
+.. (non-standalone deployment only) If standalone deployment is not used, please deploy new version of midPoint.
+Use war file located in `<MIDPOINT_INSTALLATION_PATH>/lib/midpoint.war`.
+
+
+
+. If midPoint deployment used resources with connectors bundled within midPoint (CSV, database, AD, LDAP):
+
+.. Go to repository objects page.
+
+.. Update `connectorRef` for all resource objects to point to new versions of connectors.
+
+.. Remove `ConnectorType` objects for non-existing connectors.
+
+
+
+. Test all resources.
+
+. Resume tasks that were suspended.
+
+
+=== Cleanup
+
+Following files can be removed after the upgrade:
+
+* ninja37 tool (ninja37.sh, ninja37.bat, ninja37.jar).
+This tool is only needed for upgrade from midPoint 3.7.x. It is not necessary for midPoint 3.8 and later.
+
+* Exported objects (backup.zip).
+Those objects are only necessary for a temporary period of the upgrade.
+The file with exported objects is no longer needed after the upgrade.
+However, it may be reasonable to store this file as a last backup of the old 3.7.x midPoint installation in the rare case that you will need to return back to midPoint 3.7.x later.
+
+* MidPoint 3.8 distribution package.
+The upgrade.sh script should copy everything that is needed to the installation directory.
+The distribution package is no longer needed to run midPoint.
+
+
+== Alternative Upgrade Scenarios
+
+There are several alternative upgrade procedures:
+
+* Upgrade to midPoint 3.7.2. Then export data using regular ninja tool.
+In that case there is no need to use ninja37.
+
+* Upgrade to midPoint 3.7.2. Export data from midPoint 3.7.2 using the ninja tool.
+Create fresh installation of midPoint 3.8. Apply any customizations in midPoint home directory.
+Import the data.
+
+
+== Miscellaneous Notes
+
+Data exported from 3.7 or 3.7.1 will not work for the purposes of the upgrade.
+MidPoint 3.8 database model has changed.
+Now there is a needed for explicit type definition in the export files for some property types (e.g. attributes in shadow objects).
+Export tools in midPoint 3.7 and 3.7.1 are *not* putting those definitions in the export files.
+Hence the need to use ninja37 tool.
+This is a modified version of ninja tool from midPoint 3.7. The ninja37 is modified to properly put the definitions in the export files.
+In fact, ninja37 is the ninja tool used in midPoint 3.7.2, where the export works as expected.
+Therefore data exported from midPoint 3.7.2 will work and in that case there is no need to use ninja37.
+Also data exported from midPoint built of the latest support-3.7 branch will work.
+
+
+== See Also
+
+* wiki:Release+3.8[Release 3.8] release notes
+
+* wiki:Upgrade+3.7.1+to+3.8+FAQ[Upgrade 3.7.1 to 3.8 FAQ]
+
+
+
