@@ -9,7 +9,7 @@ function searchA() {
     //var suggBox = suggBoxes[0];
     var suggBox = document.getElementById("autocombox")
 
-    var searchedValue = document.getElementById('searchbar').value.toLowerCase().replace(/\s/g, "")
+    var searchedValue = document.getElementById('searchbar2').value.toLowerCase().replace(/\s/g, "")
 
     if (searchedValue != "") {
         console.log(searchedValue)
