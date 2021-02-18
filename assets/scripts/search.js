@@ -1,8 +1,3 @@
-//var text = ""
-// while (document.getElementById('search').value != null && document.getElementById('search').value.equals(text)) {
-//
-// }
-
 function searchA() {
     // var suggBoxes = document.getElementsByClassName("autocom-box");
     // console.log("dlzka " + suggBoxes.length)
@@ -16,16 +11,15 @@ function searchA() {
 
         $.getJSON("/searchmap.json", function(json) {
             console.log(json); // this will show the info it in firebug console
-            var data = JSON.parse(json)
 
-            console.log(data[0].title.toLowerCase().replace(/\s/g, "") + data.length)
+            console.log(json[0].title.toLowerCase().replace(/\s/g, "") + json.length)
 
             var showItems = [];
 
-            for (var i = 0; i < data.length; i++) {
-                if (data[i].title !== undefined && data[i].title.toLowerCase().replace(/\s/g, "").includes(searchedValue)) {
+            for (var i = 0; i < json.length; i++) {
+                if (json[i].title !== undefined && json[i].title.toLowerCase().replace(/\s/g, "").includes(searchedValue)) {
                     console.log("somtu");
-                    showItems.push('<a href=https://docs.evolveum.com/' + data[i].url + '>' + '<li>' + data[i].title + '</li>' + '</a>')
+                    showItems.push('<a href=https://docs.evolveum.com/' + json[i].url + '>' + '<li>' + json[i].title + '</li>' + '</a>')
                 }
             }
 
@@ -36,13 +30,5 @@ function searchA() {
     } else {
         suggBox.innerHTML = ""
     }
-
-    //neskor
-    //let url = 'https://docs.evolveum.com/searchmap.json';
-    // $.getJSON(url, {
-
-    // }).done(function(data) {
-    //     console.log("halo" + url)
-    // });
 
 }
