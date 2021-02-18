@@ -34,27 +34,25 @@ function searchA() {
                     } else {
                         numberOfNotShown++;
                     }
-
                 }
             }
 
             console.log('not shown ' + numberOfNotShown)
 
             if (numberOfNotShown === 1) {
-                suggBox.innerHTML = showItems.join("") + '<li class="notShown"> additional ' + numberOfNotShown + ' result not shown' + '</li>'
+                showItems.push('<li class="notShown"> additional ' + numberOfNotShown + ' result not shown' + '</li>')
             } else if (numberOfNotShown > 0) {
-                suggBox.innerHTML = showItems.join("") + '<li class="notShown"> additional ' + numberOfNotShown + ' results not shown' + '</li>'
-            } else {
-                suggBox.innerHTML = showItems.join("")
+                showItems.push('<li class="notShown"> additional ' + numberOfNotShown + ' results not shown' + '</li>')
             }
 
-            suggBox.style.display = "table";
             suggBox.innerHTML = showItems.join("")
+
+            suggBox.style.display = "table";
         });
 
     } else {
         suggBox.innerHTML = ""
-        suggBox.display = "none";
+        suggBox.style.display = "none";
     }
 
 }
