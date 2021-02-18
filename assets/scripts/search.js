@@ -70,7 +70,7 @@ function searchForPhrase() {
 
                         const listItem = '<a href=https://docs.evolveum.com/' + searchMap[i].url + '>' +
                                 '<li class="list-group-item"><span class="font1">' + searchMap[i].title + '<br></span>' +
-                                '<span class="font2">' + dateFormatter(searchMap[i].lastModificationDate) + '</span></li></a>'
+                                '<span class="font2">' + formatDate(searchMap[i].lastModificationDate) + '</span></li></a>'
                         if (title.localeCompare(phrase) === 0) {
                             console.log('input is title')
                             showItemsTitleMatch.push(listItem)
@@ -115,8 +115,8 @@ function searchForPhrase() {
 
 
 // converts date and time into date
-function dateFormatter(dateAndTime) {
-    return dateAndTime.replace(/T.+/g, " ") // Will be improved later.
+function formatDate(dateAndTime) {
+    return dateAndTime?.replace(/T.+/g, " ") // Will be improved later.
 }
 
 function normalize(text) {
