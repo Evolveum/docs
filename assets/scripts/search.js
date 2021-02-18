@@ -29,7 +29,7 @@ function searchA() {
                 if (json[i].title !== undefined && json[i].title.toLowerCase().replace(/\s/g, "").includes(searchedValue)) {
                     //console.log("somtu");
                     if (showItems.length < 11) {
-                        showItems.push('<a href=https://docs.evolveum.com/' + json[i].url + '>' + '<li>' + json[i].title + '/n' + json[i].lastModificationDate + '</li>' + '</a>')
+                        showItems.push('<a href=https://docs.evolveum.com/' + json[i].url + '>' + '<li>' + json[i].title + '\n' + json[i].lastModificationDate + '</li>' + '</a>')
                     }
 
                 }
