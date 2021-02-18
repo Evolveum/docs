@@ -24,24 +24,26 @@ function searchA() {
 
             var showItems = [];
 
-            var numberOfNotshown = 0;
+            var numberOfNotShown = 0;
 
             for (var i = 0; i < json.length; i++) {
                 if (json[i].title !== undefined && json[i].title.toLowerCase().replace(/\s/g, "").includes(searchedValue)) {
-                    //console.log("somtu");
+                    //console.log("somtu");este
                     if (showItems.length < 5) {
                         showItems.push('<a href=https://docs.evolveum.com/' + json[i].url + '>' + '<li class="searchResult"><span class="font1">' + json[i].title + '<br></span>' + '<span class="font2">' + json[i].lastModificationDate.replace(/\T.+/g, " ") + '</span></li></a>')
                     } else {
-                        numberOfNotshown++;
+                        numberOfNotShown++;
                     }
 
                 }
             }
 
-            if (numberOfNotshown === 1) {
-                suggBox.innerHTML = showItems.join("") + '<li class="notShown"> additional ' + numberOfNotshown + ' result not shown' + '</li>'
-            } else if (numberOfNotshown > 0) {
-                suggBox.innerHTML = showItems.join("") + '<li class="notShown"> additional ' + numberOfNotshown + ' results not shown' + '</li>'
+            console.log('not shown ' + numberOfNotShown)
+
+            if (numberOfNotShown === 1) {
+                suggBox.innerHTML = showItems.join("") + '<li class="notShown"> additional ' + numberOfNotShown + ' result not shown' + '</li>'
+            } else if (numberOfNotShown > 0) {
+                suggBox.innerHTML = showItems.join("") + '<li class="notShown"> additional ' + numberOfNotShown + ' results not shown' + '</li>'
             } else {
                 suggBox.innerHTML = showItems.join("")
             }
