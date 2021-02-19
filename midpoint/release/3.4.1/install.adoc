@@ -1,0 +1,224 @@
+= Installing MidPoint 3.4.1 "Heisenberg" Update 1 From Binary Distribution
+:page-layout: release-install-legacy
+:page-release-version: 3.4.1
+:page-nav-title: Installation Instructions
+:page-wiki-name: Installing midPoint from Binary Distribution v3.4.1
+:page-liquid:
+
+{% for v in site.data.midpoint-versions %}{% if v.version == page.release-version %}{% assign this = v %}{% endif %}{% endfor %}
+
+MidPoint is a Java web application distributed in a form of `WAR` archive.
+All that is essentially needed is to deploy it in a suitable container.
+This guide provides instructions to install midPoint in Apache Tomcat.
+
+This document is somehow generic.
+This is done by purpose so it can be applied to a variety of operating systems and environments.
+Yet there are some more detailed guides for some environments that may be useful as companion to this document:
+
+[%autowidth]
+|===
+| Environment | Guide
+
+| Ubuntu Linux, Tomcat and PostgreSQL database
+| wiki:midPoint+on+Ubuntu,+Tomcat,+PostgreSQL+HOWTO[midPoint on Ubuntu, Tomcat, PostgreSQL HOWTO]
+
+|===
+
+
+== Before You Start
+
+[NOTE]
+.Release Notes
+====
+Please make sure to see wiki:Release+3.4.1[Release Notes] for list of environments that are known to work and for the list of known issues in current release.
+====
+
+
+=== Pre-requisites
+
+
+==== Java SE Development Kit 7
+
+The development environment requires at least JDK 7. You can use link:http://openjdk.java.net/[OpenJDK] wich might be already installed on your system of you can download JDK link:http://www.oracle.com/technetwork/java/javase/downloads/index.html[from Oracle].
+
+`JAVA_HOME` environment variable should point to the JDK installation path.
+
+Please note that Java 6 platform is no longer supported (although it might work in some situations)
+
+
+==== Java Cryptography Extension (JCE) Unlimited Strength Jurisdiction Policy Files 7
+
+*Optional* AES-128 is used by default for encrypt/decrypt operations, so JCE is not needed.
+If you want to use bigger key size, e.g. AES-256, then JCE is required for cryptographic operations.
+You can download it at link:http://www.oracle.com/technetwork/java/javase/downloads/index.html[http://www.oracle.com/technetwork/java/javase/downloads/index.html]. After downloading zip file follow installation instructions written in README.txt
+
+
+==== Apache Tomcat
+
+midPoint needs an application server.
+We recommend Apache Tomcat 7.x or 8.x.
+
+Apache Tomcat can be downloaded from link:http://tomcat.apache.org/download-70.cgi[http://tomcat.apache.org/download-70.cgi]. The Apache Tomcat installation directory is further referenced as <tomcat>.
+In windows platform prefer downloading of zip file to downloading of windows installer as later do not populate bin directory with all batch files.
+You will start tomcat server via running the startup.bat file from <tomcat>\bin directory.
+
+
+== Installation
+
+++++
+{% include release-install-download.html this=this %}
+++++
+
+
+[NOTE]
+====
+Please do NOT set the unzipped directory as your MidPoint Home Directory.
+Doing so, "schema" directory would conflict with midPoint embedded schemas.
+Instead, create new directory as described below.
+
+====
+
+
+=== MidPoint Home Directory (midpoint.home)
+
+If you intend to use custom connectors or schemas you need to create a directory anywhere on your system.
+This directory will be used to store your custom connector code, schemas, initial configuration and may also contains other files.
+MidPoint will populate that directory on first start.
+The directory will not be overwritten when midPoint is restarted or redeployed.
+
+As an intended side-effect, this directory will also be used to store your embedded database repository data (H2).
+
+If you don't want to use custom connectors or you want just to try midPoint, you can skip this chapter and continue to the wiki:Initialize+Database[#Initialize Database].
+
+
+==== Create the Directory
+
+You can create your custom directory anywhere in your system.
+We often use locations such as `/opt/midpoint` or `/var/opt/midpoint` on linux platforms and `c:\midpoint` directory on windows platforms.
+The directory has to be writable by the application server.
+
+See wiki:MidPoint+Home+Directory[MidPoint Home Directory] page for a description of the directory structure.
+
+
+==== Tomcat "catalina.sh/catalina.bat" Customization
+
+To actually use the Custom Directory, modify the "`catalina.sh`" script located in `<tomcat>/bin/catalina.sh` and set the "JAVA\_OPTS" variable.
+
+[source]
+----
+...
+JAVA_OPTS="$JAVA_OPTS -Dmidpoint.home=/var/opt/midpoint -Djavax.net.ssl.trustStore=/var/opt/midpoint/keystore.jceks -Djavax.net.ssl.trustStoreType=jceks -XX:MaxPermSize=256m -Xss1m"
+...
+
+----
+
+On windows platforms, add line
+
+[source]
+----
+...
+set JAVA_OPTS=%JAVA_OPTS% -Dmidpoint.home=c:/midpoint -Djavax.net.ssl.trustStore=c:/midpoint/keystore.jceks -Djavax.net.ssl.trustStoreType=jceks -XX:MaxPermSize=256m -Xss1m
+...
+
+----
+
+ at the beginning of "catalina.bat" batch file located in  `<tomcat>\bin` directory.
+This line sets up wiki:MidPoint+Home+Directory[MidPoint Home Directory] location.
+It also overrides default JVM wiki:Keystore+Configuration[keystore]. This is needed for proper SSL support in connectors, notifications and other libraries that are not under direct midPoint control.
+See wiki:Keystore+Configuration[Keystore Configuration] page for more details.
+
+Midpoint needs larger Java memory settings than default values in order to run properly. To manage Java memory usage -Xss option is used.
+
+
+=== Configure Tomcat
+
+Tomcat has a limitation of maximum size of POST data it accepts.
+This can cause problems when editing or importing large objects.
+So it is advisable to raise (or eliminate) the limit by editing the `server.xml` file, e.g.:
+
+[source,html/xml]
+----
+<Connector port="8080" protocol="HTTP/1.1" connectionTimeout="20000" redirectPort="8443" maxPostSize="100000000"/>
+----
+
+or
+
+[source,html/xml]
+----
+<Connector port="8080" protocol="HTTP/1.1" connectionTimeout="20000" redirectPort="8443" maxPostSize="-1"/>
+----
+
+
+=== Initialize Database
+
+MidPoint comes with an embedded database engine (H2) that is perfectly suitable for testing and demo installations.
+This database will be used by midPoint after the installation.
+Therefore there is no need to set up a separate database if installing midPoint for the first time.
+The database files will be stored in `midpoint.home` directory.
+
+The database can later be changed to a full-scale database engine.
+The wiki:Repository+Configuration[Repository Configuration] page provides the instructions.
+
+
+=== Deploy midPoint
+
+MidPoint appliation is deployed by using the `midpoint.war` file located in the `war` subdirectory of the distribution archive.
+To deploy midPoint WAR file, use the following steps:
+
+. Stop Tomcat if it's already running.
+
+. Copy `midpoint.war` to `<tomcat>/webapps directory`.
+
+. Start Tomcat.
+It should pick up and deploy the "midpoint" application.
+
+
+== Post-Installation Steps
+
+
+=== Test midPoint administration GUI
+
+Log in to the midPoint administration console using the following URL:
+
+link:http://localhost:8080/midpoint/[http://localhost:8080/midpoint/]
+
+[%autowidth,cols="h,1"]
+|===
+| Username | administrator
+
+| Password
+| 5ecr3t
+
+
+|===
+
+A home page of the midPoint console should be displayed.
+This is a pretty dynamic web application using AJAX for better user interaction.
+The look&feel is quite minimalistic now, we are working on an improvement just now.
+
+If there is a problem, please check Tomcat logs in `<tomcat>/log/catalina.out` and `<tomcat>/log/idm.log`.
+
+
+=== Optional Post-Installation Steps
+
+MidPoint encrypts some data to protect sensitive parts of the database such as passwords.
+First start of midPoint generates and encryption key for you.
+But it generates a short encryption key that is suitable both for use by export-limited and full-strength cryptography modules.
+Therefore is full-strength JCE extension was installed it is recommended to change the encryption key to a full-strength key.
+It can be achieved by keytool utility.
+The wiki:Encryption+and+Keys[Encryption and Keys] page describes the procedure.
+
+
+=== What Now?
+
+For an quick introduction to use of midPoint please follow the instructions on wiki:First+Steps[First Steps] page.
+Full wiki:Administration+Interface[Administration Interface] is also available.
+
+
+== See Also
+
+* wiki:First+Steps[First Steps]
+
+* wiki:Administration+Interface[Administration Interface]
+
+* wiki:midPoint+Releases[midPoint Releases]
