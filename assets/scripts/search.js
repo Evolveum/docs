@@ -70,7 +70,7 @@ function searchForPhrase() {
                         console.log(title);
 
                         const listItem = '<a href=https://docs.evolveum.com/' + searchMap[i].url + '>' +
-                            '<li class="list-group-item" style="width: 100%"><i class="fas fa-align-left"></i><span class="font1">' + '  ' + searchMap[i].title + '<br></span>' +
+                            '<li class="list-group-item" style="width: 100%";border-style: none><i class="fas fa-align-left"></i><span class="font1">' + '        ' + searchMap[i].title + '<br></span>' +
                             '<span class="font2">' + formatDate(searchMap[i].lastModificationDate) + '</span></li></a>';
                         if (title.localeCompare(phrase) === 0) {
                             console.log('input is title')
