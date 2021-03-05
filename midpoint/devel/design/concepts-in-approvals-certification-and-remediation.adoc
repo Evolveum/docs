@@ -1,0 +1,1067 @@
+= Concepts in approvals, certification, and remediation
+:page-wiki-name: Concepts in approvals, certification, and remediation
+
+TODO some introduction here; see also wiki:Approvals+terminology[Approvals terminology].
+
+[TIP]
+====
+Relevant for midPoint 3.6. Work in progress.
+
+====
+
+[%autowidth]
+|===
+| Generic concept | Concept in approvals | Represented by | Concept in certification | Represented by | Concept in case management | Represented by
+
+| Basic unit of processing
+| Approval process
+| TaskType with workflowContext
+| Certification case
+| AccessCertificationCaseType
+| Case
+| CaseType
+
+
+| Description
+| This is about approving an elementary change (that is to be executed), e.g. assignment of a role.
+| This is about approving a single fact (that was found), e.g. existence of an assignment of a role.
+| This is about sorting out a single issue, e.g. non-existence of an org manager, or a need to manually create an account somewhere.
+
+
+| Grouped into
+| Operation
+| parent TaskType with workflowContext
+| Certification campaign
+| AccessCertificationCampaignType
+| None: case is the root entity.
+|
+
+
+| Description
+| It could contain any number of elementary changes requiring approval (along with other changes that could be directly executed).
+| Campaign is a set of cases being processed at once.
+A campaign can be a standard or ad-hoc one.
+| N/A
+
+
+| Consisting of
+| Approval stages (originally called "levels")
+| stageNumber [.line-through]#(stageCount, stageName, stageDisplayName)# +
+(in workflow context and work item)
+| Certification campaign stages
+| stageNumber, stage  +
+(in campaign)
+| TBD
+| TBD
+
+
+| Description
+| Defines a set of approvers.
+For each approver, a work item is created.
+| Defines a set of reviewers.
+For each reviewer, a work item is created.
+| TBD
+
+
+| Stage result
+| approved, rejected, silently skipped
+| ApprovalLevelOutcomeType +
+(TODO rename to ApprovalStageOutcomeType)
+| accept, revoke, reduce, notDecided, delegate, noResponse
+| AccessCertificationResponseType - TODO not all responses are relevant as stage outcome - consider e.g. delegate
+| TBD
+|
+
+
+| Stage result computation
+| allMustApprove, firstDecides
+| level.evaluationStrategy
+| oneAcceptAccepts, oneDenyDenies, acceptedIfNotDenied, allMustAccept
+| AccessCertificationCaseOutcomeStrategyType (campaign.stage.outcomeStrategy)
+| TBD
+|
+
+
+| Overall result computation
+| approved if all the levels are either approved or skipped; otherwise rejected
+| N/A
+| oneAcceptAccepts, oneDenyDenies, acceptedIfNotDenied, allMustAccept
+| AccessCertificationCaseOutcomeStrategyType (campaign.reviewStrategy.outcomeStrategy)
+| TBD
+|
+
+
+| Process stop condition
+| on first stage finished with rejection
+| N/A
+| on defined stage results
+| campaign.stage.stopReviewOn/advanceToNextStageOn, campaign.reviewStrategy.stopReviewOn/advanceToNextStageOn, or given by the stage outcome strategy
+| TBD
+|
+
+
+| Precomputation of the stage result
+| It is possible to set "automatically approved" or "automatically completed" expressions.
+(The former is deprecated.)
+| level.automaticallyApproved, level.automaticallyCompleted
+| N/ABut can be simulated using reviewerSpecification and "outcome if no reviewers".
+| N/A
+| TBD
+|
+
+
+| Outcome if no actors
+| any stage result
+| level.outcomeIfNoApprovers
+| any stage result
+| stageDefinition.outcomeIfNoReviewers
+| TBD
+|
+
+
+| Basic unit of user action
+| (Workflow) work item
+| Activiti task, WorkItemType (WfContextType.workItem)
+| (Certification) work item
+| AccessCertificationWorkItemType
+| TBD
+|
+
+
+| Actors expected to take action
+| assignees (actors)
+| task.assignee and identity links (type=midpointAssignee), +
+WorkItemType.assigneeRef (0..N)
+| reviewers
+| workItem.reviewerRef
+| TBD
+|
+
+
+| candidate assignees (candidate actors)
+| task.candidateUsers, task.candidateGroups +
+WorkItemType.candidateRef (0..N) (users, abstract roles)
+| N/A
+| N/A
+| TBD
+|
+
+
+| Original actor
+| original assignee
+| WorkItemType.originalAssigneeRef (0..1)
+| original reviewer
+| workItem.originalReviewerRef
+| TBD
+|
+
+
+| Actors definition
+| in the stage definition (collected from policy rules or from roles)
+| approvalLevel.approverRef, approverRelation, approverExpression - put into assigneeRef if users; and into candidateRef if abstract roles (unless groupExpansion is onWorkItemCreation; in that case roles are expanded into approverRef users on work item creation).
+| in the stage definition (as present in campaign definition or campaign itself)
+| stageDefinition.reviewerSpecificationuseTargetOwner, useTargetApprover, useObjectOwner, useObjectApprover, useObjectManager, reviewerExpression, defaultReviewerRef, additionalReviewerRef
+| TBD
+|
+
+
+| Deadlines and timing
+| Set for work item
+|
+| Set for campaign stage
+| stage.deadline
+| TBD
+|
+
+
+| Group opening time
+| Currently not available.
+Could be derived from "case opening time", because all "cases" (approval process instances) are created at the same time.
+|
+| Available for campaign.
+| campaign.start
+|
+|
+
+
+| Group closure time
+| Currently not directly available.
+It could be maybe derived from root task execution information; but this might differ between "execute after all approvals" and "execute immediately".
+|
+| Available for campaign.
+| campaign.end
+|
+|
+
+
+| Group deadline
+| N/A
+| N/A
+| N/A
+| N/A
+|
+|
+
+
+| Case opening time
+| Available in workflow context (and in all its work items).
+| task.workflowContext.startTimestamp +
+activiti task variable "startTime", workItem.processStartedTimestamp
+| Individual cases are bound to the owning campaign.
+Therefore, their opening and closure times are the same the ones for the campaign; and they are stored within the campaign. +
++
++
++
+
+|
+|
+
+
+| Case closure time
+| Available in workflow context
+| task.workflowContext.endTimestamp
+|
+|
+
+
+| Case deadline
+| N/A
+| N/A
+| N/A
+| N/A
+|
+|
+
+
+| Stage opening time
+| The same as work item creation time (see below).
+| N/A
+| In the stage execution information.
+| campaign.stage.start
+|
+|
+
+
+| Stage closure time
+| Currently not directly available; only by looking at opening time for the next stage or the whole process.
+| TODO use WfStageCompletionEventType.timestamp (currently available only for automated stage completion events)
+| In the stage execution information.
+| campaign.stage.end
+|
+|
+
+
+| Stage deadline
+| Not directly available.
+Can be derived from work items' deadlines.
+| N/A
+| In the stage execution information.
+| campaign.stage.deadline
+|
+|
+
+
+| Stage deadline definition
+| The duration specified in approval level definition applies to all work items created for that level.
+However, for individual work items it can be postponed by delegation or escalation.
+| level.duration
+| In the stage definition.
+| campaign.stageDefinition.duration and deadlineRounding (none, hour, day)
+| TBD
+|
+
+
+| Work item creation time
+| Available in a work item.
+| activiti task.createTime, workItem.workItemCreatedTimestamp +
+(TODO: create also WorkItemCreationEventType?)
+| _The same as stage opening time._
+| _campaign.stage.start_
+|
+|
+
+
+| Work item completion time
+| Not available directly on work item, because work item is deleted at the moment of its completion.
+But can be retrieved from events list.
+| WorkItemCompletionEventType.timestamp
+| Available in a work item.
+| workItem.closedTimestamp
+|
+|
+
+
+| Work item deadline
+| Available in a work item.
+| activiti task.dueDate, workItem.deadline
+| TODO
+| TODO
+|
+|
+
+
+| Work item deadline definition
+| The duration specified in approval level definition applies to all work items created for that level.
+However, for individual work items it can be postponed by delegation or escalation.
+| level.duration, delegationAction.duration
+| TODO
+| TODO
+|
+|
+
+
+| Escalation
+| Set for work item
+|
+| Set for campaign stage ? (TODO)
+| TODO
+| TBD
+|
+
+
+| Escalation info
+| Present in work item (both activiti and JAXB); but also in event list in workflow context.
+| task variables (present in workItem as well): escalationLevelNumber, escalationLevelName, escalationLevelDisplayNamealso in WorkItemEscalationEventType
+|
+|
+|
+|
+
+
+| Escalation definition
+| Using timed actions defined for approval stage (level).
+|
+|
+|
+|
+|
+
+
+|
+|
+|
+|
+|
+|
+|
+
+
+|
+|
+|
+|
+|
+|
+|
+
+
+|
+|
+|
+|
+|
+|
+|
+
+
+|
+|
+|
+|
+|
+|
+|
+
+
+|
+|
+|
+|
+|
+|
+|
+
+
+|===
+
+
+== Cases in different contexts
+
+[%autowidth]
+|===
+| Approval process (WfContextType) | Certification case (AccessCertificationCaseType) | Generic case (CaseType) | TODO
+
+| processInstanceName
+|
+|
+|
+
+
+|
+|
+| state (URI)
+|
+
+
+| startTimestamp
+| ^ startTimestamp
+|
+|
+
+
+| endTimestamp
+| ^ endTimestamp
+| closeTimestamp
+| Consider correct names.
+
+
+|
+| currentStageCreateTimestamp
+|
+|
+
+
+|
+| currentStageDeadline
+|
+|
+
+
+| requesterRef
+|
+|
+|
+
+
+| objectRef
+| objectRef
+|
+|
+
+
+| targetRef
+| targetRef
+|
+|
+
+
+|
+| tenantRef
+|
+|
+
+
+|
+| orgRef
+|
+|
+
+
+|
+| activation
+|
+| not sure if it's really needed
+
+
+|
+|
+|
+|
+
+
+| rootTaskRef
+|
+|
+| not used but keep it (for the future, maybe)
+
+
+| stageNumber
+| stageNumber
+|
+|
+
+
+| outcome (URI)
+| outcome (URI)
+| outcome (URI)
+|
+
+
+| changeProcessor, processInterface
+| ^ handlerUri
+|
+|
+
+
+|
+|
+|
+|
+
+
+| processorSpecificState +
+(changeAspect, deltasToProcess, resultingDeltas)
+| assignment, isInducement
+|
+|
+
+
+| processSpecificState +
+(approvalSchema, policyRules)
+| ^ stageDefinition, ^ reviewStrategy
+|
+|
+
+
+| event
+| event
+| event
+|
+
+
+| workItem
+| workItem
+| workItem
+|
+
+
+|
+|
+|
+|
+
+
+| processInstanceId (externalId)
+|
+|
+|
+
+
+| processName
+|
+|
+|
+
+
+|
+| currentStageOutcome (URI)
+|
+| keep it (useful e.g. for statistics)
+
+
+|
+|
+|
+|
+
+
+|
+| remediedTimestamp
+|
+|
+
+
+|
+|
+|
+|
+
+
+|
+|
+|
+|
+
+
+|
+|
+|
+|
+
+
+|
+|
+|
+|
+
+
+|
+|
+|
+|
+
+
+|===
+
+
+
+Campaign
+
+[%autowidth]
+|===
+|
+
+| start (time of opening the first stage)
+
+
+| end
+
+
+| stageNumber
+
+
+| handlerUri
+
+
+| scopeDefinition, remediationDefinition, stageDefinition, reviewStrategy
+
+
+| stage
+
+
+| definitionRef
+
+
+| ownerRef
+
+
+| state
+
+
+|===
+
+
+
+
+== Work items in different contexts
+
+[%autowidth]
+|===
+| AbstractWorkItemType | Approval work item | Certification work item | Case work item | TODO | Comment
+
+| name
+| name
+| X
+| TBD
+|
+|
+
+
+| createTimestamp
+| createTimestamp
+| X (^currentStageCreateTimestamp)
+| TBD
+|
+|
+
+
+| deadline
+| deadline
+| X (^currentStageDeadline)
+| TBD
+|
+|
+
+
+| originalAssigneeRef
+| originalAssigneeRef
+| originalAssigneeRef
+| originalAssigneeRef
+|
+|
+
+
+| assigneeRef
+| assigneeRef
+| assigneeRef
+| assigneeRef
+|
+|
+
+
+| candidateRef
+| candidateRef
+| X
+| X
+|
+|
+
+
+| executorRef
+| executorRef
+| executorRef
+| executorRef
+|
+|
+
+
+| output (outcome + comment)
+| output that includes additionalDelta
+| output
+| output
+|
+|
+
+
+| completeTimestamp
+| X
+| completeTimestamp
+| completeTimestamp
+|
+|
+
+
+| stageNumber
+| stageNumber
+| stageNumber
+| X
+|
+|
+
+
+| escalationLevel (number, name, displayName)
+| escalationLevel
+| escalationLevel
+| X
+|
+|
+
+
+|
+|
+| outputChangeTimestamp
+|
+|
+|
+
+
+|
+| additionalInformation
+|
+|
+|
+|
+
+
+|
+| processSpecificPart
+|
+|
+|
+| Currently empty.
+
+
+|
+| externalId
+|
+|
+|
+|
+
+
+|
+|
+|
+|
+|
+|
+
+
+|===
+
+X means "present but not used now"; ^name means "for this purpose, item named 'name' from the owning entity is used"
+
+
+== Events
+
+[%autowidth]
+|===
+| Item | CaseCreation | CaseCompletion | StageCompletion | WorkItemDelegation | WorkItemEscalation | WorkItemCompletion | TODO
+
+| timestamp
+| Y
+| Y
+| Y
+| Y
+| Y
+| Y
+|
+
+
+| initiatorRef
+| Y
+| Y
+| Y
+| Y
+| Y
+| Y
+|
+
+
+| stageNumber
+| Y
+| Y
+| Y
+| Y
+| Y
+| Y
+|
+
+
+| outcome
+|
+| why not?
+| Y
+|
+|
+|
+|
+
+
+| automatedDecisionReason +
+(autoCompletionCondition, noApproversFound)
+|
+|
+| Y
+|
+|
+|
+| migrate to URI?
+
+
+| businessContext
+| Y
+|
+|
+|
+|
+|
+|
+
+
+| workItemId / externalWorkItemId
+|
+|
+|
+| Y
+| Y
+| Y
+|
+
+
+| current escalation level info (#, name, displayName)
+|
+|
+|
+| Y
+| Y
+| Y
+|
+
+
+| originalAssigneeRef
+|
+|
+|
+| Y
+| Y
+| Y
+|
+
+
+| cause (type = userAction/timedAction; name, displayName)
+|
+|
+|
+| Y
+| Y
+| Y
+| migrate to URI for cause type?
+
+
+| assigneeBefore, delegatedTo (TODO: assigneeAfter)
+|
+|
+|
+| Y
+| Y
+|
+|
+
+
+| delegationMethod
+|
+|
+|
+| Y
+| Y
+|
+| migrate to URI?
+
+
+| new escalation level info (#, name, displayName)
+|
+|
+|
+|
+| Y
+|
+|
+
+
+| output
+|
+|
+|
+|
+|
+| Y
+|
+
+
+|===
+
+
+==== TODO
+
+. migrate enums to URIs (automatedDecisionReason), delegationMethod, cause type, outcome computation strategies (cert/approval), use of outcomes (cert/approval) in definitions and internal structures, ...
+
+. historic work items for approvals
+
+. create events: StageCreationEventType, WorkItemCreationEventType
+
+
+== Stage definitions
+
+[%autowidth]
+|===
+| Item | Approvals (ApprovalStageDefinitionType) | Certification (AccessCertificationStageDefinitionType) | TODO
+
+| number (1..N)
+| number
+| number
+|
+
+
+|
+| name
+| name
+|
+
+
+|
+| displayName
+|
+|
+
+
+|
+| description
+| description
+|
+
+
+|
+| evaluationStrategy (firstDecides, allMustApprove)
+| outcomeStrategy, stopReviewOn, advanceToNextStageOn
+| migrate to URIs (not necessarily now)
+
+
+|
+| outcomeIfNoApprovers (approve, reject, skip)
+| outcomeIfNoReviewers
+| migrate to URIs (not necessarily now)
+
+
+|
+| groupExpansion
+|
+|
+
+
+|
+| formRef
+|
+|
+
+
+|
+| additionalInformation
+|
+|
+
+
+|
+| automaticallyCompleted (was automaticallyApproved)
+|
+|
+
+
+|
+| duration
+| duration (deadlineRounding)
+|
+
+
+|
+|
+| notifyBeforeDeadline, notifyOnlyWhenNoDecision
+|
+
+
+|
+| timedActions
+| timedActions
+|
+
+
+|===
+
+
+=== Approver/Reviewer specifications
+
+[%autowidth]
+|===
+| Item | Approvals (ApprovalStageDefinitionType) | Certification (AccessCertificationReviewerSpecificationType)
+
+|
+|
+| name
+
+
+|
+|
+| description
+
+
+|
+| approverRef
+| additionalReviewerRef
+
+
+|
+| approverRelation (related to target)
+| useTargetOwner, useTargetApprover (uses both "ownerRef/approverRef" fields and "org:owner/org:approver" relations)
+
+
+|
+| _(currently available only by expression)_
+| useObjectOwner, useObjectApprover (similar to above)
+
+
+|
+| _(currently available only by expression)_
+| useObjectManager (orgType, allowSelf)
+
+
+|
+| approverExpression
+| reviewerExpression
+
+
+|
+|
+| defaultReviewerRef
+
+
+|===

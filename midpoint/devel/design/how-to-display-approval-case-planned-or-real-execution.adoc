@@ -1,0 +1,438 @@
+= How to display approval case (planned or real) execution
+:page-wiki-name: How to display approval case (planned or real) execution
+
+
+[TIP]
+====
+This page explains how to use `ApprovalSchemaExecutionInformationType` structure to visualize planned or real approval case execution.
+It is relevant to midPoint 4.1 and later.
+
+====
+
+
+== How to get the information
+
+The information about planned or real approval case can be obtained by the following methods:
+
+. `modelInteractionService.previewChanges` followed by `modelContext.getHookPreviewResults(ApprovalSchemaExecutionInformationType.class)` - when we are previewing changes that are to be done;
+
+. `workflowManager.getApprovalSchemaExecutionInformation(approvalCaseOid, task, result)` - when we are trying to learn about history, current state and future of already existing approval case.
+
+Both methods result in obtaining `ApprovalSchemaExecutionInformationType` structure.
+In the following we'll explain how to interpret its content.
+
+
+== Past, current, and future stages
+
+An approval case - either existing or anticipated - can have three kinds of stages:
+
+. past (already executed) stages,
+
+. current stage,
+
+. future (anticipated) stages.
+
+
+== TL;DR
+
+When obtaining necessary information about approvers and the evaluation strategy we look at:
+
+[%autowidth]
+|===
+| State | Approvers | Evaluation strategy
+
+| Past (already executed) stages
+| `caseRef/object/events (WorkItemCompletionEventType)`
+| not important - we are interested simply in who approved what
+
+
+| Current stage
+| `caseRef/object/events (WorkItemCompletionEventType)` (for closed work items) and `caseRef/object/workItem/approverRef` (for open work items)
+| `stage/definition/evaluationStrategy`
+
+
+| Future (anticipated) stages
+| `stage/executionPreview/expectedApproverRef`
+| `stage/definition/evaluationStrategy`
+
+
+|===
+
+
+== An example
+
+Let's consider this simple three-stage approval process:
+
+[source,xml]
+----
+<approvalSchema>
+    <stage>
+        <number>1</number>
+        <approverRef oid="feb34927-7671-401e-9f5b-8f7ec94f3112" type="UserType" /> <!-- Jane the Lab Owner -->
+    </stage>
+    <stage>
+        <number>2</number>
+        <approverRef oid="072bf16a-e424-456c-a212-7996f34c3c5c" type="UserType" /> <!-- Martin the Dept Head -->
+    </stage>
+    <stage>
+        <number>3</number>
+        <approverRef oid="408beff8-c988-4c77-ac5e-ed26697d6982" type="UserType" /> <!-- Peter the Dean -->
+        <approverRef oid="4aab211b-5faf-45e2-acaf-a17a89d39fd1" type="UserType" /> <!-- Kate the Administrator -->
+        <evaluationStrategy>allMustApprove</evaluationStrategy>
+    </stage>
+</approvalSchema>
+----
+
+It is attached to the role of `lab-manager`. Imagine now that `alice` is being assigned this role.
+
+
+== Preview changes
+
+During preview changes, the whole approval case is not yet existing: it is only anticipated.
+All three stages are therefore "future"; no real work items were created, and (obviously) no work items were completed.
+
+[%autowidth]
+|===
+| State | Stages
+
+| Past (already executed) stages
+| none
+
+
+| Current stage
+| none
+
+
+| Future (anticipated) stages
+| 1, 2, 3
+
+
+|===
+
+To obtain the information we need we have to call `modelInteractionService.previewChanges` and `modelContext.getHookPreviewResults(ApprovalSchemaExecutionInformationType.class)`. We'll get something like this:
+
+ +
+
+
+ +
+
+
+[source,xml]
+----
+<approvalSchemaExecutionInformationType ...>
+    <caseRef relation="org:default" type="c:CaseType">
+        <!-- Assigning role "lab-manager" to user "alice" -->
+        <object> ... this is expected content of the case object ... </object>
+    </caseRef>
+    <stage>
+        <number>1</number>
+        <definition> ... </definition>
+        <executionPreview>
+            <expectedApproverRef oid="feb34927-7671-401e-9f5b-8f7ec94f3112" relation="org:default" type="c:UserType"/>
+        </executionPreview>
+    </stage>
+    <stage>
+        <number>2</number>
+        <definition> ... </definition>
+        <executionPreview>
+            <expectedApproverRef oid="072bf16a-e424-456c-a212-7996f34c3c5c" relation="org:default" type="c:UserType"/>
+        </executionPreview>
+    </stage>
+    <stage>
+        <number>3</number>
+        <definition> ...
+            <evaluationStrategy>allMustApprove</evaluationStrategy>
+        </definition>
+        <executionPreview>
+            <expectedApproverRef oid="408beff8-c988-4c77-ac5e-ed26697d6982" relation="org:default" type="c:UserType"/>
+            <expectedApproverRef oid="4aab211b-5faf-45e2-acaf-a17a89d39fd1" relation="org:default" type="c:UserType"/>
+        </executionPreview>
+    </stage>
+    <policyRules> ... </policyRules>
+</approvalSchemaExecutionInformationType>
+----
+
+ +
+
+
+We can obtain expected approvers information from the `stage/executionPreview/expectedApproverRef `values.
+We also need to know if "all must approve" or "first decides" strategy is used - and we know this from the respective stage definitions.
+
+See also `TestPreview.test100PurePreview`  in workflow-impl tests.
+
+
+== During case approval: initial state
+
+Now let's assume that the operation was really executed, so the approval case was created.
+On the very beginning the case is in stage 1: a work item for this stage exists, and work items for future stages 2 and 3 are anticipated.
+
+So:
+
+[%autowidth]
+|===
+| State | Stages
+
+| Past (already executed) stages
+| none
+
+
+| Current stage
+| 1
+
+
+| Future (anticipated) stages
+| 2, 3
+
+
+|===
+
+The data structure is like this:
+
+[source,xml]
+----
+<approvalSchemaExecutionInformation ...>
+    <caseRef oid="99f18330-b90d-4cd0-8bdd-c9ef18a0c1e4" relation="org:default" type="c:CaseType">
+        <!-- Assigning role "lab-manager" to user "alice" -->
+        <object oid="99f18330-b90d-4cd0-8bdd-c9ef18a0c1e4" version="2">
+            <workItem>
+                ...
+                <stageNumber>1</stageNumber>
+                <assigneeRef oid="feb34927-7671-401e-9f5b-8f7ec94f3112" relation="org:default" type="c:UserType"/>
+            </workItem>
+            <approvalContext>
+               ...
+            </approvalContext>
+            <stageNumber>1</stageNumber>
+        </object>
+    </caseRef>
+    <currentStageNumber>1</currentStageNumber>
+    <stage>
+        <number>1</number>
+        <definition> ... </definition>
+    </stage>
+    <stage>
+        <number>2</number>
+        <definition> ... </definition>
+        <executionPreview>
+            <expectedApproverRef oid="072bf16a-e424-456c-a212-7996f34c3c5c" relation="org:default" type="c:UserType"/>
+        </executionPreview>
+    </stage>
+    <stage>
+        <number>3</number>
+        <definition>
+            ...
+            <evaluationStrategy>allMustApprove</evaluationStrategy>
+        </definition>
+        <executionPreview>
+            <expectedApproverRef oid="408beff8-c988-4c77-ac5e-ed26697d6982" relation="org:default" type="c:UserType"/>
+            <expectedApproverRef oid="4aab211b-5faf-45e2-acaf-a17a89d39fd1" relation="org:default" type="c:UserType"/>
+        </executionPreview>
+    </stage>
+    ...
+</approvalSchemaExecutionInformation>
+----
+
+Approvers for the current stage can be obtained from the embedded case:
+
+. approvers for open work items by inspecting `caseRef/object/workItem/approverRef`,
+
+. approvers for already closed work items
+
+The approval strategy (allMustApprove/firstDecides) is present either in `caseRef/object/approvalContext/approvalSchema/stage/evaluationStrategy`  or (even better) in `stage/definition/evaluationStrategy`.
+
+See also `TestPreview.test110InfoAfterStart`  in workflow-impl tests.
+
+
+== During case approval: a middle stage
+
+Imagine that the first stage has been completed, e.g. by approving the work item under `administrator` user.
+
+The situation is like this:
+
+[%autowidth]
+|===
+| State | Stages
+
+| Past (already executed) stages
+| 1
+
+
+| Current stage
+| 2
+
+
+| Future (anticipated) stages
+| 3
+
+
+|===
+
+The data structure is:
+
+[source,xml]
+----
+<approvalSchemaExecutionInformation ...>
+    <caseRef oid="99f18330-b90d-4cd0-8bdd-c9ef18a0c1e4" relation="org:default" type="c:CaseType">
+        <!-- Assigning role "lab-manager" to user "alice" -->
+        <object oid="99f18330-b90d-4cd0-8bdd-c9ef18a0c1e4" version="3">
+            ...
+            <event ... xsi:type="c:WorkItemCompletionEventType">
+                ...
+                <timestamp>2020-04-20T14:02:57.977+02:00</timestamp>
+                <initiatorRef oid="00000000-0000-0000-0000-000000000002" relation="org:default" type="c:UserType"/>
+                <stageNumber>1</stageNumber>
+                <output>
+                    <outcome>http://midpoint.evolveum.com/xml/ns/public/model/approval/outcome#approve</outcome>
+                </output>
+            </event>
+            <workItem id="6">
+                ...
+                <stageNumber>1</stageNumber>
+                <createTimestamp>2020-04-20T14:02:57.723+02:00</createTimestamp>
+                <originalAssigneeRef oid="feb34927-7671-401e-9f5b-8f7ec94f3112" relation="org:default" type="c:UserType"/>
+                <assigneeRef oid="feb34927-7671-401e-9f5b-8f7ec94f3112" relation="org:default" type="c:UserType"/>
+                <performerRef oid="00000000-0000-0000-0000-000000000002" relation="org:default" type="c:UserType"/>
+                <output>
+                    <outcome>http://midpoint.evolveum.com/xml/ns/public/model/approval/outcome#approve</outcome>
+                </output>
+                <closeTimestamp>2020-04-20T14:02:57.973+02:00</closeTimestamp>
+            </workItem>
+            <workItem id="7">
+                ...
+                <stageNumber>2</stageNumber>
+                <createTimestamp>2020-04-20T14:02:57.995+02:00</createTimestamp>
+                <originalAssigneeRef oid="072bf16a-e424-456c-a212-7996f34c3c5c" relation="org:default" type="c:UserType"/>
+                <assigneeRef oid="072bf16a-e424-456c-a212-7996f34c3c5c" relation="org:default" type="c:UserType"/>
+            </workItem>
+            <approvalContext> ... </approvalContext>
+            <stageNumber>2</stageNumber>
+        </object>
+    </caseRef>
+    <currentStageNumber>2</currentStageNumber>
+    <stage>
+        <number>1</number>
+        <definition> ... </definition>
+    </stage>
+    <stage>
+        <number>2</number>
+        <definition> ... </definition>
+    </stage>
+    <stage>
+        <number>3</number>
+        <definition>
+            ...
+            <evaluationStrategy>allMustApprove</evaluationStrategy>
+        </definition>
+        <executionPreview>
+            <expectedApproverRef oid="408beff8-c988-4c77-ac5e-ed26697d6982" relation="org:default" type="c:UserType"/>
+            <expectedApproverRef oid="4aab211b-5faf-45e2-acaf-a17a89d39fd1" relation="org:default" type="c:UserType"/>
+        </executionPreview>
+    </stage>
+    <policyRules> ... </policyRules>
+</approvalSchemaExecutionInformation>
+----
+
+Approvers for the already executed stages and the current stage can be obtained from the embedded case.
+The approval strategy (allMustApprove/firstDecides) for already executed stages is not relevant.
+The strategy for current stage should be taken from `stage/definition/evaluationStrategy`.
+
+See also `TestPreview.test120InfoAfterStageOneApproval`  in workflow-impl tests.
+
+
+== During case approval: the last stage
+
+Let the second stage be completed, e.g. again by approving the work item under `administrator` user.
+
+The situation is like this:
+
+[%autowidth]
+|===
+| State | Stages
+
+| Past (already executed) stages
+| 1, 2
+
+
+| Current stage
+| 3
+
+
+| Future (anticipated) stages
+| none
+
+
+|===
+
+The data structure is:
+
+[source,xml]
+----
+<approvalSchemaExecutionInformation ...>
+    <caseRef oid="51e565e8-147a-4fad-ba2c-d48bf2a09305" relation="org:default" type="c:CaseType">
+        <!-- Assigning role "lab-manager" to user "alice" -->
+        <object oid="51e565e8-147a-4fad-ba2c-d48bf2a09305" version="4">
+            ...
+            <event ... xsi:type="c:WorkItemCompletionEventType">
+                ...
+                <initiatorRef oid="00000000-0000-0000-0000-000000000002" relation="org:default" type="c:UserType"/>
+                <stageNumber>1</stageNumber>
+                <workItemId>6</workItemId>
+            </event>
+            <event ... xsi:type="c:WorkItemCompletionEventType">
+                ...
+                <initiatorRef oid="00000000-0000-0000-0000-000000000002" relation="org:default" type="c:UserType"/>
+                <stageNumber>2</stageNumber>
+                <workItemId>7</workItemId>
+            </event>
+            <workItem id="6">
+                <stageNumber>1</stageNumber>
+                ...
+                <closeTimestamp>2020-04-20T16:12:58.372+02:00</closeTimestamp>
+            </workItem>
+            <workItem id="7">
+                <stageNumber>2</stageNumber>
+                ...
+                <closeTimestamp>2020-04-20T16:12:58.597+02:00</closeTimestamp>
+            </workItem>
+            <workItem id="9">
+                ...
+                <stageNumber>3</stageNumber>
+                <assigneeRef oid="408beff8-c988-4c77-ac5e-ed26697d6982" relation="org:default" type="c:UserType"/>
+            </workItem>
+            <workItem id="10">
+                ...
+                <stageNumber>3</stageNumber>
+                <assigneeRef oid="4aab211b-5faf-45e2-acaf-a17a89d39fd1" relation="org:default" type="c:UserType"/>
+            </workItem>
+            <approvalContext> ... </approvalContext>
+            <stageNumber>3</stageNumber>
+        </object>
+    </caseRef>
+    <currentStageNumber>3</currentStageNumber>
+    <stage>
+        <number>1</number>
+        <definition id="2"> ... </definition>
+    </stage>
+    <stage>
+        <number>2</number>
+        <definition id="3"> ... </definition>
+    </stage>
+    <stage>
+        <number>3</number>
+        <definition id="4">
+            ...
+            <evaluationStrategy>allMustApprove</evaluationStrategy>
+        </definition>
+    </stage>
+    <policyRules> ... </policyRules>
+</approvalSchemaExecutionInformation>
+----
+
+See also `TestPreview.test130InfoAfterStageTwoApproval`  in workflow-impl tests.
+
+
+==== Note
+
+The `stage/definition` information is somewhat duplicate.
+It is also present in `caseRef/object/approvalContext/approvalSchema`. We will deal with this later.
+

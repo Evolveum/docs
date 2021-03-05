@@ -1,0 +1,191 @@
+= Prism cleanup (October 2016)
+:page-wiki-name: Prism cleanup (October 2016)
+
+
+:page-toc: top
+
+
+
+In October 2016 a partial cleanup/refactoring of prism module was undertaken.
+Main changes are the following.
+And - if time permits - yet more changes are about to come.
+
+
+== Support for JSON and YAML
+
+MidPoint now supports JSON and YAML as additional data serialization languages.
+Although it is not much tested in real life yet, it should be more-or-less functional (except for timestamps, but that will be fixed soon).
+
+You can try this feature by setting _adminGuiConfiguration/preferredDataLanguage_ property in user, role or system configuration object to a value of _json_ or _yaml_, and then logout and login again.
+Like this:
+
+[source,xml]
+----
+<adminGuiConfiguration>
+   <preferredDataLanguage>yaml</preferredDataLanguage>
+</adminGuiConfiguration>
+----
+
+Currently this parameter drives only the language that will be used on _Repository objects_ page for a given user, role holders, or system-wide.
+
+Gradually we will extend JSON/YAML support also to
+
+. other parts of GUI (e.g. resource wizard or advanced search box),
+
+. the REST interface,
+
+. (eventually) maybe also to repository itself - i.e. fullObject column.
+This will depend e.g. on performance comparison of serialization/parsing of JSON, YAML and XML.
+
+
+== Extracting interfaces
+
+Original goal of this cleanup/refactoring was to split prism module into _prism-api_ and _prism-impl_ ones.
+Unfortunately, because of unexpected cut on available time, this task was only partially fulfilled.
+We have created interfaces for the following objects:
+
+* PrismContext,
+
+* SchemaRegistry,
+
+* PrismSchema and its resource-related subtypes (ConectorSchema, ResourceSchema, refined and layer-refined schemas),
+
+* Definition and its subtypes (ItemDefinition, PrismPropertyDefinition, PrismReferenceDefinition, PrismContainerDefinition, all resource-related definitions like ObjectClassComplexTypeDefinition, RefinedObjectClassDefinition and so on).
+
+Before prism-api can be provided, a lot of work remains to be done.
+Most importantly, interfaces for prism items and their values (Item/PrismValue and their subtypes) have to be created.
+Also, there remain many places where concrete classes (like PrismPropertyDefinitionImpl etc) are referenced directly from other modules, either to call their constructors or to call methods not provided by interfaces.
+But this will be eventually sorted out.
+(Interfaces intentionally do not cover all methods in order to provide a level of protection of the definitions, as well as to avoid extra work when creating independent implementations of these interfaces.)
+
+
+== Other changes in the definitions classes and interfaces
+
+. Resource-related definitions (like RefinedObjectClassDefinitionImpl, LayerRefinedObjectClassDefinitionImpl, CompositeRefinedObjectClassDefinitionImpl and so on) were refactored, to get rid of a dirty mix of implementation inheritance and object composition in favor of pure object composition.
+*It is possible that some tricky faults were introduced during this process.* Please report any issues you would notice.
+
+. A new definition type was introduced: _SimpleTypeDefinition_, and therefore also _TypeDefinition_ (a supertype for simple and complex type definitions).
+This is mainly to provide information about enums in the schema (for the time being, only their existence is important; information about their content will be implemented later).
+
+. Implementation of various definition-finding methods was reconciled.
+To avoid code duplication, all such methods are now part of _LocalDefinitionStore_ and _GlobalDefinitionStore_ interfaces.
+More changes in this respect are to be expected, e.g. to distinguish between finding all / any / at-most-one / exactly-one relevant definition(s).
+
+. At some places, presence of ambiguous item or type definitions now causes exceptions, instead of simply returning the first occurence, as it was before.
+(However, this is still implemented at few places only.) The solution is to mark duplicate definitions as deprecated.
+The algorithm then returns the only non-deprecated definition found.
+Examples are _account_ vs _shadow_, _userTemplate_ vs _objectTemplate_.
+
+
+== Parsing and serialization API and code cleanup
+
+We cleaned up the API and code for parsing and serialization of objects between internal form (prism items, values and beans) and external one (XML, JSON, YAML).
+
+As for API, many _parseXYZ_ methods were removed from PrismContext and replaced by calls like these:
+
+[source]
+----
+prismContext.parserFor(new File("a.yaml")).parseObject()
+prismContext.parserFor(string).parseRealValue(SearchFilterType.class)
+prismContext.parserFor(inputStream).json().compat().type(AccessCertificationCaseType.COMPLEX_TYPE).parseItem()
+----
+
+The _parserFor_ method creates a parser for a given source (File, InputStream, String, DOM Element, XNode).
+Then there are methods that set various parameters for parsing: data language, compat/strict mode, expected type, class, item definition, and also item name to override the one from the source.
+Finally, the client calls one of the parsing methods: parse, parseItem, parseItemValue, parseRealValue, parseRealValueToJaxbElement, parseToXNode.
+
+*This interface replaces all calls to internal methods of XNodeProcessor or BeanConverter.*
+
+Only two convenience parsing methods remained in PrismContext, namely parseObject(file) and parseObject(string).
+
+In a similar way, many _serializeXYZ_ methods were removed from PrismContext, being replaced by calls like these:
+
+[source]
+----
+prismContext.xmlSerializer().serialize(item)
+prismContext.jsonSerializer().root(new QName("dummy")).serialize(prismValue)
+prismContext.yamlSerializer().root(new QName("value")).serializeRealValue(object)
+prismContext.xnodeSerializer().options(...).serialize(object)
+----
+
+Again, this interface should replace all calls to internal serialization methods that were used previously.
+
+Parsing and serialization code was partly rewritten, throwing out duplicate code and ad-hoc solutions.
+Some places yet remain to be revised (parts of beans parsing and serialization, query and delta converters).
+
+*A note about ProtectedStringType/ProtectedByteArrayType*: The new code is a bit more strict regarding types it encounters in the input data; in particular, *each xsi:type declaration must point to a known type*. (That's why types for enums were introduced.) In a couple of samples wrong c:ProtectedStringType and c:ProtectedByteArrayType was used instead of correct t:ProtectedStringType/t:ProtectedByteArrayType.
+Because new parser throws exceptions when encountering these wrong values, users must fix them.
+
+Terminological notes:
+
+. From the client's point of view, the process of conversion is called _parsing_ (xml/json/yaml -> prism structures) and _serialization_ (the other way).
+
+. There is an intermediary structure of XNode trees.
+Conversion between prism and XNode is called _marshalling_ and _unmarshalling_; the responsible classes are _PrismMarshaller_ and _PrismUnmarshaller_ (for prism items and values) and _BeanMarshaller_ and _BeanUnmarshaller_ (for non-container beans and non-bean real values).
+Original names for these were _XNodeProcessor_ and _BeanConverter_. A note for developers: if you would implement any changes or new functionality, please take care to implement it at appropriate place (PrismMarshaller/Unmarshaller and BeanMarshaller/Unmarshaller).
+
+. Conversion between XNode representation and specific lexical forms (XML, JSON, YAML, DOM trees) is done by lexical processors: DomLexicalProcessor, JsonLexicalProcessor, YamlLexicalProcessor and NullLexicalProcessor (when the input/output is XNode tree itself).
+Methods are simply called _read_ and _write_.
+
+
+== Query API cleanup
+
+Search filters were cleaned up as well.
+Because it was hard to maintain complex and poorly understandable factory API for filters (like 19 variants of EqualFilter.createEqual method), we removed almost all of these.
+The supported way of constructing search filters and object queries is now QueryBuilder API (described under the name of Fluent API wiki:Query+API[in this document]).
+
+
+== Delta construction
+
+There were no specific changes in this are yet; but nevertheless, for any new code, consider using DeltaBuilder API.
+The old way will probably become deprecated soon.
+
+
+== Immutable structures
+
+"Immutable" flag was introduced on prism items and values.
+If set, it blocks all attempts to modify value of any Item or PrismValue.
+Note, however, that this protection is *not 100%*. For example, it doesn't prevent modification of non-containerable beans; also, when returning mutable objects like _Date_ or _XMLGregorianCalendar_, it does *not* create their clone.
+
+
+== PrismValue changes
+
+. PrismContext instance was added to all prism values.
+(It was only in PCVs before.) Main reason was to correctly treat unparsed values in PPVs.
+
+. Relation between Containerable and PrismContainerValue was cleaned a bit.
+Originally, there was not 1:1 relation between these instances: a Containerable could point to a PCV, which could point to another instance of Containerable.
+Currently we try to maintain the relation as exactly 1:1 - a Containerable points to a PCV, which points back to the same Containerable.
+
+. Related to that, there were some changes of actions occurring at creation of a Containerable.
+When creating a Containerable by calling the constructor of specific type (like new UserType(..)), it is advisable to pass prismContext as a parameter -  in order to correctly initialize the structure right from the beginning.
+
+. Generally, working with raw (unparsed) values was much simplified in PrismValues.
+E.g. there's no place for raw values in PCVs altogether - except for those wrapped in contained PPVs.
+Also, there's a direct correspondence between raw PPVs and RawType: If we have a raw PPV (rawElement is not null) and call getValue() on it, it either parses the rawElement (if the definition became known in the meanwhile) or returns RawType that wraps the raw XNode tree.
+In a similar way, when calling RawType.getParsedValue without knowing the type, we simply return raw PrismPropertyValue.
+*We don't try to guess the value type and parse it e.g. as a string (as it was before). *(In particular, we threw out all the code that would try to parse unknown data type as a string.)
+
+. Polymorphic containers (used heavily e.g. for certification and workflow modules) are now supported more seriously.
+Each PCV contains its own ComplexTypeDefinition, independently of the one stored in PrismContainer.
+Replacing original brittle solution (having subtype name ad-hoc resolved to CTD) by this one caused a ripple effect of many induced changes.
+It can be expected that some faults would appear because of this.
+Tough question is how to apply (refined) definition to such a polymorphic container, i.e. when to replace individual sub-CTDs in values and when not.
+See e.g. _PrismContainer.setDefinition_ and _PrismContainerValue.deepCloneDefinitionItem._
+
+
+== Other notes
+
+We'd like to move gradually to serious pre- and post- condition specification and checking and class invariants enforcement.
+(The latter was already well elaborated at many places.) As an attempt, Checkable interface was introduced; but due to lack of time, it is not systematically used now.
+We consider using some lightweight Design by Contract framework like Hibernate Validator or similar.
+
+The performance of prisms might be temporarily worse than usual.
+This will be fixed soon.
+(We concentrated on functionality first.)
+
+Generally, the cleanup of prism module is *not* finished yet.
+Not all interfaces are in their final form, not all interfaces even exist yet.
+The documentation is to be written.
+The ultimate goal is to provide clean, well defined prism-api interface that would isolate prism internals from the rest of midPoint code.
+

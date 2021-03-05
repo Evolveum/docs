@@ -1,0 +1,221 @@
+= Some policy scenarios
+:page-wiki-name: Some policy scenarios
+
+Here we discuss a couple of possible scenarios that use midPoint policy mechanisms.
+They are intended to help design these mechanisms, so not all of them are (or ever will be) implementable.
+
+
+== Preconditions for role assignment
+
+This is a large group of rules generally described as:
+
+[source]
+----
+Role X can be assigned only if <condition>.
+----
+
+Where the condition could be any of the following or their combination:
+
+. a value of a user attribute:
+
+.. employee type,
+
+.. cost center,
+
+.. administrative or effective state,
+
+.. valid-from or valid-to date,
+
+.. any HR attribute describing that the user is in trial or resign period, or on unpaid/maternity leave,
+
+.. ...
+
+
+
+. a value of the assignment attribute:
+
+.. administrative state, valid-from, or valid-to date (e.g. stating that role X can be assigned on for 2 months),
+
+.. orgRef, tenantRef, or any extension attribute (e.g. binding the orgRef of role X to a combination of user attributes values),
+
+.. ...
+
+
+
+. existence or non-existence of an assignment of some other target:
+
+.. assignment of role Y is a precondition for assignment of role X, i.e. user can be assigned X only if he already has Y,
+
+.. assignment of role Y is a negative precondition for assignment of role X, i.e. user can be assigned X only if he has *not* assigned Y,
+
+
+
+. existence or non-existence of an assignment of the same target:
+
+.. more assignments satisfying <condition> exist for X, e.g. +
+
+
+... we do not allow two administratively enabled assignments for X,
+
+... we do not allow any two assignments for X,
+
+... ...
+
+
+
+
+
+. a value of the _target object_ attribute: +
+
+
+.. risk level,
+
+.. ...
+
+
+
+. TODO include more conditions here ...
+
+Point 3b is a traditional case of role exclusion i.e. separation of duties.
+However this one (along with 3a) could become a bit more complicated when assignment attributes come into play.
+So for example we could want preclude assignment of X when there is assignment of Y with the same orgRef or targetRef.
+Or we would like to take activation and/or assignment extension attributes into account.
+
+Some examples:
+
+. Role X cannot be assigned to contractors; only to regular employees.
+
+. Role X cannot be assigned to employees that are in trial period.
+
+. Roles in the draft lifecycle state cannot be assigned unless the assignee is in specific organization ("testers").
+
+. TODO include more examples here ...
+
+For each such rule we might do the following:
+
+. completely forbid specified situation: enforcement action,
+
+. allow such situation but only if approved: approval action,
+
+. allow such situation but regularly certify that it is still allowed (no specific action, but a certification campaign set up for a given policy situation),
+
+. allow such situation but notify given persons of it: notification action,
+
+. allow such situation but provide means to report it: no specific action but a report set up for a given policy situation),
+
+. allow such situation but schedule a workflow to remedy it later: remediation action,
+
+. allow such situation but run specified script (i.e. bulk action) either on background or on foreground,
+
+. disallow such situation and instead run specified script (i.e. bulk action) either on background or on foreground,
+
+. issue a warning which could be overridden,
+
+. TODO any more ideas?
+
+
+
+[NOTE]
+====
+Warnings are just another wild idea: Imagine that there is a rule that is more a recommendation than a requirement. And that it is not necessary to start an approval for it, only to convey an information like this: "Are you sure you want to do this?". After getting such policy violation exception, GUI would display appropriate message to the user and ask for the confirmation. If the answer is positive, GUI would retry the operation, this time with an option to override such warnings. (This could require appropriate authorization, reserved e.g. for administrators and power users.)
+
+====
+
+
+
+
+== Object validity constraints
+
+There are some objects that exists primarily in midPoint. A typical example is a role. Although roles are generally projections of some external-world objects (job types, application entitlements, ...), their binding to the external world is maybe a bit less tight than that of users. A user object should be created when a person e.g. enters employer-employee relationship with the company. Also, a user should be disabled or deleted, when the person leaves. But new roles can be sometimes created when it seems appropriate to do so.
+
+But to keep some order in role population, we might introduce some validity constraints to be applied on role object. So, a role might need e.g. a description, risk level specification, owner, approver, and so on. Some of these constraints can be specified directly in the schema, e.g. that it is not possible to create a role without description. But others could need be enforced less strictly. E.g. the risk level could be enforced to be present only if a role is really to be used, i.e. assigned to regular users.
+
+Some examples:
+
+[source]
+----
+Role X can be assigned to users only if <condition>.
+----
+
+[source]
+----
+Role X can be brought into active lifecycle state only if <condition>.
+----
+
+[source]
+----
+Role X can be retired only if <condition>.
+----
+
+Note that the first example corresponds to one of conditions in the "preconditions for role assignment" section.
+
+Where the condition could be any of the following or their combination:
+
+. a value of a role attribute:
+
+.. role type,
+
+.. lifecycle state,
+
+.. cost center, location, or any such business-oriented attribute,
+
+.. administrative or effective state, valid-from or valid-to date,
+
+.. ...
+
+
+
+. who has or has not this role assigned, as a member, approver, or owner,
+
+. is the role used in some inducements?
+
+. what are this role's inducements?
+
+. TODO include more conditions here ...
+
+Some examples:
+
+. Role X cannot be brought into active state unless it has a description and risk level specified, and at least one owner and approver assigned,
+
+. TODO include more examples here ...
+
+Actions available when these conditions are met (or not met) are similar to the actions listed above: enforcement, approval, certification, notification, reporting, remediation, scripting action.
+
+The bulk actions mentioned above could e.g. immediately disable the role (or user or any object) if serious inconsistency is found. Or limit the validity of such object to defined grace period. This could be implemented in three ways:
+
+. if there are no mappings targeted to administrative state and validity period (or lifecycle state?), such bulk actions could modify these values,
+
+. otherwise one of these:
+
+.. with current midPoint schema: create extension attributes where such rule-based limitations would be stored; and create/update mappings for administrative state and validity period to take care of these,
+
+.. enhancing midPoint schema with such attributes, and include appropriate code.
+
+
+
+ 
+
+
+== Watching time validity
+
+Some examples:
+
+[source]
+----
+<N> days before the validity of an entity (user, role, assignment) expires, an approval is requested to extend the validity for <M> days.
+----
+
+This is currently not supported.
+(It would require fully implemented time validity constraint, including triggers that would evaluated it when needed; and also support for bulk actions with disabled repetitive triggering.)
+
+[source]
+----
+<N> days before the validity of an entity expires, appropriate persons must be notified. This notification is to be repeated each <M> days, until <K> days after validity end elapse.
+----
+
+
+
+TODO some more examples and requirements here ...
+
+
+

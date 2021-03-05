@@ -1,0 +1,247 @@
+= XML/JSON/YAML vs. XNode vs. internal data
+:page-wiki-name: XML/JSON/YAML vs. XNode vs. internal data
+
+
+== Introduction
+
+Here are some notes about how are internal data represented as XNode trees and in external forms (XML/JSON/YAML).
+
+
+== Prism objects
+
+XML representation:
+
+[source,xml]
+----
+<user oid="c0c010c0-d34d-b33f-f00d-111111111111" version="42" ... >
+    <name>jack</name>
+    <description>This must be the best pirate the world has ever seen</description>
+	...
+</user>
+----
+
+JSON representation:
+
+[source,js]
+----
+{
+  "@ns" : "...",			(optional - required only in case of ambiguity)
+  "user" : {
+    "oid" : "c0c010c0-d34d-b33f-f00d-111111111111",
+    "version" : "42",
+    "name" : "jack",
+    "description" : "This must be the best pirate the world has ever seen",
+    ...
+}
+----
+
+YAML representation:
+
+[source]
+----
+---
+'@ns': "..."				(optional - required only in case of ambiguity)
+user:
+  oid: "c0c010c0-d34d-b33f-f00d-111111111111"
+  version: "42"
+  name: "jack"
+  description: "This must be the best pirate the world has ever seen"
+  ...
+----
+
+XNode tree:
+
+[source]
+----
+ROOT {...}user
+  (
+    oid =>
+      parser ValueParser(DOMa, oid: c0c010c0-d34d-b33f-f00d-111111111111)
+    version =>
+      parser ValueParser(DOMa, version: 42)
+    {...}name =>
+      parser ValueParser(DOMe, {...}name: jack)
+    {...}description =>
+      parser ValueParser(DOMe, {...}description: This must be the best pirate the world has ever seen)
+    ...
+  )
+----
+
+In this case, the *rootElementName* of the RootXNode determines the type of the object: UserType.
+
+When parsing XNode tree, the alternative is to provide a MapXNode with a* typeQName *defined:
+
+[source]
+----
+( type={...}UserType
+  oid =>
+    parser ValueParser(DOMa, oid: c0c010c0-d34d-b33f-f00d-111111111111)
+  version =>
+    parser ValueParser(DOMa, version: 42)
+  {...}name =>
+    parser ValueParser(DOMe, {...}name: jack)
+  {...}description =>
+    parser ValueParser(DOMe, {...}description: This must be the best pirate the world has ever seen)
+  ...
+)
+----
+
+
+== Prism containers
+
+Here the situation is a bit more complicated, because a container can be multi-valued.
+
+The following example shows a two-valued container (assignment) stored in a parent container (user, not shown).
+
+XML representation:
+
+[source]
+----
+    <assignment id="1111">
+        <description>Assignment 1</description>
+    </assignment>
+
+    <assignment id="1112">
+        <description>Assignment 2</description>
+        <accountConstruction>
+            <howto>Just do it</howto>
+            <when>2012-02-24T10:48:52.000Z</when>
+        </accountConstruction>
+    </assignment>
+----
+
+JSON representation:
+
+[source]
+----
+    "assignment" : [ {
+      "id" : 1111,
+      "description" : "Assignment 1"
+    }, {
+      "id" : 1112,
+      "description" : "Assignment 2",
+      "accountConstruction" : {
+        "howto" : "Just do it",
+        "when" : 1330080532000
+      }
+    } ]
+----
+
+YAML representation:
+
+[source]
+----
+  assignment:
+  - id: 1111
+    description: "Assignment 1"
+  - id: 1112
+    description: "Assignment 2"
+    accountConstruction:
+      howto: "Just do it"
+      when: 1330080532000
+----
+
+XNode tree:
+
+[source]
+----
+    {...}assignment =>
+      [
+        (
+          id =>
+            parser ValueParser(DOMa, id: 1111)
+          {...}description =>
+            parser ValueParser(DOMe, {...}description: Assignment 1)
+        )
+        (
+          id =>
+            parser ValueParser(DOMa, id: 1112)
+          {...}description =>
+            parser ValueParser(DOMe, {...}description: Assignment 2)
+          {...}accountConstruction =>
+            (
+              {...}howto =>
+                parser ValueParser(DOMe, {...}howto: Just do it)
+              {...}when =>
+                parser ValueParser(DOMe, {...}when: 2012-02-24T10:48:52.000Z)
+            )
+        )
+      ]
+----
+
+XNode is represented here by a map entry, having a key (assignment) and a value (a list XNode).
+
+Alternatively, a container can be parsed from a root XNode (taking its name as a container element name):
+
+[source]
+----
+ROOT {...}assignment
+   [
+      (
+   		 ...value #1...
+      )
+      (
+   		 ...value #2...
+      )
+   ]
+----
+
+The third alternative is to parse container from a MapXNode, but in this case it must have a TypeQName specified or the container definition must be known from the outside.
+
+So, the definition of the currently parsed container is taken from (in this order):
+
+. a parameter passed from the outside,
+
+. the type information specified in the XNode,
+
+. the element name specified in the root XNode.
+
+
+== Prism properties
+
+Knowing property definition, prism property can be parsed from almost any kind of XNode.
+
+[%autowidth]
+|===
+| XNode type | Processing
+
+| null
+| Create a property without value.
+
+
+| list
+| Create a property with a list of values.
+
+
+| map
+| Create a (structured) property with one value.
+
+
+| primitive
+| Create a property with one value.
+
+
+| schema
+| Special case: create a SchemaDefinitionType.
+
+
+| root
+| (currently not supported, but could be treated like the other types, accepting the name of the property)
+
+
+|===
+
+Examples:
+
+[source]
+----
+<description>This must be the best pirate the world has ever seen</description>
+----
+
+=> XNode:
+
+[source]
+----
+parser ValueParser(DOMe, {...}description: This must be the best pirate the world has ever seen)
+----
+

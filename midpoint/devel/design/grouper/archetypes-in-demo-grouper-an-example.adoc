@@ -1,0 +1,107 @@
+= Archetypes in demo/grouper: An example
+:page-wiki-name: Archetypes in demo/grouper: An example
+
+Let's try to provide an example of archetype functioning in `demo/grouper`  midPoint scenario created for InCommon TAP.
+
+This is a textual rendering of a trace capturing import (initial reconciliation, to be more precise) of Grouper group `ref:affilation:alum` to midPoint and subsequently to LDAP.
+
+The rendering is slightly modified for readability, with some comments added when necessary
+
+.Initial reconciliation of ref:affiliation:alum to midPoint - explained
+[source]
+----
+Clockwork run with focus 'affiliation_alum'
+  Clockwork click: state INITIAL, execution wave 0, projection wave 0
+
+    # First two mappings (from Grouper resource) set the most basic information: (1) archetype assignment, (2) "raw" name
+
+    Mapping - INBOUND (Grouper Resource): attributes/name -> assignment
+     | Strength: STRONG
+     | Input input: ref:affiliation:alum
+     | Output: assignment with targetRef=archetype:affiliation
+    Mapping - INBOUND (Grouper Resource): attributes/name -> extension/grouperName
+     | Strength: STRONG
+     | Input input: ref:affiliation:alum
+     | Output: ref:affiliation:alum
+
+    # Now the archetype and induced metaroles come into play.
+    # Firstly, org identifier ('alum') is computed from raw Grouper group name. And from identifier the unique org name and display name are computed ('affiliation_alum' / 'Affiliation: alum').
+
+    Mapping - ASSIGNED (metarole-grouper-provided-group): identifier (extension/grouperName -> identifier)
+     | Strength: STRONG
+     | Input grouperName: (no values) -> ref:affiliation:alum
+     | Output: Add: alum
+    Mapping - ASSIGNED (metarole-grouper-provided-group): name (identifier -> name)
+     | Strength: STRONG
+     | Input identifier: (no values) -> alum
+     | Output: Add: affiliation_alum
+    Mapping - ASSIGNED (metarole-grouper-provided-group): displayName (identifier -> displayName)
+     | Strength: STRONG
+     | Input identifier: (no values) -> alum
+     | Output: Add: Affiliation: alum
+
+    # Lifecycle state is derived from the existence/non-existence of Grouper object. Because the object exists now, the lifecycleState of the org is 'active'.
+
+    Mapping - ASSIGNED (metarole-grouper-provided-group): lifecycle state (-> lifecycleState)
+     | Strength: STRONG
+     | Output: active
+
+    # Now the LDAP-specific mappings are applied. Org identifier is converted into LDAP DN (stored in extension at this moment).
+
+    Mapping - ASSIGNED (metarole-ldap-group): ldapDn (identifier -> extension/ldapDn)
+     | Strength: STRONG
+     | Input identifier: (no values) -> alum
+     | Output: Add: cn=alum,ou=Affiliations,ou=Groups,dc=internet2,dc=edu
+
+    # And now we start constructing LDAP account. Mappings are quite straightforward. We use DN computed previously.
+    # CN can be derived directly from the identifier, so no need to pre-compute it in the extension.
+
+    Mapping - OUTBOUND (LDAP (directory)): identifier -> attributes/cn
+     | Strength: WEAK
+     | Input identifier: (no values) -> alum
+     | Condition: false -> true
+     | Output: Add: alum
+    Mapping - OUTBOUND (LDAP (directory)): extension/ldapDn -> attributes/dn
+     | Strength: STRONG
+     | Input ldapDn: (no values) -> cn=alum,ou=Affiliations,ou=Groups,dc=internet2,dc=edu
+     | Condition: false -> true
+     | Output: Add: cn=alum,ou=Affiliations,ou=Groups,dc=internet2,dc=edu
+
+    # This is the end of Projector execution. In the following clockwork click(s) focus object and projection are created.
+
+  Clockwork click: state PRIMARY, execution wave 0, projection wave 1
+
+  Clockwork click: state SECONDARY, execution wave 0, projection wave 1
+
+    # This is the Org created for 'alum' group
+
+    Focus change execution: ADD of affiliation_alum
+     > ObjectDelta<OrgType>(OrgType:53fce7a3-6c07-48ec-820f-e6583653ca92,ADD):
+     >       name: affiliation_alum
+     >       extension:
+     >           grouperName: [ ref:affiliation:alum ]
+     >           ldapDn: [ cn=alum,ou=Affiliations,ou=Groups,dc=internet2,dc=edu ]
+     >       lifecycleState: active
+     >       assignment:
+     >         id=1
+     >           targetRef: oid=56f53812-047d-4b69-83e8-519a73d161e1(ArchetypeType)[default]
+     >       displayName: Affiliation: alum
+     >       identifier: alum
+     = SUCCESS
+
+    # And this is LDAP group object.
+
+    Projection change execution: ADD of cn=alum,ou=Affiliations,ou=Groups,dc=internet2,dc=edu on LDAP (directory)
+     > ObjectDelta<ShadowType>(ShadowType:77c241ba-5201-4ca5-a3c7-407521a64d77,ADD):
+     >       resourceRef: oid=0a37121f-d515-4a23-9b6d-554c5ef61272(ResourceType)
+     >       objectClass: {...resource/instance-3}groupOfUniqueNames
+     >       kind: ENTITLEMENT
+     >       intent: group
+     >       attributes:
+     >           cn: [ alum ]
+     >           dn: [ cn=alum,ou=Affiliations,ou=Groups,dc=internet2,dc=edu ]
+     >           nsUniqueId: [ 4f4dec04-6eee11ea-aea2e81e-c052617a ]
+     = SUCCESS
+----
+
+

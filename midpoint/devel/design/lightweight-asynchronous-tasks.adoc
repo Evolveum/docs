@@ -1,0 +1,49 @@
+= Lightweight asynchronous tasks
+:page-wiki-name: Lightweight asynchronous tasks
+
+Normally, asynchronous tasks are quite heavyweight: they are stored in repository and are managed by Quartz.
+However, there are situations where we want to quickly create asynchronous tasks for auxiliary reasons, like parallel import, parallel reconciliation, and (in the future) parallel provisioning.
+And this leads us to the concept of *lightweight asynchronous tasks*.
+
+They are characterized by the following:
+
+. They are *transient*, i.e. not persistent.
+
+. Instead of traditional registered task handler, characterized by its URI, these tasks have a *lightweight task handler*, which is simply a Runnable.
+
+For the sake of simplicity, lightweight asynchronous tasks (LATs) have currently the following major limitations:
+
+. Each LAT always has a persistent task as its parent.
+
+. A LATs handler executes only during the execution of a parent task - i.e. all children LATs handlers must finish before parent's Quartz job execution routine finishes.
+This ensures that no special code is necessary e.g. on node shutdown.
+
+. The set of states for such a task is limited (see below).
+
+. LATs are not visible in listSubtasks/listSubtasksDeeply methods.
+They cannot be used as dependents or prerequisite tasks.
+
+Other minor limitations are:
+
+. LAT is always a single-run (not recurring).
+
+. ThreadStopAction is not applicable to LATs, because after its thread is stopped, LAT is automatically closed.
+
+. Binding is not applicable as well.
+It could be said that LATs are tightly-bound to the node on which they were started.
+
+States for a LAT:
+
+. When created, it is in the RUNNABLE state, with handler not executing.
+
+. When the start() method is called, handler is submitted to execution.
+(This is currently not modeled by the state; in a similar way as traditional tasks do not have separate RUNNABLE / RUNNING states.)
+
+. After execution of the handler, the state changes to CLOSED.
+
+. Other states (WAITING and SUSPENDED) are not used.
+
+Future:
+
+. The rule of mandatory persistent parent disallows use of LATs to support parallel provisioning.
+This will be changed in the future.

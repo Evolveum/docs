@@ -1,0 +1,223 @@
+= Deltas in Projector and Clockwork
+:page-wiki-name: Deltas in Projector and Clockwork
+
+ +
+
+
+[WARNING]
+====
+*For advanced users only.* Information on this page are relevant mainly if you write your own scripting hook or otherwise modify behavior of midPoint at quite a low level of abstraction.
+
+*Fragile.* This is not yet official / stable API.
+Please use with care.
+
+====
+
+ +
+
+
+[TIP]
+.MidPoint 4.2 and later
+====
+Information provided here is relevant for midPoint 4.2 and later.
+Differences from the behavior of midPoint 4.1 and earlier are described as well.
+
+====
+
+
+:page-toc: top
+
+
+
+
+== Primary, synchronization, and secondary deltas
+
+With a little bit of simplification, we can say that any model operation starts with the intention either to execute a client-specified change (called _primary delta_) or to accommodate a change on resource (called _sync delta_).  During the operation, a component called wiki:Clockwork+and+Projector[Clockwork] is run.
+It orchestrates a process of computing changes of focus and projections and executing them afterwards.
+Computation of changes is done by component called the Projector.
+This page describes basic ideas of representing these changes (called _secondary deltas_) during the computation.
+
+
+== Representation of the deltas
+
+Deltas are stored in a structure that is central to the model operation: the wiki:Model+Context[Model Context].
+
+The model context contains information on the focal object and its projections, along with the deltas.
+Specifically, `ModelContext` object wraps both `focusContext` and a collection of `projectionContexts`. Each of these contains the following features (see `ModelElementContext` and `ModelProjectionContext` interfaces):
+
+[%autowidth]
+|===
+| Feature | Meaning 
+
+| `objectOld`
+| "Old" state of the object i.e. the one that was present when the clockwork started.
+It can be present on the beginning or filled-in during projector execution by the context loaded.
+
+
+| `objectCurrent`
+| "Current" state of the object i.e. the one that was present when the current clockwork click started.
+It is typically filled-in by the context loader.
+For projections, it is usually the same as the "old" state, as they are not updated iteratively but only once per clockwork run.
+
+
+| `objectNew`
+| Expected state of the object after application of currentDelta i.e. item deltas computed during current projection: `objectCurrent` + `currentDelta` = `objectNew`.
+
+
+| `primaryDelta`
+| Primary delta i.e. one that the caller specified that has to be executed.
+
+
+| `syncDelta`
+| Synchronization delta i.e. changes that have recently happened.
+MidPoint reacts to these changes by "pulling them in" (e.g. using them in inbound mappings).
+
+
+| `secondaryDelta`
+| Secondary delta i.e. deltas computed for execution relevant for the current clockwork click (Projector run).
+
+
+| `currentDelta`
+| Object delta valid for the current clockwork click.
+It is either primary delta merged with the current secondary delta (if primary delta was not applied yet), or simply current secondary delta.
+
+
+| `summaryDelta`
+| Object delta comprising both primary delta and (all) secondary deltas, merged together.
+For projections, it is the same as `currentDelta`.
+
+
+| `summarySecondaryDelta`
+| Summarization of all secondary deltas.
+For projections, it is the same as `secondaryDelta`. This is useful e.g. for "preview changes" functionality.
+
+
+| `objectDeltaObjectAbsolute`
+| Only for focus context: the object-delta-object structure comprising all the computation, i.e. `objectOld` + `summaryDelta` = `objectNew`.
+
+
+| `objectDeltaObjectRelative`
+| Only for focus context: the object-delta-object structure relative to the current wave, i.e. `objectCurrent` + `currentDelta` = `objectNew`.
+
+
+| `objectDeltaObject`
+| Only for projection contexts: returns object-delta-object structure comprised of `objectCurrent` + `currentDelta` = `objectNew`. But because projection is computed only in a single wave, it is basically the same as "objectOld + summaryDelta = objectNew".
+That's why we do not distinguish between "absolute" and "relative" object-delta-object for projections.
+
+
+|===
+
+
+=== Differences from midPoint 4.1 and before
+
+The original features of `ModelElementContext`  and `ModelProjectionContext` interfaces were like this.
+Only changed items are shown.
+
+[%autowidth]
+|===
+| Feature | Meaning | Migration to 4.2 
+
+| `secondaryDelta`
+| For focus, this was a union of _all_ secondary deltas computed.
+For projection, it was the secondary delta for the current clockwork click.
+(Each projection is dealt with in only a single click.)
+| Replaced by `summarySecondaryDelta`.
+
+
+| `delta`
+| Union of `primaryDelta` and `secondaryDelta` (i.e. all the secondary deltas).
+| Replaced by `summaryDelta`.
+
+
+| `secondaryDelta` (int wave) / `waveSecondaryDelta` (int wave)
+| Only for focus context: the secondary delta for a specific projection wave (approximately meaning clockwork click).
+| Not directly available any more.
+Can be obtained by browsing through `secondaryDeltas` structure - see `ObjectDeltaWaves` class description below.
+
+
+| `secondaryDeltas`
+| Only for focus context: secondary deltas indexed by projection wave.
+| Available but with changed semantics, see below.
+
+
+| `allDeltas`
+| Only for focus context: a list of all deltas (primary, secondary).
+| Not directly available any more.
+
+
+| `projectionWaveSecondaryDelta`
+| Only for focus context: secondary delta for the current projection wave.
+| Replaced by `secondaryDelta`.
+
+
+| `objectDeltaObject`
+| For focus context: `objectOld` + `delta` = `objectNew`. For projection context: `objectCurrent` + `delta` = `objectNew`.
+| Replaced by `objectDeltaObjectAbsolute` for focus and kept unchanged for projections.
+
+
+|===
+
+
+=== ObjectDeltaWaves class
+
+Originally this class contained _all_ secondary deltas, indexed by projection wave number.
+Starting from 4.2 this structure contains only _archived_ secondary deltas, i.e. those that were already applied.
+And it is no longer indexed by wave number, but contains wave number information inside.
+It is because a repeated (restarted) projection wave can produce more secondary deltas.
+
+
+== Modifying the deltas
+
+If you need to modify the deltas (e.g. from scripting hook) there are the following methods available:
+
+[%autowidth]
+|===
+| Method | Description 
+
+| `swallowToSecondaryDelta`
+| Adds the specified item delta or item deltas into current secondary delta.
+
+
+| `swallowToPrimaryDelta`
+| Adds the specified item delta into the primary delta.
+This may look strange but there are situations when you want to manipulate the primary delta in a hook (e.g. by adding or removing an assignment), so that the change is correctly reflected in secondary deltas.
+
+
+|===
+
+
+=== Differences from midPoint 4.1 and before
+
+Before 4.2, there were more methods to modify the deltas.
+(Now showing all the methods, not only changed ones.)
+
+[%autowidth]
+|===
+| Method | Description | Migration to 4.2 
+
+| `swallowToProjectionWaveSecondaryDelta`
+| Only for focus context: adds item delta to the current secondary delta.
+| Replaced by `swallowToSecondaryDelta`.
+
+
+| `swallowToSecondaryDelta`
+| For focus context: the same as `swallowToProjectionWaveSecondaryDelta`. For projection context: adds item delta to the current secondary delta.
+| Stays the same.
+
+
+| `swallowToPrimaryDelta`
+| The same as in 4.2
+| Stays the same.
+
+
+| `swallowToWave0SecondaryDelta`
+| Only for focus context: adds delta to the wave 0 secondary delta.
+Not entirely clean solution, as it can create inconsistencies when executing in waves greater than 0.
+| Replaced by `swallowToSecondaryDelta` for compatibility reasons, with a little bit different semantics.
+
+
+|===
+
+ +
+
+

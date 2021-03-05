@@ -1,0 +1,308 @@
+= Relation Repository
+:page-wiki-name: Relation Repository
+
+Starting with midPoint 3.9 it is possible to configure object relations.
+This has a quite strong effect on basic operations related to object references.
+Here we describe more details.
+
+
+== Before 3.9
+
+There were a couple of statically defined relations, namely:
+
+[%autowidth]
+|===
+| Relation | Meaning 
+
+| org:default
+| Default relation, usually meaning "has" or "is member of".
+Specifies that the subject is a member of organization, or that the subject has been assigned a role in a way that he gets authorizations and other content provided by that role.
+
+
+| org:manager
+| Relation "is manager of".
+Specifies that the subject is a manager of organizational unit.
+
+
+| org:meta
+| Relation used for metarole assignments.
+Sometimes it is important to distinguish metarole and member assignments.
+This relation is used for that purpose.
+
+
+| org:deputy
+| Relation "is deputy of".
+Specifies that the subject is a deputy of another user.
+
+
+| org:approver
+| Relation "is approver of".
+Specifies that the subject is a (general) approver of specified (abstract) role.
+The approver will be asked for decision if the role is assigned, if there is a rule conflict during assignment (e.g. SoD conflict) or if there is any similar situation.This is a generic approver used for all the situation.
+The system may be customized with more specific approver roles, e.g. technicalApprover, securityApprover, etc.This approver is responsible for the use of the role, which mostly means that he decides about role assignment.
+It is NOT meant to approve role changes.
+Role owner is meant for that purpose.
+
+
+| org:owner
+| Relation "is owner of".
+Specifies that the subject is a (business) owner of specified (abstract) role.
+The owner will be asked for decision if the role is modified, when the associated policy changes and so on.This owner is responsible for maintaining role definition and policies.
+It is NOT necessarily concerned with role use (e.g. assignment).
+The approver relation is meant for that purpose.
+
+
+| org:consent
+| Relation "is consent for".
+Specifies that the subject gave a consent for using personnel information related to this role.
+
+
+|===
+
+Meaning of these statically defined relation was defined directly within midPoint code, so it was effectively fixed.
+
+A deployment engineer could define other relations as well, but they were generally ignored by midPoint.
+They could be used e.g. when selecting approvers during approval processes, when explicitly mentioned in an approval schema.
+
+
+== After 3.9
+
+Since 3.9, midPoint allows to completely redefine object relations.
+Instead of specific relation _names_ midPoint defines behavior depending on relation _kinds_. The following kinds are available (see link:https://github.com/Evolveum/midpoint/blob/3ddbf5288c0a78b8f7ad8b9712e451765c644dad/infra/schema/src/main/resources/xml/ns/public/common/common-core-3.xsd#L16296[RelationKindType]).
+
+[%autowidth]
+|===
+| Relation kind | Meaning | Default relations that are of this kind 
+
+| member
+| Membership relation, usually meaning "has" or "is member of".
+Specifies that the subject is a member of organization, or that the subject has been assigned a role in a way that he gets authorizations and other contentprovided by that role.Default relation of `member` kind is also considered to be the overall default relation (i.e. used when reference relation is null).
+| org:default, org:manager
+
+
+| manager
+| Relations of "is manager of" kind.
+Specifies that the subject is a manager of organizational unit.
+Relations of this kind are usually also of `member` kind.
+| org:manager
+
+
+| meta
+| Relations used for metarole assignments.
+Sometimes it is important to distinguish metarole and member assignments.
+This kind of relation is used for that purpose.
+| org:meta
+
+
+| delegation
+| Relation of "is deputy of" kind.
+Specifies that the subject is a deputy of another user.
+| org:deputy
+
+
+| approver
+| Relation "is approver of" kind.Specifies that the subject is a (general) approver of specified (abstract) role.
+The approver will be asked for decision if the role is assigned, if there is a rule conflict during assignment (e.g. SoD conflict) or if there is any similar situation.This approver is responsible for the use of the role, which mostly means that he decides about role assignment.
+It is NOT meant to approve role changes.
+Role owner is meant for that purpose.
+| org:approver
+
+
+1+| owner
+1+| Relation of "is owner of" kind.Specifies that the subject is a (business) owner of specified (abstract) role.
+The owner will be asked for decision if the role is modified, when the associated policy changes and so on.This owner is responsible for maintaining role definition and policies.
+It is NOT necessarily concerned with role use (e.g. assignment).
+The `approver` relation kind is meant for that purpose.
+1+| org:owner
+
+
+1+| consent
+1+| Relation "is consent for" kind.
+Specifies that the subject gave a consent for using personnel information related to this role.
+1+| org:consent
+
+
+|===
+
+Note that a relation can be of more than one kind.
+For example, `org:manager` is of `member` and `manager` kinds.
+
+
+== Consequences for midPoint code for midPoint developers
+
+Consequences are three-fold: (1) when creating new references, (2) when determining the reference kind, (3) when searching for specific references.
+
+
+=== Creating new references
+
+
+==== Before 3.9
+
+When creating a reference, the caller simply specified a concrete relation value, e.g. `org:manager`.
+
+[source,java]
+----
+PrismReferenceValue referenceValue = new PrismReferenceValue(getObjectWrapper().getOid(), UserType.COMPLEX_TYPE);
+referenceValue.setRelation(SchemaConstants.ORG_DEPUTY);
+----
+
+
+==== Now
+
+We use `relationRegistry.getDefaultRelationFor` method, taking relation kind as a parameter.
+An example:
+
+[source,java]
+----
+PrismReferenceValue referenceValue = new PrismReferenceValue(getObjectWrapper().getOid(), UserType.COMPLEX_TYPE);
+referenceValue.setRelation(WebComponentUtil.getDefaultRelationOrFail(RelationKindType.DELEGATION));
+----
+
+Note that `WebComponentUtil.getDefaultRelationOrFail` is a helper method that (1) looks up the relation registry, (2) obtains a relation, (3) checks if the relation was found.
+The existence check is quite crude for now, but better than getting a NPE 
+
+
+=== Determining the kind of reference
+
+
+==== Before 3.9
+
+We used either a direct comparison with `SchemaConstants.ORG_xxx` values or `ObjectTypeUtil.isXXXRelation` methods.
+For example:
+
+[source]
+----
+if (ObjectTypeUtil.isDelegationRelation(relation)) {
+   ...
+}
+----
+
+
+==== Now
+
+[source]
+----
+if (relationRegistry.isDelegation(relation)) {
+   ...
+}
+----
+
+This is quite straightforward.
+For GUI there are helper methods like `WebComponentUtil.isManagerRelation`.
+
+For scripts, relation registry can be obtained by using `midpoint.relationRegistry` expression.
+
+
+==== Default relation
+
+Beware of testing using `isDefaultRelation`! This should *not* be used to determine if the relation is of `member` kind.
+Use `isMember` (or `isOfKind(MEMBER)`) instead.
+Default relation checking is to be used only when e.g. deciding whether to display the relation or not.
+
+When you want to test for "pure" membership, i.e. relation that is a member but not e.g. manager, then use something like `isMember && !isManager.`
+
+
+=== Querying for references
+
+
+==== Before 3.9
+
+We simply specified the required relation(s) in the search query, like this:
+
+[source,java]
+----
+ObjectQuery query = QueryBuilder.queryFor(FocusType.class, getPageBase().getPrismContext())
+                                    .item(FocusType.F_PARENT_ORG_REF).ref(ObjectTypeUtil.createObjectRef(org, SchemaConstants.ORG_MANAGER).asReferenceValue())
+                                    .build();
+----
+
+
+==== Now
+
+The situation is a bit more complex, because instead of `ORG_MANAGER` we want to look for all relations of `manager` kind.
+And we have to treat the situation when there are no managers defined! So the query looks like this (factored out to a helper method):
+
+[source,java]
+----
+public static ObjectQuery createManagerQuery(Class<? extends ObjectType> objectTypeClass, String orgOid,
+        RelationRegistry relationRegistry, PrismContext prismContext) {
+    Collection<QName> managerRelations = relationRegistry.getAllRelationsFor(RelationKindType.MANAGER);
+    if (managerRelations.isEmpty()) {
+        LOGGER.warn("No manager relation is defined");
+        return QueryBuilder.queryFor(objectTypeClass, prismContext).none().build();
+    }
+    List<PrismReferenceValue> referencesToFind = new ArrayList<>();
+    for (QName managerRelation : managerRelations) {
+        PrismReferenceValue parentOrgRefVal = new PrismReferenceValue(orgOid, OrgType.COMPLEX_TYPE);
+        parentOrgRefVal.setRelation(managerRelation);
+        referencesToFind.add(parentOrgRefVal);
+    }
+    return QueryBuilder.queryFor(objectTypeClass, prismContext)
+            .item(ObjectType.F_PARENT_ORG_REF).ref(referencesToFind)
+            .build();
+}
+----
+
+Note that we maybe replace `F_PARENT_ORG_REF` with `F_ROLE_MEMBERSHIP_REF`, see notes below.
+
+
+== Consequences for midPoint code for midPoint deployment engineers
+
+If you are an engineer deploying midPoint, changes are less drastic.
+
+. Creating new references:
+
+.. If your deployment uses the default relations (`org:default`, `org:manager`, `org:approver`, `org:owner`, etc), there is no change in this respect.
+Just continue creating references as you did before.
+
+.. If your deployment uses custom relations (e.g. `my:kinderManager` for manager), you can simply use these names in any `setRelation` calls.
+Or you can use the generalized approach described in the "for midPoint developers" section.
+
+
+
+. Determining the kind of reference: This is different, though.
+Instead of using `ObjectTypeUtil.isXXXRelation` methods you have to switch to `relationRegistry.isXXX` methods.
+
+. Querying for references:
+
+.. If your deployment uses the default relations, there is no change in this respect.
+Just query for the pre-defined relation names.
+
+.. If your deployment uses custom relations, either use these, or you can use the generalized approach described in the "for midPoint developers" section.
+
+
+
+
+== Q & A
+
+*Q:* Due to historic reasons, org:manager is of `member` kind.
+But when displaying org members in GUI, it was historically _not_ shown among "regular" members.
+(Now it is.) How should this be solved? Should we create a "regular" members query as: _all membership relations minus all manager relations_?
+
+A: Yes.
+`org:manager` will be a `member` relation.
+
+*Q:* Should be `org:manager` and `org:meta` represented in `parentOrgRef` item? If `joe` is an externally appointed manager of `Department of Computer Science` (but not a regular member of it) and this department is part of `Faculty of Mathematics and Physics`, should be `joe` listed as a member of the faculty (using transitional closure of org tree)?
+
+A: Yes.
+`parentOrgRef` will be filled-in using member-like relations.
+We switched `org:meta` to `meta` kind only.
+And adapted the code to treat `meta` kind as `member` when inducements et al.
+are concerned.
+
+*Q:* When overriding standard relations (e.g. changing the label for `org:manager`), existing kinds and categories are replaced by the new definition.
+This may cause confusion: even if the engineer wants to change just the name, he must correctly specify also kinds and categories.
+We should resolve this somehow.
+E.g. kinds/categories would be copied if not specified explicitly.
+But then there's a problem if overridden relation would need to have no kinds or no categories.
+So a flag like "noKinds"/"noCategories"? Or a flag like "keepKinds"/"keepCategories" with the default value of true?
+
+A: Yes, existing kinds and categories will be replaced.
+The user must know what he's doing.
+
+
+
+== See Also
+
+* wiki:Relation+Configuration[Relation Configuration]
+

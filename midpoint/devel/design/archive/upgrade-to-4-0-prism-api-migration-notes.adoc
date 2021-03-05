@@ -1,0 +1,618 @@
+= Upgrade to 4.0 - Prism API migration notes
+:page-wiki-name: Upgrade to 4.0 - Prism API migration notes
+:page-toc: top
+
+
+[TIP]
+.MidPoint 4.0 and later
+====
+MidPoint 4.0 brings the re-engineered Prism API.
+This document tries to help you with the migration of the original (1.x, 2.x, 3.x) Prism API to the new one.
+
+====
+
+
+== Overview
+
+Overview of the new API is provided in wiki:Updated+Prism+API+Overview[Updated Prism API Overview].
+
+In this document we concentrate solely on the migration issues from older versions to version 4.0.
+
+
+== Summary
+
+[%autowidth]
+|===
+| Old | New | Note
+
+3+| *Item paths*
+
+
+| `new ItemPath(...)`
+| `ItemPath.create(...)`
+|  +
+
+
+
+| `new ItemPath(UserType.F_NAME)`
+| `UserType.F_NAME`
+| see `ItemName`
+
+
+| `(Map<ItemPath, V> map).get(...)` +
+`(Set<ItemPath> set).contains(...)`, etc.
+| `(Map<UniformItemPath, V> map).get(...)` +
+`(Set<`Uniform`ItemPath> set).contains(...)`, etc.
+| `equals` and `hashCode` are not supported well on `ItemPath` default implementations (`ItemPathImpl` and `ItemName`)
+
+
+3+| *Query and delta builders*
+
+
+| `QueryBuilder.queryFor(UserType.class, prismContext)`
+| `prismContext.queryFor(UserType.class)`
+|  +
+
+
+
+| `DeltaBuilder.deltaFor(UserType.class, prismContext)`
+| `prismContext.deltaFor(UserType.class)`
+|  +
+
+
+
+3+| *Item and item values creation*
+
+
+| `new PrismPropertyValue<>(...)`
+| `prismContext.itemFactory().createPropertyValue(...) `
+|  +
+
+
+
+| `new PrismReferenceValue(...)`
+| `prismContext.itemFactory().createReferenceValue(...) `
+|  +
+
+
+
+| `new PrismContainerValue<>(...)`
+| `prismContext.itemFactory().createContainerValue(...) `
+|  +
+
+
+
+| `new PrismObjectValue<>(...) `
+| `prismContext.itemFactory().createObjectValue(...) `
+|  +
+
+
+
+| `new PrismProperty<>(...)`
+| `prismContext.itemFactory().createProperty(...) `
+|  +
+
+
+
+| `new PrismReference(...)`
+| `prismContext.itemFactory().createReference(...)`
+|  +
+
+
+
+| `new PrismContainer<>(...)`
+| `prismContext.itemFactory().createContainer(...)`
+|  +
+
+
+
+| `new PrismObject<>(...) `
+| `prismContext.itemFactory().createObject(...)`
+|  +
+
+
+
+| `PrismValue.fromRealValue(...)`
+| `prismContext.itemFactory().createValue(...)`
+|  +
+
+
+
+| `property.add(new PrismPropertyValue<>(o)`
+| `property.addRealValue(o)`
+|  +
+
+
+
+| `propertyDelta.addValuesToAdd(new PrismPropertyValue<>(o))`
+| `propertyDelta.addRealValuesToAdd(o)`
+| also for replace and delete
+
+
+3+| *Definition creation* (use only if really needed)
+
+
+| `new PrismPropertyDefinition<>(...)`
+| `prismContext.definitionFactory().createPropertyDefinition(...)`
+|  +
+
+
+
+| `new PrismReferenceDefinition<>(...)`
+| `prismContext.definitionFactory().createReferenceDefinition(...)`
+|  +
+
+
+
+| `new PrismContainerDefinition<>(...)`
+| `prismContext.definitionFactory().createContainerDefinition(...)`
+|  +
+
+
+
+| `new ComplexTypeDefinition<>(...)`
+| `prismContext.definitionFactory().createComplexTypeDefinition(...)`
+|  +
+
+
+
+3+| *Definition modification *(avoid if possible)
+
+
+| `((PrismPropertyDefinitionImpl) ppd).setMinOccurs(0)`
+| `ppd.toMutable().setMinOccurs(0)`
+|  +
+
+
+
+3+| *Delta creation* (use delta builder if possible)
+
+
+| `new PropertyDelta<>(...)`
+| `prismContext.deltaFactory().property().create(...)`
+|  +
+
+
+
+| `PropertyDelta.createXXX(...)`
+| `prismContext.deltaFactory().property().createXXX(...)`
+|  +
+
+
+
+| `new ReferenceDelta(...)`
+| `prismContext.deltaFactory().reference().create(...)`
+|  +
+
+
+
+| `ReferenceDelta.createXXX(...)`
+| `prismContext.deltaFactory().reference().createXXX(...)`
+|  +
+
+
+
+| `new ContainerDelta<>(...)`
+| `prismContext.deltaFactory().container().create(...)`
+|  +
+
+
+
+| `ContainerDelta.createXXX(...)`
+| `prismContext.deltaFactory().container().createXXX(...)`
+|  +
+
+
+
+| `new ObjectDelta<>(...)`
+| `prismContext.deltaFactory().object().create(...)`
+|  +
+
+
+
+| `ObjectDelta.createXXX(...)`
+| `prismContext.deltaFactory().object().createXXX(...)`
+|  +
+
+
+
+| `new DeltaSetTriple<>(...)`
+| `prismContext.deltaFactory().createDeltaSetTriple(...)`
+|  +
+
+
+
+| `new PrismValueDeltaSetTriple<>(...)`
+| `prismContext.deltaFactory().createPrismValueDeltaSetTriple(...)`
+|  +
+
+
+
+| `new DeltaMapTriple<>(...)`
+| `prismContext.deltaFactory().createDeltaMapTriple(...)`
+|  +
+
+
+
+3+| *Query and filter creation* (use query builder if possible)
+
+
+| `XXXFilter.createXXX(...)`
+| `prismContext.queryFactory().createXXX(...)`
+|  +
+
+
+
+| `ObjectPaging.createPaging(...)`
+| `prismContext.queryFactory().createPaging(...)`
+|  +
+
+
+
+| `ObjectQuery.createObjectQuery(...)`
+| `prismContext.queryFactory().createQuery(...)`
+|  +
+
+
+
+3+| *XNode creation* (really avoid if possible) and modification (do not even think about this!)
+
+
+| `new RootXNode(...)`
+| `prismContext.xnodeFactory().root(...)`
+|  +
+
+
+
+| `new PrimitiveXNode<>(...)`
+| `prismContext.xnodeFactory().primitive(...)`
+|  +
+
+
+
+| `new MapXNode(...)`
+| `prismContext.xnodeFactory().map(...)`
+|  +
+
+
+
+| `new ListXNode(...)`
+| `prismContext.xnodeFactory().list(...)`
+|  +
+
+
+
+| `mapxnode.put(...)`
+| `prismContext.xnodeMutator().putToMapXNode(...)`
+|  +
+
+
+
+| `listxnode.add(...)`, and similar methods
+| `prismContext.`xnodeMutator`().addToListXNode(...)` and similar
+|  +
+
+
+
+3+| *Schema creation*
+
+
+| `new PrismSchema(...)`
+| `prismContext.schemaFactory().createPrismSchema(...)`
+|  +
+
+
+
+3+| *Query conversion*
+
+
+| `QueryConverter.xxx, QueryJaxbConverter.xxx`
+| `prismContext.getQueryConverter().xxx`
+| TODO: `getQueryConverter` ("old style") or `queryConverter` ("new style")?
+
+
+|===
+
+*Various changes in ItemPath +
+*
+
+[%autowidth]
+|===
+| Old | New | Note
+
+| `pathSegment instanceof NameItemPathSegment`
+| `ItemPath.isName(pathSegment)`
+| segments are now plain Java objects (not always wrapped into `ItemPathSegment`)
+
+
+| `pathSegment instanceof IdItemPathSegment`
+| `ItemPath.isId(pathSegment)`
+| also `isParent`, `isObjectReference`, `isIdentifier`, `isVariable`
+
+
+| `path.first() instanceof NameItemPathSegment`
+| `path.startsWithName()`
+| also `startsWithId`, `startsWithNullId`, `startsWithParent`, `startsWithObjectReference`, ...
+
+
+| `((NameItemPathSegment) path.first()).getName()`
+| ItemPath.toName(path.first()) or even path.firstToName()
+|  +
+
+
+
+| `((IdItemPathSegment) path.first()).getId()`
+| ItemPath.toId(path.first()) or even path.firstToId()
+| also `path.firstToVariableNameOrNull()` and other variants
+
+
+| `path.getFirstName()`
+| `path.firstToNameOrNull()`
+| note the difference between `firstToName` and `firstName`!
+
+
+| `path.lastNamed().getName`
+| `path.lastName()`
+|  +
+
+
+
+| `a.subPath(b)`
+| `a.append(b)`
+| to avoid confusion with a.isSubPath(b)
+
+
+| `path.head()`
+| `path.firstAsPath()`
+|  +
+
+
+
+| `path.substract(...)`
+| `path.remainder(...)`
+|  +
+
+
+
+| `path.containsName(...)`
+| `path.containsNameExactly(...)`
+| uses equals, not QNameUtil.match
+
+
+| `ItemPathUtil` class
+| distributed to `ItemPath`, `ItemPathTypeUtil`, `ItemPathCollectionsUtil`, `ItemPathSegmentUtil`, `ItemPathComparatorUtil` classes
+| not quite finished yet
+
+
+| `new ItemPathType(string)`
+| `prismContext.itemPathParser().asItemPathType(pathValue)`
+|  +
+
+
+
+| `ItemPath.isNullOrEmpty(path)`
+| `ItemPath.isEmpty(path)`
+|  +
+
+
+
+| `path != null ? path : EMPTY_PATH`
+| `ItemPath.emptyIfNull(path)`
+|  +
+
+
+
+| `ItemPathUtil.getOnlySegmentQName(path)`
+| path.asSingleNameOrFail()
+|  +
+
+
+
+| ItemPathUtil.getOnlySegmentQName(itemPathType)
+| ItemPathTypeUtil.asSingleNameOrFail(itemPathType) or ItemPathTypeUtil.asSingleNameOrFailNullSafe(itemPathType)
+|  +
+
+
+
+| `ItemPathUtil.getOnlySegmentQNameRobust(itemPathType)`
+| `itemPathType.getItemPath().asSingleName() or ItemPathTypeUtil.asSingleName(itemPathType)`
+|  +
+
+
+
+| `CanonicalItemPath.create(...)`
+| ` prismContext.createCanonicalItemPath(...)`
+|  +
+
+
+
+| wildcard item path segments
+| (removed)
+|  +
+
+
+
+| `variable=true` in `NameItemPathSegment`
+| `VariableItemPathSegment` that is not a `NameItemPathSegment`
+|  +
+
+
+
+| `ItemPathHolder` class
+| no more in the API
+|  +
+
+
+
+| `XPathType` class
+| no longer exists
+|  +
+
+
+
+|===
+
+*Other changes in `prism` module (some of)*
+
+[%autowidth]
+|===
+| Old | New | Note
+
+| `ItemDelta` static methods
+| `ItemDeltaCollectionsUtil`, `ItemDeltaUtil` methods
+|  +
+
+
+
+| `PropertyDelta` static methods
+| `PropertyDeltaCollectionsUtil` methods
+|  +
+
+
+
+| `ObjectDelta` static methods
+| `ObjectDeltaCollectionsUtil`, `ObjectDeltaUtil` methods
+|  +
+
+
+
+| `PrismValue` static methods
+| `PrismValueCollectionsUtil`, `PrismValueUtil` methods
+|  +
+
+
+
+| `item.hasRealValue(prismValue)`
+| `item.hasValueIgnoringMetadata(prismValue)`
+| "real value" usually means something different
+
+
+| `SchemaProcessorUtil.parseMultiplicity`
+| `DefinitionUtil.parseMultiplicity`
+|  +
+
+
+
+| `ProtectorImpl protector = new ProtectorImpl();protector.setKeyStorePassword(KEYSTORE_PASSWORD);protector.setKeyStorePath(KEYSTORE_PATH);protector.setEncryptionAlgorithm(XMLCipher.AES_256);protector.init();return protector;`
+| `return KeyStoreBasedProtectorBuilder.create(getPrismContext())` +
+`    .keyStorePassword(KEYSTORE_PASSWORD)` +
+`    .keyStorePath(KEYSTORE_PATH)` +
+`    .encryptionAlgorithm(XMLCipher.AES_256)` +
+`    .initialize();`
+|  +
+
+
+
+| `DistinguishedNameMatchingRule.NAME`
+| `PrismConstants.DISTINGUISHED_NAME_MATCHING_RULE_NAME`
+| the same for other matching rule names
+
+
+| `new AlphanumericPolyStringNormalizer()`
+| `polyStringNormalizerRegistry.getNormalizer(ALPHANUMERIC_POLY_STRING_NORMALIZER)`
+| the same for other normalizers
+
+
+| `PrismValueDeltaSetTriple.diffPrismValueDeltaSetTriple`
+| `DeltaSetTripleUtil.diffPrismValueDeltaSetTriple`
+|  +
+
+
+
+| `item.getPreviousValue(), item.getNextValue()`
+| (removed)
+|  +
+
+
+
+|===
+
+*Related changes in `schema` and `common` modules*
+
+Note: `ObjectFactory` is in `com.evolveum.midpoint.schema.processor`. Its name, placement and methods will probably change soon.
+
+[%autowidth]
+|===
+| Old | New
+
+2+| Derived objects creation
+
+
+| `new ResourceAttribute<>(...)`
+| `ObjectFactory.createResourceAttribute(...)`
+
+
+| `new ResourceAttributeDefinition<>(...)`
+| `ObjectFactory.createResourceAttributeDefinition(...)`
+
+
+| `new ResourceAttributeContainer(...)`
+| `ObjectFactory.createResourceAttributeContainer(...)`
+
+
+| `new ResourceAttributeContainerDefinition(...)`
+| `ObjectFactory.createResourceAttributeContainerDefinition(...)`
+
+
+| `new ResourceSchema(...)`
+| `ObjectFactory.createResourceSchema(...)`
+
+
+| `ShadowDiscriminatorObjectDelta.createModificationReplaceProperty(...)`
+| `RefineryObjectFactory.createShadowDiscriminatorModificationReplaceProperty(...)`
+
+
+2+| GetOperationOptions
+
+
+| `SelectorOptions.createCollection(LookupTableType.F\_ROW, +
+    GetOperationOptions.createRetrieve( +
+        new RelationalValueSearchQuery( +
+            ObjectPaging.createPaging( +
+                LookupTableRowType.F\_LABEL, OrderDirection.ASCENDING))));`
+| `schemaHelper.getOperationOptionsBuilder() +
+    .item(LookupTableType.F\_ROW) +
+        .retrieveQuery() +
+            .asc(LookupTableRowType.F\_LABEL) +
+        .end() +
+    .build();`
+
+
+| `import com.evolveum.midpoint.schema.SelectorOptions;` +
+`import com.evolveum.midpoint.schema.GetOperationOptions; +
+options = SelectorOptions.createCollection(GetOperationOptions.createNoFetch()); +
+`
+| `import com.evolveum.midpoint.schema.GetOperationOptionsBuilderImpl;` +
+`def oob = new GetOperationOptionsBuilderImpl(prismContext);` +
+`options = oob.noFetch().build();`
+
+
+|===
+
+*Related changes in `admin-gui`*
+
+[%autowidth]
+|===
+| Old | New | Note
+
+| ` findPropertyWrapper(QName n)`
+| ` findPropertyWrapperByName(QName n)`
+| to differentiate between single-name paths and names (this is a hack; it should be implemented more nicely)
+
+
+|===
+
+More detailed change description follows.
+
+
+== ItemPath changes
+
+
+=== Construction
+
+...
+
+use `UniformItemPath` (~ "old" `ItemPath`) that supports `equals` and `hashCode`
+
+TODO
+
