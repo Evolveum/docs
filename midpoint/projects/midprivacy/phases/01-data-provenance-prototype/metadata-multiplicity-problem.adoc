@@ -1,0 +1,580 @@
+= Metadata Multiplicity Problem
+:page-toc: top
+
+link:../identity-metadata-in-a-nutshell/[Metadata] are data about data.
+Metadata describe where the data came from, when they were created, how they were moved and transfromed and so on.
+Even a simple data item such as person's full name can have a very rich set of metadata.
+
+Metadata can be quite rich and complicated.
+But for the purpose of this document let's keep things simple and focus only on one small part of metadata: provenance.
+Provenance metadata describe where the data came from.
+It is a condensed and usually considerably abstract representation of data origin.
+
+However, provenance metadata can still be quite complex.
+Therefore let's simplify the things even further and let us focus only on the concept of _origin_.
+_Origin_ is an abstract representation of the place where the data came from, such as Human Resources (HR) system, manual user entry or identification of organization that the data came from.
+For the purpose of this document we will use simple strings such as `HR`, `user entry` or `ACME`.
+
+== Naïve Approach
+
+The most obvious approach would be to attach the origin string to every value.
+User record may look like this:
+
+[source, json]
+----
+{
+  ...
+  "employeeNumber" : {
+    "@value" : "012345",
+    "@metadata" : {
+      "provenance" : "HR"
+    }
+  }
+  ...
+}
+----
+
+The JSON data structure above represents user with an employee number of `012345` that originated in the HR system.
+
+This straightforward approach works reasonably well for value that have simple origins.
+Employee number is a good example of such values, as it is usually generated in HR system and all other systems most likely learned the value from there.
+However, real world is much more complicated.
+Even a seemingly simple property such as person's full name can be a good example how complex can data provenance get.
+
+Let's have a very usual mid-size organization where system administrator manages user accounts manually.
+One day Lawrence Long joins the organization.
+Therefore system administrator creates user account for Lawrence:
+
+[source, json]
+----
+{
+  ...
+  "fullName" : "Lawrence Long",
+  ...
+}
+----
+
+But we want to keep provenance metadata for the value.
+This particular value was created by manual entry of system administrator.
+We will use `admin entry` provenance metadata for such cases:
+
+[source, json]
+----
+{
+  ...
+  "fullName" : {
+    "@value" : "Lawrence Long",
+    "@metadata" : {
+      "provenance" : "admin entry"
+    }
+  }
+  ...
+}
+----
+
+Everything is simple so far.
+But the organization grows and manual identity provisioning is no longer feasible.
+Therefore it is decided to automatically synchronize HR data with the user database.
+It is perhaps no surprise that there is a record for Lawrence Long in the HR system.
+As HR data are correlated and synchronized to the user database we get the first glimpse of the problem.
+Now we have two origins for Lawrence's full name: system administrator entry and HR database.
+Most engineers would probably ignore the problem at this point and simple overwrite the metadata:
+
+[source, json]
+----
+{
+  ...
+  "fullName" : {
+    "@value" : "Lawrence Long",
+    "@metadata" : {
+      "provenance" : "HR"
+    }
+  }
+  ...
+}
+----
+
+In fact, this is probably the right thing to do when getting data from HR system.
+The HR database is likely to be more authoritative than original entry of system administrator.
+Therefore there is not much harm done when we overwrite the provenance metadata.
+
+In fact, the full name is not a simple value.
+It is a derived value which is a combination of two components: first name (recorded as `givenName`) and last name (recorded as `familyName`):
+
+[source, json]
+----
+{
+  ...
+  "givenName" : {
+    "@value" : "Lawrence",
+    "@metadata" : {
+      "provenance" : "HR"
+    }
+  },
+  "familyName" : {
+    "@value" : "Long",
+    "@metadata" : {
+      "provenance" : "HR"
+    }
+  },
+  "fullName" : {
+    "@value" : "Lawrence Long",
+    "@metadata" : {
+      "provenance" : "HR"
+    }
+  }
+  ...
+}
+----
+
+All these values came from the HR system, therefore the provenance metadata are still simple.
+No problem here.
+
+As the organization grew, the IT department decided to automate account management in pretty much all applications.
+Now the value `Lawrence Long` is properly sychnronized to all the accounts.
+It appears in e-mail communication, user profiles, assignments, reports and pretty much everywhere.
+The problem is, that Lawrence does not like to be called "Lawrence".
+Everybody used to call him "Larry", which he liked.
+But now, as `Lawrence Long` is automatically set up everywhere, people start to think that Larry has become lofty.
+He does not like that.
+Therefore Larry changes `Lawrence` to `Larry` in his organization-wide user profile.
+And this is the point where we are confronted with our first problem:
+
+[source, json]
+----
+{
+  ...
+  "givenName" : {
+    "@value" : "Larry",
+    "@metadata" : {
+      "provenance" : "user entry"
+    }
+  },
+  "familyName" : {
+    "@value" : "Long",
+    "@metadata" : {
+      "provenance" : "HR"
+    }
+  },
+  "fullName" : {
+    "@value" : "Larry Long",
+    "@metadata" : {
+      "provenance" : ???
+    }
+  }
+  ...
+}
+----
+
+What should be the provenance of `fullName`?
+It is combination of two values, one of them came from HR system, the other was entered by the user.
+Keeping `HR` as provenance of `fullName` is clearly wrong.
+Should we put `user entry` there instead?
+Perhaps in this particular case `user entry` may be a reasonable provenance value as it is quite likely Larry knew how his full name will look like after the change.
+But the system has computed the `fullName` value automatically and Larry could only guess what the result will be.
+Therefore replacing the provenance of combined values is not a good generic mechanism.
+Therefore let's do something smarter:
+
+[source, json]
+----
+{
+  ...
+  "fullName" : {
+    "@value" : "Larry Long",
+    "@metadata" : {
+      "provenance" : "user entry + HR"
+    }
+  }
+  ...
+}
+----
+
+We are complicating the metadata model already.
+But it is not too complex and it describes the situation well.
+This approach may work well for many years.
+
+== The Problem
+
+The world around us is getting increasingly complex.
+Larry may not be an ordinary employee.
+Maybe Larry is in fact prof. Lawrence Long, PhD. and his primary affiliation is with his home research institute that cooperates with our organization on a research project.
+Maybe Larry is a contractor of a small company operating under a franchise arrangement with our organization.
+Maybe Larry is not an employee at all, maybe he is a customer that wants to use social login to access our systems.
+Maybe Larry is something entirely else, engaged with our organization under some arrangement that will evolve in next couple of years, an arrangement that we just cannot predict now.
+Regardless of what exactly Larry does, it is likely there will be multiple origins of the data.
+
+Let us focus on just one example.
+In our case, Larry is a researcher working on several multi-disciplinary research projects that spans many organizations.
+Larry's primary affiliation is his research institute that we will be calling _The Institute_.
+He is a famous, high-profile scientist and our organization is proud to be able to cooperate with him.
+Professor Larry has a part time engagement with our organization to work on one of his many long-term research projects.
+We have started working with professor Larry in early 2000s.
+Back then there was not much to choose from when it came to identity and access management.
+We have created an account for Larry, Larry set up his password and logged in every time that he needed to access our systems.
+But it is 2020s now.
+Larry wants to use his identity with _The Institute_ to access our systems.
+There are protocols such as SAML or OpenID Connect that can do that for years.
+So where is the problem?
+
+In fact, there is no big _authentication_ problem here.
+Larry's identity at _The Institute_ gets linked to his identity maintained at our organization.
+SAML or OpenID Connect take care of the authentication.
+But how do we merge the data?
+Our records tell that full name of this person is `Larry Long`.
+_The Institute_ also claims that the name of this person is `Larry Long`.
+Perfect match!
+Therefore there is no problem here.
+Or is it?
+
+While the data match, the metadata does not.
+The same value comes from two sources.
+What value do we put into the provenance metadata?
+
+[source, json]
+----
+{
+  ...
+  "fullName" : {
+    "@value" : "Larry Long",
+    "@metadata" : {
+      "provenance" : ???
+    }
+  }
+  ...
+}
+----
+
+Before the accounts were linked the provenance was set to `user entry + HR` as this value was a combination of data entered by the user and data from HR record.
+Now we need to put `The Institute` there, as we have a value that came from identity provider working on behalf of _The Institute_.
+Should we simply overwrite the metadata?
+
+[source, json]
+----
+{
+  ...
+  "fullName" : {
+    "@value" : "Larry Long",
+    "@metadata" : {
+      "provenance" : "The Institute"
+    }
+  }
+  ...
+}
+----
+
+This approach may be very attractive.
+It reflects the primary affiliation of Larry and it also mirrors the authentication mechanism.
+However, Larry is still in our HR database.
+Therefore there is another source for the data, but that source is not reflected in the metadata.
+This may be problematic in case that Larry end his affiliation with _The Institute_.
+We have to unlink the accounts in that case.
+Strictly speaking, we have to "unlearn" the value `Larry Long` that we have received from `The Institute`.
+This is easy to do, as we have provenance metadata.
+We know which values we have learned from _The Institute_ and we can easily remove them.
+However, this would leave the account without a full name.
+
+We still have the HR records, therefore we can use them to fill in the full name.
+But this may be a trouble.
+We may need to wait for the synchronization/reconciliation task to run and there may be other technical difficulties.
+That particular data may not actually originated from HR, but from a different system in the first place.
+And we may lose information about manual user edits.
+If we are not careful, we may end up with `Lawrence Long` as the full name again.
+Larry is not going to be happy about that.
+
+Keeping the old metadata instead of overwriting them will not work either.
+In that case we would not be able to identify the data originating from _The Institute_, which means we cannot safely unlink the accounts.
+And in that case, we are losing track of important provenance information, which is very bad news for data protection and accountability.
+We cannot really do that.
+And we can run into a problem when Larry ends employment contract with us, but he still retains engagement on the project indirectly through cooperation with _The Institute_.
+
+Even worse, this whole approach breaks down entirely if there are more than one external affiliation.
+This is not going to work.
+Obviously, a completely different approach is needed.
+
+== Multiplicity
+
+Data provenance is not _one_ thing.
+As there are multiple potential sources for each data items, the provenance metadata has to keep track of multiple origins.
+The provenance has to be multi-valued.
+
+We can easily fix our simple data structure by changing provenance data structure from simple string to a collection.
+This is how the record looks like before Larry's account is linked with _The Institute_:
+
+[source, json]
+----
+{
+  ...
+  "fullName" : {
+    "@value" : "Larry Long",
+    "@metadata" : {
+      "provenance" : [ "user entry + HR" ]
+    }
+  }
+  ...
+}
+----
+
+When the accounts are linked, we simply keep both provenance metadata values:
+
+[source, json]
+----
+{
+  ...
+  "fullName" : {
+    "@value" : "Larry Long",
+    "@metadata" : {
+      "provenance" : [ "user entry + HR", "The Institute" ]
+    }
+  }
+  ...
+}
+----
+
+Now it is clear that this value came from two independent sources.
+First source is a combination of HR record and a value entered manually by the user.
+Second source is _The Institute_.
+
+We can unlink account from _The Institute_ easily, if needed.
+In such case we simply remove `The Institute` from provenance metadata, but we know that we can still retain the value as there is another valid source for it.
+We can also terminate Larry's employment in our organization.
+Everything seems to work.
+
+The key insight here is that provenance metadata are inherently multi-valued.
+This simple change makes the system work.
+
+== Yield
+
+In practice, data provenance is much more complex than a simple string.
+The provenance is also likely to be system-dependent.
+It may be enough for us to track that the information came from `The Institute`.
+However, _The Institute_ will most likely keep the origin of that same information in more details.
+It may track the system where the information originated, whether it was entered by the user, when it was entered, which legal basis for data processing was used and so on.
+Each system is probably going to have its own _schema_ for provenance metadata.
+Identity management systems will probably lead the way, as they combine data from many systems and they are usually considered to be "guardians" of data.
+
+MidPoint is a leading open source identity management system.
+It is a comprehensive system that synchronizes, moves, combines and transforms the data.
+MidPoint has ambition to implement strong data protection features, an ambition that is materialized in link:/midpoint/midprivacy/[midPrivacy initiative].
+Metadata and especially provenance metadata are a link:../provenance-origin-basis/[basic building stone of data protection features].
+Therefore we have paid a lot of attention to metadata in midPoint.
+Metadata schemas that midPoint maintains are built for real-world operations in identity management and data protection.
+
+MidPoint metadata schemas are based on principles outlined above.
+However, midPoint went one step further.
+Entire midPoint metadata are multi-value.
+There is one complete value for all the metadata structures for each individual data source.
+In midPoint parlance, we use term _yield_ to refer to each such a source.
+_Yield_ may correspond to external data source, such as HR database, remote identity provider or manual user entry.
+But _yield_ may also represent internal source, such as mapping that combines data from several sources or a value generator.
+
+Following example shows `fullName` user property with two yields in a very simplified form:
+
+[source,json]
+----
+{
+  "user" : {
+    ...
+    "fullName" : {
+      "@value" : "Larry Long",
+      "@metadata" : [
+        {
+          "provenance" : {
+            # data are combination of HR and user entry
+          }
+        },
+        {
+          "provenance": {
+            # data came from The Institute
+          }
+        }
+      ]
+    }
+  },
+    ...
+  }
+}
+----
+
+Each _yield_ may contain a complex data structure that describes fine details about the value.
+For example, following data structure may provide details how and when particular data were transformed:
+
+[source,json]
+----
+{
+  "user" : {
+    ...
+    "fullName" : {
+      "@value" : "Larry Long",
+      "@metadata" : [
+        {
+          "provenance" : {
+            # data are combination of HR and user entry
+          },
+          "transformation" : {
+            # data produced by mapping in object template
+            # description of mapping inputs and output
+          }
+        },
+        {
+          "provenance": {
+            # data came from The Institute
+          },
+          "transformation" : {
+            # data produced by inbound mapping in FedXYZ resource
+            # description of mapping inputs and output
+          }
+        }
+      }
+    },
+    ...
+  }
+}
+----
+
+_Yield_ may not be entirely easy or intuitive to understand, but it is very powerful and elegant concept.
+
+While _yield_ may contain a lot of metadata structures that describe exhaustive details about data, _provenance_ metadata still have a prime position among all other details.
+Provenance metadata describe data origin on a conceptual level.
+MidPoint is using provenance metadata to find the right yield to work with, therefore provenance metadata are important for correct processing of all metadata structures.
+However, provenance metadata are also used to specify logical origin of the data.
+This is crucial for metadata presentation as it is this logical origin that makes sense to people inspecting the data.
+
+However, data _origins_ are more complex than it may seem.
+Identity management systems usually consider source system (resource) as data origin.
+This can be "HR system" or "corporate directory".
+However, one system (resource) can contain data that ultimately came from other systems.
+For example "corporate directory" may contain customer data that were synchronized from CRM system.
+But there may also be sales agent data that were entered manually by system administrator.
+Exact specification of what is an _origin_ of data is very likely to vary from deployment to deployment.
+Therefore midPoint allows to use almost any midPoint object to describe data _origin_.
+This may range from an abstract notion of _manual user entry_ to a very precise identification of _application_ or _organization_ that produced the data.
+
+However, even the concept of _origin_ is not enough to describe data provenance.
+Let us go back to the `Larry Long` example, where `Larry` is entered manually by a user, while `Long` is taken from HR database.
+This particular value is a combination of data from two origins.
+Strictly speaking, such a combination forms a (virtual) origin of its own.
+But such a strict interpretation would be difficult to manage and even more difficult to understand.
+Luckily, users are usually not interested in a fact that this value was created by a mapping in user template.
+The users want to know that this value was created by combining data entered by user with data from HR.
+Users are interested in the ultimate sources of the data.
+We use the term _acquisition_ to refer to such source, accompanied by other data, such as timestamp of data acquisition.
+
+Now, we have all the pieces to complete the puzzle.
+Yield, origin and acquisition can be combined together:
+
+[source,json]
+----
+{
+  "user" : {
+    ...
+    "fullName" : {
+      "@value" : "Larry Long",
+      "@metadata" : [
+        { # first yield
+          "provenance" : {
+            "acquisition" : [
+              {
+                "timestamp" : "2020-06-22T10:52:03Z",
+                "originRef" : {
+                  # "User entry" origin. Indicates data entered by user.
+                  "oid" : "d6064cb8-b563-11ea-aabf-cb0e70300dd1",
+                  "type" : "ServiceType"
+                }
+              },
+              {
+                "timestamp" : "2020-03-06T23:05:42Z",
+                "originRef" : {
+                  # "HR" origin. Indicates data taken from HR Database.
+                  "oid" : "006033de-e61a-11ea-a755-d789f09a46f5",
+                  "type" : "ServiceType"
+                }
+              }
+
+            ]
+          }
+        },
+        { # second yield
+          "provenance": {
+            "acquisition" : [
+              {
+                "timestamp" : "2020-08-17T14:45:12Z",
+                "originRef" : {
+                  # "The Institute" organization
+                  "oid" : "3e8256d8-e61a-11ea-b24e-432cf1451aae",
+                  "type" : "OrgType"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    ...
+  }
+}
+----
+
+This metadata structure is still simplified.
+Real-world metadata would contain identification of _resource_ and _channel_ in acquisition data structures.
+There will be _storage_ metadata and there may be _transformation_ metadata.
+But this example gives general overview of how provenance metadata work in midPoint.
+
+== Alternative Solutions
+
+We have considered several alternative solutions to this problem.
+Perhaps the most prominent alternative solution is to keep meta-data single valued, but allow several "instances" of the same value to exist at the same time.
+Following example illustrates JSON representation of such an approach:
+
+[source, json]
+----
+{
+  ...
+  "fullName" : [
+    {
+      "@value" : "Larry Long",
+      "@metadata" : {
+        "provenance" : "user entry + HR"
+      }
+    },
+    {
+      "@value" : "Larry Long",
+      "@metadata" : {
+        "provenance" : "The Institute"
+      }
+    }
+  ],
+  ...
+}
+----
+
+Strictly speaking, this may even be the correct solution as it describes the reality: there two values originating from two sources that just happen to be the same.
+However, there are numerous issues with this approach.
+Perhaps the most serious issues is that this approach goes against a long tradition of data representation.
+Data handling code and libraries are not adjusted to the fact, that data item which is formally single-valued may have several values.
+Checks and validation for data item multiplicity would fail.
+The code that expects a single value would suddenly need to handle multiple values.
+There may be ways how to handle at least some of those issues transparently in data representation layers of the code.
+However, that would significantly complicate the code, putting future maintainability of the code at risk.
+Many parts of the code base would need to deal with multiple data values.
+For example the user interface would need to implement smart ways how to present the values in simplified forms.
+Simplified presentation of the values is the common use case, while metadata-enriched presentation is rare use case.
+Therefore we would complicate the common use to make rare cases easier, which is not a beneficial trade-off.
+But perhaps the most significant issue is related to data storage.
+The value has to be stored several time, which may be a significant overhead for larger values such as user profile photos.
+
+There just too many practical problems and too much code would need to be adapted and improved.
+That makes this approach non-feasible, given the current state of information technology and programming practices.
+
+== User Experience Challenge
+
+The concepts of multi-valued metadata, yields, acquisitions and origins seems to be logical, elegant and practical.
+However, they are far from being intuitive.
+This makes presentation of provenance information to users a huge challenge.
+
+Metadata presentation code in midPoint user interface went through several design and implementation iterations during the midPrivacy initiative.
+Despite that, the user interface is still not ideal and it would certainly benefit from usability improvements.
+
+== See Also
+
+* link:../identity-metadata-in-a-nutshell/[Metadata In A Nutshell]: Introduction to metadata concepts.
+* link:../provenance-origin-basis/[Provenance, Origin, Basis]: How provenance metadata relate to data protection.

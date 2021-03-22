@@ -1,0 +1,163 @@
+= Common Interface Concepts
+:page-wiki-name: Common Interface Concepts
+
+Main subsystem interfaces in link:https://evolveum.com/[midPoint] use a very similar philosophy and approach.
+All the interfaces provide manipulation of the identity objects (objects from the wiki:Data+Model[data model]), therefore it is quite expected that all the interfaces will provide similar semantics.
+The common functions provided by all the interfaces are:
+
+* Create, read, update and delete (CRUD) operations with objects.
+These operations are in fact called `add`, `get`, `modify` and `delete` in midPoint.
+
+* Listing and searching for objects
+
+* Operations that implement commonly used associations between objects
+
+Concepts described here apply to the following interfaces:
+
+* wiki:IDM+Model+Interface[IDM Model Interface] (Model API)
+
+* Provisioning Service Interface (Provisioning API)
+
+* Task Manager API (partially)
+
+* Repository API
+
+
+== One Size Does Not Fit All
+
+The interfaces are similar, not same.
+Repository API is a bit different than the Model API because it does a slightly different thing.
+Operation arguments and return values are usually similar, but errors (exceptions) and constraints are quite different.
+As these are also part of the interface definition, we cannot say that all the interfaces are the same.
+
+The interfaces are leaky abstractions.
+E.g. Some repository implementations may be able to do atomic operations, other may not.
+Some resources may be able to check schema, other may not.
+Therefore the interface definition is frequently using _should_ instead of _must_. This is a hint to interface implementers to do the best possible thing, but the client will not be able to rely on this in all cases.
+
+Although the current definition and also implementation of the interfaces are reasonably stable some changes and improvements are still expected.
+Any comments and suggestions are welcome.
+
+
+== CRUD operations
+
+All the major interfaces implement basic CRUD operation set.
+The operations are modeled in accord with midPoint wiki:Consistency+Model[consistency model]. That means that they work with relative changes, without transactions or any heavyweight locking.
+
+Primary object identifier is wiki:Object+ID[OID]. This identifier is assigned to object on create (`add`) and it stays with the object to its death.
+OID is returned from `add` operation and from `search`/`list` operations; all other operations require it to manipulate objects.
+
+Many operations take class (object type) as an argument.
+Even though that may seem as an overkill, it provides substantial advantage and flexibility in the implementation.
+Consider a setup where users should be stored in the LDAP directory while we want to keep tasks in the relational database.
+If `get` operation would not have `type` parameter, it would not be possible to determine whether the request should be routed to LDAP directory or to the database.
+Similarly for `modify` and `delete`. The presence of type allows for optimizations and flexibility.
+It also provides some additional type safety by using Java generics.
+
+All the operations may fail if the object being created, modified or even read does not conform to the schema.
+Implementation may or may not be able to do this check, but client should be prepared to get schema violation errors.
+Implementations should do the schema check if they can do it efficiently.
+
+
+=== add
+
+The `add` operation creates a new object.
+The object is identified by OID, which may or may not be provided by the client.
+If OID is not provided, it will be generated (and returned).
+It is generally recommended *not* to provide OID and let the system generate it.
+The specific value of OID should not matter anyway.
+
+The operation should fail if object with such OID already exists.
+It may also fail on other constraints that depend on the object type and specific subsystem.
+E.g. repository implementation will fail if a <name> property of a new User object (`UserType`) belong to a user that already exists in the repository.
+
+The operation should be atomic if possible.
+It should not allow creation of two objects with the same OID (even if created in parallel).
+The operation should either fail completely, so that nothing would be created; or a complete object should be created.
+But, as state above, this may not be possible in all implementations.
+
+
+=== get
+
+The `get` operation returns an object identified by OID.
+It fails if the object does not exist.
+This operation is "safe" in a way that it must not have any side-effects and must not change the state of the objects.
+
+The implementation may be able to _resolve_ wiki:Object+References[object references]. The client may request that the resulting object should be returned as wiki:Object+References[composite], instead of a plain object with references.
+This approach may be more efficient for some applications.
+
+
+=== modify
+
+The `modify` operation changes an object.
+It uses wiki:Consistency+Model[relative change] description to modify the object.
+The intent is to be able to _merge_ most of the operations on the same object without locking or transactions.
+The locking and transactions are impractical in the identity management, as individual operations on objects may take hours, days or even weeks (e.g. approvals, asynchronous provisioning, manual tasks, etc).
+
+
+=== delete
+
+The `delete` operation irreversibly removes the object.
+
+
+== List and Search
+
+The `list` and `search` operations look for objects.
+They return all objects of selected type (`list`) or objects of selected type that match a specified wiki:XML+Object+Query[filter].
+
+Search operations may use _paging_, which is a support to return specific subset of the results.
+This feature is intended for efficient paged display of the results and also for efficient iterative processing of the results (including remote processing).
+Local interfaces may also use `iterativeSearch` where the results are processed by a call-back handler.
+
+
+== Conventions
+
+Interface operations should be named as _<operation><objectType>_ e.g. `searchObjects, testResource`. The operations that returns single object instance or works on single object should be named in singular (e.g. `addObject`). The operation that return multiple instances should be named in plural (e.g. `listObjects`). Operations names should be unified as well:
+
+* add, modify, delete - write single object (identified by OID)
+
+* get - retrieve single object by OID
+
+* list - returning all objects, none or fixed search criteria
+
+* search - returning subset of objects with flexible search criteria (wiki:XML+Object+Query[filter])
+
+The operations named `get` should be efficient.
+The overhead to execute them should be low, e.g. direct fetch of a single object using an indexed path (`getObject`). The operations named `list` or `search` may have higher overhead.
+E.g. they may use less efficient indexes or even unindexed paths.
+
+
+== Operation Status, Context and Error Handling
+
+The wiki:Task[Task] structure provides a context to most midPoint operations.
+It contains contextual information such as identity of the user that invoked the operation, it contains security context, it may be bound to scheduling data and so on.
+It also holds the wiki:OperationResult[operation result] data structure (see below).
+See wiki:Task[Task] page for a detailed description.
+
+Error reporting and handling is one of the most important concepts in the interfaces.
+The interfaces provide two mechanisms to describe errors and error conditions:
+
+* Java Exceptions (or SOAP faults, HTTP error responses and similar mechanisms) indicate severe errors that cause whole operation to fail.
+The capabilities of these mechanisms are very limited.
+E.g. they cannot provide track of the complete operation or cannot indicate partial success.
+But such mechanisms are widely supported and acceptably well understood.
+They also provide propagation of critical and unexpected errors (e.g. "runtime" exceptions).
+
+* wiki:OperationResult[Operation Result] is used as a rich data structure that describe useful information about the whole operation and its suboperations.
+It describes what parts of the operation failed and provides a rich diagnostics information to display to user.
+
+The exceptions are "standardized" through the system.
+A common set of exceptions is defined in the infrastructure subsystem and these exceptions are reused by the interfaces.
+Most of the exceptions are checked exceptions that define a specific circumstances (semantics) of the error.
+Therefore it is usually sufficient to react to (catch) a specific exception to handle the error.
+More sophisticated error handling is possible by inspecting the wiki:OperationResult[Operation Result].
+
+
+== See Also
+
+* wiki:Consistency+Model[Consistency Model]
+
+* wiki:XML+Object+Query[Query Language]
+
+* wiki:Data+Model[Data Model]
+

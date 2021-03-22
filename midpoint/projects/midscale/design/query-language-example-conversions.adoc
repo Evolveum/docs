@@ -1,0 +1,1437 @@
+= Query Language Example Conversions
+
+
+== Java DSL
+
+=== And, Matching Rule
+
+.Java DSL
+[source,java]
+----
+ObjectFilter filter =
+    getPrismContext().queryFor(UserType.class)
+        .item(UserType.F_GIVEN_NAME).eq("Jack").matchingCaseIgnore()
+        .and().item(UserType.F_FULL_NAME).contains("arr")
+        .buildFilter();
+----
+
+.Query Language
+[source,query]
+----
+givenName =[stringIgnoreCase] "Jack" and fullName contains "arr"
+----
+
+.Query Language
+[source,query]
+----
+fullName != givenName
+----
+
+
+=== Fulltext
+
+.Java DSL
+[source,java]
+----
+FullTextFilterImpl.createFullText("jack");
+----
+
+.Query Language
+[source,query]
+----
+. fullText "jack"
+----
+
+
+=== Container Matches
+
+.Java DSL
+[source,java]
+----
+ObjectFilter filter = getPrismContext().queryFor(UserType.class)
+    .exists(UserType.F_ASSIGNMENT)
+    .item(AssignmentType.F_DESCRIPTION).eq("Assignment 2")
+    .buildFilter();
+----
+
+.Query Language
+[source,query]
+----
+assignment matches ( description = "Assignment 2" )
+----
+
+
+=== Substringd
+.Java DSL
+[source,java]
+----
+ObjectFilter filter = getPrismContext().queryFor(UserType.class)
+    .item(UserType.F_LOCALITY).startsWith("C")
+    .buildFilter();
+----
+
+.Query Language
+[source,query]
+----
+locality startsWith "C"
+----
+
+
+=== Or Filter
+.Java DSL
+[source,java]
+----
+ObjectFilter filter = getPrismContext().queryFor(UserType.class)
+    .item(UserType.F_GIVEN_NAME).eq("Jack")
+    .or().item(UserType.F_GIVEN_NAME).eq("Jackie")
+    .buildFilter();
+
+----
+
+.Query Language
+[source,query]
+----
+givenName = "Jack" or givenName = "Jackie"
+----
+
+
+=== Equals
+.Java DSL
+[source,java]
+----
+ObjectFilter filter = getPrismContext().queryFor(UserType.class)
+    .item(UserType.F_GIVEN_NAME).eq("Jackie")
+    .buildFilter();
+----
+
+.Query Language
+[source,query]
+----
+givenName = "Jackie"
+----
+
+=== Equals in Extension
+.Java DSL
+[source,java]
+----
+ObjectFilter filter = getPrismContext().queryFor(UserType.class)
+    .item(ItemPath.create(UserType.F_EXTENSION, "indexedString"), def).eq("alpha")
+    .buildFilter();
+----
+
+.Query Language
+[source,query]
+----
+extension/indexedString = "alpha"
+----
+
+
+
+=== Null, Not Exists
+// jack has no locality
+.Java DSL
+[source,java]
+----
+ObjectFilter filter = getPrismContext().queryFor(UserType.class)
+    .item(UserType.F_LOCALITY).isNull()
+    .buildFilter();
+----
+
+.Query Language
+[source,query]
+----
+locality not exists
+----
+
+.Java DSL
+[source,java]
+----
+ObjectFilter filter = getPrismContext().queryFor(UserType.class)
+    .item(UserType.F_NAME).isNull()
+    .buildFilter();
+----
+
+.Query Language
+[source,query]
+----
+name not exists
+----
+
+
+=== And, Or, Substring, Equals
+.Java DSL
+[source,java]
+----
+ObjectFilter filter =
+    getPrismContext().queryFor(UserType.class)
+        .item(UserType.F_FAMILY_NAME).eq("Sparrow")
+        .and().item(UserType.F_FULL_NAME).contains("arr")
+        .and()
+        .block()
+        .item(UserType.F_GIVEN_NAME).eq("Jack")
+        .or().item(UserType.F_GIVEN_NAME).eq("Jackie")
+        .endBlock()
+        .buildFilter();
+----
+
+.Query Language
+[source,query]
+----
+familyName = "Sparrow" and fullName contains "arr" and ( givenName = "Jack" or givenName = "Jackie" )
+----
+
+
+=== PolyString
+
+==== Strict
+.Java DSL
+[source,java]
+----
+PolyString name = new PolyString("jack", "jack");
+ObjectFilter filter = getPrismContext().queryFor(UserType.class)
+    .item(UserType.F_NAME).eq(name)
+    .buildFilter();
+----
+
+
+.Query Language
+[source,query]
+----
+name matches (orig = "jack" and norm = "jack")
+
+----
+
+==== Norm
+.Java DSL
+[source,java]
+----
+getPrismContext().queryFor(UserType.class)
+    PolyString name = new PolyString("jack", "jack");
+    .item(UserType.F_NAME).eq(name).matchingNorm()
+    .buildFilter());
+----
+
+.Query Language with matches
+[source,query]
+----
+name matches (norm = "jack")
+----
+.Query Language with matching rule
+[source,query]
+----
+name =[polyStringNorm] "jack"
+----
+
+==== Orig
+
+.Java DSL
+[source, java]
+----
+PolyString name = new PolyString("jack", "jack");
+ObjectFilter filter = getPrismContext().queryFor(UserType.class)
+    .item(UserType.F_NAME).eq(name).matchingOrig()
+    .buildFilter());
+----
+
+.Query Language with matches
+[source,query]
+----
+name matches (orig = "jack")
+----
+
+.Query Language with matching rule
+[source,query]
+----
+name =[polyStringOrig] "jack"
+----
+
+=== Matches container
+
+.Java DSL
+[source,java]
+----
+ObjectFilter filter = getPrismContext().queryFor(UserType.class)
+    .exists(UserType.F_ASSIGNMENT)
+    .item(AssignmentType.F_DESCRIPTION).eq("Assignment NONE")
+    .buildFilter();
+----
+
+.Query Language
+[source,query]
+----
+assignment matches (description = "Assignment NONE")
+----
+
+=== Container exists
+
+.Java DSL
+[source,java]
+----
+ObjectFilter filter = getPrismContext().queryFor(UserType.class)
+    .exists(UserType.F_ASSIGNMENT)
+    .buildFilter();
+
+----
+
+.Query Language
+[source,query]
+----
+assignment exists
+----
+
+.Java DSL
+[source,java]
+----
+ObjectFilter filter = getPrismContext().queryFor(UserType.class)
+    .item(UserType.F_ASSIGNMENT, AssignmentType.F_DESCRIPTION).eq("Assignment 2")
+    .buildFilter();
+----
+
+.Query Language
+[source,query]
+----
+ assignment/description = "Assignment 2"
+----
+
+=== References
+
+==== Oid
+
+.Java DSL
+[source,java]
+----
+ObjectFilter filter = getPrismContext().queryFor(UserType.class)
+    .item(UserType.F_ACCOUNT_REF).ref("c0c010c0-d34d-b33f-f00d-aaaaaaaa1113")
+    .buildFilter();
+----
+
+.Query Language
+[source,query]
+----
+accountRef matches ( oid = "c0c010c0-d34d-b33f-f00d-aaaaaaaa1113")
+----
+
+
+==== Relation
+
+.Java DSL
+[source,java]
+----
+ObjectFilter filter = getPrismContext().queryFor(UserType.class)
+    .item(UserType.F_ACCOUNT_REF).refRelation(new QName("a-relation"))
+    .buildFilter();
+----
+
+.Query Language
+[source,query]
+----
+accountRef matches (relation = a-relation)
+----
+
+==== Other
+
+.Java DSL
+[source,java]
+----
+ObjectFilter filter =
+    getPrismContext().queryFor(UserType.class)
+        .item(PrismConstants.T_ID).gt("00")
+        .buildFilter();
+----
+
+.Query Language
+[source,query]
+----
+# > "00"
+----
+
+== XML
+
+=== Specific shadow on resource
+
+
+
+.XML
+[source,xml]
+----
+<q:filter xsi:type="q:SearchFilterType"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns:c=".../common/common-3"
+    xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+    xmlns:q=".../query-3">
+
+    <q:and>
+        <q:ref>
+            <q:path>c:resourceRef</q:path>
+            <q:value>
+                <c:oid>aae7be60-df56-11df-8608-0002a5d5c51b</c:oid>
+            </q:value>
+        </q:ref>
+        <q:equal>
+            <q:path>declare namespace icfs=".../connector/icf-1/resource-schema-3";
+                c:attributes/icfs:name</q:path>
+            <q:value xsi:type="xsd:string">uid=jbond,ou=People,dc=example,dc=com</q:value>
+        </q:equal>
+    </q:and>
+</q:filter>
+----
+
+.Query Language
+[source, sql]
+----
+resourceRef = "aae7be60-df56-11df-8608-0002a5d5c51b" and attributes/icfs:name = "uid=jbond,ou=People,dc=example,dc=com"
+----
+
+.XML
+[source, xml]
+----
+<q:filter xsi:type="q:SearchFilterType"
+        xmlns=".../query-3"
+        xmlns:q=".../query-3"
+        xmlns:c=".../common/common-3"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+    <and>
+        <equal>
+            <matching>insensitive</matching>
+            <path>c:tag</path>
+            <value>abc</value>
+        </equal>
+        <equal>
+            <matching>norm</matching>
+            <path>c:name</path>
+            <value>someName</value>
+        </equal>
+    </and>
+</q:filter>
+----
+
+.XML + Query Language
+[source, xml]
+----
+c:tag =[insensitive] "abc" and c:name =[norm] "someName"
+----
+
+.XML
+[source,xml]
+----
+<filter xsi:type="SearchFilterType"
+        xmlns:c=".../common/common-3"
+       xmlns=".../query-3"
+       xmlns:t=".../types-3"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+    <and>
+        <equal>
+            <path>c:name</path>
+            <value>
+                <t:orig>generic object</t:orig>
+                <t:norm>generic object</t:norm>
+            </value>
+        </equal>
+        <equal>
+            <path>
+                declare namespace p="http://midpoint.evolveum.com/xml/ns/test/extension";
+                c:extension/p:intType
+            </path>
+            <value xsi:type="xsd:int">123</value>
+        </equal>
+    </and>
+</filter>
+----
+
+.Query Language
+[source, sql]
+----
+c:name and (orig = "generic object" and norm = "generic object") and c:extension/p:intType = 123
+----
+
+.XML
+[source,xml]
+----
+<filter
+    xmlns=".../query-3" xmlns:c=".../common/common-3"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+    <!-- <and> -->
+    <type>
+        <type>c:UserType</type>
+        <filter>
+            <equal>
+                <path>c:name</path>
+                <value>some name identificator</value>
+            </equal>
+        </filter>
+    </type>
+</filter>
+----
+
+.XML + Query Language
+[source, xml]
+----
+type = c:UserType and c:name = "some name identificator"
+----
+
+.XML
+[source,xml]
+----
+<object xsi:type="SearchFilterType"
+    xmlns=".../query-3" xmlns:c=".../common/common-3"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+    <!-- <and> -->
+    <equal>
+        <path>c:connectorType</path>
+        <value>org.identityconnectors.ldap.LdapConnector</value>
+    </equal>
+    <!-- </and> -->
+</object>
+----
+
+.XML + Query Language
+[source, xml]
+----
+c:connectorType = "org.identityconnectors.ldap.LdapConnector"
+----
+
+.XML
+[source,xml]
+----
+<filter xmlns:c=".../common/common-3"
+        xmlns:ext="http://midpoint.evolveum.com/xml/ns/test/extension"
+        xmlns:q=".../query-3"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="q:SearchFilterType">
+    <q:not>
+        <q:equal>
+            <q:path>c:extension/ext:longType</q:path>
+        </q:equal>
+    </q:not>
+</filter>
+----
+
+.XML + Query Language
+[source, xml]
+----
+
+----
+
+.XML
+[source,xml]
+----
+<filter xmlns:c=".../common/common-3"
+    xmlns=".../query-3">
+
+    <or xmlns=".../query-3">
+        <substring>
+            <path>c:employeeType</path>
+            <c:expression>
+                <c:script>
+                    <c:code>
+                        return "12345"
+                    </c:code>
+                </c:script>
+            </c:expression>
+            <anchorStart>false</anchorStart>
+            <anchorEnd>false</anchorEnd>
+        </substring>
+    </or>
+</filter>
+----
+
+.XML + Query Language
+[source, xml]
+----
+c:employeeType contains ```return "12345"```
+----
+
+.XML
+[source,xml]
+----
+<filter xsi:type="q:SearchFilterType"
+    xmlns=".../query-3"
+    xmlns:q=".../query-3"
+    xmlns:c=".../common/common-3"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+
+    <or>
+        <equal>
+            <path>c:intent</path>
+            <value>some account type</value>
+        </equal>
+        <equal>
+            <path>
+                declare namespace f="http://midpoint.evolveum.com/blabla";
+                c:attributes/f:foo
+            </path>
+            <value xsi:type="xsd:string">foo value</value>
+        </equal>
+        <equal>
+            <path>
+                declare namespace p="http://midpoint.evolveum.com/xml/ns/test/extension";
+                c:extension/p:stringType
+            </path>
+            <value xsi:type="xsd:string">uid=test,dc=example,dc=com</value>
+        </equal>
+        <ref>
+            <path>c:resourceRef</path>
+            <value>
+                <oid>d0db5be9-cb93-401f-b6c1-86ffffe4cd5e</oid>
+                <relation>boss</relation>
+            </value>
+        </ref>
+    </or>
+</filter>
+----
+
+.XML + Query Language
+[source, xml]
+----
+c:intent = "some account type" or c:attributes/f:foo = "foo value"
+  or c:extension/p:stringType = "uid=test,dc=example,dc=com"
+  or c:resourceRef matches (
+    oid = "d0db5be9-cb93-401f-b6c1-86ffffe4cd5e"
+    and relation = "boss"
+  )
+----
+
+.XML
+[source,xml]
+----
+<query xmlns=".../query-3" xmlns:c=".../common/common-3">
+    <filter>
+        <equal>
+            <matching>polyStringOrig</matching>
+            <path>c:name</path>
+            <value>some-name</value>
+        </equal>
+    </filter>
+</query>
+----
+
+.XML + Query Language
+[source, xml]
+----
+c:name polyStringOrig some-name
+----
+
+
+==== Equals Multiple Values
+
+WARNING: This is VALUE IN SET rather then VALUE EQUALS SET
+
+.XML
+[source,xml]
+----
+<!-- test210EqualMultiple -->
+<query xmlns=".../query-3" xmlns:c=".../common/common-3">
+    <filter>
+        <equal>
+            <path>c:employeeType</path>
+            <value>STD</value>
+            <value>TEMP</value>
+        </equal>
+    </filter>
+</query>
+----
+
+.XML + Query Language
+[source, xml]
+----
+c:employeeType in ("STD", "TEMP")
+----
+
+
+.XML
+[source,xml]
+----
+<query xmlns=".../query-3" xmlns:c=".../common/common-3">
+    <filter>
+        <equal>
+            <path>c:employeeNumber</path>
+            <rightHandSidePath>c:costCenter</rightHandSidePath>
+        </equal>
+    </filter>
+</query>
+----
+
+.XML + Query Language
+[source, xml]
+----
+c:employeeNumber = c:costCenter
+----
+
+
+.XML
+[source,xml]
+----
+<!-- filter test410OrgFilterSubtree -->
+<query xmlns=".../query-3">
+    <filter>
+        <org>
+            <orgRef>
+                <oid>111</oid>
+            </orgRef>
+            <scope>SUBTREE</scope>
+        </org>
+    </filter>
+</query>
+----
+
+----
+. inOrg '111'
+----
+
+
+.XML
+[source,xml]
+----
+<query xmlns=".../query-3">
+    <filter>
+        <inOid>
+            <value>oid1</value>
+            <value>oid2</value>
+            <value>oid3</value>
+        </inOid>
+    </filter>
+</query>
+----
+
+.XML + Query Language
+[source, xml]
+----
+. inOid ['oid1', 'oid2', 'oid3' ]
+----
+
+
+.XML
+[source,xml]
+----
+<resource oid="84a420cc-2904-11e8-862b-0fc0d7ab7174">
+
+  <connectorRef type="ConnectorType">
+      <filter>
+          <q:and>
+              <q:equal>
+                  <q:path>connectorType</q:path>
+                  <q:value>com.evolveum.icf.dummy.connector.DummyConnector</q:value>
+              </q:equal>
+              <q:equal>
+                  <q:path>connectorVersion</q:path>
+                  <q:value>2.0</q:value>
+              </q:equal>
+          </q:and>
+      </filter>
+  </connectorRef>
+
+  <protected>
+      <filter>
+          <q:equal>
+              <q:path>attributes/name</q:path>
+              <q:value>daviejones</q:value>
+          </q:equal>
+      </filter>
+  </protected>
+  <protected>
+      <filter>
+          <q:equal>
+              <q:path>attributes/name</q:path>
+              <q:value>calypso</q:value>
+          </q:equal>
+      </filter>
+  </protected>
+</resource>
+----
+
+.XML + Query Language
+[source, xml]
+----
+
+----
+
+.XML
+[source,xml]
+----
+<authorization>
+    <name>read-requestable-roles</name>
+    <description>
+        Allow to read requestable roles. This allows to search for requestable roles in user interface.
+    </description>
+    <action>.../security/authorization-model-3#read</action>
+    <object>
+        <type>RoleType</type>
+        <filter>
+            <q:equal>
+                <q:path>requestable</q:path>
+                <q:value>true</q:value>
+            </q:equal>
+        </filter>
+    </object>
+    <!-- Note: for production use you should consider limiting the items that can be read. -->
+</authorization>
+----
+
+.XML + Query Language
+[source, xml]
+----
+
+----
+
+
+
+.XML
+[source,xml]
+----
+<authorization>
+    <name>self-owned-task-add-execute-changes</name>
+    <description>
+        Authorization to create a new 'execute changes' task owned by a currently logged-in user.
+        This is needed to execute asynchronous operations from the GUI.
+    </description>
+    <action>.../security/authorization-model-3#add</action>
+    <object>
+        <type>TaskType</type>
+        <filter>
+            <q:or>
+                <q:equal>
+                    <q:path>handlerUri</q:path>
+                    <q:value>.../model/synchronization/task/execute/handler-3</q:value>
+                </q:equal>
+                <q:equal>
+                    <q:path>handlerUri</q:path>
+                    <q:value>.../model/iterative-scripting/handler-3</q:value>    <!-- members-related operations -->
+                </q:equal>
+            </q:or>
+        </filter>
+        <owner>
+            <special>self</special>
+        </owner>
+    </object>
+</authorization>
+
+----
+
+.XML + Query Language
+[source, xml]
+----
+
+----
+
+.XML
+[source,xml]
+----
+<authorization>
+    <name>read all</name>
+    <action>.../security/authorization-model-3#read</action>
+    <object>
+        <type>UserType</type>
+        <filter>
+            <q:equal>
+               <q:path>employeeType</q:path>
+               <q:value>CAPTAIN</q:value>
+            </q:equal>
+        </filter>
+    </object>
+</authorization>
+----
+
+.XML + Query Language
+[source, xml]
+----
+
+----
+
+=== 270-object-collection-task-active.xml
+
+.XML
+[source,xml]
+----
+<type>TaskType</type>
+<filter>
+    <q:and>
+        <q:equal>
+            <q:path>executionStatus</q:path>
+            <q:value>runnable</q:value>
+        </q:equal>
+        <q:equal>
+            <q:path>parent</q:path>
+        </q:equal>
+    </q:and>
+</filter>
+----
+
+.XML + Query Language
+[source, xml]
+----
+
+----
+
+.XML
+[source,xml]
+----
+midpoint/gui/admin-gui/src/main/resources/initial-objects/285-object-collection-audit-24h.xml
+<filter>
+    <q:and>
+        <q:equal>
+            <q:path>eventStage</q:path>
+            <q:value>execution</q:value>
+        </q:equal>
+        <q:greater>
+            <q:path>timestamp</q:path>
+            <expression>
+                <script>
+                    <code>
+                        calendar = basic.addDuration(basic.currentDateTime(), "-P1D");
+                        return calendar;
+                    </code>
+                </script>
+            </expression>
+        </q:greater>
+    </q:and>
+</filter>
+----
+
+.XML + Query Language
+[source, xml]
+----
+
+----
+
+
+
+.XML
+[source,xml]
+----
+
+midpoint/gui/admin-gui/src/main/resources/initial-objects/330-object-collection-my-cases.xml
+<filter>
+    <q:and>
+        <q:ref>
+            <q:path>requestorRef</q:path>
+            <expression>
+                <script>
+                    <code>
+                        import com.evolveum.midpoint.xml.ns._public.common.common_3.*
+                        new ObjectReferenceType().oid(midpoint.principalOid)
+                    </code>
+                </script>
+            </expression>
+        </q:ref>
+        <q:not>
+            <q:equal>
+                <q:path>state</q:path>
+                <q:value>closed</q:value>
+            </q:equal>
+        </q:not>
+    </q:and>
+</filter>
+----
+
+.XML + Query Language
+[source, xml]
+----
+
+----
+
+
+.XML
+[source,xml]
+----
+<protected>
+    <filter>
+        <q:equal>
+            <q:path>attributes/name</q:path>
+            <q:value>daviejones</q:value>
+        </q:equal>
+    </filter>
+</protected>
+<protected>
+    <filter>
+        <q:equal>
+            <q:path>attributes/name</q:path>
+            <q:value>calypso</q:value>
+        </q:equal>
+    </filter>
+</protected>
+<protected>
+    <filter>
+        <q:equal>
+            <q:path>attributes/name</q:path>
+            <q:value>admin</q:value>
+        </q:equal>
+    </filter>
+</protected>
+----
+
+.XML + Query Language
+[source, xml]
+----
+
+----
+
+
+.XML
+[source,xml]
+----
+
+<role oid="10000000-0000-0000-0000-000000001605"
+        xmlns=".../common/common-3"
+        xmlns:c=".../common/common-3"
+        xmlns:t=".../types-3"
+        xmlns:ri=".../resource/instance-3"
+        xmlns:q=".../query-3"
+        xmlns:icfs=".../connector/icf-1/resource-schema-3"
+        xmlns:piracy=".../samples/piracy">
+    <name>Mapmaker</name>
+    <inducement>
+        <construction>
+            <resourceRef oid="10000000-0000-0000-0000-000000000004" type="c:ResourceType"/>
+            <kind>account</kind>
+            <association>
+                <ref>ri:group</ref>
+                <outbound>
+                    <expression>
+                        <associationTargetSearch>
+                            <filter>
+                                <q:equal>
+                                    <q:path>declare namespace icfs=".../connector/icf-1/resource-schema-3";
+                                        attributes/icfs:name</q:path>
+                                    <q:value>mapmakers</q:value>
+                                </q:equal>
+                            </filter>
+                            <searchStrategy>onResourceIfNeeded</searchStrategy>
+                        </associationTargetSearch>
+                    </expression>
+                </outbound>
+            </association>
+        </construction>
+    </inducement>
+</role>
+----
+
+.XML + Query Language
+[source, xml]
+----
+
+----
+
+
+.XML
+[source,xml]
+----
+<filter>
+    <q:equal>
+        <q:matching>.../matching-rule-3#stringIgnoreCase</q:matching>
+     <q:path>attributes/ri:dn</q:path>
+     <q:value>uid=idm,ou=Administrators,dc=example,dc=com</q:value>
+ </q:equal>
+</filter>
+----
+
+.XML + Query Language
+[source, xml]
+----
+
+----
+
+
+.XML
+[source,xml]
+----
+<filter>
+    <q:equal>
+        <q:path>c:name</q:path>
+        <expression>
+            <script>
+                <code>
+                    return memberOf.split(";", -1)[0]
+                </code>
+            </script>
+        </expression>
+    </q:equal>
+</filter>
+----
+
+.XML + Query Language
+[source, xml]
+----
+
+----
+
+.XML
+[source,xml]
+----
+<mapping>
+    <name>Access role assignment</name>
+    <strength>strong</strength>
+    <source>
+        <path>extension/memberOf</path>
+    </source>
+    <expression>
+        <assignmentTargetSearch>
+            <targetType>c:RoleType</targetType>
+            <filter>
+                <q:equal>
+                    <q:path>c:name</q:path>
+                    <expression>
+                        <script>
+                            <code>
+                                return memberOf.split(";", -1)[0]
+                            </code>
+                        </script>
+                    </expression>
+                </q:equal>
+            </filter>
+            <populate>
+----
+
+.XML + Query Language
+[source, xml]
+----
+
+----
+
+
+.XML
+[source,xml]
+----
+<role xmlns=".../common/common-3"
+      xmlns:q=".../query-3"
+      xmlns:ext=".../samples/piracy">
+    <assignment>
+        <targetRef type="RoleType">
+            <filter>
+                <q:equal>
+                    <q:path>ext:name</q:path>
+                    <expression>
+                        <path>$ext:roleName</path>
+                    </expression>
+                </q:equal>
+            </filter>
+        </targetRef>
+    </assignment>
+</role>
+----
+
+.XML + Query Language
+[source, xml]
+----
+
+----
+
+.XML
+[source,xml]
+----
+<role oid="12345678-d34d-b33f-f00d-55555555a020"
+        xmlns=".../common/common-3"
+        xmlns:q=".../query-3"
+        xmlns:ext=".../samples/piracy"
+        xmlns:ri=".../resource/instance-3">
+    <name>Generic Metarole</name>
+    <description>Metarole for all roles which are assigned directly to users</description>
+    <inducement id="1">
+        <construction>
+            <resourceRef type="ResourceType"> <!-- should be evaluated to oid="10000000-0000-0000-0000-000000000004"  -->
+                <filter>
+                    <q:equal>
+                        <q:path>name</q:path>
+                        <expression>
+                            <path>$assignment/extension/ext:resourceName</path>  <!--  should be Dummy Resource -->
+                                    <!-- originally here was "immediateRole"; however, this does not work on the path of
+                                         (e.g.) Engineer->JobMetarole->GenericMetarole ... so perhaps the easier solution
+                                         is to use magic assignment that contains all the extensions on the path -->
+                        </expression>
+                    </q:equal>
+                </filter>
+
+----
+
+.XML + Query Language
+[source, xml]
+----
+
+----
+
+.XML
+[source,xml]
+----
+<inducement id="2">
+    <construction>
+        <resourceRef type="ResourceType"> <!-- should be evaluated to oid="10000000-0000-0000-0000-000000000004"  -->
+            <filter>
+                <q:inOid>
+                    <expression>
+                        <script>
+                            <code>
+                                val = basic.getExtensionReferenceValue(immediateRole, ".../samples/piracy", "resourceRef")
+                                log.info("#######value " + val)
+                                return val?.getOid()
+                            </code>
+                        </script>
+                    </expression>
+----
+
+.XML + Query Language
+[source, xml]
+----
+
+----
+
+.XML
+[source, xml]
+----
+<objectCollection oid="f61bcb4a-f8ae-11e8-9f5c-c3e7f27ee878"
+                            xmlns=".../common/common-3"
+                            xmlns:c=".../common/common-3"
+                            xmlns:t=".../types-3"
+                            xmlns:q=".../query-3"
+                            xmlns:piracy=".../samples/piracy">
+                        <name>Active employees</name>
+                        <type>UserType</type>
+                        <filter>
+                            <q:equal>
+                                <q:path>activation/effectiveStatus</q:path>
+                                <q:value>enabled</q:value>
+                            </q:equal>
+                        </filter>
+
+
+----
+
+.XML + Query Language
+[source, xml]
+----
+
+----
+
+==== midpoint/model/model-intest/src/test/resources/gensync/resource-dummy-purple.xml
+
+.XML
+[source,xml]
+----
+
+<association>
+    <ref>ri:priv</ref>
+    <inbound>
+        <name>mate-inbound</name>
+        <strength>strong</strength>
+        <expression>
+            <assignmentTargetSearch>
+                <targetType>c:RoleType</targetType>
+                <filter>
+                    <q:equal>
+                        <q:path>name</q:path>
+                        <expression>
+                            <script>
+                                <code>
+                                    return entitlement?.getName()?.getOrig()
+                                </code>
+                            </script>
+                        </expression>
+                    </q:equal>
+
+----
+
+.XML + Query Language
+[source, xml]
+----
+<association>
+    <ref>ri:priv</ref>
+    <inbound>
+        <name>mate-inbound</name>
+        <strength>strong</strength>
+        <expression>
+            <assignmentTargetSearch>
+                <targetType>c:RoleType</targetType>
+                <filter>name = `return entitlement?.getName()?.getOrig()`</filter>
+----
+
+
+.XML
+[source,xml]
+----
+<role oid="f23ab26c-69df-11e6-8330-979c643ea51c"
+        xmlns=".../common/common-3"
+        xmlns:c=".../common/common-3"
+        xmlns:t=".../types-3"
+        xmlns:q=".../query-3"
+        xmlns:org='.../common/org-3'
+        xmlns:piracy=".../samples/piracy">
+    <name>Project Omnimanager</name>
+    <description>Manager of all projects</description>
+    <inducement>
+        <targetRef>
+            <type>OrgType</type>
+            <filter>
+                <q:equal>
+                    <q:path>orgType</q:path>
+                    <q:value>project</q:value>
+                </q:equal>
+            </filter>
+
+----
+
+.XML + Query Language
+[source, xml]
+----
+<role oid="f23ab26c-69df-11e6-8330-979c643ea51c"
+        xmlns=".../common/common-3"
+        xmlns:c=".../common/common-3"
+        xmlns:t=".../types-3"
+        xmlns:q=".../query-3"
+        xmlns:org='.../common/org-3'
+        xmlns:piracy=".../samples/piracy">
+    <name>Project Omnimanager</name>
+    <description>Manager of all projects</description>
+    <inducement>
+        <targetRef>
+            <type>OrgType</type>
+            <filter>orgType = project</filter>
+----
+
+
+.XML
+[source,xml]
+----
+<systemConfiguration xmlns=".../common/common-3"
+                     xmlns:c=".../common/common-3"
+                     xmlns:q=".../query-3">
+
+    <globalPolicyRule>
+           <name>citizen exclusion</name>
+           <policyConstraints>
+            <exclusion>
+                <targetRef type="RoleType">
+                    <filter>
+                        <q:equal>
+                            <q:path>roleType</q:path>
+                            <q:value>citizen</q:value>
+                        </q:equal>
+                    </filter>
+                    <resolutionTime>run</resolutionTime>
+                </targetRef>
+            </exclusion>
+
+----
+
+.XML + Query Language
+[source, xml]
+----
+<systemConfiguration xmlns=".../common/common-3"
+                     xmlns:c=".../common/common-3"
+                     xmlns:q=".../query-3">
+
+    <globalPolicyRule>
+           <name>citizen exclusion</name>
+           <policyConstraints>
+            <exclusion>
+                <targetRef type="RoleType">
+                  <filter>roleType = "citizen"</filter>
+
+----
+
+.XML
+[source,xml]
+----
+<filter>
+    <q:substring>
+        <q:matching>stringIgnoreCase</q:matching>
+        <q:path>
+            declare namespace icfs=".../connector/icf-1/resource-schema-3";
+            attributes/icfs:name
+        </q:path>
+        <q:value>-aDm</q:value>
+        <q:anchorEnd>true</q:anchorEnd>
+    </q:substring>
+</filter>
+----
+
+.XML + Query Language
+[source, xml]
+----
+<filter xmlns:icfs="...">
+  attributes/icfs:name endsWith[ignoreCase] "-aDm"
+</filter>
+----
+
+
+
+.XML
+[source,xml]
+----
+<protected>
+    <filter>
+        <q:equal>
+            <q:matching>.../matching-rule-3#distinguishedName</q:matching>
+         <q:path>attributes/ri:dn</q:path>
+         <!-- WilDCapiTaLIzaTioN and spacing makes sure that this is matched properly -->
+         <q:value>uid=cAlyPSo, ou=PeoPle,    DC=example,dc=COM</q:value>
+     </q:equal>
+   </filter>
+</protected>
+----
+
+.XML + Query Language
+[source, xml]
+----
+<protected>
+  <filter>
+    attributes/ri:dn =[distinguishedName] "uid=cAlyPSo, ou=PeoPle,    DC=example,dc=COM"
+  </filter>
+</protected>
+----
+
+.XML
+[source,xml]
+----
+<mapping>
+    <name>Org-org mapping</name>
+    <authoritative>true</authoritative>
+    <source>
+        <path>declare namespace ext="http://midpoint.evolveum.com/xml/ns/story/orgsync/ext";extension/ext:orgpath</path>
+    </source>
+    <source>
+        <path>orgType</path>
+    </source>
+    <expression>
+        <assignmentTargetSearch>
+            <targetType>c:OrgType</targetType>
+            <filter>
+                <q:equal>
+                    <q:path>c:name</q:path>
+                    <expression>
+                        <script>
+                            <code>
+                                parent = orgpath.tokenize('/')[1]
+                                if (!parent) {
+                                    return "TOP";
+                                } else {
+                                    return parent;
+                                }
+                            </code>
+                        </script>
+                    </expression>
+                </q:equal>
+----
+
+.Query Language
+[source,xml]
+----
+<mapping>
+    <name>Org-org mapping</name>
+    <authoritative>true</authoritative>
+    <source>
+        <path>declare namespace ext="http://midpoint.evolveum.com/xml/ns/story/orgsync/ext";extension/ext:orgpath</path>
+    </source>
+    <source>
+        <path>orgType</path>
+    </source>
+    <expression>
+        <assignmentTargetSearch>
+            <targetType>c:OrgType</targetType>
+            <filter>
+              c:name = ```orgpath.tokenize("/")[1]
+                if (!parent) {
+                  return "TOP";
+                } else {
+                  return parent;
+                }
+              ```
+            </filter>
+----

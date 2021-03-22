@@ -1,0 +1,565 @@
+= Repository query interpreter (Query API -> HQL)
+:page-wiki-name: Repository query interpreter (Query API -> HQL)
+
+
+== Translation of midPoint query to hibernate query (HQL)
+
+First of all, trivial filters (none, all, undefined) are eliminated.
+
+What remains is:
+
+Filter = Value filter or Complex filter
+
+Value filter = <path> <predicate> <values>
+
+Complex filter =
+
+* logical filter (And, Or, Not)
+
+* type filter
+
+* exists filter
+
+
+=== Translation of value filters
+
+A value filter is to be read as
+
+. *<path> <predicate> <values>* for singleton items, or
+
+. *for-some (v in <path>) : v <predicate> <values>* for all the others.
+
+What is a singleton in this context? It is a value that is always single-valued, even if we take the whole path into account.
+So, for example, user/activation/administrativeStatus is a singleton, because each user has at most one activation container value, and there is at most one administrativeStatus in this container value.
+On the other hand, user/assignment/activation/administrativeStatus is not a singleton (although administrativeStatus itself is a single-valued property), because a user can have more than one assignment.
+
+There are two basic problems when translating it into HQL:
+
+. How to translate midPoint query predicate into HQL predicate
+
+. How to translate prism ItemPath (and the existential quantifier as such) into HQL expression, including necessary "select from" clause fragment(s)
+
+As for the first problem, some predicates are trivial to translate: basic equality for static (compile-time defined) item, etc.
+Other are more elaborate, e.g. translating queries for extension properties, for references, for organizational structure, etc.
+
+As for the second problem: We need to elaborate more cases.
+
+[%autowidth]
+|===
+| Cardinality | Definition | Approach 1+| Example - source 1+| Example - translation
+
+| singleton
+| static
+| Direct translation from ItemPath to JPA path.
+1+| UserType: activation/administrativeStatus
+1+| RUser uu.activation.administrativeStatus
+
+
+.3+| non-singleton
+.3+| static
+.3+| Multivalued parts are translated into HQL left outer join.
+1+| UserType:organization
+1+| RUser u left join u.organization oo
+
+
+1+| UserType: assignment/activation/administrativeStatus
+1+| RUser u left join u.assignments a with a.assignmentOwner = 0 (i.e. FOCUS)a.activation.administrativeStatus
+
+
+1+| RoleType: inducement/activation/administrativeStatus
+1+| RRole r left join r.assignments a with a.assignmentOwner = 1 (i.e. ABSTRACT\_ROLE)a.activation.administrativeStatus
+
+
+| singleton
+| dynamic
+| HQL left outer join is used to bring the value of the item into the query ("with" clause selects the appropriate value from given extension table).TODO carefully consider whether to user "with" or "where".
+For simple queries it is the same, but for more complex ones (e.g. "not ( extension/p:longType = 123 )") it might present a difference - probably.
+1+| UserType: extension/p:longType(p = http://example.com/p)
+1+| RUser u left join u.longs l with l.ownerType = EXTENSION and link:http://l.name[l.name] = 'http://example.com/p#intType'l.value
+
+
+1+| non-singleton
+1+| dynamic
+1+| Probably the same as above - but with more values to pre processed (TODO think it through)
+1+| UserType: extension/p:longType(p = http://example.com/p)Now let longType be multivalued.
+1+| RUser u left join u.longs l with l.ownerType = EXTENSION and link:http://l.name[l.name] = 'http://example.com/p#intType'l.valueIt is exactly the same as above.
+The join produces one or more tuples.
+Just like in non-singleton static case.
+
+
+|===
+
+The idea of using joins is that they bring all necessary values into consideration, even if it means that there is a multiplication of original rows.
+For example, when having users u1, u2, u3 and querying them on static singletons, the relational query works on three rows:
+
+* u1
+
+* u2
+
+* u3
+
+Now, if we are querying also for example multivalued organization property, situation changes.
+Imagine that u1 has o1a, o1b; u2 has o2a, o2b, o2c, and u3 has none.
+The rows to be considered are the following:
+
+* u1, o1a
+
+* u1, o1b
+
+* u2, o2a
+
+* u2, o2b
+
+* u2, o2c
+
+* u3, null
+
+Normally, the joined organization values are not visible, because they are stripped off by final projection, which considers only u.fullObject column (and some auxiliary ones).
+
+Everything works fine, as long as our filters match at most one organization from each user.
+This is the standard case, e.g. when doing something like Equal ( user/organization, 'abc' ). But when we start writing queries that match more than one organization value (e.g. Or (Equal (user/organization, 'abc'), Equal (user/organization, 'def') ), or Not (Equal (user/organization, 'abc')) ), we start getting one user more than once in the output.
+This has to be solved somehow, either using distinct SQL keyword, or using subqueries; both of which have some performance implications.
+
+Outer left joins are there just in case we would need to include users without organizations in the result set.
+For example, having a query like
+
+[source]
+----
+Or (Equal (user/userType, 'xxxx'),
+    Equal (user/organization, 'yyyy'))
+----
+
+Note that this can lead to results with *really* many duplicates.
+
+
+==== Translation of logical filters
+
+The main problem connected to the use of logical filters (and complex filters in general) is: how to deal with join instructions arising from the use of non-signleton and dynamically defined items?
+
+HQL query, in general, looks like this:
+
+[source]
+----
+select S from F where W
+----
+
+It means that join instructions have to be grouped together in "F" part.
+An example:
+
+.midPoint query
+[source]
+----
+UserType: And (Equal (organization, "asdf"), Equal (organization, "ghjk"))
+----
+
+is interpreted as:
+
+.midPoint query interpretation
+[source]
+----
+And ( for-some (v in organization): Equal (v, 'asdf') ), ( for-some (v in organization): Equal (v, 'ghjk') )
+----
+
+or (in HQL terms, assuming PolyStringOrig matching rule) as:
+
+.query interpretation in HQL terms
+[source]
+----
+( for-some (v in organization): v.orig = 'asdf' ) and ( for-some (v in organization): v.orig = 'ghjk' )
+----
+
+And because of the common format of HQL query (select S from F ...) it needs to be written such that existential quantifiers are moved to the front, i.e.:
+
+[source]
+----
+for-some (v1 in organization, v2 in organization): v1.orig = 'asdf' and v2.orig = 'ghjk'
+----
+
+(Note the renaming of v to v1 and v2, respectively.
+This is necessary because we want to look for a user that has (presumably) two different organization values, so we have to use two different variables.
+If the logical operator would be OR, we could do an optimization of "for-some (v in organization): v.orig = 'asdf' or v.orig = 'ghjk'". Besides being simpler it would also reduce - but not eliminate altogether - the number of duplicate records in the result set.)
+
+So in HQL it looks like
+
+[source]
+----
+select u
+  from RUser u
+    left join u.organization v1
+    left join u.organization v2
+  where
+    v1.orig = 'asdf' and v2.orig = 'ghjk'
+----
+
+*Caveat:*
+
+What does *Not (Equal (item, value))* exactly mean?
+
+In the above formalization, it means *Not ( for-some ( v in item ) : v = value )*, which is clearly OK for singleton items.
+But e.g. for multi-valued organization attribute?
+
+Equal (organization, 'asdf') means "true if there is any organization value equal to asdf" i.e. "true if asdf is among the values".
+
+Not (Equal (organization, 'asdf')) means "false if there is any organization value equal to asdf" i.e. "false if asdf is among the values" i.e. "true if asdf is not among the values".
+
+This differs from the 3.3 implementation, which "Not (Equal (organization, 'asdf'))" interprets as "false if asdf is the only value or there is no value" - so it returns all users with any organization different from 'asdf' (a user is returned N times if it has N organizations different from 'asdf'). (Probably not returning user with no organization is a bug.
+But overall, it is conceptually different from the model presented above.)
+
+
+=== Translation of Exists filter
+
+Let's return to the example we mentioned above:
+
+.midPoint query
+[source]
+----
+Exists ( assignment , And ( Ref (tenantRef, oid1), Ref (orgRef, oid2) ) )
+----
+
+This means the following:
+
+.midPoint query interpretation
+[source]
+----
+for-some (a in assignment):
+  And ( Ref (a, oid1), Ref (a, oid2) )
+----
+
+
+.query interpretation in HQL terms
+[source]
+----
+for-some (a in assignments):
+  ( a.tenantRef.targetOid = oid1 and a.orgRef.targetOid = oid2 )
+----
+
+And, if we take more elaborate example:
+
+.midPoint query
+[source]
+----
+Exists ( case ):
+  And ( Ref (objectRef, oid1), Ref (reviewerRef, oid2) )
+----
+
+This means the following (note that objectRef is single-valued, but reviewerRef is multivalued):
+
+.query interpretation in HQL
+[source]
+----
+for-some (c in cases):
+  And ( c.objectRef.targetOid = oid1,
+        for-some (r in c.reviewerRef): r.targetOid = oid2 )
+----
+
+Written in HQL-friendly form:
+
+.query interpretation in HQL
+[source]
+----
+for-some (c in cases, r in c.reviewerRef): c.objectRef.targetOid = oid1 and r.targetOid = oid2
+----
+
+Or in HQL:
+
+[source]
+----
+select acc
+  from RAccessCertificationCampaign acc
+    left join acc.cases c
+    left join c.reviewerRef r
+  where
+    c.objectRef.targetOid = oid1 and r.targetOid = oid2
+----
+
+
+=== Translation of Type filter
+
+This is quite easy: the Type filter seems to be easily translatable to And filter:
+
+From:
+
+[source]
+----
+Type (type, subfilter)
+----
+
+To:
+
+[source]
+----
+And (objectTypeClass = type, subfilter)
+----
+
+
+== Random notes
+
+
+=== "Joined non-singleton entities cannot be shared"
+
+As seen from many examples above, when referencing the same non-singleton entity twice in And-type condition, e.g.
+
+[source]
+----
+UserType: And (Equal (organization, "asdf"), Equal (organization, "ghjk"))
+----
+
+we cannot share the joined entities, i.e. interpret the above as
+
+[source]
+----
+select ...
+  from RUser u
+       left join u.organization o
+           where o.name.orig = 'asdf' and o.name.orig = 'ghjk'
+----
+
+because it is wrong (always returns zero set).
+
+So it is quite obvious that joins for non-singleton entities *cannot* be shared.
+
+
+=== "Singleton entities can be shared"
+
+However, singleton entites that require joining - the only case we know about are dynamically defined singleton entites, i.e. single-valued attributes and extension items - can be shared.
+
+Imagine the following:
+
+[source]
+----
+UserType: And (GreaterThan (extension/intValue, 100), LessThan (extension/intValue, 200))
+----
+
+Given that value fiters are interpreted "for-some (v in item): C(v)", we could translate the above as:
+
+[source]
+----
+select ...
+  from RUser u
+    left join u.longs l1 with l1.ownerType = EXTENSION and l1.name = 'intValue'
+    left join u.longs l2 with l2.ownerType = EXTENSION and l2.name = 'intValue'
+ where
+    l1 > 100 and l2 < 200
+----
+
+However, extension/intValue is a singleton.
+It can have at most one value, so l1 is always the same as l2 (both having a value or both NULL).
+So we can safely do the following translation:
+
+[source]
+----
+select ...
+  from RUser u
+    left join u.longs l with l.ownerType = EXTENSION and l.name = 'intValue'
+  where
+    l > 100 and l < 200
+----
+
+
+== Some examples (from trivial to more complex)
+
+*"User with name 'asdf' (testing orig)"*
+
+[source]
+----
+UserType: Equal (name, 'asdf', PolyStringOrig)
+----
+
+Translation:
+
+[source]
+----
+select
+  u.fullObject, u.stringsCount, u.longsCount, u.datesCount, u.referencesCount, u.polysCount, u.booleansCount
+from
+  RUser u
+where
+  u.name.orig = 'asdf'
+----
+
+*"User with organization 'asdf' (testing norm)" - note that organization is a multivalued property:*
+
+[source]
+----
+UserType: Equal (organization, 'asdf', PolyStringNorm)
+----
+
+Translation:
+
+[source]
+----
+select
+  u.fullObject,
+  u.stringsCount,
+  u.longsCount,
+  u.datesCount,
+  u.referencesCount,
+  u.polysCount,
+  u.booleansCount
+from
+  RUser u
+    left join u.organization o
+where
+  o.norm = 'asdf'
+----
+
+*"User with organization 'asdf' as well as organization 'ghjk' (norm)"*
+
+[source]
+----
+UserType: And (Equal (organization, 'asdf', PolyStringNorm),
+               Equal (organization, 'ghjk', PolyStringNorm))
+----
+
+Translation:
+
+[source]
+----
+select
+  u.fullObject, u.stringsCount, u.longsCount, u.datesCount, u.referencesCount, u.polysCount, u.booleansCount
+from
+  RUser u
+    left join u.organization o
+    left join u.organization o2
+where
+  ( o.norm = 'asdf' and o2.norm = 'ghjk' )
+----
+
+*"User with organization 'asdf' (orig) - but applied to ObjectType, not UserType"*
+
+[source]
+----
+ObjectType: Equal (organization, 'asdf', PolyStringOrig)
+----
+
+Translation:
+
+[source]
+----
+select
+  o.fullObject, o.stringsCount, o.longsCount, o.datesCount, o.referencesCount, o.polysCount, o.booleansCount
+from
+  RObject o
+    left join o.organization o2
+where
+  o2.orig = 'asdf'
+----
+
+TODO: It is questionable if it's OK to query RObject and not RUser. However, currently this seems to work.
+
+*"Task with dependent task '123456'" - note that dependent is multivalue property:*
+
+[source]
+----
+TaskType: Equal (dependent, '123456')
+----
+
+Translation:
+
+[source]
+----
+select
+  t.fullObject, t.stringsCount, t.longsCount, t.datesCount, t.referencesCount, t.polysCount, t.booleansCount
+from
+  RTask t
+    left join t.dependent d
+where
+  d = '123456'
+----
+
+*"User with administrativeStatus ENABLED" - note that activation/administrativeStatus is a singleton, so no join is required*
+
+[source]
+----
+UserType: Equal (activation/administrativeStatus, ENABLED)
+----
+
+Translation:
+
+[source]
+----
+select
+  u.fullObject, u.stringsCount, u.longsCount, u.datesCount, u.referencesCount, u.polysCount, u.booleansCount
+from
+  RUser u
+where
+  u.activation.administrativeStatus = 0     // i.e. ordinal for com.evolveum.midpoint.repo.sql.data.common.enums.RActivationStatus.ENABLED
+----
+
+*"Generic object with name equals 'generic object' and intType extension attribute equals 123"*
+
+[source]
+----
+GenericObjectType: And (Equal(name, 'generic object', PolyStringNorm),
+                        Equal(extension/p:intType, 123)
+
+where p = http://example.com/p
+----
+
+Translation:
+
+[source]
+----
+select
+  g.fullObject, g.stringsCount, g.longsCount, g.datesCount, g.referencesCount, g.polysCount, g.booleansCount
+from
+  RGenericObject g
+    left join g.longs l with (l.ownerType = com.evolveum.midpoint.repo.sql.data.common.type.RObjectExtensionType.EXTENSION and l.name = 'http://example.com/p#intType')
+where
+  g.name.norm = 'generic object' and
+  l.value = 123
+----
+
+*"Account with attribute link:http://midpoint.evolveum.com/blabla#foo[http://midpoint.evolveum.com/blabla#foo] of value uid=jbond,ou=People,dc=example,dc=com"*
+
+[source]
+----
+ShadowType: Equal (attributes/foo, 'uid=jbond,ou=People,dc=example,dc=com')
+----
+
+Translation:
+
+[source]
+----
+select
+  s.fullObject, s.stringsCount, s.longsCount, s.datesCount, s.referencesCount, s.polysCount, s.booleansCount
+from
+  RShadow s
+    left join s.strings s2 with (s2.ownerType = com.evolveum.midpoint.repo.sql.data.common.type.RObjectExtensionType.ATTRIBUTES and s2.name = 'http://midpoint.evolveum.com/blabla#foo')
+where
+  s2.value = 'uid=jbond,ou=People,dc=example,dc=com'
+----
+
+*"Account with given attribute (a1) and extension value (shoeSize)"*
+
+This time written in XML:
+
+[source]
+----
+<and>
+  <equal>
+    <path xmlns="">c:attributes/a1</path>
+    <value xsi:type="xsd:string">abcdef</value>
+  </equal>
+  <equal>
+    <path xmlns:m="http://example.com/xml/ns/mySchema">c:extension/m:shoeSize</path>
+    <value xsi:type="xsd:int">42</value>
+  </equal>
+</and>
+----
+
+Translation:
+
+[source]
+----
+select
+  s.fullObject, s.stringsCount, s.longsCount, s.datesCount, s.referencesCount, s.polysCount, s.booleansCount
+from
+  RShadow s
+    left join s.strings s2 with s2.ownerType = com.evolveum.midpoint.repo.sql.data.common.type.RObjectExtensionType.ATTRIBUTES and s2.name = '#a1'
+    left join s.longs l with l.ownerType = com.evolveum.midpoint.repo.sql.data.common.type.RObjectExtensionType.EXTENSION and l.name = 'http://example.com/xml/ns/mySchema#shoeSize'
+where
+  s2.value = 'abcdef' and l.value = 42
+----
+
+

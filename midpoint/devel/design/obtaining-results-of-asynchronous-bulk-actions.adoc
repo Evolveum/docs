@@ -1,0 +1,58 @@
+= Obtaining results of asynchronous bulk actions
+:page-wiki-name: Obtaining results of asynchronous bulk actions
+
+
+== Problem
+
+How to get the result of an asynchronous bulk action?
+
+
+== Background
+
+There are three kinds of information to be conveyed:
+
+. *The actual output from the bulk action.* It is the output of the scripting expression invoked (if there's any output).
+For example, when searching for objects, the output is the list of objects found.
+For object manipulation actions (add, delete, modify, enable/disable, assign, recompute) the output is currently none; but this might be changed in near future.
+We can imagine e.g. a structured information of object identification + operation result status here, i.e. something like an extract from the full operation result.
+(An alternative would be to provide better algorithms for compressing operation result in order to provide this information there.)
+
+. *Console output from the bulk action.* This is unstructured text information meant for the human user.
+For example, when manipulating objects, it is something like "User xyz was modified".
+
+. *Operation result.* This is a standard result from the operation, usually compressed by eliminating redundant or too voluminous information.
+
+Currently, this information is available only when synchronous bulk actions are executed.
+Invoking `/rpc/executeScript` in synchronous mode will result in `ExecuteScriptsResponseType`object being returned.
+The object was originally designed to provide information about execution for multiple scripts, which is a little bit overkill here.
+Anyway, it contains all of the information mentioned above, although in a bit archaic form (mentioning e.g. xmlData even if midPoint now supports also JSON and YAML).
+
+
+== Proposed solution
+
+When invoking `/rpc/executeScript` in asynchronous mode, a task is created.
+In order to fetch its results, the following will be implemented:
+
+. The OID of this task will be returned to the client.
+
+. Outputs (#1, #2) will be stored in the task at regular intervals (currently, they are not).
+At first, these will be stored in the task extension.
+Later, if needed, we can think of other, perhaps more efficient, storages.
+
+. Action listening on `/scriptExecutionResults/{oid}` will be implemented.
+It will look up the task and return all the data, in the `ScriptExecutionResultType `object.
+(The synchronous invocation will be changed to return also this object instead of `ExecuteScriptsResponseType`.)
+
+Note: By looking at operation result in the returned data the client will be able to see if the operation has finished or not.
+
+[source,xml]
+----
+<xsd:complexType name="ScriptExecutionResultType">
+   <xsd:sequence>
+      <xsd:element name="dataOutput" type="s:ItemListType" minOccurs="0"/> <!-- Data output of the execution of the script. -->
+      <xsd:element name="consoleOutput" type="xsd:string" minOccurs="0"/> <!-- Text ("console") output of the execution of the script. -->
+      <xsd:element name="result" type="c:OperationResultType"/> <!-- Operation result covering the execution of the script. -->
+   </xsd:sequence>
+</xsd:complexType>
+----
+

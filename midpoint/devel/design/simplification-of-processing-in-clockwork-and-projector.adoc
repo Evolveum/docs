@@ -1,0 +1,76 @@
+= Simplification of processing in clockwork and projector
+:page-wiki-name: Simplification of processing in clockwork and projector
+
+Model operation is managed by clockwork component.
+It proceeds in clicks.
+Clockworks basically clicks until the processing is finished or until some of the components requests that the operation should continue in background.
+(See Clockwork.run method.)
+
+Each click consists (basically) of:
+
+. invoking the projector, if necessary,
+
+. invoking state-specific functionality (empty for INITIAL and PRIMARY state, executing computed changes for SECONDARY state).
+
+. invoking hooks.
+
+
+
+Current model of computation is very simple.
+Projection contexts are divided into *waves*, depending on mutual dependencies.
+The clockwork processing is therefore done also in waves, whereas we distinguish between:
+
+. projection wave - this controls what projection contexts the projector works with;
+
+. execution wave - this controls what projection contexts the change executor works with.
+
+Historically, the sequence of processing looked like this (assuming there were e.g. waves 0, 1, 2 for projection contexts):
+
+* Projector projected: EW = 0, PW = 0
+
+* Projector projected: EW = 0, PW = 1
+
+* Projector projected: EW = 0, PW = 2
+
+* Projector projected: EW = 0, PW = 3
+
+* Change executor executed changes in focus and projections in wave 0
+
+* Projector projected: EW = 1, PW = 0
+
+* Projector projected: EW = 1, PW = 1
+
+* Projector projected: EW = 1, PW = 2
+
+* Projector projected: EW = 1, PW = 3
+
+* Change executor executed changes projections in wave 1
+
+* Projector projected: EW = 2, PW = 0
+
+* Projector projected: EW = 2, PW = 1
+
+* Projector projected: EW = 2, PW = 2
+
+* Projector projected: EW = 2, PW = 3
+
+* Change executor executed changes projections in wave 2
+
+There were two kinds of problems:
+
+. Performance - the projections for PW > EW were computed but then discarded; projections for PW < EW were recomputed again and again, with no clear reason
+
+. ...
+
+
+TODO ...
+
+
+Focal object can be seen as a simple data storage.
+It contains items (properties and subcontainers) that keep the values that were put into them.
+
+Resource (projection) objects are the same or slightly or radically different.
+The reason is that the resource can provide its own processing, like computing an email address based on login name and some policies.
+We call this property the *volatility* of a resource - or, more precisely, of an object type for a given resource.
+Volatility of *none* means that the resource object behaves just like focal object - what you put in stays there.
+Volatility of *unpredictable* means that the resource object can be a subject of unexpected changes.

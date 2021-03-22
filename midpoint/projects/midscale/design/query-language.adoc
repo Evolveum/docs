@@ -1,0 +1,662 @@
+= Query Language Design
+:page-nav-title: Query Language
+
+NOTE: All examples are only for discussion and does not represent any current
+functionality
+
+== Work Items
+
+.Query Language Support
+1. Design grammar and parser for Query Language
+2. Implement transformation from Query language to Java Query API
+3. Extends Prism, Query API and in-memory implementation for missing concepts
+  * ExistsFilter for:
+    ** <<Exists>> support (no nested filter)
+    ** <<Matches Empty>> support
+    ** <<Matches>> support for Object Reference and PolyString. Two possible options:
+    *** Short term - Matches delegates to special code for Object Reference and PolyString
+    *** Long term (Prism 5) - Allow item path to reference nested "structured simple" value
+        elements
+4. Implement repository support for new Query API concepts
+  * Extends 'repo-sql-impl' to support new Query API concepts
+  * Implement Query / language Query API support in new repository
+
+.Custom Dashboard Support
+ * Design simple "grouping" dashboard model and APIs for it
+ * Design experimental dashboard model with SQL query support
+
+== Basic Concepts
+
+
+Filter:: A set of conditions / predicates used to select subset of data
+Query:: Combination of filter and transformation / ranking / ordering specification to retrieve set of data
+
+== Filters
+
+=== Logic Filters
+
+Logic filters are use to compose / modify multiple filters together, currently
+there are 3 logic filters present:
+
+<<And>>::
+  Object / item must match all of specified filters.
+<<Or>>::
+  Object / item matches any of specified filters.
+<<Not>>::
+  Negates subfilter, object / item must not match filter.
+
+
+==== And
+Matches if all subfilters matches.
+
+.Grammar
+[source]
+----
+AndFilter: Filter ("and" Filter)+
+----
+
+.Examples
+[source]
+----
+fName="Foo" and lName="Bar" <1>
+fName="Foo" and lName="Bar" and birthDate="31-12-1970" <2>
+fName="Foo" and ( lName="Bar" or lName="Baz" ) <3>
+----
+<1> Matches objects with fName "Foo" and lName "Bar"
+<2> Multiple AND conditions
+<3> Combination of AND and OR filter
+
+Java Query API: `AndFilter`
+
+==== Or
+Matches if any subfilter matches.
+
+.Grammar
+[source]
+----
+OrFilter: Filter ("or" Filter)+
+----
+
+.Examples
+[source]
+
+----
+fName="John" or fName="Bar" <1>
+fName="Foo" or fName="Bar" or fName="Baz" <2>
+fName="Foo" or ( fName="John" and lName="Baz" ) <3>
+----
+<1> fName is John or Bar
+<2> fName is John or Bar or Baz
+<3> Combination of OR filter and AND filter
+
+Java Query API: `OrFilter`
+
+==== Not
+
+Negates specified filter - matches items, which do not conform to specified nested filter.
+
+`not` keyword can be used also between `path` and filter keyword to
+improve readability (eg. `path not exists` instead of `not path exists`).
+
+.Grammar
+[source]
+----
+Negation: "not"
+NotFilter: Negation Filter
+----
+
+
+.Examples
+[source]
+----
+not fName="John" <1>
+fName not starts with "John" <2>
+assigment not exits <3>
+assigment not matches (relationship = "default") <4>
+----
+
+Java Query API: `NotFilter`
+
+=== Item Filters
+
+Item filters performs check on item values (reference, property, container) specified by path.
+
+.<<Generic Item Filters>>
+  <<exists>>::
+    Matches if specified item has any values.
+
+.<<Property Specific Filters>>
+  <<equal>>::
+    Matches if any value equals to any of specified values.
+  <<Comparison filters>>::
+    Matches if any value is greater/smaller than specified value.
+
+  <<startsWith>>::
+    Matches if any value starts with specified string.
+  <<endsWith>>::
+    Matches if any value ends with specified string.
+  <<contains>>::
+    Matches if any value contains specified substring.
+
+.<<Container Specific Filters>>
+  <<matches>>::
+    Matches if specified item has value (container, PolyString or reference) matching subfilter.
+  <<Matches Empty>>::
+    Matches if specified container has empty value (value with no nested properties or containers).
+  <<inOid>>::
+  <<isOwnedByOid>>::
+  Matches if container is nested inside object with specified `oid`.
+
+.<<Object Specific Filters>>
+  <<type>>::
+    Matches if object is of specified type
+  <<inOrg>>::
+    Matches if object is member of specified organization
+  <<fullText>>::
+    Matches if fulltext search finds specified value
+
+
+//.Grammar
+//[source]
+//----
+//ItemFilter: Path ItemFilterSpec
+//ItemFilterSpec: (FilterNegation)? (  PropertyValueFilter | ExistsFilter | MatchesFilter)
+//
+//----
+
+
+
+==== exists
+
+Matches is specified item has any value (even empty).
+
+[WARNING]
+`not exists` also matches, when item does exists (because of non-empty item metadata), but does have any values.
+
+
+.Grammar
+[source]
+----
+ExistsFilter: path (Negation)? "exits"
+----
+
+.Examples
+[source]
+----
+linkRef exists <1>
+linkRef not exits <2>
+assignment not exits <3>
+assignment not exists and assignment/@assurance > 4 <4>
+----
+<1> Matches if object reference `linkRef` has any value
+<2> Matches if object reference `linkRef` does not have value, or does not exists
+<3> Matches if container `assigment` does not have any value, or does not exists
+<4> Matches if path `assigment` does not contain any values, but item metadata
+for `assigment` are present and ``@assurance` is higher than 4.
+
+Java Query API: `ExistsFilter`, probably some modification needed
+
+=== Property Specific filters
+
+Property-specific filters allows to specify <<Matching Rules,Matching Rule>> for strings, which specifies rules how strings are compared.
+
+.Grammar
+[source]
+----
+PropertyFilterOperand: Comparison
+MatchingRule: "[" MatchingRuleName "]"
+PropertyValueFilter: PropertyFilterOperand (MatchingRule)? ValueSpecification
+----
+
+[[equal]]
+==== equal
+
+Matches if any value of specified property is equal to any of right-hand side values
+
+.Not Equals
+`!=` is negation - not equals - matches if all values of specified property does not equal
+to any of right-hand sided values.
+
+.Grammar
+----
+EqualsFilter: Path ("!")? "=" (MatchingRule)? MultiValueSpecification
+----
+
+.Examples
+[source]
+----
+name =  "jsmith" <1>
+fName = lName <2>
+primaryIdentifier =[distinguishedName] "UID=jsmith,DC=example,DC=net" <3>
+----
+<1> Matches if name has value jsmith
+<2> Matches if fName has same value as lName
+<3> Matches if primaryIdentifier (interpreted as Ldap DN) equals to `UID=jsmith,DC=example,DC=net` LDAP DN
+
+
+==== Comparison filters
+
+Filter matches if any values of specified property is smaller/greater then right side value.
+
+.Grammar
+[source]
+----
+Greater: "<"
+GreaterOrEqual: ">="
+Less: "<"
+LessOrEqual: "<="
+ComparisisonOperand: Greater | GreaterOrEqual | Less | LessOrEqual
+ComparisionFilter: Path ComparisonOperand (MatchingRule)? SingleValueSpecification
+----
+
+.Examples
+[source]
+----
+
+----
+
+
+==== startsWith
+
+.Grammar
+[source]
+----
+StartsWithFilter: Path "startsWith" (MatchingRule)? ValueSpecification
+----
+
+.Examples
+[source]
+----
+lName startsWith "foo"
+lName startsWith "bar"
+----
+
+
+Java Query API: `SubstringFilter` with `anchorStart=true`
+
+==== endsWith
+
+Grammar
+[source]
+----
+EndsWithFilter: Path "endsWith" (MatchingRule)? ValueSpecification
+----
+
+.Examples
+[source]
+----
+----
+
+Java Query API: `SubstringFilter` with `anchorEnd=true`
+
+[[contains]]
+==== contains
+Matches if any String/PolyString value contains specified substring.
+
+.Grammar
+[source]
+----
+ContainsFilter: Path "contains" (MatchingRule)? ValueSpecification
+----
+
+.Examples
+[source]
+----
+----
+
+Java Query API: `SubstringFilter`
+
+==== Matching Rules
+
+Matching rule allows to further specify how to interpret strings during matching
+(comparison, substring or equality).
+
+|===
+| Matching Rule | Description
+
+| *default* | Fallback to default matching strategy
+| *polyStringOrig* | Tests only original form of PolyString
+| *polyStringNorm* | Tests only normalized form of PolyString
+| *polyStringStrict* | Compares both forms of PolyString
+| *stringIgnoreCase* | Compares strings with ignore case
+| *uuid* | Matches strings as UUIDs
+| *xml* | Matches strings as XML
+| *exchangeEmailAddresses* | Microsoft Exchange EmailAddresses attribute consisting of SMTP:/smtp: prefix and email address. Prefix case is preserved, email address is matched case insensitive.
+| *distinguishedName* | Matches strings as LDAP distinguish name
+
+|===
+
+=== Container Specific Filters
+
+==== inOid
+
+Filter matches if container value is nested in specified object.
+
+
+.Grammar
+[source]
+----
+filter: "." "inOid" ValueSpecification
+----
+
+.Examples
+[source]
+----
+. inOid "eb33bf4e-b093-42ff-9400-6f87c1b9ab2b"
+----
+
+==== ownedByOid
+
+Java Query API: InOidFilter
+
+[[matches]]
+==== matches
+
+Filter matches if path contains any value which matches specified subfilter
+(subfilter criteria are matched against contents of value).
+
+Matches filter can be used also on PolyString and object reference, with following virtual properties:
+
+|===
+| Property | Description
+
+2+| *PolyString*
+| orig | Original form
+| norm | Normalized form
+
+2+| *Object Reference*
+| oid | Target OID
+| type | Type of target
+| relation | Relationship
+|===
+
+
+
+
+.Grammar
+[source]
+----
+MatchesFilter: path (Negation)? "matches" "(" Filter ")"
+----
+
+.Examples
+[source]
+----
+lName matches (norm="smith") <1>
+linkRef matches (oid="eb33bf4e-b093-42ff-9400-6f87c1b9ab2b") <2>
+
+assignment matches ( relationship= manager) <3>
+
+assignment matches (
+  relationship = manager
+  and targetRef matches ( oid ="eb33bf4e-b093-42ff-9400-6f87c1b9ab2b") <4>
+)
+
+----
+<1> lName property matches if PolyString value has norm "smith"
+<2> linkRef matches only if targetOid is specified UUID
+<3> Matches only if assigment container has value, which has property relationship with manager value. This is same as `assigment/relationship="manager"`
+<4>  Matches only if assigment has value, whose properties relatioship and targetRef meet specified criteria
+
+
+Java Query API: `ExistsFilter` for containers, `RefFilter` for object references, `EqualsFilter` for `PolyString`
+
+==== matches empty
+A special case of <<matches>> filter which matches empty container value (value which does not have any nested items).
+
+.Grammar
+[source]
+----
+MatchesEmptyFilter: path "matches empty"
+----
+
+.Examples
+[source]
+----
+mapping matches empty <1>
+----
+<1> Matches object, which has empty mapping (mapping containe exists, but one of its value does not have any nested items).
+
+Java Query API: New Filter
+
+
+=== Object Specific Filters
+
+==== type
+
+
+.Grammar
+[source]
+----
+TypeFilter: path "type" ValueSpecification "and" Filter
+----
+
+.Examples
+[source]
+----
+. type UserType and fName = "John" <1>
+----
+<1> Matches user with first name John
+
+==== inOrg
+Matches if object is member of specified organization or root.
+
+.Grammar
+[source]
+----
+InOrgFilter: "inOrg" ValueSpecification;
+----
+==== isRoot
+
+Matches if object belongs to organization root.
+
+
+==== Fulltext
+Filters objects based on fulltext search.
+
+.Examples
+[source]
+----
+. fulltext "john"
+----
+
+
+
+
+== Different Filter representations
+
+.Filters Overview
+|===
+| XML, JSON, YAML | Java Class | Java DSL | Query Language | Description
+
+| all  | AllFilter | | N/A | Explicitly match everything
+| none  | NoneFilter | | N/A | Always false
+| undefined | UndefinedFilter | | N/A | Special marker filter, always true
+
+| equal | EqualFilterImpl | eq | <<equal>> | True if both sides are equal
+| greater | GreaterFilterImpl(false)| gt | <<Comparison filters,greater>> | True if left side is greater then right side
+| greaterOrEqual | GreaterFilterImpl(true)| ge | <<Comparison filters,greaterOrEqual>> | True if left side is greater or equals to the right side
+| less | LessFilterImpl(false)| lt | <<Comparison filters,less>> | True if left side is less then right side
+| lessOrEqual | LessFilterImpl(true)| le | <<Comparison filters,lessOrEqual>> | True if left side is less or equals to the right side
+| substring | SubstringFilter | startsWith, endsWith, contains | <<startsWith>>, <<endsWith>>, <<contains>> | True if left side contains specified substring
+
+| ref  | RefFilter | | <<matches>> | True, if reference matches specification
+| org | InOrg | | <<inOrg>>, <<isRoot>> | True if object is part of organization
+| inOid | InOid | | <<inOid>>, <<ownedByOid>> | True if container is part of object with specified oid
+| fullText | FullText | | . fullText 'jack' | True if fulltext database search contains value
+
+
+//<!-- B: complex filters -->
+//<!-- B1: logical filters -->
+| and | AndFilter | | and | All subfilters must be true
+| or | OrFilter | | or | True if any subfilter is true
+| not | NotFilter | | not | Logic filter, negates value of subfilter
+
+//<!-- B2: other filters -->
+| type | TypeFilter | | N/A | True if object matches type and subfilter
+| exists | Exists | exists | <<matches>> | True if container matching subfilter exists
+|===
+
+
+== Notes
+
+.Conversion to Query Language
+|===
+| XML/JavaFilter | Right Side | Modifiers | Proposed Name | True State
+
+.3+| Equals
+| Value .3+| matchingStrategy | <<equal>> |Any value of left property matches value on right
+| Multiple Values, Path | <<equal>> | Any value of left property matches any value on right
+| Null | not <<Exists, exists>> | Property does not have value
+
+
+| Comparison  | Value | matchingStrategy | <<Comparison filters>> | Any value of property is smaller / larger / equals then right value.
+
+
+.4+| Substring .4+| Value, Property
+
+| matchingStrategy, anchorLeft=false, anchorRight=false | <<contains>> | Any value of property contains any substring from right
+| matchingStrategy, anchorLeft=true, anchorRight=false | <<startsWith>> | Any value of property starts with any substring from right
+| matchingStrategy, anchorLeft=false, anchorRight=true | <<endsWith>> | Any value of property ends with any substring from right
+| matchingStrategy, anchorLeft=true, anchorRight=true | <<equal>> | Any value of property equals to any string from right
+
+| Ref filter | Value, Property | oidNullAsAny, targetTypeAsAny, relationTypeAsAny | <<matches>> | Any value of reference matches any value from right side
+
+| Org filter | Value, Property || <<inOrg>> | Object is member of organization
+
+| InOid filter | Value || <<inOid>> ||
+
+|===
+
+
+== Discussions
+
+* Assignment as (almost) first-class object? Or make it possible to query any container?
+** Still treated as containers, option to query specific containers only
+
+* Ad-hoc joins (joins that do not follow prism reference): do we need them?
+** Do not support them, at least for now. But this may change in the future. `Joins` are supported only via object references in <<Path,paths>>
+** We would need aliases for objects in order to distuinguish path
+
+* Syntax for "reference match", "polystring match" and similar. Construct is <<Matches>>.
+
+* Are matching rules for polystring a good idea? Maybe we need patterns instead of matching rules.
+
+* Should matching rules be in fact _string_ matching rules?
+Do we need other cases, e.g. matching of IP address and netmask?
+** Tony: Similar special case is _DistuinguishName_, this feels more like
+   separate value types for DN, IP Address with their own matching rules
+   (eg. in DB serialized like `dn_orig` and `dn_norm`, where `dn_norm` is used for filters).
+
+* Make sure that not queries are supported. E.g. "find users that do not have any linked account".
+** Examples
++
+[source]
+----
+. type UserType and linkRef not exists
+
+// Users which do not have manager relationship
+. type UserType and assigment/targetRef not matches (relationship="manager")
+
+. type UserType and assigment/targetRef/relationship != "manager"
+----
+
+* How to do "group by" queries?
+** Does group by creates ad-hoc schema? *Yes*
+
+** Discussed solution was to provide 2 concepts:
+ *** Simple "dashboard"-like model which allows to specify item paths to fetch,
+    and apply aggregate operations on these paths (grouping, min, avg, count)
+    and filter (this model does not allows for complex grouping / queries - easier to map to database)
+ *** Experimental dashboard - Custom schema + query which retrieves data
+
+
+.Report Syntax proposal
+----
+statusReport {
+  from ShadowType;
+
+  collumn name {
+    displayName "Resource";
+    source resourceRef/@/name {
+      type grouping;
+    }
+  }
+  collumn kind {
+    source kind {
+      type grouping;
+    }
+  }
+  collumn intent {
+    source intent {
+      type grouping;
+    }
+  }
+  collumn status {
+    source status {
+      type grouping;
+    }
+  }
+  collumn count {
+    displayName "Count";
+    source  {
+      count;
+    }
+  }
+
+}
+
+statusReport {
+  from UserType;
+  collumn directorate {
+    displayName "Name";
+    source extension/directorateRef/@/name {
+      grouping;
+    }
+  }
+  collumn count {
+    source {
+      count;
+    }
+  }
+  filter """
+    activation/efectiveStatus = disabled
+  """;
+
+}
+----
+
+
+.Sample SQL query used for custom overview
+----
+select
+
+    count(*) AS (prism definiciu),
+    r.name_orig,
+    s.kind,
+    s.intent,
+    case s.SYNCHRONIZATIONSITUATION
+        when 0 then 'DELETED'
+        when 1 then 'UNMATCHED'
+        when 2 then 'DISPUTED'
+        when 3 then 'LINKED'
+        when 4 then 'UNLINKED'
+        end as SITUATION,
+    s.resourceref_targetoid
+from m_shadow s
+left join m_resource r on s.resourceref_targetoid=r.oid
+group by
+    r.name_orig,
+    s.kind,
+    s.intent,
+    s.SYNCHRONIZATIONSITUATION,
+    s.resourceref_t
+----
+
+
+
+
+----
+from UserType where linkRef/@ inOrg "uuid"
+
+----

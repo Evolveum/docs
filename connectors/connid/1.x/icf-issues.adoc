@@ -1,0 +1,447 @@
+= ICF Issues
+:page-wiki-name: ICF Issues
+:page-upkeep-status: yellow
+:page-toc: top
+
+
+== Introduction
+
+MidPoint is using wiki:ConnId[ConnId connector framework] as a basic framework to support wiki:Identity+Connectors[identity connectors]. ConnId project is a continuation of Identity Connector Framework (ICF) project that was originally started by Sun Microsystems.
+After the Oracle-Sun acquisition the open source Identity Connector Framework was abandoned.
+The code was later picked up by the community in a form of ConnId project.
+ConnId project is now maintaining and improving the framework.
+Evolveum is one of the principal participants in ConnId project.
+
+The original ICF is burdened with numerous problems.
+Some of those problems were already addressed during the course of ConnId project development.
+But there is a legacy of problems that go very deep into the original ICF design - problems that are difficult, if not entirely impossible to fix.
+This page was created to list such problems.
+
+Even though ICF (and therefore also ConnId) is burdened with problems, we have still chosen to use it.
+The number of existing connectors, tool chain and a relatively widespread knowledge of connector development still outweighs the problems of the framework.
+In addition to that we are working hard to improve ConnId framework and we are also trying to work around some of the ICF design issues inside midPoint.
+*ConnId still remains fully supported and recommended way to create identity connectors for midPoint.*
+
+
+== Schema
+
+The Identity Connector Framework (ICF) design seems to heavily burdened with Sun IDM compatibility.
+The interface design is sub-optimal for the purpose of integrating quite a disparate set of connectors.
+There are also problems with the fundamental approach.
+From https://dracones.ideosystem.com/blog/2010/08/16/identity-connectors/[my blog] (summer 2010):
+
+
+[quote]
+____
+It is naïve to expect that all target system will use the same structure for accounts and groups and other objects.
+Therefore the connector provides a schema that describes how such objects are structured by the resource.
+That is major improvement over Sun adapters and it also should be a major competitive advantage of Identity Connectors.
+Only if it was designed a bit more carefully.
+First of all, it looks like the intent was for the schema to use native naming of object classes and attributes from the target system.
+E.g. complete LDAP schema with native object class names and attributes is visible using the connector.
+On the other hand, the framework provides pre-defined and fixed object class names \\__ACCOUNT__ and \\__GROUP__ and even predefined attribute names for \\__NAME__ and few others.
+I cannot understand this dichotomy: on one hand exposing the full native schema, on the other to hide it behind a cumbersome abstraction.
+This duality complicates the design of any system that is trying to use the connectors correctly.
+E.g. both \\__ACCOUNT__ and inetOrgPerson object classes are exposed by the LDAP identity connector and they are the same.
+Which one should be used? The root cause of this problem seems to go a bit deeper: the connector does not have clearly defined responsibilities.
+Should the connector only provide access to the object on target resource (i.e. be a simple protocol adapter)? If yes then there is no need for special \\__ACCOUNT__ and \\__GROUP__ object classes.
+Or should the connector also map the target system schema and provisioning system schema? For that it does not have sufficient features (see below).
+It looks like the connector goes somewhere in between, trying - and failing - to address both problems.
+____
+
+The mandatory \\__NAME__ and UID is a bad idea.
+TODO: explain
+
+There is no way how to share parsed schema between connector instances and no way how to persist/cache it.
+E.g. LDAP schema is quite bit.
+Now every connector instance needs to get LDAP schema and parse it.
+It is enough for just one instance to do it and then share it with all the instances that have the same configuration.
+The schema also changes very infrequently.
+It would be nice to store (or cache) it persistently.
+
+TODO: maybe we need a concept of resource where the schema can be cached and persisted ... as is in midPoint?
+
+According to JavaDoc, Uid may be local or global.
+Obviously local means that it is unique only within an object class, global means that it is unique across all object classes.
+The framework does not gives us any mechanism how to tell whether UID is global or local.
+
+Improvement: it would but nice to have ability to limit schema processing only to selected object classes.
+E.g. Active Directory schema is huge, but we do not need vast majority of the object classes.
+They just sit there and consume memory.
+It would be nice to only limit the processing to the object classes that we really need.
+
+
+== Synchronization Problems
+
+The ICF has a nice sync(..) operation that calls back a handler with a delta.
+This is supposed to poll for changes on the connector side.
+
+
+=== Delta Types
+
+The problem is in the deltas.
+There are only two types of deltas (from ICF javadoc):
+
+
+[quote]
+____
+CREATE\_OR\_UPDATEThe change represents either a create or an update in the resource.
+These are combined into a single value because:
+
+.. Many resources will not be able to distinguish a create from an update.
+Those that have an audit log will be able to.
+However, many implementations will only have the current record and a modification timestamp.
+
+.. Regardless of whether or not the resource can distinguish the two cases, the application needs to distinguish.
+
+
+____
+
+
+[quote]
+____
+DELETEThe change represents a DELETE in the resource
+____
+
+The motivation seems be clear at first sight.
+As there are connectors that do not distinguish create and update operations, the interface cannot promise that it will distinguish it.
+This common lowest denominator approach for interface design works well in interface implementations have approximately the same capabilities.
+But it fails miserably in case the implementation capabilities differ a lot.
+As is the case of connectors.
+
+Take an LDAP connector connecting to OpenDJ as an example.
+OpenDJ has a nice and reliable changelog and LDAP connector can take advantage of that.
+But, while the changelog contains quite a detailed information what attributes were changed, the connector can only use the changelog to detect what objects were changes.
+By the ICF interface contract, the connector must return entire changed object even if a single attribute was changed.
+Therefore, all the ability of changelog to describe fine-grained changes is wasted.
+
+On the other hand, the IDM must have quite a complex mechanism how to detect attribute changes.
+This includes storing old values of all interesting resource objects (including attribute values) and comparing them any time a change is detected by the connector.
+This is a performance hit and it also requires to store a lot of data.
+It does not bring any considerable benefit in reliability, as the sync message may be lost regardless whether it is absolute state or relative change.
+Therefore, the stored values of resource objects (shadows in midPoint terminology) must be considered to be just a cache anyway.
+So, there is a performance and storage penalty and no benefit.
+
+The idea of a solution whould be to support more sync delta types:
+
+* CREATE: object was created (absolute state)
+
+* UPDATE: object was modified (relative changes)
+
+* CREATE\_OR\_UPDATE: new version of object was found, nothing more can be determined
+
+* DELETE: object was deleted
+
+The connector may either use the CREATE,UPDATE,DELETE set or CREATE\_OR\_UPDATE,DELETE set.
+And this should be manifested by a connector capability, so IDM system can act accordingly.
+
+(This part still needs to be refined)
+
+The UPDATE type was added in the ConnId project.
+But it still does *not* have relative change description.
+
+The framework cannot properly describe a change in the primary identifier.
+E.g. if LDAP DN is used as a primary identifier and it changes then all that we can do is user CREATE/ADD combination.
+
+
+=== Synchronization of ALL changes
+
+The original Sun ICF has no way how to synchronize changes of all object classes.
+ConnId added ObjectClass.ALL to specify that all object classes should be synchronized.
+However, this is a hack rather than a real solution.
+E.g. if ObjectClass.ALL is specified as an input, the caller (IDM) does not know which object type will be returned.
+Therefore it cannot properly specify operation options (e.g. attributesToGet).
+Therefore the objects returned in the deltas can be useless.
+
+Solution: Do not require that all SyncDelta will have a complete object.
+Identifier is enough.
+The object should be optional.
+Because chances are that it has to be discarded and re-read anyway.
+Therefore the object should be included in the SyncDelta only if it is already part of the usual response from the resource and therefore there is no extra cost in fetching it.
+I.e. the delta should only contain those information that the connector can fetch cheaply (e.g. those that are part of the changelog entry).
+Connector should not do any additional operations to complete the SyncDelta.
+
+See also problem of local and global UID above.
+
+
+=== Synchronization Uid, Name and ObjectClass
+
+Some resources does not store Uid of changed objects.
+Just Name.
+Some resources does not store objectclass (assuming Uid is global).
+This is all OK for create and modify deltas - the object still exists and the missing information can be retrieved by reading the object.
+But this is a major problem for delete deltas.
+There is no way how to get missing information.
+This problem is especially severe for resources that only have Name of deleted objects and the changelog (e.g. 389ds).
+
+
+== Read and Search
+
+On the SPI side the read and search operations are considered to be the same (both using SearchOp interface).
+This is wrong.
+Reading an object by using a primary identifier is almost always much more efficient than searching for it and it very ofter requires entirely different operation.
+Therefore most of the non-trivial connectors fist try to analyze the search filter, check if it is a search by identifiers and branch the code in a strange and slightly unreliable manner.
+
+Also, for some resources it is much more efficient to read an object if we know that at most one object can be returned.
+As read is perhaps the most frequent connector operation this is unquestionably worth to be optimized.
+
+Another issue: There are objects that have huge number of attribute values.
+E.g. big LDAP/AD groups.
+Some servers have mechanism to return only part of the values.
+This is what is needed in searches: the clients wants the list of objects.
+The client does not care about 100% completeness as it usually only displays a table of the results or uses the result to iterate over the objects.
+On the other hand, when the client explicitly gets one specific object the completeness is crucial.
+In ICF design it is not really possible to distinguish these cases.
+
+
+=== Object Count
+
+There is no count() operation in the framework.
+Original ICF did not have any means to establish object count except for reading all the objects and sequentially count them.
+This is not really reasonable.
+Later, OpenICF added ability to return remaining number of results from search operation.
+That can be used as substitute for counting in some cases.
+The choice to return _remaining_ entries instead of number of _all_ matching entries is not the best one, but the concept somehow works.
+Anyway, separate count operation would be much cleaner and in some cases also more efficient approach.
+
+
+== UID
+
+The concept of UID is entirely naive.
+It assumes that every object will have a persistent, immutable, non-complex identifier.
+This not always the case.
+Therefore the UID is defined as sometime immutable but in fact mutable.
+This also assumes that the object has a single identifier which is both immutable and also the most efficient way to retrieve an object.
+This is not the case e.g. for LDAP containers.
+The ICF identfies the container by UID (see OperationOptions).
+The UID is usually entryUuid in LDAP.
+But the search operation requires DN as a base, not entryUuid.
+Therefore ICF forces the connector to make two searches instead of one: translate UID to DN and then do the actual search.
+
+All the attributes are equal but `UID` is more equal than others.
+`UID` is supposed to be a primary identifier and it is passed to many operations as an explicit argument (update, getObject, delete, ...). But not for create.
+In that case the `UID` is just an ordinary attribute.
+
+Both `UID` and `NAME` attributes are mandatory and both are regarded as identifiers.
+However, there is a lot of systems that have only one identifier that is typically mutable: username.
+The ICF does not handle well this kind of systems.
+
+
+=== Identification is much harder than simple string UID
+
+Identifiers are often quite complex.
+E.g. most systems have two identifiers:
+
+* primary: immutable identifier such as entry UUID
+
+* secondary: mutable and often human-readable identifier (DN, username, ...)
+
+Both identifiers are unique, both are used as object identification.
+It is often more reliable and more efficient to use primary identifiers to retrieve object.
+And ICF seems to make an assumption that this is always the case.
+But that assumption is wrong.
+E.g. in multi-domain AD environment or in LDAP topotology with sub-trees (chaining) it is more efficient to use DN.
+There is either no single place to efficiently resolve entryUUID or that resolution requires additional round-trips (such as AD global catalog).
+
+The identifiers do not even need to be plain string.
+There are multi-value and compound identifiers.
+So simple single-valued string UID is quite a bad idea.
+
+Solution: Pass both primary and secondary identifiers to the ICF operations.
+Let the connector decide which one to use.
+Use schema to define identifiers.
+
+
+== Modification side-effect changes
+
+ICF designers obviously realized that by changing one attribute other attribute may change as well.
+That's the reason why `update` methods return new version of `Uid`. So fat so good.
+But `Uid` is not the only attribute for which this works.
+This is hardcoded in the interfaces.
+This lack of foresight is unbelievable ...
+
+Use case: LDAP servers change the value of naming attribute when the DN changes.
+E.g. if DN changes from `cn=foo,dc=example,dc=com` to `cn=bar,dc=example,dc=com`, the LDAP server also changes value of `cn` attribute from `foo` to `bar`. ICF Uid is not changes (that is usually `entryUUID` LDAP attribute).
+The connector has no way how to let the IDM know that the `cn` has changed.
+Yet, the change of naming attribute is often quite consequential ...
+
+
+== Error Handling
+
+The ICF framework does not define any(!) excpetion.
+All the provisioning, communication and schema exceptions are supposed to be run-time exceptions, they are neither enumerated nor documented.
+The description of the error is frequently buried inside a labyrinth of nested exceptions.
+Therefore a link:https://svn.evolveum.com/midpoint/trunk/provisioning/provisioning-impl/src/main/java/com/evolveum/midpoint/provisioning/ucf/impl/IcfUtil.java[very ugly and fragile code] is needed in ICF client to determine cause of the problem.
+
+Even worse, ICF is throwing exceptions that are not visible outside connector implementation.
+The connectors run in their own classloaders.
+The framework throws the exceptions almost in the same form as thrown by the connectors.
+Therefore, exception from a library loaded by the connector classloader may be exposed from the ICF API.
+The ICF client cannot see that exception as it does not have access to the exception class.
+Therefore attempts to serialize and deserialize such exception (which is common in Web GUI error handling pages) will fail.
+ICF should never expose objects that are outside the interface contract and are not visible to the client.
+
+
+== Versioning
+
+Bundles are versioned, but connectors are not.
+It does not make sense to bind versioning to a package instead of the code itself.
+
+It is not clear whether connector configuration schema is specific to a connector version or connector type.
+It does not really make sense to be either.
+In the former case upgrades will be difficult, in the later version the configuration cannot be evolved.
+Obviously a major-minor version mechanism is needed.
+
+
+== GuardedString and GuardedByteArray
+
+Wrapper type that overrides toString so the sensitive value will not accidentally appear in the logs or dumps is a good idea.
+Similarly the dispose() method that will shorten the memory lifetime of the sensitive value.
+However, encrypting the value with key store right next to it is plainly a pointless exercise that only complicates the system and is a potential source of bugs.
+
+
+== Result Handlers
+
+Those result handlers are an artifact of an original Identity Connector Framework over-engineering.
+The handlers are supposed to assist connectors by implementing mechanism that the connector or resource does not support - such as search result filtering, data normalization and so on.
+However, those handler are generic and they know nothing about the particulars of the resource that the connector connects to.
+Therefore in vast majority of cases those handlers just get into the way and they distort the data.
+Good connectors usually do not need those handlers at all.
+Unfortunately, these handler are enabled by default and there is no way for a connector to tell the framework to turn them off.
+The handlers needs to be explicitly disabled in the resource configuration.
+
+
+== Capabilities
+
+ICF has no real concept of capabilities.
+Connector can demonstrate the capabilities indirectly.
+E.g. delete capability is demonstrated by implementing SPI class DeleteOp.
+However, this does not reflect runtime status.
+E.g. connector may be capable of delete operation, but the resource that the connector is connected to may not support that operation.
+There is no way how connector can indicate that.
+
+Some capabilities may also have complex parameters.
+E.g. update operation may need to know a complete state of the account to be able to update it.
+There is no way to indicate that.
+There is also no way how to indicate supported scripting languages for script operations.
+
+Some capabilities are determined from the schema, e.g. enable/disable capability.
+There is an open question whether this is the right way to do it.
+E.g. disable operation may have side-effects, e.g. destruction of user's password.
+There is not way to indicate that.
+Also the password capability can be detected from the schema.
+But there is no way how to indicate password policy.
+
+
+== Service Accounts
+
+The service account is configured specifically for each connector using a connector-specific configuration.
+It is not in any way structured or annotated.
+Therefore it does not allow some of the features, e.g.:
+
+* Indicate which of the accounts is IDM service account in the IDM user list
+
+* Automatically change IDM service account password both at the resource and in IDM configuration
+
+A better way would be for the configuration to point to the IDM service account instead of just hard-configuring the credentials.
+
+
+== Logging
+
+To be politically correct, org.identityconnectors.common.logging.Log.Level is one big mess.
+It makes absolutely no sense for a connector to log on INFO or SEVERE log levels.
+The connector should not change system state in a significant way (INFO), or place system in a SEVERE situation.
+On the other hand, there is no way how to distinguish debugging and tracing logs.
+
+
+== Scripting
+
+* It would be nice if provisioning scripts can rely return code (exit status) back to the IDM.
+The scripts return `Object` now, but that is not very helpful.
+Some structure return value would be nicer.
+
+* It would be nice if the framework can do exec() locally in its operating system.
+Running script on connector supports only groovy, which is not that useful.
+It can be theoretically used to exec, but having exec directly would be more straightforward.
+
+
+== Other Issues
+
+Configuration properties and attributes are handled in entirely different way.
+E.g. configuration properties use String[] class to denote multi-valued properties while attributes use `Flags.MULTIVALUED`. The ConfigurationProperty has isConfidential() method while Attribute has nothing like that and the confidentiality needs to be derived from the use of Guarded types.
+
+[.red]#TODO#
+
+* Transactionality (MVCC)
+
+* Object count
+
+* Object filtering by the framework is mostly redundant, inefficient and it destroys paging and search count.
+Remove it.
+Provide a library for the connectors to do it internally if they need to.
+
+* No special operation for reading the object using just a primary identifier (which is usually much more efficient than search)
+
+* Framework filtering turned on by default
+
+* Missing explicit connector destructor.
+I.e. a way how to explicitly disconnect from the resource.
+This is sometimes needed, e.g. to refresh privileges or schema.
+
+* runAsUser option is poorly defined.
+What should be the value? Uid? Name?
+
+
+== For the Future
+
+
+=== Entitlements (Group Membership)
+
+Also from https://dracones.ideosystem.com/blog/2010/08/16/identity-connectors/[my blog] (summer 2010):
+
+
+[quote]
+____
+Yet another feature that I would expect from a next generation identity connector is to handle object references or membership.
+It means that provisioning system should be able to discover that there are two grouping mechanisms for LDAP and one (proprietary) mechanism for roles.
+That will allow provisioning system to provide much better GUI and business logic support out of the box.
+Yet, identity connectors do not provide such feature.
+The unix group attributes are of type string.
+There is no information in the schema that would suggest that a \\__NAME__ (or Uid?) of an object from the \\__GROUP__ object class belongs there.
+There is even no way how to know that there is more than one grouping mechanism (that is pretty common in LDAP and in many custom systems).
+How can provisioning system handle that? Either it cannot and leave that to business logic (which make deployment hard) or it can build an adaptation layer on top of connector.
+Abstraction on top of abstraction.
+Insane.
+____
+
+
+=== Consistency
+
+Some consistency mechanism should be optionally supported by the connectors.
+Maybe optimistic locking (or MVCC), maybe even ACID-like transactions.
+
+There are three operations that change attributes: `addAttributeValues`, `removeAttributeValues` and `update`. There is no way how to atomically execute the following change of an attribute:
+
+[source]
+----
+ADD: Cpt. Jack Sparrow
+DELETE: Jack Sparrow
+
+----
+
+Let's assume that the attribute contains value `Jack Sparrow`. If `addAttributeValues` is executed first and the attribute is single-valued it results in schema violation.
+If `removeAttributeValues` is executed first and the attribute is mandatory it again results in schema violation.
+The `update` operation overwrites existing values and therefore cannot be used if the attribute has values that should survive the operation.
+
+
+=== Account Archivation
+
+TODO
+
+
+=== Misc
+
+* Ability to select only specific object classes from schema.
+E.g. do not generate the whole AD schema, just a few selected object classes
+
+

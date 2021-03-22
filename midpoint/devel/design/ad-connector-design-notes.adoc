@@ -1,0 +1,86 @@
+= AD Connector Design Notes
+:page-wiki-name: AD Connector Design Notes
+
+Those are design notes regarding wiki:Active+Directory+Connector+(LDAP)[Active Directory Connector (LDAP)].
+
+[NOTE]
+.Disclaimer
+====
+This page contains opinions of the Evolveum team based on research using public information.
+This is *not* an official statement of Evolveum or any other organization (including Microsoft).
+Those are just personal opinions and notes of our team members.
+Information on this page may be correct, but it may also contain information that is incomplete, subjective or information that was misunderstood.
+Please, do not rely on this information.
+In case that you are aware that this information is wrong, we will appreciate that you let us know so we can correct the information.
+
+====
+
+
+== AD And LDAP "Compliance"
+
+AD/LDAP connector 1.x and 2.x were built on LDAP principles as much as possible.
+However, it turns out that AD is not really a good LDAP server.
+LDAP standards are interpreted in a way that is no way strict (to be politically correct).
+Therefore the LDAP-based approach fails in many areas.
+In fact, there were "tweaks" (hacks) in the connector code from the very beginning just to be able to work with AD at all.
+
+The connector is deviating from LDAP standards with almost every release.
+But the reason for this connector existence is not to be strictly LDAP-compliant.
+The reason is to work with AD - whatever it takes.
+
+
+== Schema
+
+Perhaps the most problematic part of the AD/LDAP connector is the schema.
+AD is exposing the schema in a format that resembles standard LDAP schema.
+However, this is quite a poor approximation.
+E.g. there are no syntax definition, no matching rules, attributes from auxiliary object classes that are defined on class level are not exposed and so on.
+
+In addition to that poor excuse of an LDAP schema, there is also a "native" (means: proprietary) schema format.
+This format is similar to standard LDAP format, except that it is quite different.
+AD connector can use this "native" format since version 2.3. The `nativeAdSchema` configuration property controls which version of the schema should be used.
+
+[WARNING]
+.EXPERIMENTAL
+====
+This "native" AD schema is LDAP-like, but it is different.
+There are treacherous differences.
+Different syntaxes are used.
+Auxiliary object classes are used in a different way.
+And then there is `objectCategory`, which is in category of its own (see below).
+Native AD schema might work well, or it might break.
+Nobody can be really sure.
+
+====
+
+
+== Object Class and Object Category
+
+Object class is a critical LDAP concept that determines type of an object.
+However, contrary to most other LDAP servers, it looks like it was too difficult for AD developers to work with multi-valued objectClass.
+Therefore AD introduced a proprietary concept of _object category_. Object category is single-valued and it is somehow determined from object class.
+It is quite clear how default object category is set, but all the details are not clear (they may to too ghastly to explore).
+
+The important thing is that object class is not properly indexed.
+Therefore there are several recommendations to use object category for searches instead of object class.
+This in fact needs to be still combined with object class to get reliable information.
+Like this:
+
+[source]
+----
+(&(objectClass=user)(objectCategory=person))
+----
+
+AD connector supports automatic management of objectCategory  since version 2.3. It is controlled by `includeObjectCategoryFilter` and `addDefaultObjectCategory` configuration properties.
+See documentation of those properties for more details.
+This only works when native AD schema is enabled (see above).
+
+If automatic objectCategory mode is used (`addDefaultObjectCategory`=true, `includeObjectCategoryFilter`=true), then the connector will use default object categories specified in native AD schema.
+This works only if the default object categories are used everywhere and they never change.
+This mode is unlikely to work reliably in any other circumstances.
+
+
+== See Also
+
+* wiki:Active+Directory+with+LDAP+connector[Active Directory with LDAP connector]
+

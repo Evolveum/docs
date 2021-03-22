@@ -1,0 +1,63 @@
+= Concurrency and Thread Safety
+:page-wiki-name: Concurrency and Thread Safety
+
+As we step towards bigger deployments bringing heavy multi-node and multi-threaded processing, the question of concurrency and thread safety of midPoint code becomes urgent.
+
+Until more elaborate description is prepared, let us provide basic facts/notes here.
+
+
+== Prism and JAXB structures are NOT thread safe
+
+Basic data structures that midPoint works with - prism items and values and JAXB beans - are not thread safe.
+
+So each prism item, prism value and JAXB bean should be *owned by a single thread*.
+
+There is only single exception to this rule: *immutable objects*. These can be shared but with caution:
+
+. Immutability is (still) not enforced consistently.
+For example, there is no provision for immutability of JAXB beans.
+
+. When sharing/handing over objects between threads, do not forget about link:https://shipilev.net/blog/2014/safe-public-construction/[safe publication]. This is (still) not addressed properly in midPoint.
+
+
+== DOM trees are NOT thread safe (not even for reading!)
+
+This is really bad.
+
+We have made some measures to deal with this:
+
+. Appropriate value parsers (PrimitiveValueParser and PrimitiveAttributeParser in DomLexicalProcessor) use synchronization when accessing DOM data.
+
+. When parsing schemas, we try to use synchronization as well.
+
+Things to fix or consider:
+
+. Are the above two measures sufficient? (They are probably not especially when dealing with the schemas.
+They are accessed e.g. when checking for object equality, and probably on some other places.
+Note that when cloning SchemaDefinitionType we do not clone DOM data.
+The change was done years ago due to performance reasons and I do hesitate to bring the cloning back.)
+
+. Is there some other access to DOM data?
+
+. Generally, it might be worthwhile to replace DOM with some other representation - for primitive values as well as for schemas.
+
+
+== Thread safety of prism definitions is unclear
+
+TODO
+
+
+== OperationResult is NOT thread safe
+
+They are not to be shared across threads.
+In the case of multi-threaded task executions, each thread uses its own operation result and these are aggregated only after individual threads finish their work.
+See e.g. link:https://github.com/Evolveum/midpoint/blob/a76f0b048636ddb916e684a50b984a0f24759a48/repo/repo-common/src/main/java/com/evolveum/midpoint/repo/common/task/AbstractSearchIterativeResultHandler.java#L251-L259[https://github.com/Evolveum/midpoint/blob/a76f0b048636ddb916e684a50b984a0f24759a48/repo/repo-common/src/main/java/com/evolveum/midpoint/repo/common/task/AbstractSearchIterativeResultHandler.java#L251-L259].
+
+
+== Tasks are "semi" thread safe
+
+We tried to make tasks thread safe to some extent.
+But it requires great care on the side of the clients.
+
+A note not directly relevant to thread safety: One should be extra careful when calling methods like `incrementProgressAndStoreStatsIfNeeded`. They gather statistics from the current thread, so it's grossly misleading to call them from any other thread (e.g. from the coordinator task thread or from some observer).
+

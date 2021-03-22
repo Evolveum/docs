@@ -1,0 +1,235 @@
+= MidScale Solution Architecture
+:page-nav-title: Architecture
+:page-display-order: 10
+
+NOTE: MidScale solution architecture is a living document.
+It will be continuously updated during the course of the project.
+
+Goal of xref:index.adoc[midScale project] is to significantly improve performance and scalability of midPoint.
+We would like to make midPoint operate faster (performance).
+Even more importantly, we need midPoint to be scalable, i.e. it has to handle large amounts of data and requests without significant degradation of performance.
+
+== History
+
+https://midpoint.evolveum.com/[MidPoint] is a popular and comprehensive open source identity management and governance platform.
+However, midPoint has one significant limitation.
+MidPoint was originally built to address the needs of mid-size enterprises, agencies and universities.
+Initial design of midPoint data store components favored flexibility and time to market.
+As midPoint was targeting mid-size organizations the scalability was not high on a list of implementation priorities.
+Now, midPoint is being deployed to handle scenarios with large number of identities.
+Deployments that manage students, subscribers and consumers are becoming more and more common.
+Which makes sense, as these types of users can especially benefit from the data protection capabilities of midPoint.
+However, such deployments are hitting scalability limitations of current data storage components of midPoint.
+
+Future scalability issues were foreseen in original midPoint design.
+The datastore implementation (repository) was designed as replaceable component.
+Based on our previous experience, we have identifier current repository implementation as a major obstacle to scalability.
+There are other areas where we suspect performance and scalability limitations, such as Prism, our basic data representation layer.
+We expect to improve midPoint clustering, task management mechanisms and other areas.
+
+
+== Approach
+
+MidScale is all about performance and scalability.
+As for the performance, our plan is to proceed systematically and premature optimizations.
+Therefore the initial phases of the project are focused on testing environment.
+We plan to create a testing environment and use it to identify performance and scalability problems.
+We will also use the testing environment and other analytic tools (e.g. profiling) to confirm performance issues that we are currently suspecting.
+
+At the same time, we are conducting a series of xref:design/[design meetings] to identify potential problems and outline solutions.
+Data from the testing and prototyping are fed back to the design process.
+
+The testing environment will be used and even expanded during the entire duration of the project - and even permanently maintain after the project.
+The intermediate results from the testing will be used to improve the implementation, and even re-evaluate the design if needed.
+
+.Interative and Incremental
+NOTE: MidScale project is conducted in iterative and incremental manner.
+There are many iterations separated by milestones.
+The plan will be adapted as the project evolves in time.
+Therefore MidScale solution architecture is a living document.
+It will be updated during the course of the project to reflect our current thinking.
+
+== Repository
+
+MidPoint is not bound to any particular data store or database.
+Thanks to such foresight, midPoint has a flexible and replaceable data storage components.
+We would like to take advantage of this design feature and re-implement data storage components in a scalable way.
+
+The current database schema has many limitations, mostly caused by two reasons:
+
+* Current database schema is based on early design that prioritized functionality over scalability.
+MidPoint evolution emphasized database schema compatibility, which meant that sub-optimal early design is still limiting the perfomance and scalability of data model.
+
+* Database schema was designed in a generic way that had to fit several database engines (PostgreSQL, MySQL/MariaDB, Oracle, Microsoft SQL).
+Therefore the data model could not use any database-specific optimizations.
+The obvious method to support several databases at the time when midPoint was designed was to use object-relational mapping (ORM) component, such as Hibernate.
+This approach introduces additional limitations and difficulties.
+
+Our plan for scalability improvement has several key aspects:
+
+* Focus on scalability and efficiency in database schema design.
+Design database tables and indexes in such a way that supports large data structures, efficient data storage ans searching.
+
+* Choose just one database to support.
+Preliminary choice is PostgreSQL, however, that choice has to be validated in early stages of the project.
+Choice of one database engine allows us to use database-specific scalability features and optimizations, e.g. hierarchical tables and partitioning.
+We can also better "tune" the code for high performance.
+Additionally, this choice will simplify testing and lower overall support cost, making the solution more maintainable in the long run.
+
+* Connect to database directly, avoiding ORM.
+The ORM layer (Hibernate) is not providing any significant advantage in this case.
+Moreover, it can be a source of problems, slow-downs and limitations.
+
+Design of database schema is still work in progress.
+Initial tasks in the project are focus on evaluation of current problems, design of solutions and simple rapid prototypes.
+
+Please see xref:design/repository-design.adoc[repository design notes] for the details.
+
+Even after midScale is finished, we still plan to keep the existing Hibernate-based repository implementation (referred to as "legacy" repository implementation).
+The plan is to use this implementation to support midPoint running on Oracle and Microsoft SQL databases (support for MySQL/MariaDB is already deprecated).
+MidPoint should be able to operate normally by using this repository implementation.
+The performance is likely to be low (approximately at current levels).
+Yet such performance is still sufficient for many (usually smaller) deployments.
+The plan is to support this "legacy" repository implementation at least for the lifetime of miPoint 4.4 LTS, which is planned to end in 2024.
+However, the future of the "legacy" implementation starting from midPoint 4.5 is yet to be decided.
+
+== Query Language
+
+MidPoint works with a high-level data model, which is currently defined by XML Schema (migration to xref:/midpoint/devel/axiom/[Axiom] planned in the future).
+Therefore a special query language is needed to form queries and search filters using this data model.
+
+MidPoint has existing XML-based query language that originated in the early years of midPoint development.
+However, this XML method is at the end of its life for several reasons.
+Firstly, the language is XML-based, which is a major usability problem.
+As midPoint deployments grow larger and more complex, users need more complex methods to search, sort and report data.
+Users often need complex features that are difficult to provide in GUI.
+Therefore the users resort to the query language.
+However, the XML form of the language is a major usability obstacle.
+Secondly, as midPoint is turning away from XML, the language need to be transformed to JSON, YAML and possibly future data representation formats.
+While this is still possible, it adds additional complexity, while still not solving the usability issues.
+The query language is not a technological obstacle for scalability.
+However, the query language is a practical and psychological barrier for scalability.
+MidPoint could work well with the current query language even with massive data sets.
+However, human administrator will not be able to manage it.
+
+Query language was a subject of many design discussions in the past.
+The preliminary result of such discussion was a desire to replace the query language with something that would be much more friendly to users.
+Major advancement in the design was made in mid-2020 when xref:/midpoint/devel/axiom/[Axiom data modeling language] was designed.
+The work on Axiom clearly indicated the direction of future development of midPoint data model, a direction that points away from XML.
+We see the future of data model in independence from data representation formats such as XML, JSON or YAML.
+This also indicated the direction for the query language.
+
+The hard requirement is that the new query language must be Axiom-compatible.
+I.e. it must describe the same data structures, it must have the same general look and feel and it must the same concepts (e.g. item path).
+The new language must be reasonably user-friendly.
+The goal is not necessary to be friendly to common end users of the system.
+However, it has to be friendly, understandable and intuitive to identity administrators that are somehow familiar with midPoint data model.
+
+The progress of the query language design is documented in xref:design/query-language.adoc[query language design notes].
+
+== Horizontal Scalability
+
+Horizontal scalability is a key to massive scaling.
+It cannot be expected that a single node can handle all the load, not to mention resilience and reliability.
+
+MidPoint is built for horizontal scalability.
+However, there are significant improvements to be made in several areas.
+
+MidPoint operations are conducted in a context of a _task_.
+MidPoint has a specialized _task manager_ component, which is responsible for both intra-node and inter-node task management.
+Support for multi-threaded task execution was added to midPoint few years ago.
+However, there are still some issue and a room for improvement.
+
+Multi-threading can help to utilize resources of a single midPoint node, however multi-node task distribution is needed to utilize resource of the entire cluster.
+MidPoint has a capability to distribute some tasks among the nodes of the cluster (known as "multi-node tasks").
+However, this capability is somehow static, difficult to configure and error-prone.
+The plan is to make the tasks adapt to cluster conditions automatically or semi-automatically.
+The specific mechanism is not clear yet, it will be designed and prototyped in a later part of the project, during an "autoscaling" activities.
+The autoscaling will also address the ability to dynamically add and remove nodes to midPoint cluster, improving on a current static cluster configuration.
+
+Most of the horizontal scalability improvements are likely to impact the _task manager_ component of midPoint.
+Task manager is responsible for scheduling, running and controlling execution of midPoint _tasks_.
+This includes the ability to distribute tasks in a cluster.
+Therefore the task manager component is the key to horizontal scalability.
+
+
+== Prism
+
+_Prism_ component forms an underlying foundation under midPoint data model.
+Prism data structures are used by all midPoint components, and it is used often.
+Therefore, even a small inefficiency in Prism code can multiply and cause serious issues.
+We suspect several issues in the Prism code already.
+However, these need to be measured and confirmed, as we want to avoid pre-mature optimizations.
+
+Moreover, we suspect stability issues in Prism code, especially related to thread safety.
+We have observed instability of Prism code under heavy multi-threaded use.
+This is a major obstacle to scalability, as heavy multi-threaded use of midPoint increases the probability of failures and errors.
+
+Prism design has few gaps when it comes to thread safety, which needs to be improved.
+The xref:design/prism-design.adoc[Prism design discussions] uncovered several potential problems and suggested solutions.
+The design work will continue as the implementation and testing of midScale projects progresses.
+
+There is also concern of Prism API stability.
+Prism is used in midPoint code, but it is also used by midPoint extensions.
+Complex, large-scale deployments are likely to need special-purpose extensions.
+Prism API is not yet "finalized", it is still evolving and changing.
+While the changes tend to be small, there is yet no compatibility guarantee for extensions.
+Stabilization of Prism API is expected to be one of the side effects of midPrivacy efforts, which will be an indirect benefit for complex midPoint deployments.
+
+Please see xref:design/prism-design.adoc[Prism Design Notes] for the details.
+
+== User Interface
+
+There are other aspects to scalability besides raw computing and data processing power.
+The system has to deal with a massive amount of data and present the data to user.
+Therefore midPoint has to be able to present large data sets in an efficient and user-friendly way.
+
+MidPoint has complex administration user interface built on Apache Wicket framework.
+As midPoint was originally designed to handle smaller number of identities, GUI performance was not a priority.
+There are several known and many unknown performance issues in current GUI implementation, many of them originate from an incorrect use of the Wicket framework.
+The plan is to identify these issues using a combination of measurements and code reviews.
+Once identified, we will design the way how to resolve the issues.
+However, most issues should be resolved by correcting the code to follow proper Wicket procedures.
+
+When it comes to the user interface, there is also another aspect of scalability: user experience (UX).
+User experience design of midPoint user interface have not focused on the characteristics of massive data processing.
+MidPoint would greatly benefit from user experience improvements that can make administration of millions of identities easier.
+The best way would be to conduct a systemic assessment of midPoint user experience and design an overall UX approach.
+However, midPoint user interface is complex and such a task would not fit into the scope of midScale project.
+Yet, we still need to make some user experience improvements to make midPoint usable for large identity populations.
+We plan to use feedback from midPoint users and testers as a basis for designing the necessary UX improvements.
+
+Please see xref:design/gui-design.adoc[GUI Design Notes] for the details.
+
+
+== Testing
+
+What is measured, improves.
+Therefore there is one area of midScale project completely dedicated to testing and measurements.
+
+Most of the testing and measurement effort is focused on _performance testing environment_.
+This is a dedicated environment for midPoint performance and scalability testing, which allows to set up various test cases involving large data sets and user load.
+This will be a primary tool to assess progress and results of the project.
+
+The performance testing environment is not the only testing tool that we will employ during midScale project.
+There is an existing testing suite of midPoint tests, which is composed mostly of integration tests.
+We plan to utilize this suite, at least to get some informational data.
+
+There is also an existing GUI testing framework code-named "Schrodinger".
+The Schrodinger framework will need improvements in order to work for midScale project.
+We plan to make the necessary improvements and add Schrodinger to the set of midScale testign tools.
+
+Please see xref:design/testing-design/[Testing Design Notes] and xref:design/infrastructure-design.adoc[Infrastructure Design Notes] for the details.
+
+
+== Related Activities
+
+It is essential the steps taken in midScale project are aligned with a long-term vision of midPoint development.
+Therefore we have conducted a related design activity to improve link:/midpoint/devel/design/midpoint-5-vision/[vision for midPoint 5].
+MidPoint 5 is a planned major midPoint release, which will be start of a next generation in midPoint development.
+
+Please see xref:/midpoint/devel/design/midpoint-5-vision/[MidPoint 5 Vision] for the details.
+
+== See Also
+
+* xref:design/[Design meeting notes]

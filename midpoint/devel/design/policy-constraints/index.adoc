@@ -1,0 +1,698 @@
+= Policy Constraints
+:page-wiki-name: Policy Constraints
+:page-toc: top
+
+[WARNING]
+====
+This is a work-in-progress document.
+It reflects some ideas on policy constraints evolution in midPoint 3.7.
+====
+
+
+
+== Policy constraints
+
+A _policy constraint_ is a statement (predicate) that may be true or false, depending on circumstances.
+Such constraints are used as part of wiki:Policy+Rules[policy rules], where they serve as conditions determining whether the rule should be triggered or not.
+
+
+=== Different kinds of constraints
+
+Constraints can be divided along two dimensions:
+
+. assignment- and object-oriented,
+
+. state- and transition-related.
+
+The first criterion tells whether the constraint applies to a given assignment (or its target) or to the whole object.
+It is obvious that object-attached policy rules could not contain assignment-oriented constraints, because there is no assignment to evaluate them against.
+But on the other hand, assignment-attached policy rules can contain both assignment- and object-oriented constraints.
+
+The second criterion tells whether the constraint triggers only when a change is being executed (related to given assignment or whole object), or they can be evaluated at any time, so to say.
+
+As of midPoint 3.7 there are the following constraints divided into above categories:
+
+[%autowidth,cols="h,1,1,1"]
+|===
+|  | State-related 2+| Transition-related | Special
+
+| Object-oriented
+| objectStatehasAssignmenthasNoAssignmentminAssignees (objectMinAssigneesViolation)maxAssignees (objectMaxAssigneesViolation)timeValidity (objectTimeValidity?)
+| modification (objectModification?)
+.2+| transition
+.2+| situationandornot
+
+
+| Assignment-oriented
+| assignmentStateexclusionminAssigneesmaxAssigneestimeValidity (assignmentTimeValidity?)
+| assignment (assignmentModification?)
+
+
+|===
+
+Naming notes:
+
+. Min/maxAssignees should be named in such a way that it would be obvious that the constraint triggers when the limit is violated.
+So, minAssigneesViolation and maxAssigneesViolation would be a better name.
+
+. We try to make obvious (from the constraint name) whether it is related to an object or an assignment.
+So, timeValidity should be perhaps replaced by objectTimeValidity and assignmentTimeValidity.
+Another question is minAssigneesViolation.
+Originally it was related to assignments only.
+But it can be also object-related, if the object is an abstract role.
+So we introduced objectMinAssigneesViolation and objectMaxAssigneesViolation in order to highlight that these constraints are to be evaluated in the context of the object.
+
+. Modification and assignment should be renamed to objectModification and assignmentModification, respectively.
+They are quite symmetrical in that the former deals with modifications (add, delete, modify) of objects, whereas the latter does the same for assignments.
+
+Implementation notes:
+
+. TimeValidity is not quite implemented yet.
+
+. AssignmentModification does not support assignment modifications yet.
+
+. Min/max target assignees are listed under state-related constraints, although they are currently checked only when an assignment is being added or deleted.
+They should be made really state-related, checked for all assignment targets.
+(At least it should be configurable.
+
+. Transition constraint is currently compatible with objectState, assignmentState, hasAssignment, hasNoAssignment constraints.
+It should be applicable also to other state-related ones, namely min/maxTargetAssignees, time validity, and exclusion constraints.
+
+
+=== Currently implemented constraints
+
+[%autowidth]
+|===
+| Constraint 1+| Evaluated on | Meaning | Parameters 1+| Meaning
+
+.3+| objectState
+.3+| object
+.3+| Triggers if the focal object meets given criteria: filter, expression, midPoint script.
+Exactly one of these must be provided.
+1+| filter
+1+| Filter to apply to determine object state.
+
+
+1+| expression
+1+| Expression to apply to determine object state.
+It can expect the variable "object" holding selected version of the focal object to be checked (see checkInState parameter).
+
+
+1+| executeScript
+1+| Starts a given midPoint script (a.k.a. bulk action) to determine object state.
+The constraint is considered triggered if the script returns non-empty list of items.
+
+
+| assignmentState
+1+| assignment
+| Triggers if the assignment meets given criteria.
+Does not supports filter nor executeScript; supports expression only.
+| expression
+1+| Expression to apply to determine object/assignment state.
+It can expect the variable "object" holding selected version of the focal object (driven by checkInState setting), variable "assignment" holding EvaluatedAssignment structure and variable "target" holding the assignment target.
+(The latter two variables are not influenced by checkInState setting.)
+
+
+.4+| hasAssignment
+.4+| object
+.4+| Triggers if the focal object contains a given assignment.
+Analyzes evaluatedAssignmentsTriple to deliver the information needed.
+| targetRef
+1+| Containing OID of the target to look for or a filter to apply to existing assignments' targets.
+If contains also a relation, this relation is used for filtering instead of explicit "relation" parameter.
+
+
+1+| relation (multi)
+1+| Which relations should the target have.
+Not used if targetRef contains its own relation.
+If more relations are specified, any of them is to match.
+If no relations are specified, org:default is assumed.
+(If you want to specify "any" relation, use that value in relation attribute.)
+
+
+1+| direct
+1+| If true the assignment to given target must be direct.
+If false, it must be indirect (induced).
+If not specified, it might be either direct or indirect.
+But in all cases it must be of the order one, i.e. metaroles are not considered.
+
+
+1+| enabled
+1+| If true the assignment to given target must be effectively enabled.
+If false, it must be present but effectively disabled (beware, disabled indirect assignments are not present at all: so setting enabled=false is relevant only for direct assignments).
+If not specified, the effective status is not considered.
+
+
+| hasNoAssignment
+1+| object
+| Exact opposite of the above: triggers if the focal object does not contain a given assignment.
+| as above
+1+| as above
+
+
+.4+| timeValidity*(NOT IMPLEMENTED YET)*
+.4+| object or assignment (see "assignment" parameter)
+.4+| Triggers if the focal object or assignment meets given time-related criteria.
+(Code for this constraint is not implemented yet, but it should be easy.)
+| item
+1+| Item relevant for time validity determination.
+Defaults to activation/validTo.
+
+
+1+| assignment
+1+| If set to true, validity of assignments of the relevant object are to be checked, not items of the object itself.
+So, for example, if you want to send notifications before validity of assignments to roles A, B, C expire, you'd need to attach a policy rule with this constraint having assignment=true to roles A, B, and C. *(TODO reconsider this - probably by creating objectTimeValidity and assignmentTimeValidity instead)*
+
+
+1+| activateOn
+1+| When will this policy constraint activate (trigger)? If not specified, activation will occur on the moment of validity change.
+Specify negative durations if you need to activate the trigger before that moment; and positive ones if the trigger should be activated after that.
+
+
+1+| deactivateOn
+1+| When will be this policy constraint deactivated? If not specified, it will be active forever.
+Specify negative durations if you need to activate the trigger before the moment of validity change; and positive ones is the trigger should be deactivated after that.
+
+
+1+| exclusion
+1+| assignment
+1+| Triggers if the object defining this "exclusion" and the object defined as target are assigned at the same time.
+1+| targetRef
+1+| Target of exclusion.
+Filter in the reference may be used to dynamically exclude broader range of roles - assuming that runtime resolution is used.
+
+
+.2+| min/maxAssignees
+.2+| assignment or object (see naming note 2 above)
+.2+| Constraint on multiplicity of assigned objects.
+Triggers if the specified limits are _violated_. (This makes this constraint a bit different from the other constraints.)
+1+| multiplicity
+1+| Numeric value or string "unbounded".
+
+
+1+| relation (multi)
+1+| Relation(s) to which this constraint applies.
+All of these relations must match the defined multiplicity.
+If no relation is present, org:default (i.e. null) is assumed.
+
+
+.2+| assignment (should be called assignmentModification)
+.2+| assignment
+.2+| Constraint that triggers the rule when the object is assigned.
+1+| operation (multi)
+1+| Specifies the operation(s) for which this constraints should be triggered.
+If not specified then it will be triggered for all operations.
+This defines the object modification operation (add/replace/delete of the specific assignment).
+In case that new object is added then all assignments in the object are considered to be added.
+The case of object deletion does not make sense here.
+Currently supported are ADD and DELETE operations.
+REPLACE (meaning MODIFY?) is not supported yet.
+
+
+1+| relation (multi)
+1+| This constraint only applies to relations of the specified type.
+The value of this element is compared to the relation of the targetRef relation in the assignment/inducement.
+If not specified then this policy only applies to the null (default) relation.
+If all relations need to be affected by this policy then the special value of "any" should be specified in this element.
+
+
+.4+| modification (should be called objectModification)
+.4+| object
+.4+| Constraint that triggers on focal object modification, addition or deletion.
+1+| operation (multi)
+1+| Specifies the operation(s) for which this constraints should be triggered.
+If not specified then it will be triggered for all operations.
+This defines the object operation (add/modify/delete of the entire object).
+
+
+1+| item (multi)
+1+| Specification of items that must be modified (all of them) in order for this constraint be triggered.
+If no items are specified then any modification will trigger this constraint.
+
+
+1+| exactPathMatch
+1+| If true, item paths to be matched must match exactly.
+E.g. if `inducement` is specified as an item to be matched, then only object modifications having `inducement` in the path (i.e. whole inducement being added/deleted/replaced) would match.This is applicable only for modification operations.
+For add and delete operations the value of this flag is ignored.
+
+
+1+| expression
+1+| Expression that is used to determine the result.
+It is evaluated in addition to all the other conditions, and must have a value of true in order for constraint to be triggered.
+
+
+1+| situation
+1+| assignment (currently) or object (in the future)
+1+| Constraint that triggers the rule when the object or assignment is in a given policy situation(s).
+Currently is implemented only for assignments.
+1+| situation (multi)
+1+| Specifies the policy situation URI(s) to look for.
+
+
+
+1+| and
+1+| object or assignment
+1+| Triggers if all enclosed constraints trigger.
+The evaluation stops on the first non-triggering constraint.
+1+|  +
+
+1+|  +
+
+
+
+1+| or
+1+| object or assignment
+1+| Triggers if at least one of enclosed constraints trigger.
+Currently, all constraints are evaluated, even if only one suffices to triggering the enclosing constraint.
+This might change in the future.
+1+|  +
+
+1+|  +
+
+
+
+1+| not
+1+| object or assignment
+1+| Triggers if none of the enclose constraints trigger.
+(This means that enclosed constraints clause is taken as "and" clause.)
+1+|  +
+
+1+|  +
+
+
+
+.2+| transition
+.2+| object or assignment
+.2+| Evaluates enclosed state-related constraints by taking current operation into account.
+They are evaluated in the state before and/or after the operation and the result is compared with the expected one.
+Enclosing constraint triggers when these results match.
+1+| stateBefore
+1+| Expected state before the operation: true means enclosed constraints triggers, false means they do not.
+Missing value (null) means that the state before operation is not checked.
+
+
+1+| stateAfter
+1+| Expected state after the operation: true means enclosed constraints triggers, false means they do not.
+Missing value (null) means that the state after operation is not checked.
+
+
+|===
+
+
+== Some examples
+
+.Mutual exclusion of 3 roles implemented using "or" constraint.
+[source,xml]
+----
+<policyRule>
+    <name>criminal exclusion</name>
+    <policyConstraints>
+    <!-- triggers if Judge, Pirate, and/or Thief is assigned in addition to the current assignment -->
+        <or>
+            <exclusion>
+                <targetRef oid="12345111-1111-2222-1111-121212111111" type="RoleType"/> <!-- Judge -->
+            </exclusion>
+            <exclusion>
+                <targetRef oid="12345678-d34d-b33f-f00d-555555556666" type="RoleType"/> <!-- Pirate -->
+            </exclusion>
+            <exclusion>
+                <targetRef oid="b189fcb8-1ff9-11e5-8912-001e8c717e5b" type="RoleType"/> <!-- Thief -->
+            </exclusion>
+        </or>
+    </policyConstraints>
+    <policyActions>
+        <enforcement> ... </enforcement>
+    </policyActions>
+</policyRule>
+----
+
+The situation is quite simple here.
+The rule will trigger if any of the elementary exclusion constraints (excluding Judge, Pirate, and Thief) triggers.
+So, if this rule is attached to a role X, then X cannot be assigned with Judge, Pirate, and/or Thief.
+Note that if "or" would not be used there, the rule would say that X cannot be assigned if a user has already assigned Judge, Pirate, *and* Thief.
+
+.Active roles must have description and at least one owner and approver
+[source,xml]
+----
+<policyRule>
+    <!-- here we simply state that it's not possible to have active role with no description or no owner or no approver -->
+    <name>disallow-incomplete-role-activation</name>
+    <policyConstraints>
+        <objectState>
+            <name>active lifecycleState</name>
+            <filter>
+                <q:equal>
+                    <q:path>lifecycleState</q:path>
+                    <q:value>active</q:value>
+                </q:equal>
+            </filter>
+        </objectState>
+        <or>
+            <objectMinAssigneesViolation>
+                <multiplicity>1</multiplicity>
+                <relation>owner</relation>
+                <relation>approver</relation>
+            </objectMinAssigneesViolation>
+            <objectState>
+                <name>no description</name>
+                <filter>
+                    <q:equal>
+                        <q:path>description</q:path>
+                    </q:equal>
+                </filter>
+            </objectState>
+        </or>
+    </policyConstraints>
+    <policyActions>
+        <enforcement/>
+    </policyActions>
+</policyRule>
+----
+
+The rule simply says that it is not acceptable to have active role that violates any of the specified constraints: either has no owner or approver, or has no description.
+
+.Switching to active state must be approved
+[source,xml]
+----
+<policyRule>
+    <name>approve-role-activation</name>
+    <policyConstraints>
+        <transition>
+            <name>role-switched-to-active</name>
+            <stateBefore>false</stateBefore>
+            <stateAfter>true</stateAfter>
+            <constraints>
+                <objectState>
+                    <name>active lifecycleState</name>
+                    <filter>
+                        <q:equal>
+                            <q:path>lifecycleState</q:path>
+                            <q:value>active</q:value>
+                        </q:equal>
+                    </filter>
+                </objectState>
+            </constraints>
+        </transition>
+    </policyConstraints>
+    <policyActions>
+        <approval> ... </approval>
+    </policyActions>
+</policyRule>
+----
+
+This rule says that each change that transitions a role from a state other than "active" (e.g. draft, proposed, deprecated, failed, ...) to the state of "active" must be approved.
+Note that after the role is in the active state, any changes (even touching the lifecycleState attribute) do not need to be approved, at least as per this rule.
+
+.Switching to active state must be approved (alternative way)
+[source,xml]
+----
+<policyRule>
+    <name>approve-role-activation</name>
+    <policyConstraints>
+        <modification>
+            <item>lifecycleState</item>
+        </modification>
+        <objectState>
+            <name>active lifecycleState</name>
+            <filter>
+                <q:equal>
+                    <q:path>lifecycleState</q:path>
+                    <q:value>active</q:value>
+                </q:equal>
+           </filter>
+       </objectState>
+    </policyConstraints>
+    <policyActions>
+        <approval> ... </approval>
+    </policyActions>
+</policyRule>
+----
+
+This rule is similar, but implemented using different constraints.
+It basically says: if there's a modification that involves lifecycleState item, and if the new value of the item is "active", then require an approval.
+It is basically the same as the previous one, with a very small difference.
+If there's a "no-op" change of lifecycleState, e.g. if the value is "active" and we request REPLACE or ADD operation of "active" value, this latter rule would trigger, whereas the former one would not.
+
+.Additional approval step when switching high-risk roles to active state
+[source,xml]
+----
+<policyRule>
+    <name>approve-high-risk-role-activation</name>
+    <policyConstraints>
+        <objectState>
+            <name>role-is-high-risk</name>
+            <filter>
+                <q:equal>
+                    <q:path>riskLevel</q:path>
+                    <q:value>high</q:value>
+                </q:equal>
+            </filter>
+        </objectState>
+        <transition>
+            <name>role-switched-to-active</name>
+            <stateBefore>false</stateBefore>
+            <stateAfter>true</stateAfter>
+            <constraints>
+                <objectState>
+                    <name>active lifecycleState</name>
+                    <filter>
+                        <q:equal>
+                            <q:path>lifecycleState</q:path>
+                            <q:value>active</q:value>
+                        </q:equal>
+                    </filter>
+                </objectState>
+            </constraints>
+        </transition>
+    </policyConstraints>
+    <policyActions>
+        <approval>
+            <compositionStrategy>
+                ...
+            </compositionStrategy>
+            ...
+        </approval>
+    </policyActions>
+</policyRule>
+----
+
+This rule says that if a role is switched to active state and its riskLevel is high, additional approval step is to be taken.
+The riskLevel is evaluated on the new role state.
+I.e. if the operation for a role with riskLevel=normal and lifecycleState=draft is "set riskLevel to high and set lifecycleState to active", then this role would be applied.
+If we have a role with riskLevel=high and lifecycleState=draft and issue a change of "set riskLevel to normal and set lifecycleState to active" this rule would not trigger.
+
+.Creating complex pipeline in executeScript
+[source,xml]
+----
+<policyRule>
+	<policyConstraints>
+		<objectState>
+			<executeScript>
+				<s:pipeline>
+					<s:expression xsi:type="s:SearchExpressionType">
+						<s:type>TaskType</s:type>
+						<s:query>
+							<q:filter>
+								<q:and>
+									<q:ref>
+										<q:path>objectRef</q:path>
+										<expression>
+											<script>
+												<code>
+													import com.evolveum.midpoint.xml.ns._public.common.common_3.*
+													new ObjectReferenceType().oid(object.oid)
+												</code>
+											</script>
+										</expression>
+									</q:ref>
+									<q:equal>
+										<q:path>executionStatus</q:path>
+										<q:value>waiting</q:value>
+									</q:equal>
+									<q:equal>
+										<q:path>category</q:path>
+										<q:value>Workflow</q:value>
+									</q:equal>
+								</q:and>
+							</q:filter>
+						</s:query>
+					</s:expression>
+					<s:expression xsi:type="s:ActionExpressionType">
+						<s:type>execute-script</s:type>
+						<s:parameter>
+							<s:name>script</s:name>
+							<value>
+								<code>
+									//...put your code here, you can inspect the found task detail for e.g. changes in workflow context item delta.
+									//return input; return input TaskType to trigger the rule
+									return null; // return null to skip it
+								</code>
+							</value>
+						</s:parameter>
+						<s:parameter>
+							<s:name>outputItem</s:name>
+							<value>TaskType</value>
+						</s:parameter>
+					</s:expression>
+				</s:pipeline>
+			</executeScript>
+		</objectState>
+	</policyConstraints>
+	<policyActions>
+		<enforcement />
+	</policyActions>
+</policyRule>
+----
+
+Example above is quite complex fragment that uses pipeline in the object state to execute custom script.
+The search expression searches midPoint for any waiting workflow task referencing the object.
+If found, task is inspected in subsequent action with groovy code.
+To trigger the constraint just return the object as defined in outputItem or return null to skip it.
+
+
+=== Constraints references
+
+Quite often a constraint has to be reused.
+For example if it is to be used in the context of approval policy rule (if everything goes well) but also in the context of an enforcement policy rule (if there's something wrong).
+
+To avoid duplication of configuration parts or even scripting code there is a concept of *constraints references*.
+
+Each named constraint can be referenced using its name.
+For example, the following configuration disallows activation of incompletely defined roles while it allows (under approval) activation of roles that are well defined.
+Note that "active lifecycleState" is a policy constraint that tells whether the role is to be considered active.
+It is used in both policy rules: defined in the first one and referenced in the second one.
+
+.Forbidding activation of incomplete roles, allowing (under approval) activation of complete ones
+[source,xml]
+----
+<inducement>
+    <policyRule>
+        <!-- here we simply state that it's not possible to have active role with no description or no owner or no approver -->
+        <name>disallow-incomplete-role-activation</name>
+        <policyConstraints>
+            <objectState>
+                <name>active lifecycleState</name>
+                <filter>
+                    <q:equal>
+                        <q:path>lifecycleState</q:path>
+                        <q:value>active</q:value>
+                    </q:equal>
+                </filter>
+            </objectState>
+            <or>
+                <name>incomplete-role</name>
+                <minAssignees>
+                    <multiplicity>1</multiplicity>
+                    <relation>owner</relation>
+                    <relation>approver</relation>
+                </minAssignees>
+                <objectState>
+                    <name>no description</name>
+                    <filter>
+                        <q:equal>
+                            <q:path>description</q:path>
+                        </q:equal>
+                    </filter>
+                </objectState>
+            </or>
+        </policyConstraints>
+        <policyActions>
+            <enforcement/>
+        </policyActions>
+        <evaluationTarget>focus</evaluationTarget>
+    </policyRule>
+</inducement>
+<inducement>
+    <policyRule>
+        <name>approve-role-activation</name>
+        <policyConstraints>
+            <transition>
+                <name>role-switched-to-active</name>
+                <stateBefore>false</stateBefore>
+                <stateAfter>true</stateAfter>
+                <constraints>
+                    <ref>active lifecycleState</ref>
+                </constraints>
+            </transition>
+        </policyConstraints>
+        <policyActions>
+            <approval>
+                <compositionStrategy>
+                    <order>10</order>
+                </compositionStrategy>
+                <approverRelation>owner</approverRelation>
+            </approval>
+        </policyActions>
+    </policyRule>
+</inducement>
+----
+
+Interesting question is: what is the scope of the policy rule names? I.e. in what places are rules to be resolved being looked for?
+
+The process currently has two steps.
+The first step is the following:
+
+. When collecting rules for a given assignment, all enabled policy rules related to its direct and indirect targets are taken.
+
+. When collecting rules for an object, all enabled policy rules related to this object are taken.
+
+Enabled rules means these that are to be really evaluated in that situation.
+If they are global, then selectors and conditions must match (pass).
+If they are attached, then validity condition must be true.
+
+If the constraint is not found within these, the second step is executed.
+It consists of taking all defined global rules, irrespective of their selectors (focus, target), or conditions.
+
+During each step we check whether the constraint name is unique.
+If there are two different constraints with the same name, an exception is reported.
+
+(Of course, an exception is reported also if the constraint cannot be found or if there is a cyclic dependency among constraints.)
+
+
+==== TODO: restricting scope for referenced constraints
+
+It is possible that the current scope is too broad, i.e. that naming conflicts would occur.
+This is to be thought over again.
+
+
+== Some not yet implemented ideas
+
+
+=== Full support for TimeValidity constraint
+
+It is supported only in the context of a notification task.
+
+
+=== "Scripting" policy action
+
+Could be named "executeScript" but this term is already used elsewhere.
+
+
+=== Certification of policy situations
+
+Experimental support is provided for SoD situations.
+
+
+=== Exceptions for actions, rules, and maybe constraints
+
+It would be great to support rules like this:
+
+[source]
+----
+14 days before user's validity is over, notify his line manager. But send notifications at most each 4 days.
+----
+
+Or
+
+[source]
+----
+14 days before user's validity is over, start an approval task to extend it by 180 days.
+----
+
+In these cases we would need to record that the notification or extension action was taken, and not repeat it until 4 days pass (in the first case), or never (the second case).
+
+
+=== Caching of constraints evaluation
+
+Currently, constraints are evaluated repeatedly even if they were already evaluated for a given context (object, assignment, state).
+This is to be changed.

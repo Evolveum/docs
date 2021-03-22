@@ -1,0 +1,81 @@
+= On Asynchronous Processing
+:page-wiki-name: On Asynchronous Processing
+
+
+== Overview
+
+The goal is to support *asynchronous resource connectors*. Such connector must support the following:
+
+. 'request an operation', returning 'operation ID'
+
+. either or both of these: +
+
+
+.. 'check if any operation is completed' (optionally with given timeout)
+
+.. 'notify me when any operation is completed'
+
+
+
+To have a simple API there will be two main methods:
+
+. 'request an operation' (let's call it requestOperation)
+
+. 'operation completion callback' (let's call it operationCompleted)
+
+With an optional 'check if any operation is completed' method that would (with a given timeout) check about completed operations and call the callback method for each of them - let's call it checkOperationCompletion.
+
+And optional lifecycle methods for connectors that listen to external events (like data arriving via SOAP/REST/socket or JMS asynchronous listeners):
+
+. startListening
+
+. stopListening
+
+
+== midPoint-side processing
+
+In midPoint we will probably employ the existing mechanism, created for manual resources:
+
+. When sending the asynchronous request, shadow with lifecycle=proposed is created.
+It contains deltas to be executed.
+
+. After we learn that the operation was carried out, we change shadow to "normal".
+
+The first point is straightforward.
+What about the second one? Model would need to register a callback for each asynchronous connector instance, to gather information about completed operations.
+This is quite a big *TODO*. How will it be done?
+
+For connectors that work in purely "poll mode", i.e. that would invoke the callback only when checkOperationCompletion is called, we could proceed e.g. from a task.
+The task would be responsible for registering listeners, checking for completion events.
+When the task is stopped, it simply de-registers the listeners.
+
+But maybe this task could be used also for "real listen mode" connectors.
+But we need to ensure that startListening would be called as soon as possible after midPoint startup.
+Nice thing about this is that we would not need separate mechanism for starting/stopping such connectors.
+
+
+== Connector-side processing
+
+In order to work efficiently the "listening" connector needs some support from midPoint e.g. to reuse midPoint machinery for listening to SOAP/REST requests.
+Some API for this has to be devised.
+(Independent from main "data" API.)
+
+Also it seems that sometimes the connector would need to get other "friendly help" from midPoint e.g. by using the repository storage for its own purposes (e.g. caching schema information etc).
+
+
+== LiveSync improvements
+
+The mechanism for asynchronous operation completion could be probably used also for live sync notifications.
+MidPoint would need to weaken the assumption that it can return to arbitrary livesync token.
+Connector would need to implement some kind of "rollback" when the processing of incoming message is not successful.
+
+
+== Implementation notes
+
+Should we enhance connId to provide such APIs? Or have or own internal mechanism? Classloading would need to be resolved in this case.
+
+
+== What now
+
+Now we have to implement at least the "polling way".
+

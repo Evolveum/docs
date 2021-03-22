@@ -1,0 +1,213 @@
+= Bulk actions (unordered notes)
+:page-wiki-name: Bulk actions (unordered notes)
+
+[WARNING]
+====
+Ideas described here exist only on paper. We hope they will be eventually implemented. For current implementation of bulk actions, please see this document.
+
+====
+
+
+== Textual language
+
+Besides using standard midPoint data model represented in XML, JSON and YAML we plan to provide a textual language for writing bulk actions. Some examples:
+
+.Recomputing all users without fullName
+[source]
+----
+#search UserType [!exist(fullname)] | recompute
+----
+
+.Deleting all users that have no accounts
+[source]
+----
+#search UserType [!exist(linkRef)] | delete
+----
+
+.Disabling selected users
+[source]
+----
+#search c:UserType [...] | disable
+----
+
+.Assigning an account on a resource to a people meeting given criteria
+[source]
+----
+#search c:UserType [...] | assign -resource "Exchange Server"
+----
+
+.Assigning a role to a people meeting given criteria
+[source]
+----
+#search c:UserType [...] | assign -role "Domain administrators"
+----
+
+[%autowidth]
+|===
+| Construct | Example 
+
+| constant
+| "Domain administrators"
+
+
+| variable reference
+| $user +
+$user/c:name
+
+
+| assignment
+| #set n = $user/c:name
+
+
+| search
+| #search c:UserType [c:name="jack"]
+
+
+| select
+| #select c:linkRef
+
+
+| pipeline
+| #search c:UserType |  +
+  #select c:linkRef | +
+    log |  +
+      resolve
+
+
+| sequence
+| #search c:UserType | +
+(disable ; delete)
+
+
+|===
+
+
+== Future expressions
+
+In the future we consider adding the following expression kinds:
+
+. Constant.
+
+. Variable definition (assignment) and reference. The reference might contain a property path if the variable has a structured value.
+
+
+
+[%autowidth]
+|===
+| Name | Meaning | Examples in XML | Examples in text language 
+
+| constant
+| A constant expression.
+Ignores what arrives at the input side.
+| <c:value>Domain administrators</c:value>OR<c:value link:[xsi:type="t:ObjectDeltaType]"> +
+    <t:itemDelta> +
+        <t:modificationType> +
+            replace +
+        </t:modificationType> +
+        <t:path> +
+            c:preferredLanguage +
+        </t:path> +
+        <t:value>sk\_SK</t:value> +
+    </t:itemDelta> +
+</c:value>
+| "Domain administrators"
+
+
+| variable reference
+| Provides the value of a given variable, ignoring what arrives at the input side.
+Optionally, might contain a property path when the variable has a structured value.
+| <s:variable>user</s:variable>
+| $user +
+$user/c:name
+
+
+| assignment
+| Assigns a given value (generally, output from an evaluation of an expression) into a variable for later use.
+| TODO
+| #set n = $user/c:name
+
+
+| filter
+| Filters items arriving at input, passing only these that fullfil a given condition. +
+The condition can be written using standard query language (XML or MSL), or it can be specified as a script expression (groovy, XPath, ...)
+| <s:filter> +
+    <q:present> +
+       <q:path>c:fullName</q:path> +
+    </q:present> +
+</s:filter>
+| #filter [present(c:fullName)]
+
+
+| foreach
+| Executes a given command (i.e. an expression) individually for each item arriving at the input. (See Data being passed section below.)
+| <s:foreach> +
+    <s:action> +
+        <s:type>disable</s:type> +
+    </s:action> +
+</s:foreach>
+| #foreach ( disable )
+
+
+|===
+
+
+
+
+=== Variables
+
+More complex expressions, like "modify all Exchange accounts for a given set of users by setting 'alias' attribute to have the value of user's name", may require the use of variables.
+
+The above scenario could be written in this way:
+
+[source]
+----
+#search $user c:UserType [...] | #select c:linkRef | #filter [c:resourceRef = "Exchange"] | #modify { ex:alias = $user/c:name }
+----
+
+However, this mechanism should be used only in really exceptional cases. Standard midPoint approach to manipulating account data is using mappings.
+
+
+
+
+=== Notes on notation
+
+
+
+
+==== Ugly hash marks
+
+
+
+The language would be definitively nicer if it could be used without these #-marks, e.g. in #search, #select, and so on. However, we have to distinguish between reserved words of the language and ordinary identifiers. Because we have no control over the identifiers (e.g. all items in schemas are identifiers), we had to avoid name clashes in some other way. If we would find a way to eliminate these # characters, we'll definitely do it.
+
+
+== Tools
+
+
+=== midPoint GUI
+
+It is expected that there would be some means to start scripts from midPoint GUI, either interactively (immediately showing the user the result of the script execution), or on the background, i.e. by starting execution within a task.
+
+
+=== Command-line administrative client
+
+We are working on a command line tool that will allow to run scripts in this way:
+
+[source]
+----
+c:\midpoint> runscript "#search c:ResourceType [c:name='Exchange'] | purge-schema"
+----
+
+Encapsulating such midPoint scripts in Windows/Linux script files would significantly simplify executing repetitive administrative/deployment tasks. The prototype is available and is described here.
+
+
+=== Eclipse-based management tool
+
+There is a prototype implementation of an Eclipse plugin that allows to construct MSL scripts (using all the bells and whistles of syntax and error highlighting, auto-completion, etc) and execute them by selecting them and pressing ALT-F3:
+
+
+
+The tool uses midPoint web service to execute the scripts. It nicely supports iterative development of scripts, as it allows to instanteneously display the result of script execution (e.g. when constructing search queries) in an Eclipse window, before the developer completes the script by writing specific actions (disable, delete, etc).
+
+
+

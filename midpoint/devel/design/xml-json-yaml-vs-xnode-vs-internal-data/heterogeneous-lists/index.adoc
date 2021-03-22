@@ -1,0 +1,328 @@
+= Heterogeneous lists
+:page-wiki-name: Heterogeneous lists
+
+
+== The problem
+
+Sometimes it is necessary to have a multivalued property whose values are of different types.
+Let's take bulk actions as an example:
+
+* `ScriptingExpressionType` (`scriptingExpression`) is something that can be executed.
+Examples are: `pipeline`, `sequence`, `search`, `action`.
+
+* `ExpressionPipelineType` (`pipeline`) contains a list of `scriptingExpression`s.
+
+* `ExpressionSequenceType` (`sequence`) contains a list of `scriptingExpression`s as well.
+(Semantics of execution is a little different from pipeline, but that's not important here.)
+
+Here is a sample of pipeline that contains search + sequence, which itself contains two actions.
+
+.Bulk action sample (XML)
+[source,xml]
+----
+<s:pipeline xmlns:s="http://midpoint.evolveum.com/xml/ns/public/model/scripting-3"
+            xmlns:c="http://midpoint.evolveum.com/xml/ns/public/common/common-3">
+    <s:search>
+        <s:type>c:RoleType</s:type>
+    </s:search>
+    <s:sequence>
+        <s:action>
+            <s:type>log</s:type>
+        </s:action>
+        <s:action>
+            <s:type>delete</s:type>
+        </s:action>
+    </s:sequence>
+</s:pipeline>
+----
+
+The problem is that - as said above - the schema for `pipeline` and `sequence` elements is such that they both have a single (multivalued) property named `scriptingExpression` that is of `ScriptingExpressionType`. So the XML should look like this:
+
+.Bulk action sample (XML) in midPoint 3.0-3.5
+[source,xml]
+----
+<s:pipeline xmlns:s="http://midpoint.evolveum.com/xml/ns/public/model/scripting-3"
+            xmlns:c="http://midpoint.evolveum.com/xml/ns/public/common/common-3">
+    <s:scriptingExpression xsi:type="s:SearchExpressionType">
+        <s:type>c:RoleType</s:type>
+    </s:scriptingExpression>
+    <s:scriptingExpression xsi:type="s:ExpressionSequenceType">
+        <s:scriptingExpression xsi:type="s:ActionExpressionType">
+            <s:type>log</s:type>
+        </s:scriptingExpression>
+        <s:scriptingExpression xsi:type="s:ActionExpressionType">
+            <s:type>delete</s:type>
+        </s:scriptingExpression>
+    </s:scriptingExpression>
+</s:pipeline>
+----
+
+which is correct but rather ugly.
+JSON and YAML would not help much here - the result would still be quite unreadable.
+Is there a possibility to use easily understandable tags of `sequence`, `search`, `action`? (in XML, JSON and YAML)
+
+A similar issue occurs when dealing with forms.
+Each form has a definition, which contains a list of form items.
+Each form item can be either a form field, or a form field group.
+Something like this:
+
+.Form sample (XML)
+[source,xml]
+----
+<form xmlns="http://midpoint.evolveum.com/xml/ns/public/common/common-3">
+   <name>form1</name>
+   <formDefinition>
+      <display>
+         <label>some label</label>
+         <tooltip>some tooltip</tooltip>
+      </display>
+      <formItems>
+         <formField>
+            <name>Family name</name>
+         </formField>
+         <formFieldGroup>
+            <name>Address</name>
+            <formItems>
+               <formField>
+                  <name>City</name>
+               </formField>
+               <formField>
+                  <name>Country</name>
+               </formField>
+            </formItems>
+         </formFieldGroup>
+         <formField>
+            <name>Email</name>
+         </formField>
+      </formItems>
+   </formDefinition>
+</form>
+----
+
+How can we ensure that both `formField` and `formFieldGroup` will be recognized as values of `formItem` property in `FormItemsType` instances?
+
+
+== The solution
+
+The solution is called _heterogeneous lists_. They are implemented differently in XML and JSON/YAML, because these languages have different native features.
+
+
+=== XML
+
+In XML we can mark any eligible element as a `list` (meaning heterogeneous list - at least for the time being).
+The result is that content of this element will be interpreted not as a map (mapping element names to respective values), but as a list of values.
+So, the above examples would be written like this:
+
+.Bulk actions sample (XML) with 'list' attribute on lines 3 and 7
+[source,xml]
+----
+<s:pipeline xmlns:s="http://midpoint.evolveum.com/xml/ns/public/model/scripting-3"
+            xmlns:c="http://midpoint.evolveum.com/xml/ns/public/common/common-3"
+            list="true">
+    <s:search>
+        <s:type>c:RoleType</s:type>
+    </s:search>
+    <s:sequence list="true">
+        <s:action>
+            <s:type>log</s:type>
+        </s:action>
+        <s:action>
+            <s:type>delete</s:type>
+        </s:action>
+    </s:sequence>
+</s:pipeline>
+----
+
+.Form sample (XML) with 'list' attribute on lines 8 and 14
+[source,xml]
+----
+<form xmlns="http://midpoint.evolveum.com/xml/ns/public/common/common-3">
+   <name>form1</name>
+   <formDefinition>
+      <display>
+         <label>some label</label>
+         <tooltip>some tooltip</tooltip>
+      </display>
+      <formItems list="true">
+         <formField>
+            <name>Family name</name>
+         </formField>
+         <formFieldGroup>
+            <name>Address</name>
+            <formItems list="true">
+               <formField>
+                  <name>City</name>
+               </formField>
+               <formField>
+                  <name>Country</name>
+               </formField>
+            </formItems>
+         </formFieldGroup>
+         <formField>
+            <name>Email</name>
+         </formField>
+      </formItems>
+   </formDefinition>
+</form>
+----
+
+As a convenience feature it is not necessary to explicit provide list attribute values in most situations.
+(Under assumption that midPoint schema is present during parsing, which is currently always the case.) The algorithm used to guess values for this attribute is quite complex and is described wiki:Guessing+'list'+attribute+for+heterogeneous+lists[here].
+
+
+=== JSON and YAML
+
+Here we don't need to mark lists as such, because these languages distinguish between maps and lists natively.
+What is missing, however, is a possibility to attach element names to individual list member values.
+(Which is, on the other hand, something that XML does natively.)
+
+In order to do this, a special `@element` field was conceived.
+Its purpose is bound to heterogeneous lists, and it *cannot* be used elsewhere.
+
+So, the above examples would look like this:
+
+.Form sample (JSON)
+[source,js]
+----
+{
+  "@ns" : "http://midpoint.evolveum.com/xml/ns/public/common/common-3",
+  "form" : {
+    "oid" : "2f9b9299-6f45-498f-bc8e-8d17c6b93b20",
+    "name" : "form1",
+    "formDefinition" : {
+      "display" : {
+        "label" : "some label",
+        "tooltip" : "some tooltip"
+      },
+      "formItems" : [ {
+        "@element" : "formField",
+        "name" : "Family name"
+      }, {
+        "@element" : "formFieldGroup",
+        "name" : "Address",
+        "formItems" : [ {
+          "@element" : "formField",
+          "name" : "City"
+        }, {
+          "@element" : "formField",
+          "name" : "Country"
+        } ]
+      }, {
+        "@element" : "formField",
+        "name" : "Email"
+      } ]
+    }
+  }
+}
+
+
+----
+
+.Form sample (YAML)
+[source]
+----
+---
+'@ns': "http://midpoint.evolveum.com/xml/ns/public/common/common-3"
+form:
+  oid: "2f9b9299-6f45-498f-bc8e-8d17c6b93b20"
+  name: "form1"
+  formDefinition:
+    display:
+      label: "some label"
+      tooltip: "some tooltip"
+    formItems:
+    - '@element': "formField"
+      name: "Family name"
+    - '@element': "formFieldGroup"
+      name: "Address"
+      formItems:
+      - '@element': "formField"
+        name: "City"
+      - '@element': "formField"
+        name: "Country"
+    - '@element': "formField"
+      name: "Email"
+
+
+----
+
+.Bulk action sample (JSON)
+[source,js]
+----
+{
+  "@ns" : "http://midpoint.evolveum.com/xml/ns/public/model/scripting/extension-3",
+  "pipeline" : [ {
+      "@element" : "search",
+      "type" : "c:RoleType"
+    }, {
+      "@element" : "sequence",
+      "@value" : [ {
+          "@element" : "action",
+          "type" : "log"
+        }, {
+          "@element" : "action",
+          "type" : "delete"
+        } ]
+  } ]
+}
+----
+
+.Bulk action sample (YAML)
+[source]
+----
+---
+'@ns': "http://midpoint.evolveum.com/xml/ns/public/model/scripting-3"
+pipeline:
+ - '@element': "search"
+   type: "c:RoleType"
+ - '@element': "sequence"
+   '@value':
+    - '@element': "action"
+       type: "log"
+    - '@element': "action"
+       type: "delete"
+----
+
+
+== How-to
+
+Heterogeneous lists are set up in the following way:
+
+. Members of each heterogeneous list have to be enclosed in a dedicated complex type.
+Such type should contain only two features:
+
+.. multivalued property that will contain list members,
+
+.. boolean `list` attribute that will contain (optional) flag for this data structure.
+
+Examples of such lists are:
+
+.. `ExpressionSequenceType` (contains multivalued `scriptingExpression` + boolean `list` attribute),
+
+.. ExpressionSequenceType (the same content),
+
+.. FormItemsType (contains multivalued formItem + boolean list attribute). +
+
+
+
+
+. Potential list members should be members of a substitution group headed at element referenced by multivalued "content" property, e.g. `s:scriptingExpression` or `c:formItem`. In order to minimize false positive results of approximative algorithm used to guess values for the `list` attribute it is necessary to attach `a:heterogeneousListItem` annotation to this element, e.g..Definition of formField element
+[source,xml]
+----
+<xsd:element name="formField" type="tns:FormFieldType" substitutionGroup="c:formItem">
+   <xsd:annotation>
+      <xsd:appinfo>
+         <a:heterogeneousListItem/>
+      </xsd:appinfo>
+   </xsd:annotation>
+</xsd:element>
+----
+
+
+
+
+
+ +
+ +
+
+

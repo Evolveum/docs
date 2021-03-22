@@ -1,0 +1,133 @@
+= Iterative search in midPoint 3.9 and later
+:page-wiki-name: Iterative search in midPoint 3.9 and later
+
+In order to avoid long-running transactions (leading e.g. to issues like bug:MID-4414[]) we have changed the way how `searchObjectsIterative` method is implemented.
+
+There are four iteration methods (see `IterationMethodType`):
+
+[%autowidth]
+|===
+| Iteration method | Description
+
+| `SINGLE_TRANSACTION`
+| Fetches objects in single DB transaction.
+Not supported for all DBMSs.
+For those that support it (e.g. PostgreSQL) it can lead to long-running transactions spanning hours or even days.
+Moreover, current transaction isolation settings cause the objects returned to have values that were stored in the database when the search was initiated.
+
+
+| `SIMPLE_PAGING`
+| Uses the "simple paging" method: takes objects (e.g.) numbered 0 to 49, then 50 to 99, then 100 to 149, and so on.
+The disadvantage is that if the order of objects is changed during operation (e.g. by inserting/deleting some of them) then some objects can be processed multiple times, where others can be skipped.
+
+
+| `STRICTLY_SEQUENTIAL_PAGING`
+| Uses the "strictly sequential paging" method: sorting returned objects by OID.
+This is (almost) reliable in such a way that no object would be skipped.
+However, custom paging cannot be used in this mode, except for setting `maxSize` parameter.
+
+
+| `FETCH_ALL`
+| This is a workaround for situations when `STRICTLY_SEQUENTIAL_PAGING` cannot be used because a client-supplied paging is present.
+All the objects are fetched as in regular `searchObjects()` call and then send to the client one-by-one.
+(This defeats the basic purpose of `searchObjectsIterative` but can be safely used for small numbers of objects.)So this method is a safe fallback that is used when `STRICTLY_SEQUENTIAL_PAGING` is implicitly chosen but a custom paging exists, provided that the paging contains maxSize clause with a number not greater than a specified limit (maxObjectsForImplicitFetchAllIterationMethod).
+New in 3.9.
+
+
+|===
+
+
+== Before midPoint 3.9
+
+Before 3.9, majority of iterations were done in this mode - unless configured otherwise (globally in `config.xml` or per individual searches):
+
+[%autowidth]
+|===
+| Database | Iteration mode
+
+| MySQL/MariaDB
+| `SIMPLE_PAGING`
+
+
+| PostgreSQL
+| `SINGLE_TRANSACTION`
+
+
+| Oracle
+| `SINGLE_TRANSACTION`
+
+
+| SQL Server
+| `SINGLE_TRANSACTION`
+
+
+| H2
+| `SIMPLE_PAGING`
+
+
+|===
+
+
+== After midPoint 3.9
+
+In 3.9 we changed the default settings so the iteration is done like this:
+
+[%autowidth]
+|===
+| Database | Iteration mode
+
+| MySQL/MariaDB
+| ``STRICTLY_SEQUENTIAL_PAGING``
+
+
+| PostgreSQL
+| ``STRICTLY_SEQUENTIAL_PAGING``
+
+
+| Oracle
+| ``STRICTLY_SEQUENTIAL_PAGING``
+
+
+| SQL Server
+| ``STRICTLY_SEQUENTIAL_PAGING``
+
+
+| H2
+| ``STRICTLY_SEQUENTIAL_PAGING``
+
+
+|===
+
+
+== Consequences
+
+Elimination of long-running transactions could lead to a better performance and freshness of data (bug:MID-4414[]). However, ``STRICTLY_SEQUENTIAL_PAGING`` means that custom paging cannot be used, except for `maxSize` parameter.
+In stock midPoint, we typically don't use paging combined with `searchObjectsIterative` method.
+But if you have a custom code, e.g. in scripts, make sure you either replace `searchObjectsIterative` with `searchObjects`, eliminate the paging (except for `maxSize`), or change the default iteration method (see below).
+
+If an iterative search encounters a combination of implicitly-set ``STRICTLY_SEQUENTIAL_PAGING`` and non-compatible custom paging, it:
+
+* If the custom paging has `maxSize` at most `500` (or the current value of `maxObjectsForImplicitFetchAllIterationMethod` system parameter), then switches iteration method to `FETCH_ALL`.
+
+* Otherwise it issues an warning message to the log and switches iteration method to `SIMPLE_PAGING`.
+
+In particular, beware of bulk actions (midPoint scripting).
+Searching objects there uses `searchObjectsIterative` method.
+
+
+== Influencing the iteration method
+
+For `repository.searchObjectsIterative` operation, selection of iteration method is done using the following parameters:
+
+. If `GetOperationOptions.iterationMethod` is specified, it is used without any further considerations.
+
+. Otherwise, the repository configuration determines whether to use `SINGLE_TRANSACTION` or `SIMPLE_PAGING`/`STRICTLY_SEQUENTIAL_PAGING`. (Up to midPoint 3.9 the default was to use transaction for PostgreSQL, Oracle and SQL Server and to use paging for MySQL/MariaDB and H2.
+Since 3.9, the default is to use paging for all databases.)
+
+. In the latter case, the `strictlySequential` flag decides between `SIMPLE_PAGING` (if it's `false`) and `STRICTLY_SEQUENTIAL_PAGING` (if it's `true`). Up to midPoint 3.9, the value of this flag was mostly `false`. Since 3.9, it is `true` at all the places in midPoint code.
+
+The `strictlySequential` flag is not present on `model.searchObjectsIterative` operation, however.
+If you call that operation (as you usually do), the only way how to choose the iteration method by the caller is to use `GetOperationOptions.iterationMethod` option.
+
+As a special case, for abstract search iterative tasks, `mext:iterationMethod` extension property (`mext` is `http://midpoint.evolveum.com/xml/ns/public/model/extension-3`) is used to provide the `GetOperationOptions.iterationMethod` value to the main `searchObjectsIterative` operation.
+
