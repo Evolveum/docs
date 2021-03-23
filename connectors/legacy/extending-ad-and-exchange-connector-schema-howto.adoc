@@ -1,0 +1,80 @@
+= Extending AD and Exchange Connector Schema HOWTO
+:page-wiki-name: Extending AD and Exchange Connector Schema HOWTO
+:page-obsolete: true
+
+Until recently, the schema in Active Directory and Microsoft Exchange connectors was defined statically at compile time.
+It has been present in ObjectClasses.xml resource files (both for link:https://github.com/Evolveum/openicf/blob/master/connectors/dotnet/ActiveDirectoryConnector/ObjectClasses.xml[AD] and link:https://github.com/Evolveum/openicf/blob/master/connectors/dotnet/ExchangeConnector/ObjectClasses.xml[Exchange]) that have been then compiled into connectors' DLLs.
+Because a couple of customers needed to support their own attributes by the connectors, we have provided a simple mechanism allowing to dynamically extend the schema.
+
+In order to do this, we have introduced a new configuration parameter: *ObjectClassesExtensionFile. *It points to a file name, with a path relative to the place where AD/Exchange connector is installed.
+This file can contain wholly-new object classes or extensions to existing classes.
+
+For example, you could create a schema.xml file with the following content:
+
+[source,xml]
+----
+<?xml version="1.0" encoding="utf-8" ?>
+<List>
+
+    <!-- Extending AccountObjectClass with two new attributes -->
+    <ObjectClassInfo container="false" type="__ACCOUNT__">
+        <AttributeInfos>
+            <AttributeInfo name="__NAME__" type="String">
+                <AttributeInfoFlag value="REQUIRED"/>
+            </AttributeInfo>
+            <AttributeInfo name="studentId" type="String"/>
+            <AttributeInfo name="courses" type="String">
+                <AttributeInfoFlag value="MULTIVALUED"/>
+            </AttributeInfo>
+        </AttributeInfos>
+    </ObjectClassInfo>
+
+    <!-- Defining a new object class -->
+    <ObjectClassInfo container="false" type="Tenant">
+        <AttributeInfos>
+              <AttributeInfo name="__NAME__" type="String">
+                <AttributeInfoFlag value="REQUIRED"/>
+              </AttributeInfo>
+              <AttributeInfo name="subtenants" type="String">
+                <AttributeInfoFlag value="MULTIVALUED"/>
+              </AttributeInfo>
+              <AttributeInfo name="description" type="String"></AttributeInfo>
+            <!-- ... -->
+        </AttributeInfos>
+    </ObjectClassInfo>
+
+</List>
+----
+
+In the first part we extend the AccountObjectClass with two new attributes: *studentId* (String, single-valued) and *courses* (again String, but this time multi-valued).
+This is a common scenario to use when you have extended your Active Directory schema and want to make these extension attributes accessible via midPoint.
+(Due to connector framework restrictions, the \__NAME\__ attribute must be there, even if it is not being added.)
+
+In the second part, we define a new object class.
+At first, you could wonder what could be the reason to do so? There is another recently-added feature to both AD and Exchange connector: *custom scripting*. It is now possible to define PowerShell scripts that are executed before, after or instead of any AD/Exchange connector operation.
+So, by defininng a new object class and a corresponding set of PowerShell scripts you can extend the connector functionality in unforeseen ways.
+
+Back to our example.
+After creating the schema extension file, you would refer to it in your resource configuration:
+
+[source,xml]
+----
+<icfc:configurationProperties xmlns:ex="http://midpoint.evolveum.com/xml/ns/public/connector/icf-1/bundle/Exchange.Connector/Org.IdentityConnectors.Exchange.ExchangeConnector">
+    <!-- ... -->
+    <ex:ObjectClassesExtensionFile>schema.xml</ex:ObjectClassesExtensionFile>
+</icfc:configurationProperties>
+----
+
+After that, you have to do the following:
+
+. restart Connector Server,
+
+. delete the schema from your resource definition - either deleting it manually using debug pages, or automating this process a little bit by using appropriately modified link:https://github.com/Evolveum/midpoint/blob/master/samples/tasks/bulk-actions/purge-resource-schema.xml[purge-resource-schema bulk action sample].
+
+(These actions need to be done after each change of the schema, at least for now.)
+
+Note: it is also possible to replace the original schema altogether, by using *ObjectClassesReplacementFile* configuration property.
+In that case, original ObjectClasses.xml is not used at all, and the replacement file is used instead.
+
+All of the features described here are available in AD/Exchange connector version 1.4.1.20257 (experimental! download here: link:http://nexus.evolveum.com/nexus/service/local/repositories/openicf-releases/content/org/forgerock/openicf/dotnet/ActiveDirectory.Connector/1.4.1.20257/ActiveDirectory.Connector-1.4.1.20257.zip[AD] / link:http://nexus.evolveum.com/nexus/service/local/repositories/openicf-releases/content/org/forgerock/openicf/dotnet/Exchange.Connector/1.4.1.20257/Exchange.Connector-1.4.1.20257.zip[Exchange]). It requires latest connector framework, namely version link:http://nexus.evolveum.com/nexus/service/local/repositories/openicf-releases/content/org/connid/connid/1.4.0.76/connid-1.4.0.76-dotnet.zip[1.4.0.76].
+

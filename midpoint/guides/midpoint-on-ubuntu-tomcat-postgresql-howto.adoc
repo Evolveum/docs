@@ -1,0 +1,480 @@
+= midPoint on Ubuntu, Tomcat, PostgreSQL HOWTO
+:page-wiki-name: midPoint on Ubuntu, Tomcat, PostgreSQL HOWTO
+:page-upkeep-status: orange
+
+== Introduction
+
+This HOWTO describes an installation and configuration of link:https://evolveum.com/midpoint[midPoint ]in Ubuntu Linux environment.
+MidPoint will run in Apache Tomcat web container.
+Apache web server will be placed in front of it as a reverse proxy.
+MidPoint repository will be maintained in PostgreSQL database running on the same host.
+
+Note: all commands specified in this tutorial should be run as `root`. Therefore either prefix them with `sudo` or execute `sudo -s` at the beginning of installation session.
+
+
+== Install Java JDK
+
+We recommend using the OpenJDK 8 that is distributed with Ububtu (16.04 LTS):
+
+[source]
+----
+sudo apt-get update
+sudo apt-get install openjdk-8-jdk
+----
+
+If you prefer Sun JDK or if there is no OpenJDK 8 in your distribution then link:http://www.oracle.com/technetwork/java/javase/downloads/index.html[download Sun JDK from oracle.com] and install it.
+Just make sure it is JDK version 8.
+
+[NOTE]
+.Java 8 only
+====
+MidPoint 3.5 is supported only on Java 8 platforms.
+MidPoint supported both Java 7 and Java 8 for several years.
+The support for Java 7 was deprecated in midPoint 3.4.1 and it was removed in midPoint 3.5. It is finally the time to abandon obsolete technology and to move on.
+
+====
+
+
+=== Installing JCE Extension
+
+The JCE Unlimited Strength extension provides a full-strength cryptography for Java.
+It is usually good idea to install it if it is legal under your jurisdiction.
+The files can be link:http://www.oracle.com/technetwork/java/javase/downloads/index.html[downloaded from oracle.com]. Look for _Java Cryptography Extension (JCE) Unlimited Strength Jurisdiction Policy Files_. Choose version appropriate for your JDK version.
+
+Unzip the archive and copy the two jar files to `/opt/java/jre/lib/security`. It may be a good idea to back up the original files before doing this.
+
+
+== Install Apache Tomcat
+
+Download tomcat 8 binary installation package from Apache website.
+
+Unpack the tomcat to `/opt`. This creates `/opt/apache-tomcat-8.5.4` or similar directory.
+Make a symlink for easier management:
+
+[source]
+----
+ln -s /opt/apache-tomcat-8.5.4 /opt/apache-tomcat
+
+----
+
+Create tomcat user (remember to make sure /usr/sbin/nologin is an allowed shell in /etc/shells file - otherwise the init.d script will fail):
+
+[source]
+----
+sudo useradd -c "Apache Tomcat" -r -d /opt/apache-tomcat -s /usr/sbin/nologin tomcat
+
+----
+
+Change ownership of the installed files:
+
+[source]
+----
+sudo chown -R tomcat:tomcat /opt/apache-tomcat
+
+----
+
+Create init.d script for tomcat:
+
+./etc/init.d/tomcat
+[source]
+----
+#!/bin/bash
+#
+# Startup script for Tomcat Servlet Engine
+#
+# chkconfig: 345 86 14
+# description: Tomcat Servlet Engine
+#
+### BEGIN INIT INFO
+# Provides:          tomcat
+# Required-Start:    $remote_fs $syslog $network
+# Required-Stop:     $remote_fs $syslog $network
+# Default-Start:     3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Tomcat Servlet Engine
+# Description:       Tomcat Servlet Engine
+### END INIT INFO
+#
+
+# Directory where tomcat is installed
+INST_PATH=/opt/apache-tomcat
+# User under which tomcat will run
+RUN_AS_USER=tomcat
+
+case "$1" in
+  start)
+        su $RUN_AS_USER -c "$INST_PATH/bin/startup.sh" -s /bin/bash
+        ;;
+  stop)
+        su $RUN_AS_USER -c "$INST_PATH/bin/shutdown.sh" -s /bin/bash
+        ;;
+  restart)
+        su $RUN_AS_USER -c "$INST_PATH/bin/shutdown.sh" -s /bin/bash
+        su $RUN_AS_USER -c "$INST_PATH/bin/startup.sh" -s /bin/bash
+        ;;
+  *)
+  echo "Usage: $0 {start|stop|restart}"
+  exit 1
+esac
+
+exit $RETVAL
+
+----
+
+Add execution permissions to tomcat script:
+
+[source]
+----
+sudo chmod +x /etc/init.d/tomcat
+----
+
+
+
+We don't want tomcat to be accessible directly from the network.
+Therefore let's configure it to listen only on localhost address.
+Edit the `/opt/apache-tomcat/conf/server.xml` file and add `address` attribute to each `<Connector>` definition.
+Like this:
+
+./opt/apache-tomcat/conf/server.xml
+[source]
+----
+...
+   <Connector port="8080" protocol="HTTP/1.1"
+               connectionTimeout="20000"
+               redirectPort="8443"
+               address="127.0.0.1" />
+...
+    <Connector port="8009" protocol="AJP/1.3" redirectPort="8443"
+                address="127.0.0.1"/>
+...
+
+----
+
+
+== Install and Configure Apache
+
+Install Apache ubuntu package:
+
+[source]
+----
+sudo apt-get install apache2
+
+----
+
+Enable `rewrite`, `proxy` and `proxy_http` modules:
+
+[source]
+----
+cd /etc/apache2/mods-enabled
+ln -s ../mods-available/rewrite.load
+ln -s ../mods-available/proxy.load
+ln -s ../mods-available/proxy_http.load
+
+----
+
+Configure the proxy to tomcat in appropriate apache site definition:
+
+./etc/apache2/sites-available/default
+[source]
+----
+...
+        ProxyRequests           Off
+        ProxyPreserveHost       On
+
+        ProxyPass               /midpoint       http://localhost:8080/midpoint
+        ProxyPassReverse        /midpoint       http://localhost:8080/midpoint
+...
+
+----
+
+If midPoint is the only (or the main) application on this host then you might also want to configure a redirect:
+
+./etc/apache2/sites-available/default
+[source]
+----
+...
+        RewriteEngine On
+        RewriteRule             ^/?$     /midpoint/ [R]
+...
+
+----
+
+Reload apache configuration:
+
+[source]
+----
+service apache2 reload
+
+----
+
+
+== Install PostgreSQL
+
+Install PostgreSQL ubuntu package:
+
+[source]
+----
+sudo apt-get install postgresql
+
+----
+
+Create user in the database (remember the password):
+
+[source]
+----
+sudo -u postgres createuser --pwprompt --no-superuser --no-createdb --no-createrole midpoint
+
+----
+
+Create a database:
+
+[source]
+----
+sudo -u postgres createdb --owner=midpoint midpoint
+
+----
+
+Select appropriate SQL schema script for your midPoint version (Download script from Raw tab):
+
+[%autowidth]
+|===
+| Version | Location
+
+| development branch
+| link:http://git.evolveum.com/view/midpoint/master/config/postgresql-schema.sql[development/postgresql-schema.sql]
+
+
+| 2.2
+|  link:http://git.evolveum.com/view/midpoint/v2.2/config/postgresql-schema.sql[2.2/postgresql-schema.sql]
+
+
+| 3.0
+| link:https://github.com/Evolveum/midpoint/tree/v3.0/config/sql/midpoint/3.0/postgresql[https://github.com/Evolveum/midpoint/tree/v3.0/config/sql/midpoint/3.0/postgresql]
+
+
+| 3.1
+| link:https://github.com/Evolveum/midpoint/blob/v3.1/config/sql/_all/postgresql-3.1-all.sql[https://github.com/Evolveum/midpoint/blob/v3.1/config/sql/_all/postgresql-3.1-all.sql]
+
+
+| 3.3
+| link:https://github.com/Evolveum/midpoint/blob/v3.3/config/sql/_all/postgresql-3.3-all.sql[https://github.com/Evolveum/midpoint/blob/v3.3/config/sql/_all/postgresql-3.3-all.sql]
+
+
+| 3.4
+| link:https://github.com/Evolveum/midpoint/blob/v3.4/config/sql/_all/postgresql-3.4-all.sql[https://github.com/Evolveum/midpoint/blob/v3.4/config/sql/_all/postgresql-3.4-all.sql]
+
+
+| 3.5
+| link:https://github.com/Evolveum/midpoint/blob/v3.6/config/sql/_all/postgresql-3.6-all.sql[https://github.com/Evolveum/midpoint/blob/v3.5/config/sql/_all/postgresql-3.5-all.sql]
+
+
+| 3.6
+| link:https://github.com/Evolveum/midpoint/blob/v3.6/config/sql/_all/postgresql-3.6-all.sql[https://github.com/Evolveum/midpoint/blob/v3.6/config/sql/_all/postgresql-3.6-all.sql]
+
+
+| other versions
+| use appropriate tag directory using the example above
+
+
+|===
+
+Execute the script to create database schema (tables, indexes, etc.):
+
+[source]
+----
+sudo psql --host=localhost --username=midpoint < postgresql-X.Y-all.sql
+
+----
+
+(The "WARNING:  there is no transaction in progress" is OK)
+
+The database is now ready.
+
+
+== Deploy and Set Up midPoint
+
+Stop tomcat (if it is running):
+
+[source]
+----
+sudo /etc/init.d/tomcat stop
+
+----
+
+link:https://www.evolveum.com/download/[Download] or build `midpoint.war`. Place it into `/opt/apache-tomcat/webapps` directory.
+
+Create wiki:MidPoint+Home+Directory[midPoint home directory]. This directory contains midpoint startup configuration, keystore, connector code and similar things.
+According to UNIX conventions the best place is perhaps `/var/opt` directory but use whatever place suits your installation.
+Also make sure it can be accessed by tomcat:
+
+[source]
+----
+sudo mkdir /var/opt/midpoint
+sudo chown tomcat:tomcat /var/opt/midpoint
+
+----
+
+Edit tomcat startup file `/opt/apache-tomcat/bin/catalina.sh` to tweak its parameters.
+We need this to let midpoint know where is the location of its home directory and also to modify the default Java memory settings.
+Place this line somewhere near the beginning of the file:
+
+./opt/apache-tomcat/bin/catalina.sh
+[source]
+----
+JAVA_OPTS="$JAVA_OPTS -server -Xms256m -Xmx512m -XX:PermSize=128m -XX:MaxPermSize=256m -Dmidpoint.home=/var/opt/midpoint/ -Djavax.net.ssl.trustStore=/var/opt/midpoint/keystore.jceks -Djavax.net.ssl.trustStoreType=jceks"
+
+----
+
+Start tomcat now:
+
+[source]
+----
+sudo /etc/init.d/tomcat start
+
+----
+
+Tomcat should pick up the WAR file and deploy the application.
+This may take a minute or so.
+The `/opt/apache-tomcat/webapps/midpoint` directory should appear.
+You can follow the deployment process by tailing `/opt/apache-tomcat/logs/catalina.out`. You can watch pre process of midpoint startup and initialization by tailing `/opt/apache-tomcat/logs/idm.log` (this happens after the deployment).
+After midpoint starts the directory `/var/opt/midpoint` should be populated with several files and subdirectories.
+
+Midpoint starts with a default settings.
+This means that it is using an embedded H2 database for storing files.
+We want to change this to PostgreSQL.
+The setting is in the midpoint home directory (`/var/opt/midpoint`) in `config.xml` file.
+This file is read during midpoint start.
+Therefore let's first stop tomcat together with deployed midpoint:
+
+[source]
+----
+sudo /etc/init.d/tomcat stop
+
+----
+
+Edit the `config.xml` file midpoint home directory (`/var/opt/midpoint`). Change the `<repository>` section to refer to the PostgreSQL database created above.
+Do not forget to substitute the real password for midpoint PostgreSQL user in the `<jdbcPassword>` element.
+
+./var/opt/midpoint/config.xml
+[source]
+----
+...
+        <repository>
+                <repositoryServiceFactoryClass>com.evolveum.midpoint.repo.sql.SqlRepositoryFactory</repositoryServiceFactoryClass>
+                <embedded>false</embedded>
+                <driverClassName>org.postgresql.Driver</driverClassName>
+                <jdbcUsername>midpoint</jdbcUsername>
+                <jdbcPassword>password</jdbcPassword>
+                <jdbcUrl>jdbc:postgresql://localhost/midpoint</jdbcUrl>
+                <hibernateDialect>com.evolveum.midpoint.repo.sql.util.MidPointPostgreSQLDialect</hibernateDialect>
+                <hibernateHbm2ddl>validate</hibernateHbm2ddl>
+        </repository>
+...
+
+----
+
+Note that JDBC driver for PostgreSQL is already bundled in midPoint, there is no need to install it explicitly.
+
+MidPoint initialized its embedded database repository during the first start.
+This is no longer needed and it may be deleted to free some space and avoid confusion.
+The databases are in  `*.h2.db` files:
+
+[source]
+----
+sudo rm /var/opt/midpoint/midpoint.mv.db
+sudo rm /var/opt/midpoint/midpoint-activiti.mv.db 
+----
+
+Now it is the time to start tomcat and midPoint:
+
+[source]
+----
+sudo /etc/init.d/tomcat start
+
+----
+
+
+== Optional Post-Installation Steps
+
+
+=== Change Encryption Key
+
+Encryption is used in midPoint to protect sensitive parts of the database such as passwords.
+The encryption key is *not* stored in the database (that would be really meaningless).
+It is stored in standard Java JCE keystore that is located in midPoint home directory by default.
+First start of midPoint generates and encryption key for you.
+But it generates a short encryption key that is suitable both for use by export-limited and full-strength cryptography modules.
+Therefore is full-strength JCE extension was installed it is recommended to change the encryption key to a full-strength key.
+It can be achieved by `keytool` utility.
+
+First stop tomcat:
+
+[source]
+----
+sudo /etc/init.d/tomcat stop
+
+----
+
+Generate new key with a `keytool` command:
+
+[source]
+----
+su -s /bin/bash -c "keytool -genseckey -alias strong -keystore /var/opt/midpoint/keystore.jceks -storetype jceks -storepass changeit -keyalg AES -keysize 256 -keypass midpoint" tomcat
+
+----
+
+That command will create a new 256-bit AES key with alias `strong`. Now reconfigure midPoint to use the new key.
+Edit the `config.xml` file to change encryption key alias.
+Also make sure a strong algorithm is specified:
+
+./var/opt/midpoint/config.xml
+[source]
+----
+...
+        <keystore>
+            <keyStorePath>${midpoint.home}/keystore.jceks</keyStorePath>
+            <keyStorePassword>changeit</keyStorePassword>
+            <encryptionKeyAlias>strong</encryptionKeyAlias>
+            <xmlCipher>http://www.w3.org/2001/04/xmlenc#aes256-cbc</xmlCipher>
+        </keystore>
+...
+
+----
+
+Start tomcat again:
+
+[source]
+----
+sudo /etc/init.d/tomcat start
+
+----
+
+See wiki:Encryption+and+Keys[Encryption and Keys] and wiki:Keystore+Configuration[Keystore Configuration] pages for more information.
+
+
+== Enjoy
+
+MidPoint is now up and running.
+You can access the administration gui at:
+
+[source]
+----
+http://your-hostname/midpoint/
+
+----
+
+[%autowidth,cols="h,1"]
+|===
+| Username | administrator
+
+| Password
+| 5ecr3t
+
+
+|===
+
+For more information how to customize and run midPoint please see:
+
+* xref:/midpoint/quickstart/[]
+
+* xref:/book/[]
