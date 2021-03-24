@@ -1,0 +1,255 @@
+= Simple demo
+:page-wiki-name: Simple demo
+:page-upkeep-status: orange
+
+This demo shows Midpoint with PostgreSQL repository.
+Midpoint contains csv-resource as the source and openldap-resource as the target.
+
+The image can be found in the link:https://github.com/Evolveum/midpoint-docker[Evolveum/midpoint-docker] GitHub project.
+
+== Starting
+
+[source,bash]
+----
+$ cd demo/simple
+$ docker-compose up --build
+----
+
+
+
+After `docker-compose up` command successfully finishes you should see something like this on the console:
+
+[source]
+----
+simple_midpoint_server_1  | 2019-02-22 15:07:50,222 [] [main] INFO (org.springframework.boot.web.embedded.tomcat.TomcatWebServer): Tomcat started on port(s): 8080 (http) with context path '/midpoint'
+simple_midpoint_server_1  | 2019-02-22 15:07:50,230 [] [main] INFO (com.evolveum.midpoint.web.boot.MidPointSpringApplication): Started MidPointSpringApplication in 74.425 seconds (JVM running for 77.109)
+----
+
+
+
+Now you can log into midPoint using link:http://localhost:8080/midpoint[http://localhost:8080/midpoint] URL, with an user of `administrator` and a password of `5ecr3t`.
+
+Also you can log into OpenLDAP server using a host of _localhost and _a port of_ 389_, with a Bind DN of _cn=admin,dc=evolveum,dc=com_ and a Bind password of secret.
+
+During starting, in Midpoint is configured two resources, one object template, one role and are started two script for testing connection on reseouces and one for import accounts from csv-resources.
+If user is imported from csv file, then he automaticly get role, which insure create user account in OpenLdap server.
+
+You can safely ignore console messages like this:
+
+[source]
+----
+simple_midpoint_server_1  | ERROR:  could not serialize access due to read/write dependencies among transactions
+simple_midpoint_server_1  | DETAIL:  Reason code: Canceled on identification as a pivot, during write.
+simple_midpoint_server_1  | HINT:  The transaction might succeed if retried.
+----
+
+
+
+This is a part of standard midPoint conflict resolution process.
+The mentioned transactions are really retried and they succeed eventually.
+
+
+== Containers
+
+The `demo/simple` composition contains the following containers:
+
+
+
+[%autowidth]
+|===
+| Container name | Description
+
+| `simple_midpoint_server_1`
+| This is the standard container providing midPoint functionality.
+It contains standalone Tomcat running midPoint application.
+
+
+| ```simple``\_midpoint\_data\_1`
+| This container hosts midPoint repository; this time it is implemented on PostgreSQL 9.5 database.
+
+
+| `simple_ldap_1`
+| OpenLDAP server used as the target.
+
+
+|===
+
+
+== Communication
+
+The containers publish the following TCP ports.
+(_Port mapped to localhost_ denotes the mapping of container port to the host port where it can be reached from the outside.)
+
+[%autowidth]
+|===
+| Container | Port number | Port mapped to localhost | Description
+
+| `simple_midpoint_server_1`
+| 8080
+| 8080
+| HTTP port to be used to connect to midPoint application
+
+
+| `simple_midpoint_data_1`
+| 5432
+| 5432
+| Port used to connect to the PostgreSQL database
+
+
+| `simple_ldap_1`
+| 389
+| 389
+| Port used to connect to the OpenLDAP server
+
+
+|===
+
+
+== Docker volumes
+
+The following volumes are created to persist data and other relevant files.
+
+
+
+[%autowidth]
+|===
+| Volume name | Description | Used by container
+
+| ````simple```\_midpoint\_home`
+| The midPoint home directory.
+Contains schema extensions, logs, custom libraries, custom ConnId connectors, and so on.
+| `simple\_midpoint\_server\_1`
+
+
+| ````simple```\_midpoint\_data`
+| Volume hosting PostgreSQL database used by midPoint.
+| `simple\_midpoint\_data\_1`
+
+
+| ````simple```\_ldap\_data`
+| Volume hosting LDAP database.
+| `````simple````\_ldap\_1`
+
+
+| ````simple```\_ldap\_conf`
+| Volume hosting the corresponding LDAP config files.
+| `simple\_ldap\_1`
+
+
+|===
+
+
+== Configuring the composition
+
+The following configuration properties are supported.
+Please refer to the wiki:Dockerized+midPoint#DockerizedmidPoint-Configuringspecificcontainerfeatures[main documentation page] for their explanation.
+
+
+
+[%autowidth]
+|===
+| Property | Default value
+
+| `REPO_DATABASE_TYPE`
+| `postgresql`
+
+
+| `REPO_JDBC_URL`
+| `default`
+
+
+| `REPO_HOST`
+| `midpoint_data`
+
+
+| `REPO_PORT`
+| `default`
+
+
+| `REPO_DATABASE`
+| `midpoint`
+
+
+| `REPO_USER`
+| `midpoint`
+
+
+| `REPO_PASSWORD_FILE`
+| `/run/secrets/mp_database_password.txt`
+
+
+| ``REPO_MISSING_SCHEMA_ACTION``
+| `create`
+
+
+| `REPO_UPGRADEABLE_SCHEMA_ACTION`
+| `stop`
+
+
+| `REPO_SCHEMA_VERSION_IF_MISSING`
+|
+
+
+| `REPO_SCHEMA_VARIANT`
+|
+
+
+| `MP_MEM_MAX`
+| `2048m`
+
+
+| `MP_MEM_INIT`
+| `1024m`
+
+
+| `MP_JAVA_OPTS`
+|
+
+
+| `MP_KEYSTORE_PASSWORD_FILE`
+| `/run/secrets/mp_keystore_password.txt`
+
+
+| ``TIMEZONE``
+| `UTC`
+
+
+|===
+
+You can tailor these to your needs.
+
+The following Docker secrets are used:
+
+
+
+[%autowidth]
+|===
+| Secret | Location
+
+| `mp_database_password.txt`
+| `configs-and-secrets/midpoint/application/database_password.txt`
+
+
+| `mp_keystore_password.txt`
+| `configs-and-secrets/midpoint/application/keystore_password.txt`
+
+
+|===
+
+The following configuration files are used:
+
+
+
+[%autowidth]
+|===
+| Target file | Source location | Description
+
+| `/opt/midpoint/var/`
+| midpoint\_server/container\_files/mp-home/
+| When `postgresql`\_midpoint\_server\_1 is created, the files from this directory are copied to the Midpoint home directory in the container.
+
+
+|===
+
+You can modify or replace these files as needed.
+
