@@ -1,0 +1,102 @@
+= Upgrade Design Notes
+:page-nav-title: Upgrade
+
+Design notes on upgrade for midPoint 4.4 and beyond.
+
+== Database Upgrade and Migration
+
+=== Up to 4.4
+
+Upgrade to 4.4 will use the usual mechanism.
+No changes planned.
+
+=== After 4.4
+
+New PostgreSQL repo will use "incremental" upgrade SQL scripts.
+The scripts will be smart enough to see whether they have been applied or not.
+We can cumulate the scripts across releases, to get upgrade from 4.4 to 4.8.
+
+The old repo will use the current approach.
+The scripts will not be smart.
+
+=== Changing Database
+
+We will use `ninja`.
+Export all the data from old database using ninja, import to new database.
+This requires downtime.
+The requirement is to migrate approx. 100M of objects in approx. 4 hours of downtime.
+
+`ninja` needs to be improved, e.g. for reliable multi-threaded export/import.
+
+==== Audit Data
+
+Still needs to be figured out. Probably similar to objects: export to XML, import from XML.
+
+This may be done whithout downtime, if done right.
+
+=== Upgrade and Migration
+
+When upgrading and changing the database, this will have to be done in two steps:
+
+. Upgrade to 4.4 using the same database as in 4.3/4.0
+
+. Change the database while running on 4.4
+
+This has benefits, it is less risky, the same `ninja` is used to export and import the data, etc.
+
+=== Testing
+
+This is LTS, therefore we need to test two upgrade paths:
+
+* 4.0 -> 4.4
+* 4.3 -> 4.4
+
+We need to test upgrades of "old" repo only.
+
+However, we need to test old->new repo migration in 4.4 environment.
+
+Start testing at 4.4-M3 (feature freeze) at the latest!
+
+=== Documentation
+
+We need a good upgrade guide for midPoint 4.4.
+
+== Automatic Upgrade
+
+Goal: upgrade the installation by running a single script/command.
+
+The script should do:
+
+. Pre-upgrade checks. E.g. check for removed schema elements, unsupported non-upgradable configurations (e.g. MySQL, WAR) and so on.
+
+. Bring the server down.
+
+. Update software (JARs, bin, ...)
+
+. Upgrade database (automatic, using settings from config.xml and upgrade scripts from dist package)
+
+. Make some basic post-upgrade checks (what exactly?)
+
+. Bring the sever up.
+
+. Warn about use of deprecated configuration.
+
+Maybe we would also like to do:
+
+. Automatically upgrade connector versions in resources?
+
+. "Singleuser" mode for midPoint? (only administrators can log in).
+This may be nice to have for post-upgrade checks of the system, adjusting the configuration, etc.
+
+Automatic upgrade will come after 4.4 (4.6? 4.7?).
+It would be nice to have it for next LTS upgrade (4.8/5.0).
+
+Limitations: Works only for the "default" deployment: native PostgreSQL repo, standalone deployment, works only if path are correct (e.g. correctly set MIDPOINT_HOME), etc.
+
+== Java 17
+
+Java 17: we will try it for midPoint 4.4, starting with Java 16 builds.
+If it goes well, Java 17 support will be official for 4.4.
+If not, we will provide Java 17 support in 4.4.1, 4.4.2 or something like that.
+
+We will still support Java 11, approx. until midPoint 4.6-4.7.
