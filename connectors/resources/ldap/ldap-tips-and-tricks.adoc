@@ -1,0 +1,171 @@
+= LDAP Tips and Tricks
+:page-wiki-name: LDAP Tips and Tricks
+:page-upkeep-status: yellow
+:page-toc: top
+
+== LDAP in midPoint
+
+
+=== Mappings and DN
+
+The simple way how to map common midPoint property to DN is this:
+
+[source]
+----
+'cn=' + name + ',ou=people,dc=example,dc=com'
+----
+
+That's fine for some cases.
+But if the `name` may contain commas, non-ascii characters or similar nasties then the operations will break because the result is not a valid DN.
+
+The more reliable way to construct DN is to use JNDI classes:
+
+[source]
+----
+import javax.naming.ldap.Rdn
+import javax.naming.ldap.LdapName
+
+dn = new LdapName('ou=people,dc=example,dc=com')
+dn.add(new Rdn('cn',name.toString()))
+return dn.toString()
+----
+
+This works quite reliably, but it is not very elegant.
+Therefore tow new wiki:Script+Expression+Functions[Script Expression Functions] were added in midPoint 3.4 and 3.3.1: `composeDn`() and `composeDnWithSuffix()`:
+
+[source]
+----
+basic.composeDnWithSuffix('cn', name, 'ou=people,dc=example,dc=com')
+----
+
+This is reliable, simple and elegant.
+
+
+=== DistinguishedName Matching Rule
+
+The DN is a bit tricky thing.
+The following DNs are all equivalent:
+
+* `CN=foo,OU=people,DC=example,DC=com`
+
+* `cn=foo,ou=People,dc=example,dc=com`
+
+* `cn=foo, ou=People, dc=example, dc=com`
+
+* `cn=foo, ou=people, dc=example,dc=com`
+
+It is quite common that the LDAP server returns the DN in a different form that was used to create the object.
+Therefore object created with "`cn=foo, ou=People, dc=example, dc=com`" will return from search with a DN of "`CN=foo,OU=people,DC=example,DC=com`". MidPoint is very conservative by default and it assumes that all identifiers match exactly (case, whitespaces and all).
+Therefore if the server returns a different form of DN then it means trouble in the default configuration.
+The most likely symptom is that the wiki:Shadow+Objects[shadows] that represent the LDAP objects will duplicate.
+This is understandable given the default conservative identifier handling as, strictly speaking, these are two different identifiers and therefore midPoint assumes that two different objects are identified by them.
+
+Fortunately, midPoint is designed to handle situations such as this by using wiki:Matching+Rules[matching rules]. And there is a very convenient matching rule that understands the DN syntax: `distinguishedName`. All that is needed is a proper configuration of a matching rules for all the attributes that may contain DN:
+
+[source,xml]
+----
+             <attribute>
+                <ref>ri:dn</ref>
+                ...
+                <matchingRule>mr:distinguishedName</matchingRule>
+                ...
+            </attribute>
+----
+
+That is all.
+Now midPoint knows how to reliably compare DN values and it takes care of the rest.
+
+[TIP]
+.member, memberOf and others
+====
+ Do not forget that DNs can also appear in other attributes, not just the object identifier.
+The most common case are group membership attributes such as `member`, `memberOf` and similar.
+Those also need matching rules for the system to operate properly.
+
+====
+
+Since midPoint 3.3 the *matching rules are determined automatically* - assuming that the directory server properly advertises the data types in the schema.
+If you work with a good LDAP server then there is no need to explicitly set up matching rules.
+
+
+=== Base Context
+
+LDAP objects may be stored in several subtrees of the directory information tree.
+E.g. one type of groups may be in ou=groups,dc=example,dc=com, a different type may be in ou=projects,dc=example,dc=com.
+These groups are segregated into subtrees because they may have the same names (cn), or they may have different access control and so on.
+However these groups may have the same objectclass and overall a very similar structure.
+As they have the same object class then they are normally indistinguishable by midPoint (remember: midPoint is generic, it does not understand the structure of a DN).
+But there is a way how to distinguish them by using the base context feature:
+
+[source,xml]
+----
+ <resource>
+    ...
+    <schemaHandling>
+        ...
+        <objectType>
+            <kind>entitlement</kind>
+            <intent>project</intent>
+            <objectClass>ri:groupOfNames</objectClass>
+            <baseContext>
+                <objectClass>ri:organizationalUnit</objectClass>
+                <filter>
+                    <q:equal>
+                        <q:path>attributes/dn</q:path>
+                        <q:value>ou=projects,dc=example,dc=com</q:value>
+                    </q:equal>
+                </filter>
+            </baseContext>
+            ...
+----
+
+
+
+
+== LDAP Utilities
+
+All of this assumes OpenLDAP set of LDAP utilities (this is the standard on most Linux boxes):
+
+
+=== VLV LDAP Search
+
+[source]
+----
+ldapsearch -h localhost -D uid=idm,ou=Administrators,dc=example,dc=com -w secret -b dc=example,dc=com -E \!sss=uid:2.5.13.3 -E \!vlv=0/9/1/0
+----
+
+This returns the first ten entries under the suffix as ordered by entryUUID.
+
+The `0/9/1/0` means return zero entries before "target", return 9 entries after "target" (which means 10 entries), the first entry has index 1 and we do have no idea how many entries are the in total (the last zero).
+
+
+=== Hash Password
+
+[source]
+----
+slappasswd -s secret
+----
+
+
+=== Root DSE
+
+[source]
+----
+ldapsearch -x -h localhost -b "" -s base "(objectclass=*)" \* \+
+----
+
+
+=== Disabling Server Certificate validation
+
+./etc/ldap/ldap.conf
+[source]
+----
+TLS_REQCERT    allow
+----
+
+
+== See Also
+
+* xref:/iam/ldap-survival-guide/[]
+* xref:ldap-servers-summary.adoc[]
+
