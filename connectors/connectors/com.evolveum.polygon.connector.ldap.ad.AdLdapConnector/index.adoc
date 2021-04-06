@@ -1,16 +1,16 @@
 ---
 layout: connector-page
-display-order: 10
+display-order: 12
 support-status: supported
 origin: Evolveum
 support-provided-by: Evolveum
-target-systems: Standard LDAP servers (LDAPv3)
+target-systems: Active Directory servers
 connector-protocol: LDAP/LDAPS
 source-url-master: https://github.com/Evolveum/connector-ldap
-description: Identity connector for standard LDAPv3 directory servers.
+description: Connector for Active Directory servers based on the LDAP protocol.
 visibility: hidden
 ---
-= LDAP Connector
+= Active Directory Connector (LDAP)
 
 == Capabilities and Features
 
@@ -19,7 +19,7 @@ visibility: hidden
 
 [%autowidth,cols="h,1,1"]
 |===
-| Schema | YES | Determined from standard LDAP schema.
+| Schema | YES | Determined from standard LDAP schema, experimental support for native AD schema.
 
 | Provisioning
 | YES
@@ -27,23 +27,15 @@ visibility: hidden
 
 | Live Synchronization
 | YES
-| For LDAP servers that support Sun-style changelog (Retro ChangeLog) or modifyTimestamp.
-There is a contributed code for OpenLDAP synchronization.
-However, this is not included in "bundled" support.
+| Active Directory DirSync synchronization supported.
 
 | Password
 | YES
-| It is assumed that the server will hash the password and store it securely.
-Support for connector-side hashing is limited.
+|
 
 | Activation
-| PARTIAL
-| No activation for generic LDAP as there is not LDAP standard for that.
-This can be simulated in midPoint.
-
-| Filtering changes
-| PARTIAL
-| currently limited
+| YES
+| Activation using the userAccountControl attribute.
 
 | Paging support
 | YES
@@ -52,45 +44,62 @@ This can be simulated in midPoint.
 | Native attribute names
 | YES
 | Use `ri:dn` instead of `icfs:name`.
-Use `ri:entryUUID` instead of `icfs:uid`.
+Use `ri:GUID` instead of `icfs:uid`.
 
 | Scripting
 | NO
-| Use of dedicated scripting connectors (SSH) is recommended.
+| Use of dedicated scripting connectors (SSH, PowerHell) is recommended.
 
 |===
 
 
 == Interoperability
 
-In theory the connector should work with any LDAPv3 compliant LDAP server.
-However, many servers claim LDAPv3 compliance while the reality is far from ideal.
-The connector supports "quirks" of several popular LDAP servers and it tolerates some violations of LDAPv3 standards.
+Following versions of Active Directory are supported:
 
-The connector was successfully tested with the following LDAP servers (assuming reasonably recent versions of the servers):
+* Active Directory Domain Services (AD DS), Windows Server 2012R2, 2019
 
-* OpenLDAP
-* ForgeRock OpenDJ / wren:DS
-* 389 directory server / Red Hat Directory Server / Fedora Directory Server
-* Oracle Directory Server Enterprise Edition (DSEE) / Sun One / Sun Java System / iPlanet Directory Server
-* ViewDS
+Active Directory Lightweight Directory Services (AD LDS) or any other variants of Active Directory or related services are NOT supported.
 
-We know that at least some operations of the connector works with these servers and they are supported in some midPoint deployments.
-However, support for any specific server is not part of standard midPoint subscription and it has to be negotiated separately (see below).
+The connector supports only a subset of the operations that are available by using LDAP protocol and at the same time are documented in public Microsoft documentation.
+The connector does *not* claim to support all AD operations and complete AD functionality.
+Basic provisioning functionality is supported and it is tested in numerous real-world deployments.
+But advanced functionality may not be supported at all.
+Active Directory is a complex, proprietary and heavily non-standard system.
+It is not possible for the connector to support all the available operations.
+We recommend to conduct a feasibility testing before deploying this connector.
+In case some connector functionality is missing then we recommend to purchase wiki:Subscriptions+and+Sponsoring[midPoint platform subscription] to cover the functionality gap.
 
-If you are using this connector with a different directory server please let us know.
-We would like to know both about the positive and negative experiences.
+[NOTE]
+====
+Active Directory 2008 and any of its variants (2008R2) are no longer supported for any new midPoint deployments.
+Those AD servers may be supported under some circumstances for customers that purchased midPoint subscription before release of midPoint 4.0.2. Please contact Evolveum sales for the details.
+====
 
 === Limitations
-
-* Additional search filter does not work for "Sun changelog" synchronization strategy.
-The structure of changelog does not allow direct application of the filter on server-side.
-Client side application of filter is not straightforward due various complexities and the implementation is not planned for now.
 
 * Synchronization based on modifyTimestamp has a simplistic implementation.
 It does not support SPR, VLV or referral-following functionality.
 This synchronization method is inherently inefficient and unreliable.
 It should be used only as a last resort, if no other method is available.
+Active Directory DirSync method should be preferred whenever available.
+
+=== MS Exchange Interoperability
+
+Technically, this connector can be used to provision Microsoft Exchange servers in an indirect way by using PowerShell scripts.
+
+Firstly, the Exchange attributes are accessible in Active Directory when the Exchange software is installed.
+The AD/LDAP connector dynamically discovers AD schema and therefore it will discover presence of these attributes.
+Then these attributes can be manipulated in a normal way.
+Please note that some Exchange attributes may not be properly propagated in the AD LDAP schema.
+In such case there is a workaround to specify these attributes in the `operationalAttributes` connector configuration property.
+
+Secondly, since version 1.4.2.18 the connector had support to execute commands and powershell scripts remotely using the WinRM interface.
+This feature can be used to manage Exchange mailboxes and additional settings.
+This feature was later "separated" to a dedicated PowerShell scripting connector.
+Please see wiki:Powershell+Support+in+AD/LDAP+Connector[Powershell Support in AD/LDAP Connector] page for more details.
+
+However, support for MS Exchange is *not*  included in the "bundled" support for this connector (see below).
 
 == History
 
@@ -98,71 +107,48 @@ It should be used only as a last resort, if no other method is available.
 
 [%autowidth]
 |===
-| Version | Origin | Binary | Sources | Build Date | Framework version | Bundled with midPoint | Description
-
-| 1.4.1.23
-| Evolveum
-| link:http://nexus.evolveum.com/nexus/content/repositories/releases/com/evolveum/polygon/connector-ldap/1.4.1.23/connector-ldap-1.4.1.23.jar[download jar]
-| link:https://github.com/Evolveum/connector-ldap/tree/v1.4.1.23[GitHub]
-| August 2015
-|
-|
-| Experimental version.
+| Version | Origin | Binary | Sources | Build Date | ConnId Framework | Bundled with midPoint | Description
 
 | 1.4.2.0
 | Evolveum
 | link:http://nexus.evolveum.com/nexus/content/repositories/releases/com/evolveum/polygon/connector-ldap/1.4.2.0/connector-ldap-1.4.2.0.jar[download jar]
 | link:https://github.com/Evolveum/connector-ldap/tree/v1.4.2.0[GitHub]
 | December 2015
-| 1.4.2.0
 |
-| LDAP stable, AD experimental
+|
+| Official release (experimental)
+
 
 | 1.4.2.14
 | Evolveum
 | link:http://nexus.evolveum.com/nexus/content/repositories/releases/com/evolveum/polygon/connector-ldap/1.4.2.14/connector-ldap-1.4.2.14.jar[download jar]
 | link:https://github.com/Evolveum/connector-ldap/tree/v1.4.2.14[GitHub]
 | April 2016
-| 1.4.2.14
-| 3.3.1
-| Stable.
+|
+|
+| Official release (stable)
+
 
 | 1.4.2.15
 | Evolveum
 | link:http://nexus.evolveum.com/nexus/content/repositories/releases/com/evolveum/polygon/connector-ldap/1.4.2.15/connector-ldap-1.4.2.15.jar[download jar]
 | link:https://github.com/Evolveum/connector-ldap/tree/v1.4.2.15[GitHub]
 | April 2016
-| 1.4.2.14
 |
-| Stable.
-
-
-| 1.4.2.16
-| Evolveum
-| link:http://nexus.evolveum.com/nexus/content/repositories/releases/com/evolveum/polygon/connector-ldap/1.4.2.16/connector-ldap-1.4.2.16.jar[download jar]
-| link:https://github.com/Evolveum/connector-ldap/tree/v1.4.2.16[GitHub]
-| June 2016
-| 1.4.2.14
 |
-| Fixes timeout errors and resource leaks during AD connector resets.
+|
 
-| 1.4.2.17
-| Evolveum
-| link:http://nexus.evolveum.com/nexus/content/repositories/releases/com/evolveum/polygon/connector-ldap/1.4.2.17/connector-ldap-1.4.2.17.jar[download jar]
-| link:https://github.com/Evolveum/connector-ldap/tree/v1.4.2.17[GitHub]
-| June 2016
-| 1.4.2.14
-| 3.4
-| Minor fixes.
 
 | 1.4.2.18
 | Evolveum
 | link:http://nexus.evolveum.com/nexus/content/repositories/releases/com/evolveum/polygon/connector-ldap/1.4.2.18/connector-ldap-1.4.2.18.jar[download jar]
 | link:https://github.com/Evolveum/connector-ldap/tree/v1.4.2.18[GitHub]
 | September 2016
-| 1.4.2.14
+|
 | 3.4.1
-| Minor improvements.
+| Powershell support.
+Bundled with midPoint 3.4.1.
+
 
 | 1.4.2.19
 | Evolveum
@@ -171,7 +157,10 @@ It should be used only as a last resort, if no other method is available.
 | October 2016
 | 1.4.2.18
 |
-| Minor improvements.
+
+| Improved handling od DNs in AD multi-domain environment.
+bug:MID-2926[]
+
 
 | 1.4.3
 | Evolveum
@@ -180,7 +169,9 @@ It should be used only as a last resort, if no other method is available.
 | December 2016
 | 1.4.2.18
 | 3.5
-| Minor improvements.
+|
+
+
 
 | 1.4.4
 | Evolveum
@@ -189,7 +180,8 @@ It should be used only as a last resort, if no other method is available.
 | April 2017
 | 1.4.2.18
 | 3.5.1
-| CredSSP and Exchange powershell support, bugfixes, minor improvements.
+| CredSSP and Powershell and Exchange support.
+
 
 | 1.4.5
 | Evolveum
@@ -198,7 +190,8 @@ It should be used only as a last resort, if no other method is available.
 | 3rd July 2017
 | 1.4.2.18
 | 3.6
-| Powershell bugfixes, minor improvements.
+| Powershell improvements.
+
 
 | 1.5
 | Evolveum
@@ -207,7 +200,10 @@ It should be used only as a last resort, if no other method is available.
 | 4th October 2017
 | 1.4.2.18
 | 3.6.1
-| More powershell execution alternatives and improvements, alternative auxiliary object class detection, explicit object class filter, configurable timestamp presentation, better error messages.
+| Powerhell support.
+Alternative objectclass detection.
+Logging improvements.
+
 
 | 1.5.1
 | Evolveum
@@ -215,8 +211,9 @@ It should be used only as a last resort, if no other method is available.
 | link:https://github.com/Evolveum/connector-ldap/tree/v1.5.1[GitHub]
 | 11th December 2017
 | 1.4.2.18
-| 3.7, 3.7.1
-| Release coupled with AD connector.
+| 3.7
+| Powerhell fixes.
+
 
 | 1.6
 | Evolveum
@@ -224,17 +221,19 @@ It should be used only as a last resort, if no other method is available.
 | link:https://github.com/Evolveum/connector-ldap/tree/v1.6[GitHub]
 | 4th May 2018
 | 1.4.2.18
-| 3.7.2, 3.8
-| Release coupled with AD connector.
+| 3.8
+| Support for CredSSP version 5 and 6 (CVE-2018-0886)
+
 
 | 1.6.1
 | Evolveum
 | link:http://nexus.evolveum.com/nexus/content/repositories/releases/com/evolveum/polygon/connector-ldap/1.6.1/connector-ldap-1.6.1.jar[download jar]
 | link:https://github.com/Evolveum/connector-ldap/tree/v1.6.1[GitHub]
-| 17th April 2019
+| 17th April 2018
 | 1.4.2.18
-| none
+| TBD
 | wiki:Security+Advisory:+AD+and+LDAP+connectors+do+not+check+certificate+validity[Fix of security vulnerability: missing check of certificate validity.]
+
 
 | 2.0
 | Evolveum
@@ -243,9 +242,12 @@ It should be used only as a last resort, if no other method is available.
 | 7th November 2018
 | 1.5.0.0
 | 3.9
-| Native timestamp support.
-Support for delta-based updates.
+| Native timestamp support. +
+Support for delta-based updates. +
+Textual representation of SID. +
+RunAs support that allows password changes using user's own identity. +
 Additional search filter support.
+
 
 | 2.1
 | Evolveum
@@ -254,10 +256,8 @@ Additional search filter support.
 | 17th April 2019
 | 1.5.0.0
 | none
-| OpenLDAP access log synchronization (contributed by Jonathan Gietz) +
-Object class handling improvements (contributed by Matthias Wolf) +
-Experimental support for "language-tagged" attributes. +
-wiki:Security+Advisory:+AD+and+LDAP+connectors+do+not+check+certificate+validity[Fix of security vulnerability: missing check of certificate validity.]
+| wiki:Security+Advisory:+AD+and+LDAP+connectors+do+not+check+certificate+validity[Fix of security vulnerability: missing check of certificate validity.]
+
 
 | 2.2
 | Evolveum
@@ -267,8 +267,10 @@ wiki:Security+Advisory:+AD+and+LDAP+connectors+do+not+check+certificate+validity
 | 1.5.0.0
 | none
 | Upgrade of Apache Directory API (may fix some connection issues) +
+Fixed binary encoding of unicodePwd (MID-5242) +
 Support for substring filter anchors (MID-5383) +
 Fixing localization of configuration properties
+
 
 | 2.3
 | Evolveum
@@ -278,27 +280,22 @@ Fixing localization of configuration properties
 | 1.5.0.0
 | 4.0
 | Upgrade of Apache Directory API +
+Experimental support for native AD schema +
+Experimental support for objectCategory searches and automatic management of objectCategory +
+Improved support for UserAccountContol (contributed) +
 Support for defaultSearchScope
+
 
 | 2.4
 | Evolveum
 | link:https://nexus.evolveum.com/nexus/repository/releases/com/evolveum/polygon/connector-ldap/2.4/connector-ldap-2.4.jar[download jar]
 | link:https://github.com/Evolveum/connector-ldap/tree/v2.4[GitHub]
-| 22nd November 2019
+| 22th November 2019
 | 1.5.0.0
 | TBD
-| Removed legacy support for eDirectory +
-Upgrade of Apache Directory API (2.0e1) +
-Support for "tree delete" LDAP control.
+| Upgrade of Apache Directory API +
+Support for "tree delete" control.
 
-| 2.4.1
-| Evolveum
-| link:https://nexus.evolveum.com/nexus/repository/releases/com/evolveum/polygon/connector-ldap/2.4.1/connector-ldap-2.4.1.jar[download jar]
-| link:https://github.com/Evolveum/connector-ldap/tree/v2.4.1[GitHub]
-| 23rd September 2020
-| 1.5.0.0
-| TBD (probably 4.0.3)
-| Fix configuration order (MID-6312)
 
 | 3.0
 | Evolveum
@@ -307,9 +304,12 @@ Support for "tree delete" LDAP control.
 | 3rd April 2020
 | 1.5.0.0
 | 4.1
-| Fixed detection of polystring attributes. +
-Implemented `baseContextToSynchronize` in timestamp-based synchronization. +
+| Separated PowerShell to a dedicated wiki:PowerShell+Connector[PowerShell Connector]. +
+Improved DirSync error handling. +
+Fixed handling of timestamps (fractions of second) +
+Implemented `baseContextToSynchronize`. +
 Java 11 support (no Java 8 support any more).
+
 
 | 3.1
 | Evolveum
@@ -322,60 +322,48 @@ Java 11 support (no Java 8 support any more).
 Improved VLV detection. +
 Proper SPR "abandon". +
 Improved error handling. +
+Improved support for boolean attributes. +
 Misc minor fixes.
-
-| 3.2
-| Evolveum
-| link:https://nexus.evolveum.com/nexus/repository/releases/com/evolveum/polygon/connector-ldap/3.2/connector-ldap-3.2.jar[download jar]
-| link:https://github.com/Evolveum/connector-ldap/tree/v3.2[GitHub]
-| 31th March 2021
-| 1.5.0.0
-| 4.3
-| Optional unbind before disconnect +
-Improved connection handling (connection reuse, reconnects) +
-Upgraded Directory API to Evolveum version 2.0.1e1, which fixes file descriptor leak +
-Slightly improved logging +
-includeObjectClassFilter set to true by default
 
 |===
 
-
-// Later: when we can auto-generate connector version pages:
-//
-//Click on a version number to get the details about a particular connector version.
-//
-//++++
-//{//% include connector-history.html %//}
-//++++
-
-This is an LDAP connector completely rewritten from scratch in 2015.
-It is using Apache Directory API and it is designed and built to work with recent ConnId versions and to take all the advantages of that.
-This is the supported and recommended LDAP and AD connector for midPoint.
-The old LDAP and AD connectors are now deprecated and they are no longer supported.
+This connector is based on the xref:../com.evolveum.polygon.connector.ldap.LdapConnector/[LDAP Connector] which was completely rewritten from scratch during 2015-2016.
 
 == Support
 
-LDAP connector is bundled with midPoint distribution.
-Support for LDAP connector is included in standard midPoint support service (a.k.a. link:https://wiki.evolveum.com/display/midPoint/Bundled+Support[bundled support]) - however, there are limitations.
-This "bundled" support only includes operations of LDAP connector that 100% compliant with LDAP standards.
-Any non-standard functionality is explicitly excluded from the bundled support.
+This connector is bundled with midPoint distribution.
+Support for LDAP connector is included in standard midPoint support service (a.k.a wiki:Bundled+Support[bundled support]) - however, there are limitations:
 
-It is a sad fact that so far we haven't seen any LDAP server that would be 100% standard-compliant or that would not require any non-standard extensions to work.
-Therefore if you want to be sure that this LDAP connector will work with your LDAP server, we strongly recommend to negotiate support for that specific server in your midPoint support contract.
+* Only some Active Directory versions are supported (see above)
 
-For the purposes of this definition "standard" means RFC specifications that reach at least a "proposed standard" status.
-Drafts, informational documents, vendor specifications or any other documents are not considered to be part of LDAP standards.
+* Only some Active Directory features are supported (see above).
+The connector *does not claim to be feature-complete*. We recommend conducting a feasibility testing before deploying this connector.
+In case some connector functionality is missing then we recommend to purchase wiki:Subscriptions+and+Sponsoring[midPoint platform subscription] to cover the functionality gap.
 
-This means that the bundled support does not include support for any specific LDAP server.
-Support for specific servers needs to be explicitly negotiated in the support contract.
+* PowerShell scripting implemented in this connector is supposed to be used to supplement creation of Active Directory (windows) accounts by using simple scripts.
+It is not supposed to be used to manage Microsoft Exchange accounts.
+Management of Exchange accounts can be quite a complex matter, requiring complicated PowerShell scripts.
+Support for the use of this connector to manage Exchange accounts has to be purchased separately.
 
-NOTE: There may be exception to this rule for the customers that purchased support before the release of midPoint 4.0.
-In case of any doubts please contact Evolveum sales representatives.
+[TIP]
+====
+There may be exception to this rule for the customers that purchased support before the release of midPoint 4.0. In case of any doubts please contact Evolveum sales representatives.
+====
+
+== Licensing
+
+The connector itself is available under the terms of Apache License 2.0. The connector is using only the LDAP protocol to access Active Directory.
+We are not using any Microsoft library or any other component that might be subject to Microsoft licensing.
+To our best knowledge no extra license is needed to use the connector with Active Directory.
+However the Microsoft license texts are not entirely clear and we are not lawyers.
+Therefore it is recommended for each user to make his own analysis of the licensing issues.
+Please use your Microsoft support program and contact Microsoft with the licensing question when in doubt.
 
 == Notes
 
-The LDAP connector bundle also contains connector for Active Directory.
-These connectors are specializations of the LDAP connector and support the LDAP quirks needed to work with AD.
+This connector is contained in LDAP connector bundle, which also contains LDAP connector.
+Both connectors are specializations of the LDAP connectors.
+The Active Directory connector has additional support for the LDAP quirks needed to work with AD.
 
 === ConnId Result Handlers
 
@@ -400,27 +388,6 @@ The handlers needs to be explicitly disabled in the resource configuration.
 </icfs:resultsHandlerConfiguration>
 ----
 
-=== Date and Time Formats
-
- You can control the way LDAP connecto presents dates and times by by using timestampPresentation configuration property.
-It has three possible values:
-
-* `native`: LDAP connector will present timestamps in native ConnId date format.
-This is the most natural and default setting.
-
-* `unixEpoch`: LDAP connector will present timestamps in UNIX epoch format (number of seconds since 1970)
-
-* ` string`: LDAP connector will present timestamps in LDAP-native format (generalized time, ISO 8601
-
-In a normal case all timestamps in midPoint are in link:https://www.w3.org/TR/NOTE-datetime[W3C DateTime format]. When using the `native` time representation, MidPoint automatically converts all the date/time values to this format.
-
-However, older versions of ConnId framework did not have any way how to express date/time information in the schema.
-The `native` time representation was not possible.
-ConnId framework was representing date/time information as (long) integers in UNIX timestamp format.
-For these cases there are options to represents time as long integer or string.
-This is mostly a historical feature now.
-
-
 === ObjectClass Filters
 
 Natural way to use LDAP is to use "short" search filters, such as `(cn=foo)`. However, such search filter can match objects of several incompatible objectclasses, producing incorrect results.
@@ -434,9 +401,20 @@ In such case, the behavior can be controlled by `includeObjectClassFilter` confi
 
 == Resource Examples
 
-* wiki:OpenLDAP[OpenLDAP]
+* wiki:Active+Directory+with+LDAP+connector[Active Directory with LDAP connector]
 
-* wiki:OpenDJ[OpenDJ]
+* wiki:Powershell+Support+in+AD/LDAP+Connector[Powershell Support in AD/LDAP Connector]
 
-* wiki:Directory+Server+Enterprise+Edition[Directory Server Enterprise Edition]
+== See Also
 
+* wiki:Active+Directory+with+LDAP+connector[Active Directory with LDAP connector]
+
+* wiki:Powershell+Support+in+AD/LDAP+Connector[Powershell Support in AD/LDAP Connector]
+
+* wiki:Active+Directory+Tips&Tricks[Active Directory Tips&Tricks]
+
+* wiki:Active+Directory+HOWTO[Active Directory HOWTO]
+
+* wiki:Legacy+Active+Directory+Connector+(.NET)[Legacy Active Directory Connector (.NET)]
+
+* link:https://docs.microsoft.com/en-us/windows-server/identity/ad-ds/plan/security-best-practices/appendix-c--protected-accounts-and-groups-in-active-directory[Protected Accounts and Groups in Active Directory]
