@@ -1,0 +1,369 @@
+= Active Directory Multi-Domain
+:page-nav-title: Multi-Domain
+:page-wiki-name: Active Directory Multi-Domain
+:page-upkeep-status: green
+:page-toc: top
+
+[TIP]
+====
+The multi-domain support is available in the LDAP-based Active Directory connector since version 1.4.2.12.
+This connector was bundled with midPoint version 3.3.1 and 3.4.
+====
+
+== Mechanism
+
+LDAP-based Active Directory connector supports Active Directory environment with multiple domains that are presented to midPoint as s single resource.
+The connector internally keeps LDAP connection to several domain controllers and distributes the requests as needed.
+This implementation allows the seamless use of cross-domain features such as membership of accounts from one domain in the group in another domain.
+
+The implementation is based on two connector featues:
+
+* Configuring multiple servers in the connector configuration.
+The connector will maintain connections to several servers and distribute operations to them based on the DN of an entry.
+
+* Explicit support for Active Directory Global Catalog.
+This can be optionally supplemented by the LDAP referral mechanism (see below).
+
+In practice both approaches are needed for proper multi-domain support.
+
+
+== Configuring Multiple Servers
+
+The connector still has the usual configuration properties such as `host`, `port`, `bindDn` and so on.
+This configuration specifies primary server in the domain.
+This is the server that will be used to retrieve the schema, it will be used to test the connection and so on.
+Other servers in the topology can be configured using new configuration property `servers`. Each value of this property specifies one server.
+It contains attribute-value pairs that define connection parameters of each individual server.
+The names of configuration properties can be used, separated by equal signs and semicolons, such as this:
+
+.servers property example
+[source]
+----
+baseContext=dc=sub,dc=example,dc=com; host=sub.example.com; port=389
+----
+
+The server will be selected for each operation according to the `baseContext` that is specified in server definition.
+The most specific DN match will be used.
+If there are more multiple servers specified for the same `baseContext` then one of them will be selected randomly.
+The server which does not specify any `baseContext` is considered to be the default and that server will be used if the DN cannot be matched.
+This is equivalent to the server which is specified by ordinary configuration properties.
+
+The configuration properties that are not explicitly specified in the server configuration line are taken from the ordinary configuration.
+E.g. it is not necessary to specify `bindDn` and `bindPassword` for each server if they are the same as configured using the ordinary configuration properties.
+
+[TIP]
+.LDAP referrals
+====
+LDAP referrals are special LDAP responses that efficiently mean "See also this server, it may have more data".
+Domain controllers usually provide appropriate referrals as a response to request for data that reside on a different domain controller.
+The connector will follow these referrals by default.
+This means that in some situations it is sufficient to configure just one domain controller in the connector configuration.
+The connector will then discover other controllers by following the referrals.
+Our testing shows that this is a feasible setup for read (search) operations.
+But it fails with write operations.
+====
+
+
+== Global Catalog
+
+Active Directory is a distributed directory service.
+Each domain has its own database of users, groups and other objects.
+Yet, there is a globally-unique identifier (GUID) that is supposed to be an universal identifier across all the domains in the forest.
+But while entry DN contains information in which domain it belongs, the GUID has no such identification.
+
+MidPoint is using GUID as a primary identifier.
+This is what we want, because GUID is persistent and therefore we can detect when object moves in the tree, when it is renamed, etc.
+But we also need a method to figure out which domain controller has authoritative data for each object.
+As we are using GUID and not DN as a primary identifier this is not a simple task.
+
+Fortunately, Active Directory contains a replicated global database that is called _global catalog_. This database contains a partial information about all objects from all the domains in the forest.
+This is the ideal place that the connector can use to query objects based on GUID.
+
+Global catalog location is configured by using the `globalCatalogServers` configuration property.
+The property has the same syntax as the `servers` property, e.g.:
+
+.globalCatalogServers property example
+[source]
+----
+host=gc._msdcs.example.com; port=3269; connectionSecurity=ssl
+----
+
+If no `globalCatalogServers` property is explicitly specified, the connector will try to determine the global catalog hostname from the `host` property.
+It will strip the hostname part, take the DNS domain and prepend `gc._msdcs` in front of the domain.
+This is the common DNS domain that represents the global catalog location.
+Therefore in simple default installation of Active Directory forest there is usually no need to specify `globalCatalogServers` explicitly.
+
+The global catalog can be used in a several ways.
+There is a `globalCatalogStrategy` configuration property to control the behavior.
+It may have the following values:
+
+* *`none`*: (default) The global catalog will not be used explicitly.
+The global catalog will only be used when an LDAP referral points to it and referral strategy is set to follow (which is the default).
+This configuration is the best one for single-domain deployments, because it will avoid explicit round-trip to global catalog which is not needed in single-domain deployments.
+Therefore it is the *default* value for global catalog strategy.
+This strategy should also work in multi-domain environment as long as referrals are set to `follow`. But there are some issues (see note below).
+
+* *`resolve`*: The global catalog will be used to translate GUID to DN.
+But other global catalog attributes will be ignored.
+The actual data will be retrieved from the authoritative domain controller.
+This is the *recommended* setting for multi-domain deployment as it is the most reliable method.
+
+* *`read`*: The global catalog will be used to read the object data.
+The domain controller will *not* be queried.
+This has an advantage over the `resolve` strategy that it is only one query instead of two.
+But only partial data are returned as global catalog contains only a subset of data.
+This can be the strategy of choice for deployments where performance is critical and that use only those data that are stored in global catalog.
+
+For `resolve` and `read` strategies it is also recommended to change referral strategy to `ignore`. This makes sure that only the servers mentioned in the configuration will be queried.
+This may be important, because default installation of Active Directory issues referrals that point to non-secure global catalog port 3268 therefore exposing the password used by the connector.
+
+
+== Example
+
+
+=== Resource Configuration
+
+Connector configuration should contain the top-level domain controller (`top.example.com`) configured using the ordinary configuration properties.
+The domain controllers of sub-domains (`sub1.example.com`, `sub2.example.com`) should be configured using the `servers` configuration property.
+This example assumes that the `bindDn` is specific for each server, but the password is the same on all servers.
+
+[source,xml]
+----
+<connectorConfiguration>
+        <icfc:configurationProperties>
+            <icfcldap:host>top.example.com</icfcldap:host>
+            <icfcldap:port>636</icfcldap:port>
+            <icfcldap:baseContext>DC=top,DC=evolveum,DC=com</icfcldap:baseContext>
+            <icfcldap:bindDn>CN=midpoint,CN=Users,DC=top,DC=example,DC=com</icfcldap:bindDn>
+            <icfcldap:connectionSecurity>ssl</icfcldap:connectionSecurity>
+            <icfcldap:bindPassword>
+                <t:clearValue>qwe.123</t:clearValue>
+            </icfcldap:bindPassword>
+            <icfcldap:referralStrategy>ignore</icfcldap:referralStrategy>
+            <icfcldap:globalCatalogStrategy>resolve</icfcldap:globalCatalogStrategy>
+            <icfcldap:servers>host=sub1.evolveum.com; baseContext=DC=sub1,DC=top,DC=example,DC=com; bindDn=CN=midpoint,CN=Users,DC=sub1,DC=top,DC=example,DC=com</icfcldap:servers>
+            <icfcldap:servers>host=sub2.evolveum.com; baseContext=DC=sub2,DC=top,DC=example,DC=com; bindDn=CN=midpoint,CN=Users,DC=sub2,DC=top,DC=example,DC=com</icfcldap:servers>
+            ....
+        </icfc:configurationProperties>
+        ...
+    </connectorConfiguration>
+----
+
+The accounts should be configured for the top domain and each sub domain as a separate object type in the `schemaHandling` section (only top domain and one subdomain is shown in the following example).
+
+[source,xml]
+----
+<schemaHandling>
+
+        <objectType>
+            <kind>account</kind>
+            <default>true</default>
+            <objectClass>ri:user</objectClass>
+            <baseContext>
+                <objectClass>ri:organizationalUnit</objectClass>
+                <filter>
+                    <q:equal>
+                        <q:path>attributes/dn</q:path>
+                        <q:value>CN=Users,DC=top,DC=example,DC=com</q:value>
+                    </q:equal>
+                </filter>
+            </baseContext>
+            <attribute>
+                <ref>ri:dn</ref>
+                <matchingRule>mr:distinguishedName</matchingRule>
+                <outbound>
+                    <source>
+                        <path>$user/fullName</path>
+                    </source>
+                    <expression>
+                        <script>
+                            <code>
+                                basic.composeDnWithSuffix('CN', fullName + iterationToken, 'CN=Users,DC=top,DC=example,DC=com')
+                            </code>
+                        </script>
+                    </expression>
+                </outbound>
+            </attribute>
+            ....
+        </objectType>
+
+        <objectType>
+            <kind>account</kind>
+            <intent>sub1</intent>
+            <default>false</default>
+            <objectClass>ri:user</objectClass>
+            <baseContext>
+                <objectClass>ri:organizationalUnit</objectClass>
+                <filter>
+                    <q:equal>
+                        <q:path>attributes/dn</q:path>
+                        <q:value>CN=Users,DC=sub1,DC=top,DC=example,DC=com</q:value>
+                    </q:equal>
+                </filter>
+            </baseContext>
+            <attribute>
+                <ref>ri:dn</ref>
+                <displayName>Distinguished Name</displayName>
+                <matchingRule>mr:distinguishedName</matchingRule>
+                <outbound>
+                    <source>
+                        <path>$user/fullName</path>
+                    </source>
+                    <expression>
+                        <script>
+                            <code>
+                                basic.composeDnWithSuffix('CN', fullName + iterationToken, 'CN=Users,DC=sub1,DC=top,DC=example,DC=com')
+                            </code>
+                        </script>
+                    </expression>
+                </outbound>
+            </attribute>
+            ....
+        </objectType>
+
+</schemaHandling>
+----
+
+The `baseContext` specification is important in this case.
+This specification is used by midPoint to correctly base the searches to these specific DNs which in turns allows the connector to properly route them to appropriate servers.
+This may be partially mitigated by the referral mechanism, but explicitly specifying the `baseContext` is a more reliable method.
+
+[TIP]
+====
+The `baseContext` feature is only available in midPoint 3.3.1 and midPoint 3.4 (and later).
+====
+
+
+=== Roles
+
+The roles are selecting a domain simply by using the intent:
+
+[source,xml]
+----
+<role>
+    <name>Top-domain</name>
+    <inducement>
+        <construction>
+            <resourceRef oid="eced6d24-73e3-11e5-8457-93eff15a6b85" type="c:ResourceType"/>
+        <kind>account</kind>
+        <intent>default</intent>
+    </construction>
+    </inducement>
+</role>
+----
+
+[source,xml]
+----
+<role>
+    <name>Sub-domain 1</name>
+    <inducement>
+        <construction>
+            <resourceRef oid="eced6d24-73e3-11e5-8457-93eff15a6b85" type="c:ResourceType"/>
+        <kind>account</kind>
+        <intent>sub1</intent>
+    </construction>
+    </inducement>
+</role>
+----
+
+
+=== Entitlements and Associations
+
+As all the domains are presented to midPoint as a single resource, it is easy to define entitlement (group) in one account and specify an association in another account.
+The following example defines groups in top-level domain and an association to these groups in the subdomain:
+
+[source,xml]
+----
+<schemaHandling>
+
+        <objectType>
+            <kind>entitlement</kind>
+            <intent>group</intent>
+            <default>true</default>
+            <objectClass>ri:group</objectClass>
+            <baseContext>
+                <objectClass>ri:organizationalUnit</objectClass>
+                <filter>
+                    <q:equal>
+                        <q:path>attributes/dn</q:path>
+                        <q:value>CN=Users,DC=top,DC=example,DC=com</q:value>
+                    </q:equal>
+                </filter>
+            </baseContext>
+            <attribute>
+                <ref>dn</ref>
+                <matchingRule>mr:distinguishedName</matchingRule>
+                <outbound>
+                    <source>
+                        <path>$focus/name</path>
+                    </source>
+                    <expression>
+                        <script>
+                            <code>
+                                basic.composeDnWithSuffix('CN', name, 'CN=Users,DC=top,DC=example,DC=com')
+                            </code>
+                        </script>
+                    </expression>
+                </outbound>
+            </attribute>
+            ...
+        </objectType>
+
+        <objectType>
+            <kind>account</kind>
+            <intent>sub1</intent>
+            <default>false</default>
+            <objectClass>ri:user</objectClass>
+            <baseContext>
+                <objectClass>ri:organizationalUnit</objectClass>
+                <filter>
+                    <q:equal>
+                        <q:path>attributes/dn</q:path>
+                        <q:value>CN=Users,DC=sub1,DC=top,DC=example,DC=com</q:value>
+                    </q:equal>
+                </filter>
+            </baseContext>
+            ....
+            <association>
+                <ref>ri:group</ref>
+                <kind>entitlement</kind>
+                <intent>group</intent>
+                <direction>objectToSubject</direction>
+                <associationAttribute>ri:member</associationAttribute>
+                <valueAttribute>ri:dn</valueAttribute>
+                <shortcutAssociationAttribute>ri:memberOf</shortcutAssociationAttribute>
+                <shortcutValueAttribute>ri:dn</shortcutValueAttribute>
+            </association>
+        </objectType>
+
+</schemaHandling>
+----
+
+This is essential the usual association definition as one would use in single-domain environment.
+The connector will properly route the group membership operations to the domain controller that maintains group entry.
+The `baseContext` specifications should be properly used here as well.
+Also please note the use of shortcut association attribute (`memberOf`). The Active Directory seems to maintain this attribute properly even in multi-domain environment.
+The use of this attribute can significantly speed up the system especially is groups with large number of users are used.
+
+
+== Limitations
+
+* The connector will work properly only if all the domains have the same schema.
+
+* Passwords that apply to individual servers can be specified in the `servers` configuration property if needed.
+However, this property is an ordinary string property and it does not have the same protection as password properties.
+Therefore if passwords are specified there then the passwords will be stored in cleartext in the databse and the cleartext password might (unintentional) appear in the log file.
+The password specified in the ordinary `bindDn` property is encrypted and protected.
+If the same password is used for all domain controllers then it is best to specify it once in the `bindDn` property and do *not* specify it in `servers` property at all.
+
+* The connector will follow referrals specified by the domain controllers in the LDAP responses.
+The referrals are DNS names that ofter rely on the AD-specific DNS entries (such as `gc._msdcs.example.com`, `DomainDnsZones.example.com` and so on).
+Therefore correct DNS setup with delegation the AD-managed DNS server is needed for proper functioning of the connector.
+
+
+== See Also
+
+* wiki:Active+Directory+Connector+(LDAP)[Active Directory Connector (LDAP)]
+
+* wiki:Active+Directory+with+LDAP+connector[Active Directory with LDAP connector]
+

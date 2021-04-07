@@ -1,0 +1,196 @@
+= Active Directory Tips & Tricks
+:page-nav-title: Tips & Tricks
+:page-wiki-name: Active Directory Tips&Tricks
+:page-toc: top
+:page-upkeep-status: yellow
+
+== Frequently Asked Questions
+
+=== What are the ERR_13748_MATCHING_RULE_NO_SYNTAX errors that are flooding my log files?
+
+You may see errors in your logfiles that look like this:
+
+[source]
+----
+2019-09-26 13:23:37,271 [] [main] INFO (org.apache.directory.api.ldap.model.schema.registries.Registries): ERR_13748_MATCHING_RULE_NO_SYNTAX The MatchingRule 2.5.13.21 does not have a syntax. This is invalid
+----
+
+The short story is that those may be safely ignored.
+
+The long story is, that Active Directory is quite a strange server.
+It is mostly LDAP-inspired, but it looks like strict LDAP compliance was not a high priority for Active Directory authors.
+The fact is that there are many places in Active Directory LDAP schema that are not strictly compliant with LDAP standards and common practices.
+Those errors are reporting the issues in Active Directory schema.
+But midPoint Active Directory connector was built in such a way that it can live with those issues.
+Therefore midPoint and AD connector can be used even if those issues are reported to the log.
+
+The issues are reported because that is how Apache Directory API is implemented.
+The Apache Directory API assumes that it talks to an LDAP-compliant server.
+But it talks to Active Directory.
+Therefore it reports the LDAP compliance issues.
+Currently there is no simple way how to silence those error reports except for setting the log levels.
+This can be hopefully improved in future versions of Apache Directory API.
+
+
+== PowerShell
+
+TIP: Please see wiki:SSH+Connector[SSH Connector] for a method to execute PowerShell scripts on Windows servers.
+
+=== Initialization
+
+[source]
+----
+Import-Module ActiveDirectory
+cd AD:
+----
+
+=== Looking around the domain
+
+[source]
+----
+cd "DC=win,DC=evolveum,DC=com"
+cd "CN=Users"
+Get-ADUser idmadmin
+Get-ADUser -Filter *
+Get-ADUser -Filter 'Name -like "*adm*"'
+Get-ADObject -LDAPFilter "(cn=*adm*)" -SearchBase "CN=Users,DC=win,DC=evolveum,DC=com" -SearchScope Subtree
+----
+
+
+=== RootDSE and Schema
+
+[source]
+----
+Get-ADRootDSE
+----
+
+
+[source]
+----
+$schema =[DirectoryServices.ActiveDirectory.ActiveDirectorySchema]::GetCurrentSchema()
+$schema.FindClass("user")
+$schema.FindClass("user").mandatoryproperties | ogv
+$schema.FindClass("user").optionalproperties | ogv
+----
+
+
+== GUI Tools
+
+=== Show account attributes
+
+Turn on advanced features in "Users and Computers":
+
+`Active Directory Users and Computers -> View -> Advanced Features (check)`
+
+Edit user properties.
+There will be "Attribute Editor" tab that shows the LDAP-like view of the user.
+
+
+=== Grant access rights to idmadmin user
+
+`Active Directory Users and Computers -> expand the domain -> right click on "Users" -> Delegate Control`
+
+Users and groups (principal): idmadmin
+
+Delegate the following common tasks:
+
+* Create, delete and manage user accounts
+
+* Reset user passwords and force password change at next logon
+
+* Read all user information
+
+* Create, delete and manage groups
+
+* Modify the membership of a group
+
+* Create, delete and manage inetOrgPerson accounts (TODO: is this needed?)
+
+* Reset inetOrgPerson accounts and force password change at next logon (TODO: is this needed?)
+
+* Read all inetOrgPerson information
+
+
+=== Password policy
+
+Password policy is defined in group policy.
+Open "Group Policy Management" tool.
+navigate to Forest -> Domains ->  <domain> -> Group Policy Objects -> Default Domain Policy.
+Choose "Settings" tab.
+See Computer configuration -> Policies -> Windows Settings -> Security Settings -> Account Policies/Password Policy
+
+
+== LDAP
+
+
+=== Getting LDAP Schema
+
+Search the following DN:
+
+`CN=Aggregate,CN=Schema,CN=Configuration,DC=example,DC=com`
+
+For example, use the ldapsearch comman-line tool:
+
+[source]
+----
+ldapsearch -x -h chimera -p 389 -D "CN=Administrator,CN=Users,DC=example,DC=com" -w 'secret' -b 'CN=Aggregate,CN=Schema,CN=Configuration,DC=example,DC=com' -s sub "(objectclass=*)"  \* objectclasses attributetypes matchingrules syntaxes
+----
+
+
+=== Enabling LDAPS
+
+Either install Active Directory Certificate Services (AD CS) using Server Manager ("Add role") or install server certificate manually: link:https://www.petri.com/enable-secure-ldap-windows-server-2008-2012-dc[https://www.petri.com/enable-secure-ldap-windows-server-2008-2012-dc]
+
+If you install AD CS but, for some reason, the server certificate for DC was not created, you can create it manually.
+
+(I was roughly following link:https://blogs.technet.microsoft.com/russellt/2016/06/03/custom-ldap-certs/[https://blogs.technet.microsoft.com/russellt/2016/06/03/custom-ldap-certs/] - "Domain Controller - Initial Enrollment" chapter.)
+
+. Open "certlm.msc" or "mmc.exe" with "Certificates" snap-in for Window s2008 R2 DC.
+The following is based on "mmc.exe" for Windows 2008 R2.
+
+. Right-Click the Personal store and select All Tasks - Request New Certificate.
+Click Next twice until the screen with available templates appears.
+
+. Select the check box next to Domain Controller, expand the Details and click Properties
+
+. Click Subject tab and select Alternative name to be of type DNS.
+Enter your server DNS to Value input box.
+
+. Click OK.
+
+. Click the Enroll button.
+
+To export the AD CA certificate:
+
+. find Manage computer certificates window
+
+. in Personal - Certificates
+
+. in Server Manager select: Roles - AD Certificate Services - Enterprise PKI - (your authority certifikate)
+
+. in the right window pane click Properties on your CA Certificate, then click Details and Copy to file...
+
+. select DER encoded binary X.509 (.CER) format and save the file.
+
+To import the AD CA certificate to midPoint keystore:
+
+. stop midPoint
+
+. backup $midpoint.home/keystore.jceks
+
+. copy the CA certificate file (e.g. cacert.cer) to midPoint server
+
+. run the following command: keytool -import -alias ad-ca -keystore $midpoint.home/keystore.jceks -storetype jceks -file cacert.cer
+
+. start midPoint
+
+If not working, please check if you already set up wiki:Keystore+Configuration[Djavax.net.ssl.trustStore to midPoint keystore].
+
+
+== See Also
+
+* wiki:Active+Directory+Multi-Domain[Active Directory Multi-Domain]
+
+* wiki:Powershell+Support+in+AD/LDAP+Connector[Powershell Support in AD/LDAP Connector]
+
+
