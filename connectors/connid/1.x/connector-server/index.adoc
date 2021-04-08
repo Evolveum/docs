@@ -1,0 +1,132 @@
+= Connector Server
+:page-wiki-name: Connector Server
+
+== Introduction
+
+Connector server is a container that simply holds connectors.
+It is a very lightweight component that can be installed on a different node that is used to run midPoint.
+MidPoint then connects to the connector server and uses it as a proxy (or a gateway) to access systems that it otherwise could not access.
+
+image::Connector-Server-Deployment.png[]
+
+Connector servers are used for a variety of reasons.
+Maybe the most common reason is to connect to proprietary system that are not fully accessible from Java environment.
+wiki:Legacy+Active+Directory+Connector+(.NET)[Legacy Active Directory Connector (.NET)] is perhaps most frequently used remote connector that needs to run in connector server because the required functionality is not available from Java environment.
+Connector servers are also used to reach resources that are not reachable over the network such file exports residing on remote servers.
+
+Connector server may also be used for security.
+The connection between midPoint and connector server is protected by shared secret and it may also be protected by SSL.
+Therefore it may be more secure than the native protocol used by the resource.
+Therefore placing a connector server near the target resource may provide better security than a direct communication.
+
+
+== Installing and Configuring Connector Servers
+
+There are two kinds of a ICF connector server:
+
+* wiki:Java+Connector+Server[Java Connector Server] is used for ordinary Java-based connectors.
+It is useful if a connector needs to run on a different host than that where midPoint is running.
+This is useful mostly for file-based connectors such as CSVFile.
+It avoids the need to copy or FTP the file to a midPoint host.
+
+* Obsolete wiki:.NET+Connector+Server[.NET Connector Server] was used for .NET-based connectors.
+It was usually used only for Active Directory connector or similar connectors to Microsoft-proprietary technologies.
+.NET connector server is *OBSOLETE*. The connector server is no longer developed, maintained or supported.
+
+Please refer to the specific pages of the connector servers for download, installation and configuration instructions.
+
+
+== Configuring midPoint
+
+Once the connector server is running its parameters needs to be configured in midPoint.
+MidPoint can discover *local* connectors automatically but the situation is a bit more complex for remote connectors.
+First of all midPoint needs to know that a connector server exists.
+It also needs to know connection and security parameters.
+This is configured in a wiki:ConnectorHostType[Connector Host] object.
+
+
+=== Connector Host
+
+The wiki:ConnectorHostType[Connector Host] object contains description of a remote connector server.
+It contains name of the host where the connector server is installed, port number that is used for connection, shared secret and other security properties.
+The connector host definition does *not* contain information about individual connectors that are deployed on a connector host.
+This information is contained in the individual wiki:ConnectorType[connector objects]. These are usually created semi-automatically using a remote connector discovery process.
+Such connector object then refer back to the wiki:ConnectorHostType[Connector Host] object.
+
+.Example of a ConnectorHostType definition
+[source,xml]
+----
+<!-- This configuration is valid for midPoint 3.x. For previous versions, see earlier versions of this page. -->
+
+<connectorHost xmlns="http://midpoint.evolveum.com/xml/ns/public/common/common-3" xmlns:t="http://prism.evolveum.com/xml/ns/public/types-3">
+	<name>ICF Connector server on foobar.example.com:8759</name>
+	<hostname>foobar.example.com</hostname> 			<!-- hostname/IP where is remote connector server installed -->
+	<port>8759</port>						<!-- port where is remote connector server installed -->
+	<sharedSecret>							<!-- shared secret between midPoint and remote connector server-->
+		<t:clearValue>secret</t:clearValue>
+	</sharedSecret>
+</connectorHost>
+
+----
+
+
+=== Configuring SSL
+
+The communication between MidPoint and Connector Server may be protected by SSL.
+In this case the connector server is a SSL server, midPoint is SSL client.
+Setup of appropriate cryptographic material needs to be done on both sides.
+
+[%autowidth,cols="h,1,1"]
+|===
+|  | MidPoint | Connector Server
+
+| Role
+| SSL Client
+| SSL Server
+
+
+| Crypto material
+| CA certificate
+| Keypair (private key and server certificate)
+
+
+| Purpose
+| Validate Connector Server certificate
+| Authorize the connector server to midPoint
+
+
+| How to set up crypto material
+| Add trusted root CA certificate to wiki:Keystore+Configuration[midPoint keystore]
+| Configure keypair on connector server SSL: wiki:Java+Connector+Server[Java], wiki:.NET+Connector+Server[.NET]
+
+
+| How to enable SSL
+| Set `protectConnection` property in wiki:ConnectorHostType[ConnectorHostType] to `true`
+| Set `connectorserver.usessl` option to `true` in the connector server configuration file
+
+
+|===
+
+The connector server needs any kind of valid SSL server certificate.
+It does *not* need to be a "public" certificate, i.e. it does not need to be issues by the public trusted certificate authority.
+Certificates from a private CA work just fine.
+There are numerous primers how to set up a private CA for this purpose, e.g. by using OpenSSL tool.
+
+
+=== Troubleshooting
+
+* `java.security.InvalidAlgorithmParameterException: the trustAnchors parameter must be non-empty`
+
+** This strange message usually indicates a missing keystore or a missing trusted root CA certificate in the keystore.
+See wiki:Keystore+Configuration[Keystore Configuration].
+
+
+
+== See Also
+
+* wiki:Java+Connector+Server[Java Connector Server]
+
+* wiki:.NET+Connector+Server[.NET Connector Server]
+
+* wiki:Keystore+Configuration[Keystore Configuration]
+
