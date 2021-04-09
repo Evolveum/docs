@@ -1,0 +1,275 @@
+= LDAP Explanation
+:page-wiki-name: LDAP Explanation
+:page-toc: top
+:page-upkeep-status: yellow
+
+This page provides explanation to several LDAP-related topics that are not entirely clean or that are often misunderstood.
+
+
+== LDAP and Paging
+
+LDAP is a very simple protocol.
+Yet, LDAP server usually host vast amounts of data.
+Therefore it is possible that LDAP search could result in millions of entries.
+Such a result may impact server and network resources, therefore almost all LDAP servers have built-in limit for a number of entries that any LDAP search can return.
+If you are getting errors such as "size limit exceeded" you are probably hitting that limit.
+This limit is usually configurable and often it can be turned off.
+But that is usually *not* a good idea.
+In that case displaying account list in midPoint would cause a big search, returning vast amount of data just for midPoint to ignore almost all of the entries.
+What is needed here is paging.
+
+The basic protocol (LDAPv3) has no support for paging at all.
+Fortunately, LDAP protocol is extensible.
+And there is a paging extension (known as "control" in LDAP parlance).
+In fact, there are two paging extensions that are incompatible and somehow competing: "simple paged results" (SPR) and "virtual list views" (VLV).
+Support for these in individual LDAP servers vary, both in quantity and quality.
+
+
+=== Simple Paged Results
+
+Simple Paged Results (link:https://tools.ietf.org/html/rfc2696[RFC2696]) is a very simple extension that allows to split large search result into several pieces.
+SPR is not a standard, the RFC has only informational status.
+Despite this fact SPR seems to be widely used and supported.
+
+This extension is really very simple: the results are linear, the search always start from the beginning, there is no clean integration with server-side sorting and so on.
+Therefore it has very limited usability.
+We can use it to overcome the size limit by splitting the search to several chunks and get back large data sets.
+But that is pretty much all that we can do with this extension.
+It is almost useless for displaying results in the user interface, as it always starts on the first page.
+The lack of sorting integration also means that the results come in an order decided by the server.
+On the other hand, this extension seems to be better supported than VLV and there are hopes that the use of SPR may be less resource-intensive than VLV.
+
+
+=== Virtual List Views
+
+Virtual List Views is a link:https://tools.ietf.org/id/draft-ietf-ldapext-ldapv3-vlv-09.txt[draft] of an IETF LDAPext working group.
+The daft have expired in 2003 and the working group is now defunct, but the VLV remains to this day the best paging mechanism that is generally provided by LDAP servers.
+
+VLV is slightly complex LDAP extension.
+It provides full capability for search result paging.
+It allows the search to start on any page, specify page size, it is well integrated with server-side sorting and so on.
+In fact it seems that server-side sorting (SSS, link:https://tools.ietf.org/html/rfc2891[RFC2891]) control is required for VLV to work.
+
+VLV is usually preferable to SPR if it is supported by the server.
+However, there is a drawback: the VLV search can be quite resource-intensive.
+
+
+=== Paging Declaration in Root DSE and LDAP Connector Configuration
+
+All LDAP servers should declare support for LDAP protocol extensions in a special LDAP entry that is called _root DSE_. This entry should be accessible to all LDAP clients and smart clients use this entry to adapt their protocol version and use of extensions to those supported by the server.
+MidPoint wiki:LDAP+Connector[LDAP Connector] is a smart LDAP client.
+The connector tries to read the root DSE entry, look for supported extensions and adapt to SPR or VLV extensions automatically.
+
+However, not all LDAP servers publish root DSE entry correctly.
+And not all LDAP servers support the extensions correctly.
+In fact, as neither of the two extension is a real standard it is quite questionable what "correct behavior" means anyway.
+MidPoint LDAP connector tries its best to adapt to the server and the connector is tested with generally available LDAP servers.
+But it is not possible to test all the servers and the connector autodetection algorithm may go wrong is some cases.
+Therefore there is a connector configuration property that allows manual override of the autodetection mechanism:
+
+[source,xml]
+----
+<icfcldap:pagingStrategy>vlv</icfcldap:pagingStrategy>
+----
+
+Possible values are:
+
+* `auto`: Automatic detection (see below).
+This is the default setting.
+
+* `none`: No paging will be used.
+Both SPR and VLV extensions will be ignored.
+
+* `spr`: Only Simple Paged Results extension will be used.
+The connector will try to use it even if it is not declared by the server in root DSE.
+
+* `vlv`: Only Virtual List View extension will be used.
+The connector will try to use it even if it is not declared by the server in root DSE.
+
+
+=== How is MidPoint Using Paging Extensions
+
+If only one of the extensions is available then the situation is quite clear.
+MidPoint will try to use that extension for everything.
+
+If both extensions are available then midPoint is quite selective in their use:
+
+* SPR extension will be used for linear searches that do not require sorting and that start at the first page.
+Connector assumes that this is the most efficient way how to carry out that search.
+This is usually happens for reconciliation, import and similar wiki:Synchronization[synchronization] tasks.
+
+* VLV extension will be used for paged searches that require sorting or that do not start on the first page.
+This usually happens in midPoint user interface searches.
+
+
+=== Troubleshooting
+
+See wiki:LDAP+Connector+Troubleshooting[LDAP Connector Troubleshooting] page for instructions how to enable operation logging.
+The use of paging and sorting extensions is recorded in the LDAP operation log (REQ entries).
+Look for `controls` part of the log entry.
+The best way how to troubleshoot a problem is to look at the request log entries and compare that with result entries (RES entries).
+
+This is log entry where SPR were used with a page size of 100.
+SPR cookie is null, which generally means that this is the first page of the search:
+
+[source]
+----
+ldap://localhost:11389/ Search REQ base=dc=example,dc=com, filter=(&(objectClass=inetOrgPerson)(uid=u00000000)), scope=sub, attributes=[*, userPassword, pwdAccountLockedTime, memberOf, memberOf, createTimestamp, pwdAccountLockedTime, entryUUID, objectClass], controls=PagedResults(size=100, cookie=null)
+----
+
+This is log entry where VLV is used.
+The search starts with entry 3851 (`offset`), it will return 99 entries after that entry (`afterCount`) and zero entries before (`beforeCount`). The client has no idea about count of server objects (`contentCount` is zero) and there was no previous search context (`contextId` is null).
+Server-side sorting is used, the entries will be sorted by the `uid` attribute, ascending ("A"). Matching rule `2.5.13.3` will be used to sort the entries, which means a case-ignore ordering.
+
+[source]
+----
+ldap://localhost:11389/ Search REQ base=dc=example,dc=com, filter=(objectClass=inetOrgPerson), scope=sub, attributes=[*, userPassword, pwdAccountLockedTime, memberOf, memberOf, createTimestamp, pwdAccountLockedTime, entryUUID, objectClass], controls=Sort(uid:2.5.13.3:A),,VLV(beforeCount=0, afterCount=99, offset=3851, contentCount=0, contextID=null)
+----
+
+Please bear in mind that the problem may be on the server side.
+Neither SPR nor VLV are standardized and quality of implementations vary.
+
+While paging is generally a good way how to go beyond search result size limits, there may be some exceptions.
+Some servers (e.g. OpenLDAP) have special limit for paged searches.
+This needs to be configured properly.
+Other server may limit the search if it is not indexed.
+And time limits may also apply in addition to the size limits.
+Please consult documentation of your LDAP server for details.
+
+Tip: Setting a small page size during troubleshooting may help.
+You can use `pagingBlockSize` connector configuration property for that.
+
+
+== LDAP Schema
+
+LDAP is a communication protocol.
+However, the family of LDAP-related specifications also define a set of standard schemas for LDAP.
+Schema defines attributes and object classes (object types).
+Schema defines names of the attributes, their data type, multiplicity (single- or multi-value), object classes, what attributes must be present in an object class, what attributes are allowed in an object class and so on.
+Perhaps the most widely used is the "inetOrgPerson" schema (link:https://www.ietf.org/rfc/rfc2798.txt[RFC2798]). The inetOrgPerson object class is generally used to store user accounts in the LDAP directory.
+
+Each LDAP entry must have at least one (structural) object class.
+This object class specifies what attributes the entry must have and what attributes it may have.
+The object classes that an entry has are specified by the value of the `objectClass` attribute of the entry.
+The entry may have more than one object classes.
+This is frequently used when object classes are _subtyped_. E.g. LDAP account entry is usually of object class `inetOrgPerson`. But `inetOrgPerson` object class is a subtype of `organizationalPerson` object class, which is a subtype of `person` object class which is a subtype of `top` object class.
+Therefore typical LDAP user account will have four object classes: `inetOrgPerson`, `organizationalPerson`, `person` and `top`. But formally this is all just one (structural) object class: `inetOrgPerson`. Just the whole supertype tree is expanded in the `objectClass` attribute.
+
+There is another case when an entry may have more than one object class: auxiliary object classes.
+Auxiliary object classes may be specified in addition to structural object class.
+Auxiliary object classes may add new attributes to the entry without a need to be part of the subtype hierarchy.
+Auxiliary object classes are a very flexible way to achieve schema extensibility, but they may be real pain to manage properly.
+
+Each standard LDAP entry must have exactly one structural object class and may have any number of auxiliary object classes.
+And the entry may have only those attributes that are allowed by the object classes.
+However, there is only a few LDAP servers that really adhere to LDAP standards.
+You can meet a lot of horrible abominations in the wild.
+Prepare for the unexpected.
+
+
+=== LDAP Schema Extensibility
+
+LDAP data model is extensible.
+Therefore the standard schema can be extended with custom attributes.
+There are several ways how to do it:
+
+* *Subclass*: define a new (structural) object class that contain extra attributes.
+Change all existing entries to this object class.
+
+* *Auxiliary* object class: define new auxiliary object class that contains extra attributes.
+Add the auxiliary object class to existing entries.
+
+* *Dirty mess*: redefine standard object classes to contain extra attributes.
+This approach seems to be particularly favored by Microsoft et al.
+*DO NOT DO THIS* unless your life depends on it.
+It is bad practice, it is unmaintainable, it violates the standards, it may lock you in to a particular server, it is very likely to completely ruin interoperability and you will be generally frowned upon by all sensible engineers.
+
+
+=== How MidPoint Works With LDAP Schema
+
+MidPoint is a schema-driven system.
+MidPoint will automatically discover wiki:Resource+Schema[resource schema] by using the connector.
+MidPoint LDAP connector is designed with a great care to support LDAP schema well.
+The LDAP schema is *not* hardcoded in the connector, it is dynamically discovered.
+The connector will try to fetch the schema directly from the LDAP server that it is connected to.
+MidPoint needs to do this to discover any schema extensions that are present on the server.
+And also to discover the damage caused by those sinners that modify the standard LDAP schema.
+Therefore the usual sequence of events is like this:
+
+. LDAP resource definition is imported in midPoint (or created in midPoint resource wizard).
+It has no wiki:Resource+Schema[resource schema].
+
+. Resource is used for the first time, probably by administrator clicking the "test connection" button.
+
+. MidPoint invokes the LDAP connector.
+The connector tries to locate LDAP schema definition on the server and downloads it.
+
+. Connector and midPoint are processing and parsing the LDAP schema.
+
+. The schema is stored in the resource definition (`<schema>` section) and it is subsequently reused by all midPoint operations.
+
+This sequence usually works without any problems - even for really bad LDAP servers such as Active Directory.
+We have spend a lot of effort to make sure that the LDAP connector schema-processing routines can deal even with extremely rough violations of LDAP standards.
+However, the reality always has means for bring new surprises and there may be unexpected problems.
+In that case please use your midPoint link:https://evolveum.com/services/professional-support/[subscription] to get a fix.
+
+[NOTE]
+====
+MidPoint will retrieve LDAP schema once, and then it will cache it in the wiki:Resource+Configuration[resource definition object]. Therefore is LDAP schema is changed or the configuration is switched to different LDAP server then midPoint will not see the updated schema.
+In that case midPoint wiki:Resource+Schema[resource schema] needs to be refreshed.
+Use the "refresh schema" button in the midPoint GUI or simply delete the entire `<schema>` section from the resource definition.
+The schema will be re-fetched on the next attempt to use the resource.
+It is a good idea to do "test connection" after the schema is refreshed to make sure the configuration still makes sense.
+
+====
+
+
+=== MidPoint and Auxiliary Object Classes
+
+MidPoint fully supports auxiliary object classes.
+MidPoint can work with a fixed auxiliary object classes applied to all the objects.
+Or it may add/remove auxiliary object classes as needed.
+
+See wiki:Auxiliary+Object+Classes[Auxiliary Object Classes] page for more details.
+
+
+== Modification Errors
+
+LDAP servers may return "value already exists".
+There are several reasons for that.
+MidPoint usually operates in a wiki:Relativity[relative] way.
+Therefore midPoint does not look at the current values of the LDAP entry very closely.
+What is important for midPoint is what attribute values are to be added or removed.
+Therefore it may happen that midPoint will try to add a value that is already in the entry.
+Or remove values that is no longer in the entry.
+When such situation occurs then LDAP server must respond with an error.
+This is given by LDAP specifications.
+And that is usually the reason for "value already exists" error.
+
+Of course, there is a solution.
+An easy solution is to use `avoidDuplicateValues`wiki:Resource+Definition+Sections[resource configuration property]. If this feature is turned on then midPoint will try to read the account and avoid operations that would result in duplicate values.
+This approach usually works well.
+But, theoretically, it has two limitations:
+
+. Performace: midPoint will read the account once again right before the modification operation. This is needed to avoid duplicate changes.
+
+. There is still a tiny chance that two operations will change the same attribute at the same time and there may be an error (LDAP does not have any locking). The critical time window is small (that is the reason to re-read the account right before the modify operation). But there is still a theoretical possibility.
+
+However, there is an alternative way, it is called "permissive modify control". That is LDAP control (LDAP protocol extension) that avoids the "duplicate value" error on the server side. However, this is not supported by all LDAP servers. In fact, the connector tries to autodetect if that control is present and it will use the control if the server is advertising it properly. But some servers do not do it. So there is way how to force use of this control. Just use connector configuration property:
+
+[source,xml]
+----
+ <icfcldap:usePermissiveModify>always</icfcldap:usePermissiveModify>
+----
+
+If that works with your server then you do not need to use avoidDuplicateValues. So it may be worth trying. But even avoidDuplicateValues is OK, despite the theoretical limitations. The  avoidDuplicateValues feature is used often and so far we haven't see any major issues in practice.
+
+
+== See Also
+
+* wiki:LDAP+Connector[LDAP Connector]
+
+* wiki:LDAP+Connector+Troubleshooting[LDAP Connector Troubleshooting]
+
+* wiki:OpenLDAP+Tips,+Tricks+and+FAQ[OpenLDAP Tips, Tricks and FAQ]
+

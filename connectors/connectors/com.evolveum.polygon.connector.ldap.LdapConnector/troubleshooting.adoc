@@ -1,0 +1,132 @@
+= LDAP Connector Troubleshooting
+:page-nav-title: Troubleshooting
+:page-wiki-name: LDAP Connector Troubleshooting
+:page-alias: { "parent" : "/connectors/connectors/com.evolveum.polygon.connector.ldap.ad.AdLdapConnector/" }
+:page-toc: top
+:page-upkeep-status: green
+
+== Introduction
+
+This page describes troubleshooting of xref:..[LDAP Connector] and wiki:Active+Directory+Connector+(LDAP)[Active Directory Connector (LDAP)]. Please make sure that you are familiar with wiki:Troubleshooting+Connectors[basic connector troubleshooting techniques].
+
+
+== Logging
+
+
+=== LDAP Operation Logging
+
+The LDAP connector has a good logging of all operations.
+To enable the operation logging enable the following logger:
+
+*`com.evolveum.polygon.connector.ldap.OperationLog: DEBUG`*
+
+This will log all the LDAP operation request and responses, like this:
+
+[source]
+----
+ldap://localhost:10389/ Search REQ base=uid=jbond,ou=People,dc=example,dc=com, filter=(objectClass=*), scope=base, attributes=[entryUUID], controls=null
+
+ldap://localhost:10389/ Search RES Entry
+    dn: uid=jbond,ou=People,dc=example,dc=com
+    entryUUID: 20972cb8-34e8-43ec-b7a8-907857486394
+----
+
+The request and response logging is an excellent way how to diagnose communication and configuration problems.
+The logging will record essential parts of each request and response.
+That allows to clearly see what was sent to the LDAP server and what was received.
+
+
+=== Full Connector Logging
+
+Full connector logging can be enabled by using the logger with the name of the connector package:
+
+*`com.evolveum.polygon.connector.ldap: TRACE`*
+
+However, this may be a very extensive logging.
+There is especially one component called SchemaTranslator that will log schema processing and data type conversions and so on.
+This is usually too much data.
+Therefore it is recommended to set it to a DEBUG log level:
+
+*`com.evolveum.polygon.connector.ldap.schema: DEBUG`*
+
+
+=== ConnId Framework Logging
+
+Useful information may also be provided by the logging the operations of the ConnId connector framework.
+This is very useful in cases where the suspected problem is in the interpretation of the values (e.g. data type conversions).
+This logs all the communication between connector, connector framework and midPoint.
+It can be enabled by setting the logging to:
+
+`*org.identityconnectors.framework.api: TRACE*`
+
+
+== Common Issues
+
+
+=== Already Exists Error
+
+*Situation:* LDAP server responds with "attribute or value exists" error (LDAP error code 20).
+
+This is a normal LDAP error indicating that an attempt was made to add a value of an attribute that already exists in the attribute.
+Or it may be an attempt to remove a value that is not there.
+This is most likely caused by midPoint trying it add a value that already exists in an LDAP object.
+MidPoint is trying to do that because it does not know that the value is already there.
+This may be caused by several things: the attribute values may not be returned by the LDAP server, the value may have been added to the LDAP very recently, this may be a configuration issue or even a product bug.
+
+This operation is generally harmless -  it does not change the state of the LDAP object at all.
+And this situation may be perfectly OK.
+However the LDAP standard mandates that the server must respond with an error in this case.
+Which is a bit of nuisance.
+But there are two ways to go around this:
+
+. *Permissive modify control.* This control can be used to override the behavior stated by the standard.
+If this control is used the the LDAP server accepts the operation even if it adds exiting value or removes non-existing value.
+This is the most efficient way to resolve this situation.
+The connector should detect support for this control automatically and use it if it is available.
+However some LDAP severs (OpenLDAP in particular) are not properly advertising support for this control.
+Therefore it may be enabled by connector configuration: +
+`usePermissiveModify=true`
+
+. *Avoid duplicate value* configuration.
+This is a midPoint configuration that enables mechanism to avoid sending duplicate modifications to the resource.
+In that case midPoint will read the resource object and filter out duplicate modifications.
+This method is less efficient and may not work in some cases.
+But it usually works.
+It can be enabled in the resource configuration:
+
+[source]
+----
+<resource>
+    ...
+    <schemaHandling>...</schemaHandling>
+    <consistency>
+        <avoidDuplicateValues>true</avoidDuplicateValues>
+    </consistency>
+    ...
+</resource>
+----
+
+=== Active Directory Errors
+
+Active Directory is a very unique directory server.
+It behave in strange, and sometime in quite unexpected way.
+Active Directory often indicates an error, that may seem wrong or misleading.
+The best method that we have figured out is not to take the errors at face value.
+Not not get mislead by the error.
+Try to systematically follow the troubleshooting guides.
+What was the LDAP operation that lead to the error.
+Which attributes were modified? What are the attribute values? Does the operation make sense?
+
+Overall, diagnostics of AD errors is very difficult.
+There are logs on AD servers, but according to our experience those logs are almost useless.
+Detailed look at the LDAP operation is probably the best chance.
+
+
+== See Also
+
+* wiki:Troubleshooting+Connectors[Troubleshooting Connectors]
+
+* wiki:Logging[Logging]
+
+* wiki:Troubleshooting[Troubleshooting]
+
