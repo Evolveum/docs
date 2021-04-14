@@ -12,30 +12,32 @@ the following actions:
 The first one has been traditionally the major source of contention. However, the second one
 produces contention as well, although (in the past) on a smaller scale.
 
-== Old (traditional) approach to bucket management
+== Traditional approach to bucket management
 
 The traditional approach (present since the beginning of bucketed tasks in 3.8) is based on the
 get + compute delta + modify-with-precondition + retry approach:
 
-1. get task object,
-2. compute deltas (e.g. aimed at creating a new bucket),
-3. modify task object with a precondition that the relevant parts (e.g. the buckets list) have not been changed,
+1. get the coordinator task object that carries the work state,
+2. compute deltas (e.g. aimed at creating a new bucket or buckets),
+3. modify the task object with a precondition that the relevant parts (e.g. the buckets list) have not been changed,
 4. if the precondition failed, wait a random time, and retry the cycle.
 
-Actually, the retry mechanism here is two level:
+Actually, there are two independent retry mechanisms in play here:
 
-1. explicit level of the work state manager, as described above,
-2. implicit level of the repository service, present in point 3 (and partially in point 1) above.
+1. retrying at the level of the work state manager, as described in point 4 above,
+2. implicit retrying of the repository service, present in point 3 (and partially in point 1) above.
 
-The latter one is related to the fact that the repository ensures the isolation of transactions
-at the database level, in order to avoid correct execution of individual deltas. For the majority
-of midPoint use cases, this is sufficient. Unfortunately, for bucket allocation it is not, and therefore
-the additional retrying described above has been devised and implemented.
+The latter mechanism is related to how the repository ensures correct execution
+of individual deltas in the presence of concurrent modifications. For the majority of midPoint
+use cases, this implicit repository transaction serialization is sufficient. Unfortunately, for
+bucket allocation it is not, and therefore the additional collision detection and resolution
+method described above has been devised and implemented.
 
-== New (proposed) approach
+== Proposed approach
 
 The new approach is based on so called dynamic updates, where deltas to be executed are computed
-from within the database transaction. So the process looks like this:
+within the database transaction, under the standard repository collision resolution mechanism.
+So the process looks like this:
 
 1. start a DB transaction,
 2. get task object,
@@ -48,9 +50,8 @@ link:https://github.com/Evolveum/midpoint/blob/75dab94d3fa25654df149cb8fdbbd01ee
 The delta computation is done using a functional parameter provided by the caller,
 i.e. work state manager in this case.
 
-The implicit repository retry mechanism is used, just like in the traditional approach. However,
-because no preconditions are checked in this case, the "outer" retry mechanism is eliminated,
-and the process is much more efficient.
+There is no need for any extra collision detection and resolution. The serialization is fully
+ensured by the database (conflict detection) and the repository (retrying the operation).
 
 Preliminary experiments show approximately 50% reduction of the bucketing overhead incurred,
 for both well-configured and slightly misconfigured scenarios. See below.
@@ -73,12 +74,13 @@ per bucket in average. There were 4 worker tasks.
 2. Slightly misconfigured, high-contention scenario: Small buckets, many threads. We used 256 buckets, i.e.
 3.9 users per bucket in average. There were 30 worker tasks.
 
-The machine itself had 12 physical cores, providing 24 logical CPUs in total.
+The machine itself had 12 physical cores, providing 24 logical CPUs in total. As the database, locally-run
+PostgreSQL 13.2 was used.
 
-First we measured the results using default bucketing configuration. This implies a random delay
+First we measured the results using default bucketing configuration. This implied a random delay
 of up to 5000 milliseconds when allocating the first bucket per worker task. However, after tests were
 run, the observation was that we can improve results for both old and new approach when this delay is
-turned off. Therefore, all the test results are provided with this updated configuration.
+turned off. Therefore, all the final test results are provided with this updated configuration.
 
 We measured the time needed to allocate new buckets, marking buckets as complete, and checking that
 new buckets are not available. We explicitly excluded 20 second safety wait incurred by so called
@@ -105,7 +107,12 @@ The measured overhead is summarized in the following table.
 image::image-2021-04-14-12-37-55-434.png[The comparison chart]
 
 Detailed information is in the attached link:comparison.ods[spreadsheet file] as well as the extracted relevant
-test results (link:detailed-results-old.txt[old], link:detailed-results-new.txt[new]).
+test results (link:detailed-results-old.txt[old], link:detailed-results-new.txt[new]).footnote:[Note that the collision
+information collected is not directly comparable between old and new solution. It is because previously the collisions
+referred to collisions encountered in the outer retry mechanism (i.e. at the level of the work state manager),
+whereas collisions encountered in the repository are visible only in repository-level performance dumps.
+In the new approach, however, collision information for bucket allocation refers directly to repository-level
+collisions.]
 
 == Conclusion
 
@@ -113,6 +120,6 @@ It looks like the new approach reduces the bucketing overhead for both standard 
 scenarios by approximately 50%. Even for the latter scenario the improved overhead is below 10%, which
 is most probably acceptable.
 
-The experimental `modifyObjectDynamically` method might not be conceptually 100% clean at the first
-sight, but it might be useful to deal with such high-contention scenarios. Besides buckets, multi-node
-thresholds are the next candidate for its use.
+The experimental `modifyObjectDynamically` method might be useful to deal with such
+high-contention scenarios. Besides buckets, multi-node thresholds are the next candidate
+for its use.
