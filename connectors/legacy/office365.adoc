@@ -1,0 +1,102 @@
+= Office 365 / Azure Active Directory with Legacy Office365 Connector
+:page-nav-title: Legacy Office 365
+:page-wiki-name: Office 365 / Azure Active Directory
+:page-obsolete: true
+:page-toc: top
+
+
+== Status
+
+Provisioning works well. +
+Synchronization works well
+
+
+== Description
+
+The connector can be used for provisioning to Office 365 and Azure Active Directory including license assignment
+
+
+== Recommended Connector
+
+*TODO*
+
+
+== Office365 Setup
+
+Prior to configuring the resource within midPoint it is necessary to create a service principal within Office 365/Azure Active Directory, using the Azure Active Directory Powershell create a service princiapl as follows:
+
+* Authenticate to Azure Active Directory using .Authenticate
+[source,powershell]
+----
+Connect-MsolService
+----
+
+
+
+* Create the Service Principal.Create SPN
+[source,powershell]
+----
+New-MsolServicePrincipal -ServicePrincipalNames "OpenICF Office365 Connector" -DisplayName "OpenICF Office365 Connector"
+----
+
+This step returns the symmetric key:`The following symmetric key was created as one was not supplied cbtCp+GYWm1Zar/ZsaOEadvJxOuO8Qx+f86EW2rHudc=`Record this as you will need this in the midPoint resource configuration. +
+ +
+
+
+* Retrieve the ObjectId of Service Principal .retrieve user
+[source,powershell]
+----
+Get-MsolServicePrincipal -ServicePrincipalName "OpenICF Office365 Connector"
+
+ExtensionData         : System.Runtime.Serialization.ExtensionDataObject
+AccountEnabled        : True
+Addresses             : {}
+AppPrincipalId        : 28fa027a-0159-40cc-9449-a0fb08a41723
+DisplayName           : OpenICF Office365 Connector
+ObjectId              : 4d412a9f-f18e-47b5-bvea-f8eda1655d0
+ServicePrincipalNames : {28fa027a-0159-40cc-9449-a0fb08a41723, OpenICF Office36
+                        5 Connector}
+TrustedForDelegation  : False
+----
+
+
+
+* Assign administrator rights to the service principal name (the role ObjectId is global and always the same across all Office 365 tenancies).Assign Rights
+[source,powershell]
+----
+Add-MsolRoleMember -RoleObjectId "62e90394-69f5-4237-9190-012177145e10" -RoleMemberType ServicePrincipal -RoleMemberObjectId 4d412a9f-f18e-47b5-bvea-f8eda1655d0
+----
+
+
+
+
+== Resource Configuration Example
+
+[source,xml]
+----
+<connectorConfiguration>
+<icfc:configurationProperties
+                xmlns:o365="http://midpoint.evolveum.com/xml/ns/public/connector/icf-1/bundle/org.forgerock.openicf.connectors.office365-connector/org.identityconnectors.office365.Office365Connector">
+                <o365:apiEndPoint>graph.windows.net</o365:apiEndPoint>
+                <o365:tenancy>TENANCYNAME.onmicrosoft.com</o365:tenancy>
+                <o365:symetricKey>
+                    <clearValue>cbtCp+GYWm1Zar/ZsaOEadvJxOuO8Qx+f86EW2rHudc=</clearValue>
+                </o365:symetricKey>
+                <o365:authURL>https://accounts.accesscontrol.windows.net/tokens/OAuth/2</o365:authURL>
+                <o365:principalID>28fa027a-0159-40cc-9449-a0fb08a41723</o365:principalID>
+                <o365:resourceID>00000002-0000-0000-c000-000000000000</o365:resourceID>
+                <o365:acsPrincipalID>00000001-0000-0000-c000-000000000000</o365:acsPrincipalID>
+                <o365:immutableIDEncodeMechanism>straight-base64</o365:immutableIDEncodeMechanism>
+            </icfc:configurationProperties>
+</connectorConfiguration>
+
+----
+
+Notes:
+
+* Symetric key is the value returned when creating the service principal name.
+
+* The principalID is the value of AppPrincipalId of the user.
+
+* For both of them, see above
+

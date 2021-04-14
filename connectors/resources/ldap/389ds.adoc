@@ -1,0 +1,138 @@
+= 389 Directory Server
+:page-wiki-name: 389 Directory Server
+:page-toc: top
+:page-upkeep-status: yellow
+
+[%autowidth,cols="h,1"]
+|===
+| Status
+| Works well, but there are some drawbacks.
+
+| Recommended connector
+| xref:../../connectors/com.evolveum.polygon.connector.ldap.LdapConnector/[]
+|===
+
+
+== Resource Configuration
+
+Configuration of 389 Directory Server:
+
+=== Installation - Ubuntu
+
+[source]
+----
+apt-get install 389-ds
+setup-ds
+----
+
+Use "dc=example,dc=com" as suffix.
+The setup will create a basic directory structure.
+
+
+=== Admin User
+
+Creating admin user:
+
+[source]
+----
+dn: cn=idm,ou=Special Users,dc=example,dc=com
+objectClass: person
+cn: idm
+sn: IDM
+userPassword: secret123
+----
+
+
+=== ACIs
+
+[source]
+----
+dn: dc=example,dc=com
+changetype: modify
+add: aci
+aci: (targetattr="*")(version 3.0; acl "IDM
+  read access"; allow (read,search,compare)
+  userdn="ldap:///cn=idm,ou=Special Users,dc=example,dc=com";)
+
+dn: ou=People,dc=example,dc=com
+changetype: modify
+add: aci
+aci: (targetattr="*")(version 3.0; acl "IDM
+  write access"; allow (all)
+  userdn="ldap:///cn=idm,ou=Special Users,dc=example,dc=com";)
+
+dn: ou=Groups,dc=example,dc=com
+changetype: modify
+add: aci
+aci: (targetattr="*")(version 3.0; acl "IDM
+  write access"; allow (all)
+  userdn="ldap:///cn=idm,ou=Special Users,dc=example,dc=com";)
+
+dn: cn=changelog
+changetype: modify
+add: aci
+aci: (target="ldap:///cn=changelog")(targetattr="*")(version 3.0; acl "IDM
+  Access to ChangeLog"; allow (read,search,compare)
+  userdn="ldap:///cn=idm,ou=Special Users,dc=example,dc=com";)
+----
+
+
+=== Plugins
+
+Configuring the memberOf plugin:
+
+[source]
+----
+ldapmodify -D "cn=directory manager" -w secret123 -p 2389 -h localhost
+dn: cn=MemberOf Plugin,cn=plugins,cn=config
+changetype: modify
+replace: nsslapd-pluginEnabled memberofgroupattr
+nsslapd-pluginEnabled: on
+memberofgroupattr: uniqueMember
+----
+
+Enable retro changelog:
+
+[source]
+----
+ldapmodify -D "cn=directory manager" -w secret123 -p 2389 -h localhost
+dn: cn=Retro Changelog Plugin,cn=plugins,cn=config
+changetype: modify
+replace: nsslapd-pluginEnabled
+nsslapd-pluginEnabled: on
+----
+
+Server restart required.
+
+The accounts must have objectclass that allows `memberOf` attribute.
+The most suitable is `inetUser` object class.
+
+
+== Connector Configuration
+
+* https://github.com/Evolveum/midpoint-samples/tree/master/samples/resources/389ds[389ds configuration sample]
+
+== Drawbacks
+
+=== Attribute nsUniqueId
+
+The 389ds has a very convenient attribute `nsUniqueId` that is an attractive choice for account primary identifier.
+And this mostly works.
+But it does NOT work for changelog-based live synchronization.
+Delete deltas in the changelog do NOT have the `nsUniqueId` attribute.
+As the original entry is already deleted at that time then it is not possible for a connector to translate the DN of the deleted entry to a `nsUniqueId` and the delete delta will not work.
+
+Workaround: change primary account identifier to `dn`.
+
+
+=== Bad Schema
+
+The 389ds is NOT a fully LDAPv3-compliant directory server.
+It is using non-numeric OIDs, under some circumstances it uses illegal attribute names (such as `unhashed#user#password`), it is using attributes that are not declared in the schema (`firstchangenumber`, `lastchangenumber`), etc.
+MidPoint 3.2 is bundled with LDAP connector that relies on LDAPv3 compliance of the schema and will fail is 389ds is configured in non-LDAPv3-compliant way.
+The LDAP connector bundled with midPoint 3.3 was improved to be a more tolerant LDAP client and it will work.
+
+
+== See Also
+
+* xref:/iam/ldap-survival-guide/[]

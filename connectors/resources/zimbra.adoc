@@ -1,0 +1,78 @@
+= Zimbra Collaboration Suite
+:page-nav-title: Zimbra
+:page-wiki-name: Zimbra Collaboration Suite
+:page-upkeep-status: yellow
+
+== Introduction
+
+MidPoint can provision accounts by directly modifying the records in Zimbra LDAP directory.
+LDAP connector is used for this purpose.
+Zimbra seems to automatically create mailboxes and initialize the accounts created by adding LDAP records to Zimbra LDAP.
+
+
+== Administrative Account in Zimbra LDAP
+
+Determine password of LDAP root account:
+
+[source,bash]
+----
+sudo -u zimbra -i zmlocalconfig -s ldap_root_password
+----
+
+Create hash of a new password for the midpoint user:
+
+[source,bash]
+----
+/opt/zimbra/openldap/sbin/slappasswd -s yourpassword
+----
+
+This will output a string starting with {SSHA}.
+Create new LDIF file `/tmp/midpoint.ldif` with the following content and paste the string at the end.
+
+[source]
+----
+dn: uid=midpoint,cn=admins,cn=zimbra
+uid: midpoint
+objectClass: zimbraAccount
+objectClass: organizationalPerson
+cn: midpoint
+sn: midpoint
+zimbraAccountStatus: active
+zimbraIsSystemResource: TRUE
+zimbraId: 9C092EEC-2FA7-11E4-A4D2-001E8C717E5B
+description: Account used for midPoint identity management
+userPassword: {SSHA}iCUcwT3fAXWzwBlFRf6sE5lNXtgS73Ni
+----
+
+Use this LDIF file to create admin account for midPoint:
+
+[source,bash]
+----
+sudo -u zimbra -i ldapadd -f /tmp/midpoint.ldif -x -H ldapi:/// -D cn=config -W
+----
+
+You will be prompted for a password.
+Enter the LDAP root password.
+
+This creates an administrative user that midPoint will use to access zimbra LDAP.
+
+
+== Server Certificate
+
+MidPoint will access Zimbra LDAP using a TLS protocol.
+MidPoint needs to trust the certificate of the Zimbra LDAP server to successfuly establish a TLS connection.
+
+Get the Zimbra server certificate using any suitable method.
+E.g. use Apache Directory Studio: connect to the Zimbra LDAP server, go to Window -> Preferences -> Apache Directory Studio -> Connections -> Certificate Validations -> Export.
+
+Import the certificate to midPoint keystore:
+
+[source,bash]
+----
+keytool -keystore /var/opt/midpoint/keystore.jceks -storetype jceks -storepass changeit -import -alias zimbra -trustcacerts -file zimbra.der
+----
+
+MidPoint needs to be restarted for the change to be applied.
+
+(see wiki:SSL+Connections+(Client+Side)[SSL Connections (Client Side)] page for more details)
+

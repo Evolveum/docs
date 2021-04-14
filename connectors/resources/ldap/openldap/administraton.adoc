@@ -1,0 +1,272 @@
+= OpenLDAP Administration
+:page-nav-title: Administration
+:page-wiki-name: OpenLDAP Administraton
+:page-toc: top
+:page-upkeep-status: yellow
+
+== Slapdconf
+
+Administration of OpenLDAP is not exactly easy.
+Therefore we have created an `slapdconf` utility to simplify some OpenLDAP administration tasks.
+We find `slapdconf` to be an essential survival tool in the OpenLDAP world.
+
+Slapdconf can be downloaded from the source code repository: https://github.com/Evolveum/slapdconf
+It is a Perl script.
+
+The script needs some common Perl libraries: `Net::LDAP`, `Authen::SASL` and perldoc.
+The libraries can usually be installed from OS packages.
+For example, this how to install them on Ubuntu:
+
+[source,bash]
+----
+sudo apt install libnet-ldap-perl libauthen-sasl-perl perl-doc
+----
+
+Slapdconf has a comprehensive help message:
+
+[source,bash]
+----
+slapdconf --help
+----
+
+In Ubuntu, the default OpenLDAP package (`slapd`) is pre-configured to tread the `root` user as LDAP server administrator.
+Therefore the easiest way to configure OpenLDAP is to run `slapdconf` as root:
+
+[source,bash]
+----
+sudo slapdconf list-suffixes
+----
+
+This is using the default `slapdconf` setting, which is to use `ldapi:///` endpoint of OpenLDAP and EXTERNAL SASL authentication.
+The `ldapi` endpoint may not be enabled by default.
+In Ubuntu, it can be enabled by modifying `SLAPD_SERVICES` line in `/etc/default/slapd` file.
+
+The rest of this guide will use `slapdconf` for configuring OpenLDAP, as doing it using the OpenLDAP way can be quite nightmarish.
+
+
+== Looking Around
+
+Get global server configuration:
+
+[source,bash]
+----
+$ slapdconf get-server-prop
+olcLogLevel : stats
+olcTLSCACertificateFile : /etc/ldap/tls/cacert.pem
+olcTLSCertificateFile : /etc/ldap/tls/triglav.nlight.eu-cert.pem
+olcTLSCertificateKeyFile : /etc/ldap/tls/triglav.nlight.eu-privkey.pem
+olcTLSCipherSuite : NORMAL
+----
+
+List configured suffixes:
+
+[source,bash]
+----
+$ slapdconf list-suffixes
+dc=example,dc=com
+dc=whatever,dc=com
+----
+
+Get suffix configuration:
+
+[source,bash]
+----
+$ slapdconf get-suffix-prop dc=example,dc=com
+olcDatabase : {1}hdb
+olcDbDirectory : /var/lib/ldap/example
+olcRootDN : cn=admin,dc=example,dc=com
+olcRootPW : secret
+olcAccess :
+  {0}to attrs=userPassword,shadowLastChange by dn="uid=idm,ou=Administrators,dc=example,dc=com" write by dn.exact=gidNumber=0+uidNumber=0,cn=peercred,cn=external,cn=auth write by anonymous auth by self write by * none
+  {1}to dn.base="" by * read
+  {2}to dn.subtree="ou=people,dc=example,dc=com" by dn="uid=idm,ou=Administrators,dc=example,dc=com" write
+  {3}to dn.subtree="ou=groups,dc=example,dc=com" by dn="uid=idm,ou=Administrators,dc=example,dc=com" write
+  {4}to * by dn.exact=gidNumber=0+uidNumber=0,cn=peercred,cn=external,cn=auth write by dn="uid=idm,ou=Administrators,dc=example,dc=com" read by self read by * none
+olcDbConfig :
+  {0}set_cachesize 0 2097152 0
+  {1}set_lk_max_objects 1500
+  {2}set_lk_max_locks 1500
+  {3}set_lk_max_lockers 1500
+olcDbIndex :
+  objectClass eq
+  entryUUID eq
+  entryCSN eq
+----
+
+== Database and Suffix Management
+
+=== Create Database and Suffix
+
+To create new suffix:
+
+[source,bash ]
+----
+$ slapdconf add-module back_mdb
+$ mkdir /var/lib/ldap/example
+$ chown openldap:openldap /var/lib/ldap/example
+$ slapdconf create-suffix dc=example,dc=com --dbDir /var/lib/ldap/example --dbType mdb --rootPassword secret
+----
+
+This command loads the `back_mdb` module that is needed to support database of type `mdb`. Then it creates a directory for the new database and sets correct permissions.
+The last line creates the database and suffix in the server.
+
+
+=== Delete Database and Suffix
+
+To delete a suffix:
+
+[source,bash]
+----
+$ service slapd stop
+$ slapdadm delete-suffix dc=example,dc=com
+$ service slapd start
+----
+
+[NOTE]
+.Deleting a suffix
+====
+ OpenLDAP does not have yet a support for deleting a database (and therefore also suffix) from a running server.
+The server needs to be stopped, database files deleted and configuration needs to be updated manually.
+The `slapdadm` has an option to do this.
+====
+
+
+=== Populating the Suffix
+
+When the suffix is created it is completely empty.
+Not even the base object is there.
+The following command creates the basic objects of the suffix:
+
+[source,bash]
+----
+ldapgenerate -D "cn=admin,dc=example,dc=com" -w secret -i -s dc=example,dc=com
+----
+
+[NOTE]
+====
+The suffix root user must be used explicitly when creating a base object for the suffix.
+The EXTERNAL SASL authentication will not work here.
+====
+
+
+=== Misc
+
+Increasing Mdb maximum size:
+
+[source,bash]
+----
+$ slapdconf set-suffix-prop dc=example,dc=com olcDbMaxsize:1073741824
+----
+
+(requires server restart to apply)
+
+== Setting up VLV
+
+[source,bash]
+----
+slapdconf add-module sssvlv
+slapdconf add-overlay dc=example,dc=com sssvlv olcSssVlvConfig
+----
+
+== Paging and Sizelimit
+
+Unlike other LDAP servers OpenLDAP imposes size limit also on paged searches.
+The sizelimit (soft and hard) seems to limit total number of entries returned in all pages.
+To change this behavior a "prtotal" size limit needs to be set:
+
+[source]
+----
+olcLimits: dn.exact="cn=idm,ou=Administrators,dc=example,dc=com" size.prtotal=unlimited
+----
+
+== Logging
+
+See current log level:
+
+[source,bash]
+----
+$ slapdconf get-log-level
+olcLogLevel : stats
+----
+
+Set a log level:
+
+[source,bash]
+----
+$ slapdconf set-log-level stats stats2
+----
+
+The log levels are:
+
+* trace
+
+* packets
+
+* args
+
+* conns
+
+* BER
+
+* filter
+
+* config
+
+* ACL
+
+* stats
+
+* stats2
+
+* shell
+
+* parse
+
+* sync
+
+* none
+
+Set maximum logging:
+
+[source,bash]
+----
+$ slapdconf set-log-level 65535
+----
+
+== Frequently Asked Questions
+
+
+=== What are the ERR_13748_MATCHING_RULE_NO_SYNTAX errors that are flooding my log files?
+
+You may see errors in your logfiles that look like this:
+
+[source]
+----
+2019-09-26 13:23:37,271 [] [main] INFO (org.apache.directory.api.ldap.model.schema.registries.Registries): ERR_13748_MATCHING_RULE_NO_SYNTAX The MatchingRule 2.5.13.21 does not have a syntax. This is invalid
+----
+
+The short story is that those may be safely ignored.
+
+The long story is, that every LDAP servers has its "quirks".
+There is practically no LDAP server that strictly and preciselly follows LDAP standards.
+In addition to that, LDAP standards are still just a human-readable text and there is no reference implementation.
+Therefore the people writing LDAP servers and people writing LDAP clients do not always agree what is a standard-compliant behavior.
+Those are also the likely reasons behind this message.
+
+This specific message means that the definition of matching rule 2.5.13.21 (telephoneNumberSubstringsMatch) in OpenLDAP schema refers to a syntax 1.3.6.1.4.1.1466.115.121.1.58 which is not defined in OpenLDAP schema.
+
+We do not want to be judges of LDAP compliance as we are not a standard body.
+The fact is that the implementation of OpenLDAP and the implementation of Apache Directory API do not agree at this point.
+This particular issues may get eventually fixed in either OpenLDAP or Apache Directory API.
+But as both the server and the client is made by people, it is likely that there will be more such issues in the future.
+
+This particular issue is harmless as midPoint does not rely on explicit definition of LDAP syntaxes.
+Other similar issues are very likely to be harmless too.
+But it is hard to be completely sure.
+
+Currently there is no simple way how to silence those error reports except for setting the log levels.
+This can be hopefully improved in future versions of Apache Directory API.
+
+== See Also
+
+* xref:/iam/ldap-survival-guide/[]

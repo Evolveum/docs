@@ -1,0 +1,364 @@
+= Linux (RedHat) with Solaris Connector
+:page-wiki-name: Linux - RedHat
+:page-obsolete: true
+
+== Resource
+
+RedhHat-style linux systems, especially RedHat and CentOS distributions.
+
+
+== Status
+
+Works well, but still in testing.
+
+
+== Description
+
+The connector is accessing the system using SSH protocol.
+This page describes the use of `sudo` for assuming superuser privileges.
+
+
+== Recommended Connectors
+
+[%autowidth]
+|===
+| Type | Description | Comments
+
+| OpenICF Solaris Connector
+| wiki:Solaris+Connector[Solaris Connector]
+| Newer versions of Solaris connector has a Linux operation mode that is used to manage linux boxes.
+
+
+|===
+
+
+== Resource Configuration
+
+. Create administration user for use by midPoint:[source]
+----
+useradd -c "midPoint" -m -r midpoint
+
+----
+
+
+
+. Set password for midPoint user[source]
+----
+passwd midpoint
+
+----
+
+
+
+. Install sudo using `yum`.
+
+. Create file `/etc/sudoers.d/midpoint` with the following content./etc/sudoers.d/midpoint
+[source]
+----
+midpoint    ALL = /usr/sbin/useradd, /usr/sbin/usermod, /usr/sbin/userdel, /usr/sbin/groupadd, /usr/sbin/groupmod, /usr/sbin/groupdel, /usr/bin/passwd, /usr/bin/id, /usr/bin/getent, /usr/bin/which
+
+----
+
+
+
+. Fix permissions for `/etc/sudoers.d/midpoint` file:[source]
+----
+chmod 0440 /etc/sudoers.d/midpoint
+
+----
+
+
+
+
+== Connector Configuration
+
+
+=== Connector Configuration Example
+
+[source,xml]
+----
+<c:resource oid="ef2bc95b-76e0-48e2-86d6-3d4f02343434">
+
+    	<!-- Resource name. It will be displayed in GUI.  -->
+		<c:name>Deimos Linux</c:name>
+
+     	<!-- Reference to the ICF Solaris connector. Using a search query to locate specific connector. -->
+		<connectorRef type="ConnectorType">
+			<filter>
+		        <q:equal>
+			  <q:path>c:connectorType</q:path>
+		          <q:value>org.identityconnectors.solaris.SolarisConnector</q:value>
+		        </q:equal>
+		      </filter>
+		</connectorRef>
+
+        <!-- Configuration section contains configuration of the connector,
+             such as hostnames and passwords -->
+		<c:connectorConfiguration
+                        xmlns:icfcsolaris="http://midpoint.evolveum.com/xml/ns/public/connector/icf-1/bundle/org.forgerock.openicf.connectors.solaris-connector/org.identityconnectors.solaris.SolarisConnector"
+	                xmlns:icfc="http://midpoint.evolveum.com/xml/ns/public/connector/icf-1/connector-schema-2">
+
+            <!-- Configuration specific for the LDAP connector -->
+			<icfc:configurationProperties>
+				<icfcsolaris:port>22</icfcsolaris:port>
+				<icfcsolaris:host>deimos.lab.evolveum.com</icfcsolaris:host>
+				<icfcsolaris:loginUser>midpoint</icfcsolaris:loginUser>
+				<icfcsolaris:password><clearValue>XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX</clearValue></icfcsolaris:password>
+				<icfcsolaris:connectionType>SSH</icfcsolaris:connectionType>
+				<icfcsolaris:loginShellPrompt>\$</icfcsolaris:loginShellPrompt>
+				<icfcsolaris:rootShellPrompt>\$</icfcsolaris:rootShellPrompt>
+				<icfcsolaris:sudoAuthorization>true</icfcsolaris:sudoAuthorization>
+				<icfcsolaris:credentials><clearValue>XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX</clearValue></icfcsolaris:credentials>
+				<icfcsolaris:unixMode>linux</icfcsolaris:unixMode>
+
+				<!--
+				<icfcsolaris:rootUser>root</icfcsolaris:rootUser>
+				<icfcsolaris:credentials><clearValue>password</clearValue></icfcsolaris:credentials>
+				<icfcsolaris:rootShellPrompt>#</icfcsolaris:rootShellPrompt>
+				<icfcsolaris:sudoAuthorization>true</icfcsolaris:sudoAuthorization>
+				<icfcsolaris:privateKey>???</icfcsolaris:privateKey>
+				<icfsolaris:passphrase><clearValue>MySuperSecretPassphrase</clearValue></icfsolaris:passphrase>
+
+				<icfsolaris:blockSize>100</icfsolaris:blockSize>
+				<icfsolaris:blockFetchTimeout>6000</icfsolaris:blockFetchTimeout>
+				<icfsolaris:mutexAcquireTimeout>60icfsolaris:mutexAcquireTimeout>
+
+				<icfsolaris:makeDirectory>true</icfsolaris:makeDirectory>
+				<icfsolaris:homeBaseDirectory>/home</icfsolaris:homeBaseDirectory>
+				<icfsolaris:defaultPrimaryGroup>users</icfsolaris:defaultPrimaryGroup>
+				<icfsolaris:loginShell>/bin/bash</icfsolaris:loginShell>
+				<icfsolaris:skeletonDirectory>/etc/skel</icfsolaris:skeletonDirectory>
+				<icfsolaris:deleteHomeDirectory>false</icfsolaris:deleteHomeDirectory>
+				<icfsolaris:systemDatabaseType>FILES</icfsolaris:systemDatabaseType>
+				<icfsolaris:nisBuildDirectory>/var/yp</icfsolaris:nisBuildDirectory>
+				<icfsolaris:nisPwdDir>/etc</icfsolaris:nisPwdDir>
+				<icfsolaris:nisShadowPasswordSupport>false</icfsolaris:nisShadowPasswordSupport>
+				<icfsolaris:commandTimeout>24000</icfsolaris:commandTimeout>
+-->
+			</icfc:configurationProperties>
+
+			<!-- Generic ICF configuration -->
+
+			<icfc:connectorPoolConfiguration>
+				<icfc:minEvictableIdleTimeMillis>120000</icfc:minEvictableIdleTimeMillis>
+				<icfc:minIdle>1</icfc:minIdle>
+				<icfc:maxIdle>10</icfc:maxIdle>
+				<icfc:maxObjects>10</icfc:maxObjects>
+				<icfc:maxWait>150000</icfc:maxWait>
+			</icfc:connectorPoolConfiguration>
+
+			<icfc:producerBufferSize>100</icfc:producerBufferSize>
+
+
+		</c:connectorConfiguration>
+
+        <!-- Resource Schema Handling definition.
+             This part defines how the schema defined above will be used by
+             midPoint. It defines expressions and limitations for individual
+             schema attributes.
+
+             The expressions that describe both inbound and outbound flow of
+             the attributes are defined in this section.
+
+             This is the part where most of the customization takes place.
+        -->
+
+	<schemaHandling>
+		<accountType>
+			<name>default</name>
+			<displayName>Default Account</displayName>
+			<default>true</default>
+			<objectClass>ri:AccountObjectClass</objectClass>
+			<attribute>
+				<ref>icfs:name</ref>
+				<displayName>Username</displayName>
+				<outbound>
+					<strength>weak</strength>
+					<source>
+						<path>$user/name</path>
+					</source>
+				</outbound>
+			</attribute>
+			<attribute>
+				<ref>ri:comment</ref>
+				<displayName>Comment</displayName>
+				<outbound>
+					<source>
+						<path>$user/fullName</path>
+					</source>
+				</outbound>
+			</attribute>
+			<attribute>
+				<ref>ri:shell</ref>
+				<outbound>
+					<strength>weak</strength>
+					<expression>
+						<value>/bin/bash</value>
+					</expression>
+				</outbound>
+			</attribute>
+            <credentials>
+                <password>
+                    <outbound>
+                    	<expression>
+                        	<asIs/>
+                        </expression>
+                    </outbound>
+                </password>
+            </credentials>
+
+            <activation>
+                <enabled>
+                    <outbound/>
+                    <inbound>
+                    	<strength>weak</strength>
+                        <expression>
+                            <asIs/>
+                        </expression>
+                    </inbound>
+                </enabled>
+            </activation>
+
+            <protected>
+                <icfs:name>root</icfs:name>
+            </protected>
+            <protected>
+                <icfs:name>bin</icfs:name>
+            </protected>
+            <protected>
+                <icfs:name>daemon</icfs:name>
+            </protected>
+            <protected>
+                <icfs:name>adm</icfs:name>
+            </protected>
+            <protected>
+                <icfs:name>lp</icfs:name>
+            </protected>
+            <protected>
+                <icfs:name>sync</icfs:name>
+            </protected>
+            <protected>
+                <icfs:name>shutdown</icfs:name>
+            </protected>
+            <protected>
+                <icfs:name>halt</icfs:name>
+            </protected>
+            <protected>
+                <icfs:name>mail</icfs:name>
+            </protected>
+            <protected>
+                <icfs:name>uucp</icfs:name>
+            </protected>
+            <protected>
+                <icfs:name>operator</icfs:name>
+            </protected>
+            <protected>
+                <icfs:name>games</icfs:name>
+            </protected>
+            <protected>
+                <icfs:name>gopher</icfs:name>
+            </protected>
+            <protected>
+                <icfs:name>ftp</icfs:name>
+            </protected>
+            <protected>
+                <icfs:name>nobody</icfs:name>
+            </protected>
+            <protected>
+                <icfs:name>dbus</icfs:name>
+            </protected>
+            <protected>
+                <icfs:name>usbmuxd</icfs:name>
+            </protected>
+            <protected>
+                <icfs:name>avahi-autoipd</icfs:name>
+            </protected>
+            <protected>
+                <icfs:name>vcsa</icfs:name>
+            </protected>
+            <protected>
+                <icfs:name>rpc</icfs:name>
+            </protected>
+            <protected>
+                <icfs:name>rtkit</icfs:name>
+            </protected>
+            <protected>
+                <icfs:name>abrt</icfs:name>
+            </protected>
+            <protected>
+                <icfs:name>haldaemon</icfs:name>
+            </protected>
+            <protected>
+                <icfs:name>ntp</icfs:name>
+            </protected>
+            <protected>
+                <icfs:name>apache</icfs:name>
+            </protected>
+            <protected>
+                <icfs:name>saslauth</icfs:name>
+            </protected>
+            <protected>
+                <icfs:name>postfix</icfs:name>
+            </protected>
+            <protected>
+                <icfs:name>avahi</icfs:name>
+            </protected>
+            <protected>
+                <icfs:name>rpcuser</icfs:name>
+            </protected>
+            <protected>
+                <icfs:name>nfsnobody</icfs:name>
+            </protected>
+            <protected>
+                <icfs:name>pulse</icfs:name>
+            </protected>
+            <protected>
+                <icfs:name>gdm</icfs:name>
+            </protected>
+            <protected>
+                <icfs:name>sshd</icfs:name>
+            </protected>
+            <protected>
+                <icfs:name>tcpdump</icfs:name>
+            </protected>
+            <protected>
+                <icfs:name>oprofile</icfs:name>
+            </protected>
+            <protected>
+                <icfs:name>idm</icfs:name>
+            </protected>
+            <protected>
+                <icfs:name>midpoint</icfs:name>
+            </protected>
+		</accountType>
+	</schemaHandling>
+
+
+	</c:resource>
+
+----
+
+
+=== Resource Sample
+
+link:http://git.evolveum.com/view/midpoint/master/samples/resources/solaris/deimos-solaris-resource-redhat.xml?hb=true[RedHat/CentOS resource sample (Git master)].
+
+
+== Troubleshooting
+
+
+=== Enable Connector Logging
+
+See wiki:Solaris+Connector[Solaris Connector]
+
+
+== Notes
+
+
+=== Sudo Permissions
+
+Most of the commands needed in the sudoers are quite obvious.
+The exception is `which` command.
+This one is needed to probe the root's path which may be different than the user path.
+Also some commands may not be accessing to non-root user (e.g. on RedHat-like systems).
+

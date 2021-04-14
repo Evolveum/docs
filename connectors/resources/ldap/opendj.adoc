@@ -1,0 +1,312 @@
+= OpenDJ
+:page-wiki-name: OpenDJ
+:page-toc: top
+:page-upkeep-status: green
+
+[%autowidth,cols="h,1"]
+|===
+| Status
+| Works well.
+
+| Recommended connector
+| xref:../../connectors/com.evolveum.polygon.connector.ldap.LdapConnector/[]
+|===
+
+
+Changes in OpenDJ are detected using _External Change Log (ECL)_ mechanism, similar mechanism to the one that was known as _Retro Change Log_ in Sun Directory Servers.
+The ECL is presented as an LDAP subtree with base DN of `cn=changelog`. Each change is represented as an entry in that subtree and it remains in that subtree for few days.
+
+Modified Identity Connector Framework (ICF) LDAP connector is recommended.
+The connector scans the `cn=changelog` subtree for new entries in regular intervals.
+
+The connector is using a special user for accessing OpenDJ, e.g. `uid=idm,ou=Administrators,dc=example,dc=com`. The connector should not use the `cn=directory manager` superuser.
+Firstly, this is a best practice.
+Secondly, midPoint is itself making the changes to the directory tree during provisioning.
+We do not want to detect these changes in LDAP (as "echoes"), as it may cause loops in the business logic.
+Therefore connector is filtering out all changes made by this user.
+Therefore, this user should be dedicated to midPoint.
+
+Need to use simulated activation (enabled/disable).
+
+
+== Resource Configuration
+
+=== Installation
+
+As OpenDJ is no longer an open source project, getting OpenDJ distribution can be a challenge.
+
+Get the OpenDJ zip file somewhere, unzip it at any convenient location, run the "setup" utility and configure the following recommended parameters:
+
+[%autowidth,cols="h,1"]
+|===
+| LDAP Listener Port | 1389
+
+| Administration Connector Port
+| 4444
+
+| LDAP Secure Access
+| disabled
+
+| Root User DN
+| cn=Directory Manager
+
+| Password
+| secret
+
+| Topology Options
+| select "This server will be part of a replication topology", but do not change other options on this form.
+
+| Directory Base DN
+| dc=example,dc=com
+
+| Import data from LDIF file
+| link:https://github.com/Evolveum/midpoint-samples/tree/master/samples/resources/opendj/example-base-only.ldif[https://github.com/Evolveum/midpoint-samples/tree/master/samples/resources/opendj/example-base-only.ldif]
+
+|===
+
+Leave all other options set to their default values.
+
+Make sure that the OpenDJ instance is started.
+If it is not, use the start-ds script in the OpenDJ bin directory (or start-ds.bat in bat director on Windows) to start it.
+
+Please note that OpenDJ 2.4.x seems to not work quite correctly with Oracle JRE 7 (this link:https://bugster.forgerock.org/jira/browse/OPENDJ-252[applies to its Control Panel] but also to several other utilities).
+Also setting OPENDS\_JAVA\_HOME to a JDK directory (not a JRE directory) seems to cause installation to fail (at least in some situations).
+So e.g. Oracle JRE 6 is fine with OpenDJ 2.4.x.
+
+
+=== Setting Up Directory Content
+
+The directory server needs to be populated with data (providing at least a basic tree structure), and a midPoint administrative user has to be created.
+The user is assumed to be `uid=idm,ou=Administrators,dc=example,dc=com` in following examples.
+For correct midPoint operation this user needs to have an ability to execute unindexed searches.
+This is necessary for iterating over all the user entries during import and reconciliation.
+Although midPoint uses simple paged results and VLV controls, OpenDJ server treats this as an unindexed search.
+Therefore the administrative user needs the `unindexed-search` privilege, as illustrated by the following example.
+
+.IDM Administrative User
+[source,ldif]
+----
+dn: uid=idm,ou=Administrators,dc=example,dc=com +
+objectclass: top +
+objectclass: person +
+objectclass: organizationalPerson +
+objectclass: inetOrgPerson +
+uid: idm +
+cn: IDM Administrator +
+sn: IDM Administrator +
+description: Special LDAP acccount used by the IDM to access the LDAP data. +
+ou: Administrators +
+userPassword: secret +
+ds-privilege-name: unindexed-search +
+ds-privilege-name: password-reset
+----
+
+You can import the base LDAP structure with the user described above (with corresponding ACI) by importing any of  `example*.ldif` files from `samples/resources/opendj` directory.
+
+=== Enabling External ChangeLog
+
+External Changelog is enabled when a replication is enabled.
+
+If installing stock OpenDJ, make sure to enable replication by checking the "Server part of replication topology" (as described above).
+This will enable External Change Log (ECL, `cn=changelog` LDAP subtree).
+
+If there is an existing OpenDJ instance that does not have ECL enabled several operations needs to be executed.
+Please see link:http://ludopoitou.wordpress.com/2011/05/11/opendj-enabling-the-external-change-log-on-a-single-server/[Ludo's blog entry] for the details.
+
+=== Access Control Setup
+
+The IDM administration account needs access rights to the `cn=changelog` suffix.
+
+For OpenDJ on non-Windows platforms, use the following.
+
+.Allow ACI for cn=changelog suffix (non-Windows platforms only)
+[source,bash]
+----
+dsconfig -h localhost -p 4444 -D "cn=Directory Manager" -w secret -X -n set-access-control-handler-prop --add global-aci:"(target=\"ldap:///cn=changelog\")(targetattr=\"\*||+\")(version 3.0; acl \"IDM Access to ChangeLog\"; allow (read,search,compare) userdn=\"ldap:///uid=idm,ou=Administrators,dc=example,dc=com\";)" -n
+----
+
+Add another `allow` ACI that will provide access to root DSE attributes `changeLog`, `firstChangeNumber` and `lastChangeNumber` to the IDM admin.
+
+.Allow ACI for root DSE (non-Windows platforms only)
+[source,bash]
+----
+dsconfig -h localhost -p 4444 -D "cn=Directory Manager" -w secret -X -n set-access-control-handler-prop --add global-aci:"(target=\"ldap:///\")(targetattr=\"changeLog || firstChangeNumber || lastChangeNumber\")(version 3.0; acl \"IDM Access to ChangeLog\"; allow (read,search,compare) userdn=\"ldap:///uid=idm,ou=Administrators,dc=example,dc=com\";)" -n
+----
+
+For OpenDJ on Windows, please follow the following steps instead:
+
+.Allow ACI for cn=changelog suffix - ACI for root DSE for Windows command line shell
+[source]
+----
+Enter the dsconfig (you need run the file from bat subdirectory) interactive mode by entering:
+
+dsconfig -h localhost -p 4444 -D "cn=Directory Manager" -w secret
+
+Choose 1) Automatically trust (How do you want to trust the server certificate?) +
+Choose 1) Access Control Handler (What do you want to configure?) +
+Choose 1) View and edit the Access Control Handler (What would you like to do?) +
+Choose 2) global-aci. +
+Choose 2) Add one or more values (Do you want to modify the "global-aci" property?)
+
+(target="ldap:///cn=changelog")(targetattr="\*||+")(version 3.0; acl "IDM Access to ChangeLog"; allow (read,search,compare) userdn="ldap:///uid=idm,ou=Administrators,dc=example,dc=com";)
+
+Press Enter.
+
+(target="ldap:///")(targetattr="changeLog || firstChangeNumber || lastChangeNumber")(version 3.0; acl "IDM Access to ChangeLog"; allow (read,search,compare) userdn="ldap:///uid=idm,ou=Administrators,dc=example,dc=com";)
+
+Finish the command by selecting 1) Use these values.
+----
+
+Alternatively, if you are brave enough (and tired of repeating the above steps on various OpenDJ installations), you can try the following:
+
+.Allow ACIs for Windows (an alternative, automated way)
+[source,bash]
+----
+dsconfig -h localhost -p 4444 -D "cn=Directory Manager" -w secret <aci.txt
+----
+
+.aci.txt
+[source]
+----
+1
+1
+1
+2
+2
+(target="ldap:///cn=changelog")(targetattr="*||+")(version 3.0; acl "IDM Access to ChangeLog"; allow (read,search,compare) userdn="ldap:///uid=idm,ou=Administrators,dc=example,dc=com";)
+(target="ldap:///")(targetattr="changeLog || firstChangeNumber || lastChangeNumber")(version 3.0; acl "IDM Access to ChangeLog"; allow (read,search,compare) userdn="ldap:///uid=idm,ou=Administrators,dc=example,dc=com";)
+
+1
+
+f
+
+q
+----
+
+Please note that the script is inherently fragile, as it depends on a particular menu structure of `dsconfig`. It was tested on OpenDJ 2.4.3.
+
+Note: OpenDJ servers version 2.4.0 and older have `deny` ACI for `cn=changelog` which needs to be removed.
+
+=== Referential Integrity Plugin
+
+If you plan to use LDAP groups, you should also turn the Referential Integrity Plugin on, otherwise users will remain in the LDAP groups after deletion (or rename).
+
+.Referential Integrity Plugin
+[source]
+----
+Enter the dsconfig (you need run the file from bin/bat subdirectory) interactive mode by entering:
+
+dsconfig -h localhost -p 4444 -D "cn=Directory Manager" -w secret
+
+Choose 32) Plugin +
+Choose 3) View and Edit an existing Plugin +
+Choose 9) Referential Integrity +
+Choose 3) enabled +
+Choose 2) Change it to the value: true
+
+Finish the command by selecting f) Finish
+----
+
+=== OpenDJ JVM Tuning
+
+To set JVM options for OpenDJ, please check file `<opendj>/config/java.properties`.
+
+Example:
+
+* start-ds.java-args=-server -XX:+UseCompressedOops -Xmx512m -XX:MaxPermSize=256m
+
+After any change, you have to:
+
+. run `<opendj>/bin/dsjavaproperties`
+
+. restart OpenDJ server
+
+You may want to check link:http://ludopoitou.wordpress.com/2011/12/16/an-important-tuning-flag-for-opendj-with-64bit-jvm/[An important tuning flag for OpenDJ with 64bit JVM] blog entry
+
+
+== Connector Configuration
+
+[source,xml]
+----
+<connectorConfiguration xmlns:icfcldap="http://midpoint.evolveum.com/xml/ns/public/connector/icf-1/bundle/com.evolveum.polygon.connector-ldap/com.evolveum.polygon.connector.ldap.LdapConnector">
+        <icfc:configurationProperties>
+            <icfcldap:port>389</icfcldap:port>
+            <icfcldap:host>localhost</icfcldap:host>
+            <icfcldap:baseContext>dc=example,dc=com</icfcldap:baseContext>
+            <icfcldap:bindDn>uid=idm,ou=Administrators,dc=example,dc=com</icfcldap:bindDn>
+            <icfcldap:bindPassword><t:clearValue>secret</t:clearValue></icfcldap:bindPassword>
+            <icfcldap:pagingStrategy>auto</icfcldap:pagingStrategy>
+            <icfcldap:vlvSortAttribute>uid</icfcldap:vlvSortAttribute>
+             <icfcldap:operationalAttributes>ds-pwp-account-disabled</icfcldap:operationalAttributes>
+             <icfcldap:operationalAttributes>isMemberOf</icfcldap:operationalAttributes>
+             <icfcldap:operationalAttributes>createTimestamp</icfcldap:operationalAttributes>
+             <icfcldap:enableExtraTests>false</icfcldap:enableExtraTests> <!-- MID-3477 -->
+        </icfc:configurationProperties>
+        <icfc:resultsHandlerConfiguration>
+            <icfc:enableNormalizingResultsHandler>false</icfc:enableNormalizingResultsHandler>
+            <icfc:enableFilteredResultsHandler>false</icfc:enableFilteredResultsHandler>
+            <icfc:enableAttributesToGetSearchResultsHandler>false</icfc:enableAttributesToGetSearchResultsHandler>
+        </icfc:resultsHandlerConfiguration>
+    </connectorConfiguration>
+----
+
+=== Resource Sample
+
+* https://github.com/Evolveum/midpoint-samples/tree/master/samples/resources/opendj
+
+* https://github.com/Evolveum/midpoint/tree/master/testing/conntest/src/test/resources/opendj
+
+== Troubleshooting
+
+=== Check External Changelog Availability
+
+[source,bash]
+----
+ldapsearch -h localhost -p 1389 -D "uid=idm,ou=Administrators,dc=example,dc=com" -w secret -b "cn=changelog" "(objectclass=\*)"
+----
+
+=== Check Replication Purge Delay
+
+[source,bash]
+----
+dsconfig -h localhost -p 4444 -D "cn=directory manager" -w secret -n get-replication-server-prop --provider-name "Multimaster Synchronization" --advanced --property replication-purge-delay -X
+----
+
+=== Change Replication Purge Delay
+
+[source,bash]
+----
+dsconfig -h localhost -p 4444 -D "cn=directory manager" -w secret -n set-replication-server-prop --provider-name "Multimaster Synchronization" --set replication-purge-delay:1d -X
+----
+
+=== Purging Changelog
+
+There seems not be no better way than to manipulate the replication purge delay.
+Change the delay to 1s, wait and a second and then change it back to the original value.
+
+
+=== Frequent Errors
+
+
+==== Password Reset Privileges
+
+[source]
+----
+LDAP: error code 50 - You do not have sufficient privileges to reset user passwords
+----
+
+This indicates that the connector user does not have privilege to reset users password.
+In OpenDJ this is a special privilege and the ACI setup is not enough to enable this.
+Make sure that the IDM LDAP user has the `password-reset` privilege, e.g.:
+
+[source]
+----
+dn: uid=idm,ou=Administrators,dc=example,dc=com
+uid: idm
+...
+ds-privilege-name: password-reset
+----
+
+== See Also
+
+* xref:/iam/ldap-survival-guide/[]
