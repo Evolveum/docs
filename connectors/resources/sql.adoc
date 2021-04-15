@@ -1,0 +1,247 @@
+= Any Database (ScriptedSQL)
+:page-wiki-name: Any Database (ScriptedSQL)
+:page-toc: top
+:page-upkeep-status: orange
+:page-upkeep-note: Still mentioning forgerock
+
+[%autowidth,cols="h,1"]
+|===
+| Status
+| Provisioning works well. +
+Synchronization works well.
+
+| Recommended connector
+| xref:../connectors/com.evolveum.polygon.connector.scripted.sql.ScriptedSQLConnector/[]
+|===
+
+
+The xref:../../connectors/connectors/com.evolveum.polygon.connector.scripted.sql.ScriptedSQLConnector/[ScriptedSQL connector] can be used for any JDBC-supported database.
+This connector can (need to) be scripted, so it has no restriction on number of tables, joins, remote procedure calls etc.
+The following steps describe setup for PostgreSQL database.
+
+
+== Resource Configuration
+
+
+=== PostgreSQL Installation
+
+Standard PostgreSQL installation is expected.
+
+
+=== Example Database/Tables Definition
+
+The database needs to be created.
+The following example is available in `samples/resources/scriptedsql/create-scripted-idm-db-sync-postgresql.sql:`
+
+.ScriptedSQL Database Definition
+[source,sql]
+----
+CREATE USER mdp_scriptedsql WITH PASSWORD 'password' LOGIN;
+
+CREATE DATABASE mdp_scriptedsql WITH OWNER = mdp_scriptedsql ENCODING = 'UTF8' TABLESPACE = pg_default LC_COLLATE = 'en_US.UTF-8' LC_CTYPE = 'en_US.UTF-8' CONNECTION LIMIT = -1;
+----
+
+The tables need to be created.
+The following example is available in `samples/resources/scriptedsql/create-scripted-idm-tables-sync-postgresql.sql`:
+
+.ScriptedSQL Tables Definition
+[source,sql]
+----
+CREATE TABLE Users (
+
+    id        SERIAL PRIMARY KEY,
+
+    login        VARCHAR(32) NOT NULL,
+
+    firstname    VARCHAR(255),
+
+    lastname    VARCHAR(255),
+
+    fullname    VARCHAR(255),
+
+    email        VARCHAR(255),
+
+    organization    VARCHAR(255),
+
+    password    VARCHAR(255),
+
+    disabled    BOOLEAN DEFAULT false,
+
+    timestamp    TIMESTAMP WITH TIME ZONE DEFAULT now()
+
+);
+
+CREATE TABLE Groups (
+
+    id        SERIAL PRIMARY KEY,
+
+    name        VARCHAR(255) NOT NULL,
+
+    description    VARCHAR(255)
+
+);
+
+CREATE TABLE Organizations (
+
+    id        SERIAL PRIMARY KEY,
+
+    name        VARCHAR(255) NOT NULL,
+
+    description    VARCHAR(255)
+
+);
+
+CREATE OR REPLACE FUNCTION update_timestamp_column()
+
+RETURNS TRIGGER AS $$
+
+BEGIN
+
+    NEW.timestamp = now();
+
+    RETURN NEW;
+
+END;
+
+$$ language 'plpgsql';
+
+CREATE TRIGGER update_account_timestamp BEFORE UPDATE ON Users FOR EACH ROW EXECUTE PROCEDURE  update_timestamp_column();
+----
+
+
+The Groovy scripts implementing the operations are stored in `samples/resources/scriptedsql/*.groovy`. The scripts need to be referenced from the resource:
+
+* link:https://github.com/Evolveum/midpoint-samples/tree/master/samples/resources/scriptedsql/CreateScript.groovy[CreateScript.groovy]: implements the create operation (accounts, groups, organizations)
+
+* link:https://github.com/Evolveum/midpoint-samples/tree/master/samples/resources/scriptedsql/DeleteScript.groovy[DeleteScript.groovy:] implements the delete operation (accounts, groups, organizations)
+
+* link:https://github.com/Evolveum/midpoint-samples/tree/master/samples/resources/scriptedsql/SchemaScript.groovy[SchemaScript.groovy:] returns the schema (supported attributes) (accounts, groups, organizations)
+
+* link:https://github.com/Evolveum/midpoint-samples/tree/master/samples/resources/scriptedsql/SearchScript.groovy[SearchScript.groovy:] implements the search/get operation (accounts, groups, organizations)
+
+* link:https://github.com/Evolveum/midpoint-samples/tree/master/samples/resources/scriptedsql/SyncScript.groovy[SyncScript.groovy:] implements the sync operation (accounts only)
+
+* link:https://github.com/Evolveum/midpoint-samples/tree/master/samples/resources/scriptedsql/TestScript.groovy[TestScript.groovy:] implements the test connection operation
+
+* link:https://github.com/Evolveum/midpoint-samples/tree/master/samples/resources/scriptedsql/UpdateScript.groovy[UpdateScript.groovy:] implements the update operation (accounts, groups, organizations)
+
+[TIP]
+====
+If you play with the samples, you will need to make changes in database (e.g. new/different columns), in the Groovy scripts (e.g. the new/different columns) as well as in the resource sample (new/modified mappings).
+You don't need to use all of the scripts; e.g. if you don't need synchronization, you don't need the "SyncScript.groovy" to be referenced from the resource configuration.
+Omitting script from resource configurationProperties will cause the connector to not support that operation.
+====
+
+The configuration above and in the samples provides the following features to be as much as production-like as possible:
+
+* full account support (but Groovy scripts are prepared also for groups and organizations, so the samples may be extended soon)
+
+* create, update, read and delete operations
+
+* rename operation
+
+* activation (enable/disable) and password support for accounts
+
+* generated unique identifier for accounts, groups and organizations in database (by PostgreSQL)
+
+* synchronization support (for accounts)
+
+Sample resource can be imported from `samples/resources/scriptedsql/*.xml`.
+
+
+If you wish to set up login, in case of the ScriptedSQL connector use the following:
+
+[%autowidth]
+|===
+| Logger Name | Recommended log level
+
+| org.forgerock.openicf.misc.scriptedcommon.ScriptedConnector
+| TRACE
+
+|===
+
+
+The Groovy scripts may need changes to work on other databases.
+They should be relatively simple to modify; the SyncScript.groovy for example, has been patched for PostgreSQL "timestamp" format.
+
+[TIP]
+====
+Sometimes the proper syntax in the Groovy files might be tricky.
+For example, this is real-life problem and its solution:
+
+... _Originally, we were attempting to perform the call with an incorrect syntax:_
+
+sql.call("{? = call STORED_PROCEDURE(?, ?)}",[Sql.VARCHAR, attributes?.get("pidm")?.get(0), Sql.VARCHAR])
+
+_Proper syntax is:_ sql.call("? = call STORED_PROCEDURE(?, ?)",[Sql.VARCHAR, attributes?.get("pidm")?.get(0), Sql.VARCHAR])
+
+_Note the absence of the enclosures {} in the second line._ +
+_As this might be obvious to most Groovy devs, this gave us quite the headache since there's confusing information published regarding this method._
+
+Shared by Rodrigo Yanis, thank you!
+====
+
+
+== Connector Configuration
+
+link:https://backstage.forgerock.com/docs/idm/6.5/connector-reference/[See ScriptedSQL Connector documentation, Section 8]
+
+
+=== JDBC Driver
+
+The connector requires appropriate JDBC driver.
+The driver needs to be available to the web server.
+It usually has to be placed on on web server classpath.
+E.g. this means copying the driver to `$TOMCAT_HOME/lib` directory if tomcat server is used and restarting the server.
+
+[TIP]
+====
+We are aware of problems with ScriptedSQL connector and PostgreSQL database using the JDBC driver bundled with midPoint (version 9.1).
+Upgrading the JDBC driver to 9.3 seems to fix the issue.
+====
+
+
+=== Connector Configuration Example
+
+[source,xml]
+----
+<c:connectorConfiguration>
+  <!-- Configuration specific for the ScriptedSQL connector -->
+  <icfc:configurationProperties xmlns:icscscriptedsql="http://midpoint.evolveum.com/xml/ns/public/connector/icf-1/bundle/org.forgerock.openicf.connectors.scriptedsql-connector/org.forgerock.openicf.connectors.scriptedsql.ScriptedSQLConnector">
+    <icscscriptedsql:port>5432</icscscriptedsql:port>
+    <icscscriptedsql:quoting></icscscriptedsql:quoting>
+    <icscscriptedsql:host>localhost</icscscriptedsql:host>
+    <icscscriptedsql:user>mdp_scriptedsql</icscscriptedsql:user>
+    <icscscriptedsql:password><clearValue>password</clearValue></icscscriptedsql:password>
+    <icscscriptedsql:database>mdp_scriptedsql</icscscriptedsql:database>
+    <icscscriptedsql:clearTextPasswordToScript>true</icscscriptedsql:clearTextPasswordToScript>
+    <icscscriptedsql:scriptingLanguage>GROOVY</icscscriptedsql:scriptingLanguage>
+    <icscscriptedsql:reloadScriptOnExecution>true</icscscriptedsql:reloadScriptOnExecution>
+
+    <icscscriptedsql:createScriptFileName>/opt/midpoint.home-master-node1/scripts/scriptedsql-sample/CreateScript.groovy</icscscriptedsql:createScriptFileName>
+    <icscscriptedsql:updateScriptFileName>/opt/midpoint.home-master-node1/scripts/scriptedsql-sample/UpdateScript.groovy</icscscriptedsql:updateScriptFileName>
+    <icscscriptedsql:deleteScriptFileName>/opt/midpoint.home-master-node1/scripts/scriptedsql-sample/DeleteScript.groovy</icscscriptedsql:deleteScriptFileName>
+   <icscscriptedsql:schemaScriptFileName>/opt/midpoint.home-master-node1/scripts/scriptedsql-sample/SchemaScript.groovy</icscscriptedsql:schemaScriptFileName>
+    <icscscriptedsql:searchScriptFileName>/opt/midpoint.home-master-node1/scripts/scriptedsql-sample/SearchScript.groovy</icscscriptedsql:searchScriptFileName>
+    <icscscriptedsql:testScriptFileName>/opt/midpoint.home-master-node1/scripts/scriptedsql-sample/TestScript.groovy</icscscriptedsql:testScriptFileName>
+    <icscscriptedsql:syncScriptFileName>/opt/midpoint.home-master-node1/scripts/scriptedsql-sample/SyncScript.groovy</icscscriptedsql:syncScriptFileName>
+
+    <icscscriptedsql:validConnectionQuery></icscscriptedsql:validConnectionQuery>
+    <icscscriptedsql:jndiProperties></icscscriptedsql:jndiProperties>
+
+    <icscscriptedsql:jdbcDriver>org.postgresql.Driver</icscscriptedsql:jdbcDriver>
+    <icscscriptedsql:jdbcUrlTemplate>jdbc:postgresql://%h:%p/%d</icscscriptedsql:jdbcUrlTemplate>
+    <icscscriptedsql:enableEmptyString>true</icscscriptedsql:enableEmptyString>
+    <icscscriptedsql:rethrowAllSQLExceptions>true</icscscriptedsql:rethrowAllSQLExceptions>
+    <icscscriptedsql:nativeTimestamps>true</icscscriptedsql:nativeTimestamps>
+    <icscscriptedsql:allNative>false</icscscriptedsql:allNative>
+    <icscscriptedsql:datasource></icscscriptedsql:datasource>
+  </icfc:configurationProperties>
+</c:connectorConfiguration> 
+----
+
+
+=== Resource Sample
+
+See resource samples and Groovy implementation scripts in link:https://github.com/Evolveum/midpoint/tree/master/samples/resources/scriptedsql[Git samples directory for ScriptedSQL connector (master)].
+

@@ -1,0 +1,358 @@
+= OpenLDAP Installation and Configuration
+:page-nav-title: Installation and Configuration
+:page-wiki-name: OpenLDAP Installation and Configuration
+:page-toc: top
+:page-upkeep-status: green
+
+== Installing OpenLDAP Software
+
+There are several options to install OpenLDAP
+
+=== Install OpenLDAP Using Stock Packages
+
+The ideal way is to install OpenLDAP using packages from your OS distribution.
+E.g. for Ubuntu use:
+
+[source]
+----
+apt-get install slapd ldap-utils
+----
+
+OS distribution packages used to be quite outdated in the past.
+However, it looks like the situation has improved and the packages are reasonable recent.
+E.g. Ubuntu 20.04 LTS comes with OpenLDAP 2.4.49.
+
+
+=== Install From Symas Packages
+
+link:http://www.symas.com/[Symas Corporation] is the commercial sponsor of OpenLDAP.
+Symas provides Silver and Gold version of OpenLDAP which can be downloaded here:
+
+link:https://symas.com/downloads/[https://symas.com/downloads/]
+
+However, there is a catch.
+The Silver version does not contain several essential overlays such as sssvlv and does not support replication.
+This is practically useless.
+The Gold version is only available under commercial subscription.
+
+Moreover, according to our experience, installation of Symas packages is not entirely straightforward.
+
+== Slapdconf
+
+Administration of OpenLDAP is not exactly easy.
+Therefore we have created an `slapdconf` utility to simplify some OpenLDAP administration tasks.
+The utility is a Perl script.
+
+Slapdconf can be downloaded from the source code repository: https://github.com/Evolveum/slapdconf
+
+The script needs some common Perl libraries: `Net::LDAP`, `Authen::SASL` and perldoc.
+The libraries can usually be installed from OS packages.
+For example, this how to install them on Ubuntu:
+
+[source,bash]
+----
+sudo apt install libnet-ldap-perl libauthen-sasl-perl perl-doc
+----
+
+Slapdconf has a comprehensive help message:
+
+[source,bash]
+----
+slapdconf --help
+----
+
+In Ubuntu, the default OpenLDAP package (`slapd`) is pre-configured to tread the `root` user as LDAP server administrator.
+Therefore the easiest way to configure OpenLDAP is to run `slapdconf` as root:
+
+[source,bash]
+----
+sudo slapdconf list-suffixes
+----
+
+This is using the default `slapdconf` setting, which is to use `ldapi:///` endpoint of OpenLDAP and EXTERNAL SASL authentication.
+The `ldapi` endpoint may not be enabled by default.
+In Ubuntu, it can be enabled by modifying `SLAPD_SERVICES` line in `/etc/default/slapd` file (see below).
+
+The rest of this guide will use `slapdconf` for configuring OpenLDAP, as doing it using the OpenLDAP way can be quite nightmarish.
+
+== Setting up SSL/TLS
+
+[source]
+----
+slapdconf set-server-prop olcTLSCACertificateFile:/etc/ldap/tls/cacert.pem
+slapdconf set-server-prop olcTLSCertificateFile:/etc/ldap/tls/triglav.nlight.eu-cert.pem
+slapdconf set-server-prop olcTLSCertificateKeyFile:/etc/ldap/tls/triglav.nlight.eu-privkey.pem
+slapdconf set-server-prop olcTLSCipherSuite:NORMAL
+----
+
+
+== Initializing OpenLDAP
+
+The database and suffix might have been created during software installation.
+To check if that is the case use the following command:
+
+[source,bash]
+----
+$ slapdconf list-suffixes
+dc=whatever,dc=com
+----
+
+If you are OK with the existing suffix you may skip this section.
+If not then you have to delete the suffix (see xref:administraton.adoc[]).
+
+
+=== Setting up logging
+
+Add syslog configuration: `/etc/rsyslog.d/40-slapd.conf`
+
+./etc/rsyslog.d/40-slapd.conf
+[source]
+----
+local4.*        -/var/log/slapd.log
+& ~
+----
+
+Set log level:
+
+[source]
+----
+$ slapdconf set-log-level stats
+----
+
+
+=== Ports
+
+Ubuntu OpenLDAP has port specification in `/etc/default/slapd`:
+
+./etc/default/slapd
+[source]
+----
+SLAPD_SERVICES="ldap://0.0.0.0:1389/ ldapi:///"
+----
+
+Symas OpenLDAP has the specification of ports in /opt/symas/etc/openldap/symas-openldap.conf
+
+./opt/symas/etc/openldap/symas-openldap.conf
+[source]
+----
+HOST_LIST="ldap://0.0.0.0:1389/"
+----
+
+
+=== Creating the Database and Suffix
+
+To create new suffix:
+
+[source]
+----
+$ mkdir /var/lib/ldap/example
+$ chown openldap:openldap /var/lib/ldap/example
+$ slapdconf create-suffix dc=example,dc=com --dbDir /var/lib/ldap/example --rootPassword secret
+----
+
+This command creates a directory for the new database and sets correct permissions.
+The last line creates the database and suffix in the server.
+
+You may need to set maximum database size:
+
+[source]
+----
+$ slapdconf set-suffix-prop dc=example,dc=com olcDbMaxSize:100000000
+----
+
+[TIP]
+====
+On Ubuntu 16 to make the create suffix work, one has to first load the module.
+This does not seem to be necessary in newer OpenLDAP/Ubuntu versions.
+
+[source,bash]
+----
+$ slapdconf add-module back_mdb
+----
+====
+
+=== Setting up Overlays
+
+[source]
+----
+slapdconf add-module sssvlv
+slapdconf add-overlay dc=example,dc=com sssvlv
+----
+
+Installing password policy overlay
+
+[source]
+----
+slapdconf add-module ppolicy
+ldapadd -Y EXTERNAL -H ldapi:/// -f /etc/ldap/schema/ppolicy.ldif
+slapdconf add-overlay dc=example,dc=com ppolicy
+----
+
+Installing `memberof` overlay
+
+[source]
+----
+slapdconf add-module memberof
+slapdconf add-overlay dc=example,dc=com memberof
+----
+
+Installing refint overlay to support referential integrity - this requires `<explicitReferentialIntegrity>false</explicitReferentialIntegrity>` in midPoint resource association configuration
+
+[source]
+----
+slapdconf add-module refint
+slapdconf  add-overlay dc=example,dc=com refint olcRefintConfig 'olcRefintAttribute:memberof member manager owner'
+----
+
+
+=== Populating the Suffix
+
+When the suffix is created it is completely empty.
+Not even the base object is there.
+The following command creates the basic objects of the suffix:
+
+[source]
+----
+ldapgenerate -D "cn=admin,dc=example,dc=com" -w secret -i -s dc=example,dc=com
+----
+
+[NOTE]
+====
+The suffix root user must be used explicitly when creating a base object for the suffix.
+The EXTERNAL SASL authentication will not work here.
+====
+
+
+== Setting up MidPoint Access
+
+
+=== Creating Administrator Account
+
+Create `ou=Administrators,dc=example,dc=com` subtree and adminstration user by importing following LDIF:
+
+.admin.ldif
+[source]
+----
+dn: ou=Administrators,dc=example,dc=com
+objectclass: top
+objectclass: organizationalunit
+ou: Administrators
+
+dn: cn=idm,ou=Administrators,dc=example,dc=com
+objectclass: top
+objectclass: person
+cn: idm
+sn: IDM Administrator
+description: Special LDAP acccount used by the IDM
+  to access the LDAP data.
+userPassword: {SSHA}R5KF3K4X2FX5gkWKuDxm4M6gZyO0QgNF
+----
+
+[NOTE]
+====
+Make sure that the empty line is really empty and that it does *not* contains spaces or any white characters.
+====
+
+Use the following command (as root):
+
+[source]
+----
+ldapadd -Y EXTERNAL -H ldapi:/// -f admin.ldif
+----
+
+
+=== Setting Up ACLs
+
+Setup ACLs that allow access for midpoint user to the directory:
+
+.aci.ldif
+[source]
+----
+dn: olcDatabase={1}mdb,cn=config
+changetype: modify
+replace: olcAccess
+olcAccess: to attrs=userPassword,shadowLastChange by dn="cn=idm,ou=Administrators,dc=example,dc=com" write by dn.exact=gidNumber=0+uidNumber=0,cn=peercred,cn=external,cn=auth write by anonymous auth by self write by * none
+olcAccess: to dn.base="" by * read
+olcAccess: to dn.subtree="ou=people,dc=example,dc=com" by dn="cn=idm,ou=Administrators,dc=example,dc=com" write
+olcAccess: to dn.subtree="ou=groups,dc=example,dc=com" by dn="cn=idm,ou=Administrators,dc=example,dc=com" write
+olcAccess: to * by dn.exact=gidNumber=0+uidNumber=0,cn=peercred,cn=external,cn=auth write by dn="cn=idm,ou=Administrators,dc=example,dc=com" read by self read by * none
+----
+
+Use the following command (as root):
+
+[source]
+----
+ldapmodify -Y EXTERNAL -H ldapi:/// -f aci.ldif
+----
+
+Or you can use ldapconf to set up the ACLs:
+
+[source]
+----
+slapdconf edit-suffix-acis dc=example,dc=com
+----
+
+
+=== Setting Up Limits
+
+.limits.ldif
+[source]
+----
+dn: olcDatabase={1}mdb,cn=config
+changetype: modify
+replace: olcLimits
+olcLimits: dn.exact="cn=idm,ou=Administrators,dc=example,dc=com" size.prtotal=unlimited
+----
+
+Or you can use slapdconf:
+
+[source]
+----
+slapdconf set-suffix-prop dc=example,dc=com 'olcLimits:dn.exact="cn=idm,ou=Administrators,dc=example,dc=com" size.prtotal=unlimited'
+----
+
+
+=== Setting up password policy
+
+.pwpolicy.ldif
+[source]
+----
+dn: cn=pwpolicy,dc=example,dc=com
+objectclass: pwdPolicy
+objectClass: person
+cn: pwpolicy
+sn: pwpolicy
+pwdAttribute: userPassword
+pwdMaxFailure: 3
+pwdLockout: TRUE
+pwdLockoutDuration: 60
+----
+
+[source]
+----
+ldapadd -Y EXTERNAL -H ldapi:/// -f pwpolicy.ldif
+slapdconf set-overlay-prop dc=example,dc=com ppolicy olcPPolicyDefault:cn=pwpolicy,dc=example,dc=com
+----
+
+== How to install both Ubuntu OpenLDAP and Symas OpenLDAP
+
+Overall, do not try this.
+But if you have to, this what you do.
+
+. Install Symas OpenLDAP from Symas deb packages
+
+. Initialize configuration as per Symas doc
+
+. Stop slapd: /etc/init.d/solserver stop
+
+. Edit /opt/symas/etc/openldap/symas-openldap.conf, change port number
+
+. Edit /etc/init.d/solserver and change "Provides: slapd" to "Provides: solserver"
+
+. apt-get install slapd
+
+== See Also
+
+* xref:administraton.adoc[]
+
+* xref:/iam/ldap-survival-guide/[]

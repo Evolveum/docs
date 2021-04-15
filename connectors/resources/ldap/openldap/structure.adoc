@@ -1,0 +1,111 @@
+= Recommended OpenLDAP Structure
+:page-nav-title: Recommended Structure
+:page-wiki-name: Recommended OpenLDAP Structure
+:page-toc: top
+:page-upkeep-status: yellow
+
+
+This page describes a directory structure that we recommend to use with OpenLDAP servers.
+
+This page assumes the files from link:https://github.com/Evolveum/midpoint-samples/tree/master/samples/resources/openldap[samples/resources/openldap directory of midpoint-samples project].
+
+== Directory Tree Structure
+
+
+[%autowidth]
+|===
+| Container | Object Class | Naming attributre | Description
+
+| ou=People
+| inetOrgPerson + midPointPerson
+| uid
+| User accounts (accounts for physical users)
+
+| ou=Groups
+| groupOfNames
+| cn
+| Groups
+
+| ou=Administrators
+| person
+| cn
+| Technical accounts for highly privileged services.
+e.g.midPoint or LDAP management tools, synchronization, etc.
+Usually write access.
+These services do not use LDAP for authentiation.
+They manage the LDAP directory content.
+
+| ou=Services
+| person
+| cn
+| Technical accounts for ordinary services.
+Usually read-only access.
+The services use LDAP primarily to authenticate users (bind) and get user profile.
+
+|===
+
+== Schema
+
+We recommend adding `midpoint.schema` to the OpenLDAP server.
+This schema adds one auxiliary object class `midPointPerson`. This class has optional attribute `midPointAccountStatus` that is used to disable the account.
+
+The schema can easily be added by using the wiki:slapdconf[slapdconf] utility:
+
+[source]
+----
+sudo slapdconf add-schema -f midpoint.schema
+----
+
+== Account Disable Mechanism
+
+OpenLDAP does not have any good mechanism to disable an account.
+There is a way how to inactivate an account by clever setup of password policy and account operational attributes.
+Simply speaking this method pretends that the user tried to log in too many times and it efficiently "locks" the account password.
+We *do not recommend* to use this technique.
+Password lockout and account administrative disable are two very different things:
+
+* *Password lockout* represents the state that the user tried to log in too many times and failed.
+It is an state that is automatically managed by the machine (directory server).
+
+* *Administrative disable* is a decision of system administrator to prohibit any use of the account.
+This is an explicit decision of a human.
+
+These two states are almost orthogonal.
+We definitely do not want this to be represented by a single state variable.
+If it is in fact a single variable then the following chain of actions can easily happen:
+
+. Administrator disabling an account (which looks exactly like password lockout).
+
+. User cannot log in.
+He figures that something went wrong.
+
+. User calls the call center operator complaining about login problems.
+User properly authenticates to the call center operator.
+
+. The operator checks that the account is locked out.
+She figures that the user tried to log in too many times.
+As the user is properly authenticated the operator enables the account.
+
+. User logs in - although the account should be disabled.
+
+This is the reason to have a separate attributes that represent each state individually.
+OpenLDAP has operational attributes to specify account lockout.
+But it has no such attribute to specify account administrative status.
+Therefore we had to add such an attribute in the midpoint.schema (see above).
+
+Adding an attribute is one part of the solution.
+The other is to disable access to the account if the attribute `midPointAccountStatus` is set to `disabled`. We have found that the best way to do this is to use ACLs:
+
+* The ACLs will disable authentication (the `auth` access) for any object that matches filter `(midPointAccountStatus=disabled)`.
+
+* The ACLs will disable access to the userPassword attribute of any object that matches filter `(midPointAccountStatus=disabled)`.
+
+The example of such ACL can be found in file `olcAccess.ldif`.
+
+This efficiently disables access by using any password-based authentication and any internal OpenLDAP authentication.
+However it will *not* disable access to non-password authentications that do not use LDAP `bind` operation.
+Authentication based on SSH keys is one such example.
+In this case the client (Unix box) has to explicitly check for the value of `midPointAccountStatus` atttribute.
+This is the best we can do.
+
+TODO: refusing access to the entire object could work, but can cause a lot of harm.

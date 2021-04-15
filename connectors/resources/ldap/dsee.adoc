@@ -1,0 +1,198 @@
+= Directory Server Enterprise Edition
+:page-wiki-name: Directory Server Enterprise Edition
+:page-toc: top
+:page-upkeep-status: yellow
+
+[%autowidth,cols="h,1"]
+|===
+| Status
+| Provisioning works well. +
+Synchronization works well.
+
+| Recommended connector
+| xref:../../connectors/com.evolveum.polygon.connector.ldap.LdapConnector/[]
+|===
+
+DSEE is an LDAP server, therefore provisioning is done using normal LDAP operations.
+
+The changes in DSEE are detected using _Retro Change Log_ mechanism.
+Retro Change Log is presented as an LDAP subtree with base DN of `cn=changelog`. Each change is represented as an entry in that subtree and it remains in that subtree for few days.
+
+Identity Connector Framework (ICF) LDAP connector is recommended.
+The connector scans the `cn=changelog` subtree for new entries in regular intervals.
+
+The connector is using a special user for accessing DSEE, e.g. `uid=idm,ou=Administrators,dc=example,dc=com`. The connector should not use the `cn=directory manager` superuser.
+Firstly, this is a best practice.
+Secondly, midPoint is itself making the changes to the directory tree during provisioning.
+We do not want to detect these changes in LDAP (as "echoes"), as it may cause loops in the business logic.
+Therefore connector is filtering out all changes made by this user.
+Therefore, this user should be dedicated to midPoint.
+
+== Resource Configuration
+
+=== Oracle DSEE Installation
+
+This installation guide describes installation under GNU/Linux.
+Full installation guide is available at: link:http://download.oracle.com/docs/cd/E19656-01/821-1503/index.html[http://download.oracle.com/docs/cd/E19656-01/821-1503/index.html].
+
+Download Oracle DSEE from Oracle's website.
+You may need to login with your Oracle SSO credentials.
+The ZIP file is named similarly to "`ofm_odsee_linux_11.1.1.3.0_32_disk1_1of1.zip`" or "`ofm_odsee_linux_11.1.1.5.0_64_disk1_1of1.zip`".
+
+Unzip the downloaded file.
+
+Go to the "`ODSEE_ZIP_Distribution`" directory.
+
+Unzip the "`sun-dsee7.zip`" file to your installation directory, e.g. "`/opt`". "dsee7" directory will be created.
+
+We will skip control center installation and go to the directory server instance creation now.
+The instance data will be stored in `/opt/dsee7/dsInst` and will be listening on +
+ ports 1389 (LDAP) and 1636 (LDAPS).
+
+.Directory Server Instance Creation
+[source,bash]
+----
+/opt/dsee7/bin/dsadm create -p 1389 -P 1636 /opt/dsee7/dsInst
+----
+
+=== Starting/Stopping DSEE Instance
+
+Use `dsadm` command to start/stop your instance:
+
+.Starting DSEE instance
+[source,bash]
+----
+/opt/dsee7/bin/dsadm start /opt/dsee7/dsInst
+----
+
+.Stopping DSEE instance
+[source,bash]
+----
+/opt/dsee7/bin/dsadm stop /opt/dsee7/dsInst
+----
+
+
+=== Setting Up Directory Content
+
+The directory server needs to be populated with data (at least basic tree structure) and a midPoint administrative user has to be created.
+The user is assumed to be `uid=idm,ou=Administrators,dc=example,dc=com` in following examples.
+
+.IDM Administrative User
+[source,ldif]
+----
+dn: uid=idm,ou=Administrators,dc=example,dc=com +
+ objectclass: top +
+ objectclass: person +
+ objectclass: organizationalPerson +
+ objectclass: inetOrgPerson +
+ uid: idm +
+ cn: IDM Administrator +
+ sn: IDM Administrator +
+ description: Special LDAP acccount used by the IDM to access the LDAP data. +
+ ou: Administrators +
+ userPassword: secret
+----
+
+First, a new empty directory suffix (database) must be created:
+
+[source,bash]
+----
+/opt/dsee7/bin/dsconf create-suffix -p 1389 -N "dc=example,dc=com"
+----
+
+You can import the base LDAP structure with the user described above (with corresponding ACI) by importing any `*.ldif` file from `samples/dsee` directory, e.g.:
+
+[source,bash]
+----
+ldapadd -f example-base-only.ldif -h localhost -p 1389 -D "cn=Directory Manager" -W
+----
+
+
+=== Enabling Retro ChangeLog
+
+To enable external access to Changelog data, Retro Changelog must be enabled:
+
+[source,bash]
+----
+/opt/dsee7/bin/dsconf set-server-prop -h localhost -p 1389 retro-cl-enabled:on
+----
+
+Restart the directory server instance:
+
+[source,bash]
+----
+/opt/dsee7/bin/dsadm stop /opt/dsee7/dsInst
+/opt/dsee7/bin/dsadm start /opt/dsee7/dsInst
+----
+
+Your Changelog data should now become visible as `cn=changelog`.
+
+More information about Changelog can be found in link:http://download.oracle.com/docs/cd/E20295_01/html/821-1220/bcase.html[Oracle's DSEE7 Administration Guide].
+
+
+=== Access Control Setup
+
+The IDM administration account needs access right to the `cn=changelog` suffix. +
+ Create a LDIF file with the following contents:
+
+[source,ldif]
+----
+dn: cn=changelog
+changetype: modify
+add: aci
+aci: (target="ldap:///cn=changelog")(targetattr="\*||+")(version 3.0; acl "IDM Access to ChangeLog"; allow (read,search,compare) userdn="ldap:///uid=idm,ou=Administrators,dc=example,dc=com";)
+----
+
+== Connector Configuration
+
+* https://github.com/Evolveum/midpoint-samples/tree/master/samples/resources/dsee
+
+
+== Troubleshooting
+
+
+=== Check Retro Changelog State
+
+[source,bash]
+----
+/opt/dsee7/bin/dsconf get-server-prop -h localhost -p 1389 retro-cl-enabled
+----
+
+=== Check External Changelog Availability
+
+[source,bash]
+----
+ldapsearch -h localhost -p 1389 -D "uid=idm,ou=Administrators,dc=example,dc=com" -w secret -b "cn=changelog" "(objectclass=\*)"
+----
+
+
+=== Set Maximum Age For Changelog Entries
+
+[source,bash]
+----
+/opt/dsee7/bin/dsconf set-server-prop -h localhost -p 1389 retro-cl-max-age:duration
+----
+
+where duration can be either undefined (no age limit) or one of the following:
+
+* s for seconds
+
+* m for minutes
+
+* h for hours
+
+* d for days
+
+* w for weeks
+
+
+=== Enabling Rename/Move
+
+[source,bash]
+----
+/opt/dsee7/bin/dsconf set-server-prop -h localhost -p 1389 moddn-enabled:on
+----
+
+== See Also
+
+* xref:/iam/ldap-survival-guide/[]

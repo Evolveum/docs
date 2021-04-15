@@ -1,0 +1,172 @@
+= Any Command (CMD)
+:page-wiki-name: Any Command (CMD)
+:page-toc: top
+:page-upkeep-status: yellow
+
+[%autowidth,cols="h,1"]
+|===
+| Status
+| Provisioning works well.
+Synchronization is not tested, but LiveSync is not supported.
+
+| Recommended connector
+| xref:../connectors/net.tirasa.connid.bundles.cmd.CmdConnector/[]
+|===
+
+The ConnID CMD Connector can be used to execute any commands using scripts.
+The following steps describe setup for creating directories with custom permissions on Linux server.
+
+
+== Resource Configuration
+
+Directory /tmp/homedirs is assumed to exist.
+If you wish to use another directory, please modify the resource sample and be sure you have permissions for that directory (read/write).
+
+The Groovy scripts implementing the operations are stored in `samples/resources/cmd/*.sh`. The scripts must be executable and need to be referenced from the resource:
+
+* link:https://github.com/Evolveum/midpoint/blob/master/samples/resources/cmd/CreateScript.sh[CreateScript.sh]: implements the create operation (account is assumed to be a directory)
+
+* DeleteScript.groovy: implements the delete operation (account is assumed to be a directory) - not used now
+
+* link:https://github.com/Evolveum/midpoint/blob/master/samples/resources/cmd/SearchScript.sh[SearchScript.sh:] implements the search/get operation (account is assumed to be a directory)
+
+* link:https://github.com/Evolveum/midpoint/blob/master/samples/resources/cmd/TestScript.sh[TestScript.sh:] implements the test connection operation
+
+* link:https://github.com/Evolveum/midpoint/blob/master/samples/resources/cmd/UpdateScript.sh[UpdateScript.sh:] implements the update operation (account is assumed to be a directory)
+
+[TIP]
+====
+You can make modifications to the samples as needed.
+
+CMD Connector does not support schema, so the schema with capabilities is statically defined in the resource sample.
+Make modifications there and in the shell scripts.
+
+Omitting script from resource configurationProperties will cause the connector to not support that operation.
+Please update the capabilities as well.
+
+====
+
+The configuration above and in the samples provides the following features:
+
+* creating directory with chosen permissions as the projection of user in midPoint
+
+* update the homedirectory permissions
+
+The only attributes configured for "accounts" (directories) are:
+
+* icfs:uid (readonly, the value is equal to icfs:name)
+
+* icfs:name (the directory name, outbound mapping is defined to concat /tmp/homedirs/ and user name from midPoint)
+
+* permissions (octal file permissions as in chmod, e.g. 755)
+
+Sample resource can be imported from `samples/resources/cmd/*.xml`.
+
+
+== Connector Configuration
+
+wiki:CMD+Connector[See CMD Connector documentation.]
+
+
+=== Connector Configuration Example
+
+[source,xml]
+----
+        <c:connectorConfiguration>
+
+            <!-- Configuration specific for the CMD connector -->
+            <!-- Please create /tmp/homedirs directory before testing of update the scripts -->
+            <icfc:configurationProperties
+            xmlns:connidcmd="http://midpoint.evolveum.com/xml/ns/public/connector/icf-1/bundle/net.tirasa.connid.bundles.cmd/net.tirasa.connid.bundles.cmd.CmdConnector">
+                <connidcmd:testCmdPath>/opt/midpoint.home-master-node1/scripts/cmd-sample/TestScript.sh</connidcmd:testCmdPath>
+                <connidcmd:createCmdPath>/opt/midpoint.home-master-node1/scripts/cmd-sample/CreateScript.sh</connidcmd:createCmdPath>
+<!-- Renaming / changing __UID__ (__NAME__ == __UID__) not supported by CMD connector -->
+                <connidcmd:updateCmdPath>/opt/midpoint.home-master-node1/scripts/cmd-sample/UpdateScript.sh</connidcmd:updateCmdPath>
+<!--                                <connidcmd:deleteCmdPath>/opt/midpoint.home-master-node1/scripts/cmd-sample/DeleteScript.sh</connidcmd:deleteCmdPath>-->
+                <connidcmd:searchCmdPath>/opt/midpoint.home-master-node1/scripts/cmd-sample/SearchScript.sh</connidcmd:searchCmdPath>
+
+            </icfc:configurationProperties>
+
+            <!-- Generic ICF configuration -->
+
+
+        </c:connectorConfiguration>
+
+            <!-- CMD connector does not support schema -->
+   <schema>
+      <definition>
+         <xsd:schema xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+                     xmlns:ra="http://midpoint.evolveum.com/xml/ns/public/resource/annotation-3"
+                     xmlns:tns="http://midpoint.evolveum.com/xml/ns/public/resource/instance-3"
+                     xmlns:a="http://prism.evolveum.com/xml/ns/public/annotation-3"
+                     elementFormDefault="qualified"
+                     targetNamespace="http://midpoint.evolveum.com/xml/ns/public/resource/instance-3">
+            <xsd:import namespace="http://midpoint.evolveum.com/xml/ns/public/connector/icf-1/resource-schema-3"/>
+            <xsd:import namespace="http://prism.evolveum.com/xml/ns/public/annotation-3"/>
+            <xsd:import namespace="http://midpoint.evolveum.com/xml/ns/public/resource/annotation-3"/>
+            <xsd:complexType name="AccountObjectClass">
+               <xsd:annotation>
+                  <xsd:appinfo>
+                     <ra:resourceObject/>
+                     <ra:identifier>icfs:uid</ra:identifier>
+                     <ra:secondaryIdentifier>icfs:name</ra:secondaryIdentifier>
+                     <ra:displayNameAttribute>icfs:name</ra:displayNameAttribute>
+                     <ra:namingAttribute>icfs:name</ra:namingAttribute>
+                     <ra:nativeObjectClass>__ACCOUNT__</ra:nativeObjectClass>
+                     <ra:kind>account</ra:kind>
+                     <ra:default>true</ra:default>
+                  </xsd:appinfo>
+               </xsd:annotation>
+               <xsd:sequence>
+                  <xsd:element minOccurs="0" ref="icfs:uid">
+                     <xsd:annotation>
+                        <xsd:appinfo>
+                           <a:displayName>ICF UID</a:displayName>
+                           <a:access>read</a:access>
+                        </xsd:appinfo>
+                     </xsd:annotation>
+                  </xsd:element>
+                  <xsd:element ref="icfs:name">
+                     <xsd:annotation>
+                        <xsd:appinfo>
+                           <a:displayName>ICF NAME</a:displayName>
+                        </xsd:appinfo>
+                     </xsd:annotation>
+                  </xsd:element>
+          <xsd:element minOccurs="1" maxOccurs="1" name="permissions" type="xsd:string">
+             <xsd:annotation>
+            <xsd:appinfo>
+               <a:displayName>permissions</a:displayName>
+            </xsd:appinfo>
+             </xsd:annotation>
+          </xsd:element>
+               </xsd:sequence>
+            </xsd:complexType>
+         </xsd:schema>
+      </definition>
+   </schema>
+...
+   <capabilities>
+      <native xmlns:cap="http://midpoint.evolveum.com/xml/ns/public/resource/capabilities-3">
+         <cap:testConnection/>
+     <cap:create/>
+     <cap:read/>
+     <cap:update/>
+<!--         <cap:delete/>-->
+<!--         <cap:script>-->
+<!--            <cap:host>-->
+<!--               <cap:type>resource</cap:type>-->
+<!--            </cap:host>-->
+<!--            <cap:host>-->
+<!--               <cap:type>connector</cap:type>-->
+<!--            </cap:host>-->
+<!--         </cap:script>-->
+      </native>
+   </capabilities>
+----
+
+
+=== Resource Sample
+
+See resource samples and shell implementation scripts in link:https://github.com/Evolveum/midpoint-samples/tree/master/samples/resources/cmd[Git samples directory for CMD connector (master)].
+
