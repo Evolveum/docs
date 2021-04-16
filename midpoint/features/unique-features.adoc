@@ -1,0 +1,443 @@
+= Unique Features
+:page-wiki-name: Unique Features
+:page-display-order: 20
+:page-upkeep-status: red
+:page-upkeep-note: Very outdated, not effective
+
+This page provides a very short list of what's unique in midPoint.
+MidPoint features and conceptual advantages can be found here.
+And what is perhaps even more important than the product itself is our wiki:Approach[approach].
+
+
+== Product Features
+
+MidPoint is full of unique features.
+It is difficult to select just few of them.
+But let's try ...
+
+For the sake of completeness there is a wiki:Features[list of most major features with descriptions].
+
+
+=== Relative Changes
+
+Mail article: wiki:Relativity[Relativity]
+
+The unique feature of midPoint is the method of dealing with data changes and consistency.
+Most identity management systems work with absolute state, e.g. the complete copy of new user or account data.
+In such a case it is difficult to maintain wiki:IDM+Consistency[consistency]. Consistency with absolute states require locking, which is very difficult to do reliably in such a diverse environment that is typical for identity management deployments.
+Long-running processes, such as those used for approvals, are a related issue.
+Such processes usually require the user record to be locked during the entire process, which may take hours or days.
+This is a major usability issue.
+
+Our solution is to use wiki:Deltas[relative changes] instead of absolute state.
+midPoint usually conveys only the information what was changed, does not transfer entire state.
+This goes down even to the level of individual attribute values.
+For example, adding a new role to a user only affects a single value of role assignment property.
+The rest of the user record is unaffected by this operation and therefore does not need to be locked.
+Also, other roles can be assigned to or revoked from the user at the same time, improving system usability.
+The system usually does not need locking, as it is operating on a common identity model that is well understood by system components.
+Therefore a very straightforward way of conflict-free merging of several operations is possible.
+
+This wiki:Relativity[relative approach] is an integral part of midPoint from the very beginning of the development.
+wiki:Deltas[Deltas] from the blood which circulates inside midPoint.
+This approach provides such obvious advantages that we often wonder how the other IDM system can live without it.
+To be completely honest this feature is not invention of midPoint.
+Similar approach is used in one of the most successful identity management technology of all times: LDAP.
+The LDAP protocol is using similar change propagation and weak consistency model and we have chosen to reuse that instead of re-inventing the wheel.
+
+
+=== Advanced RBAC
+
+Main article: wiki:Advanced+Hybrid+RBAC[Advanced Hybrid RBAC]
+
+MidPoint is using a Role-Based Access Control (RBAC) principle to make provisioning more manageable.
+However the use of simple RBAC leads to a wiki:Role+Explosion[role explosion] problem.
+Much more sophisticated approach is needed to make RBAC really useful.
+And that's exactly what midPoint has:
+
+* The roles may contain wiki:Outbound+Mapping[outbound mappings] that enforce specific account attributes or wiki:Entitlements[entitlements]. This is the traditional way how provisioning roles usually work.
+But midPoint makes this much more powerful then usual by the means of very flexible wiki:Mapping[mapping] mechanism.
+The wiki:Mapping+Relativity[mappings produce deltas] therefore it is easy and safe to merge results of many mapping together.
+That's exactly what is required in complex RBAC structures.
+
+* The roles can be hierarchical.
+One role can include another role.
+Therefore the roles can be used to form various models such as the frequently used "least privilege" structure.
+
+* Roles can be parametric.
+This means that a role does not contain specific value but just an expression.
+The expression computes the value from parameters which are usually stored in wiki:Assignment[assignments] or in subordinate roles.
+This simple mechanism is a very powerful weapon against wiki:Role+Explosion[role explosion]. E.g. a single role "assistant" can sufficient for the entire organization if it is parametrized by department and location.
+These two parameters reside in the wiki:Assignment[assignment] and can therefore be specified each time a role is assigned to a user.
+The expression in the role can use the department and location parameters e.g. to compute file server host name and home folder location.
+This is as close as a provisioning system can get to Attribute-Based Access Control (ABAC).
+
+* A single role can be wiki:Assignment[assignment] to a single user several times.
+Each specific assignment represents "contract" or "job" form the user.
+Each assignment can have specific parameters such as start and stop dates.
+
+* The roles in midPoint are not limited to the users.
+Any kind of wiki:Focus+and+Projections[focal object] can be assigned to a role.
+E.g. an wiki:Organizational+Structure[organizational unit] can be assigned to a role which specifies on which resources to create wiki:Focus+and+Projections[a projection] of that organizational unit.
+This projection may be in a form of LDAP `organizationalUnit` object, in a form of AD group or any other kind of resource object.
+This approach is generalizing RBAC also to non-user objects which greatly simplifies system maintenance.
+The roles can even be applied to roles themselves thus creating meta-roles.
+
+Especially the parametric roles and meta-roles can be used in a very simple and elegant configurations.
+A handful of wiki:Advanced+Hybrid+RBAC[roles], wiki:Object+Template[object templates] and wiki:Expression[expressions] can handle situations for which other IDM systems need thousands of lines of custom code.
+One such example can be found in wiki:OrgSync+Story+Test[OrgSync Story Test].
+
+
+=== Assignments
+
+Main article: wiki:Assignment[Assignment]
+
+Assignment is a basic structural element of midPoint policy.
+Assignments define what _should be_ (as opposed to wiki:Assigning+vs+Linking[links] which describe what _is_). Assignments associate a user with roles and resource objects such as accounts.
+Traditional IDM systems has a very simple structure instead of assignment.
+It is mostly binary: either a user has a role or he does not.
+This can work for very simple cases but it fails miserably in more complex scenarios.
+However the wiki:Assignment[assignment] in midPoint is much more powerful.
+It contains activation and deactivation dates.
+It can be conditional.
+It can contain parameters for wiki:Advanced+Hybrid+RBAC[parametric roles]. The consequence is that several assignments can be used to assign the same role to the same used at the same time.
+
+But the assignment is even more powerful than that.
+Only a very naive IDM project expects that everything and everyone will comply to to rules (e.g. wiki:Advanced+Hybrid+RBAC[RBAC]) and that there will be no exception.
+There are always exceptions.
+Assignments are a way to support such exceptions in systematic and elegant way.
+The assignments can make sure that the exceptions are recorded and properly managed.
+The assignment can specify attributes that are specific for a particular user.
+As assignment is a part of the policy, specifying attributes in assignment efficiently legalizes such exception.
+Think of the assignment as a _personal role_ that every user has for himself.
+Adding assignments to a user can be subject to approvals exactly like adding a role (because even roles are added in assignments).
+Therefore the processes can be created to make sure that the exceptions does not get our of control.
+
+
+=== Self-Healing
+
+Even though some experts hesitate to admit it the Identity Management is all about integration.
+The IDM systems interconnect many heterogeneous systems, tens or even hundreds of them.
+As the number of systems increases the probability that something goes wrong gets very close to certainty.
+Even if the number of the systems if still relatively small it is likely that at least one of them will be down for maintenance.
+Provisioning system pride themselves that they are non-intrusive and that native administration tools still work.
+Therefore it is also likely that administrators will use them from time to time and change the data.
+Traditional reconciliation is slow and inefficient especially if the number of identities increases.
+It is obvious that something has to be innovated here.
+So we did it:
+
+* MidPoint supports provisioning to an offline system.
+Once again we take advantage of wiki:Relativity[relative changes]. The wiki:Deltas[delta] that has to be provisioned to the unavailable system is recorded in the wiki:Shadow+Objects[shadow object] until the target system becomes available again.
+Then the delta is replayed.
+As deltas have natural ability to merge with existing state this approach is reasonably safe and it definitely improves the operational characteristics of the whole solution.
+
+* MidPoint has a sophisticated built-in opportunistic wiki:Consistency+mechanism[consistency mechanism]. There are several ways how midPoint can detect an inconsistency during a normal provisioning operation.
+E.g. midPoint may try to modify account that was accidentally deleted in the meantime - and an "object not found" error occurs.
+Or midPoint may try to create an account that was already created manually by system administrator - and "already exists" error occurs.
+Traditional IDM systems would usually just report the error and stop.
+But not midPoint.
+MidPoint will do a smart thing.
+It will process the policies and figure out what to do with the situation.
+Missing account can be re-created and the modify operation can be re-tried.
+Newly discovered account can be reconciled and the original operation can be restarted and recomputed - we can do that as we still have the original wiki:Deltas[delta]. Because of its unique design and architecture MidPoint can be much smarter than traditional IDM system.
+And that's exactly what it is.
+Smart.
+
+
+=== Generic Synchronization
+
+Main article: wiki:Generic+Synchronization[Generic Synchronization]
+
+Traditional IDM system deal just with the "identities" which essentially means _accounts_. But that's only a part of the story.
+There are groups, privileges, organizational units, projects, categories, teams, ... you name it.
+No identity management can ever be complete without dealing with objects like this.
+That's one of the reasons while a separate subfields such Privileged Identity Management (PIM) were invented.
+But there is no need for this to be separated from the Identity Management proper.
+In fact it makes no sense whatsoever to separate it.
+Connectors, policies, mechanisms - all of this can be reused.
+And midPoint is an excellent example.
+With wiki:Generic+Synchronization[Generic Synchronization] feature midPoint is reusing wiki:Synchronization[synchronization mechanisms], provisioning capabilities, wiki:Assignment[assignments], wiki:Mapping[mappings] and essentially almost all the other features of identity management to synchronize many object types.
+
+While this is a revolutionary concept when compared to "hardcore" user provisioning system, it may not seem so impressive in the company of more flexible metadirectory-based provisioning tools.
+These tools were able to do this for ages.
+But midPoint still have one major advantage: it allow to map these unusual resource object to objects that actually make sense from the business perspective.
+For example a group `wizards` in AD can be mapped to midPoint wiki:Organizational+Structure[organizational unit]`Wizards` which represent the "Wizard Task Force".
+This object is something that has a business meaning.
+It represents a real team in the organization, an ad-hoc group of people.
+And midPoint knows this.
+MidPoint can display it in the organizational tree (e.g. somewhere in the "ad-hoc teams" category).
+And it may be synchronized with a matching record in the HR system if it supports such concept.
+Then this midPoint organizational unit object can be mapped to `organizationalUnit` object in LDAP, to group `cn=wizards` in the same LDAP (yes, two objects of totally different type and meaning in the same resource), it can be also mapped to a SAP role `WIZ001` and so on.
+Which provides all the necessary information resources for the Wizard Task Force to do their magic efficiently.
+
+MidPoint does not blindly replicates the objects.
+Blind replication is usually a pointless and quite expensive exercise.
+MidPoint is designed to form a real information hub, to join information in a way that makes sense, to create and maintain wiki:Common+Data+Model[common data model]. MidPoint creates information structure that is exposing a meaning and brings value.
+
+
+=== Entitlements
+
+Main articale: wiki:Entitlements[Entitlements]
+
+Entitlements are groups, privileges or any kind of "things" on the resource side that can be associated with an account.
+Every non-trivial resource has some kind of entitlements and they need to be managed.
+The traditional way was to expose such entitlement as simple attribute values.
+But there are serious limitations inherent to this method.
+If entitlements are represented as a simple string values then there is no practical way how to list them.
+Therefore it is not possible to have efficient GUI code that let user select one group from a list of available groups.
+And even if there is a method for this it usually requires heavy customization and the list needs to be synchronized manually.
+This is deployment and operational nightmare.
+
+MidPoint formalizes the concept of entitlements.
+Entitlements are a first-class citizens in midPoint.
+But midPoint does even more.
+Even the association between entitlement and account is formalized.
+Therefore midPoint can list the entitlements but it also knows how it can be associated to an account.
+Therefore midPoint can list all the entitlements that a specific account has.
+And midPoint can also list all the entitlements that such account can possibly have.
+And it can also list all the "members" of an entitlement.
+
+And that's still not all.
+MidPoint provides abstraction over the technical implementation of the account-entitlement association.
+This is a critical feature.
+E.g. standard LDAP groups maintain a list of members.
+Therefore the account has no idea in which groups is belongs.
+The membership in the group is managed by modification of group attribute and no account attribute.
+This is where vast majority of IDM systems fail.
+Such systems create hacks in the connectors to show the group membership as kind of virtual attribute of the account - which brings more problem than it solves in the long run.
+And then there are such grouping schemes as the UNIX groups: primary group is an attribute of an account, secondary group membership is an attribute of a group.
+That's hard, isn't it? No, not really.
+Not for midPoint.
+MidPoint administrator has the ability to formally declare account-entitlement association.
+Both object-to-subject and subject-to-object schemes are supported.
+Once this is declared then midPoint transparently processes the association: it modifies both account and group during provisioning, it reads both account and a group when fetching data (if needed).
+And all of that works in a clean an elegant way without any need to complicate the connectors with ugly hacks.
+MidPoint provides data that are really meaningful - as opposed to most traditional IDM systems which provide only half-processed data.
+
+Group management has never been easier.
+
+
+=== Schemas and Prism Objects
+
+Now we will dig down into midPoint internals.
+But it is crucial to do so because it is not enough for midPoint to be technologically excellent now.
+It has to remain excellent and even improve in many years and decades to come.
+The basic building blocks are as important as the features.
+
+MidPoint is fully based on schemas.
+Schema means a formal definition of our wiki:Data+Model[data model]. The schema is defined once and then every midPoint component reuses that definition.
+The schema is even automatically translated to Java classes during the build to guarantee the best consistency and programming convenience.
+You may thing that this is not such a great achievement, this technique was invented more than a decade ago anyway.
+But the difference is that we work in the IDM field.
+Essential parts of the schema of IDM systems is not known during compilation.
+This includes schema for account attributes, schema for resource configuration, reports configuration and even custom schema extensions.
+Such schemas are _dynamic_ and they have to be interpreted at runtime.
+There was no available programming framework or library that can handle this kind of static-dynamic combination efficiently.
+Therefore we had to invent it.
+And that's what we did.
+
+The representation of data in midPoint is using a revolutionary technique called wiki:Prism+Objects[Prism Objects]. The data in prism objects is stored in form of rich hierarchical map-like structures.
+The data are then exposed by variety of interfaces, including compile-time JAXB interface and a run-time native interface that allows easy introspection.
+The data structures maintains both compile-time and run-time schema (type and structure information) which allows very flexible usage of the objects.
+
+This approach allows automatic data conversion in mapping.
+You will get all the scripting conveniences.
+You do not need to worry whether your script produces string while the attribute format requires a date/time information.
+MidPoint knows this and can convert data automatically.
+The schema spreads through the entire system even up to the user interface.
+Therefore user interface will automatically expand the forms when a new attribute is added to the schema.
+You will not need a convoluted proprietary language to painfully customize GUI forms again.
+MidPoint does that automatically.
+The schema is even exposed from midPoint APIs, therefore it can be used by third-part applications.
+
+You have to experience this on the battlefields of IDM deployment to fully understand the consequences.
+You will never go back to the previous generation of IDM systems.
+
+
+== Conceptual Advantages
+
+The conceptual advantages are much more than just product features.
+The advantages originate from the way how midPoint is constructed and maintained.
+This brings improvement to also any other feature of midPoint.
+It amplifies the benefits.
+
+
+=== Architecture
+
+Main article: wiki:Architecture+and+Design[Architecture and Design]
+
+MidPoint is based on a clean, elegant and well documented architecture.
+MidPoint is using proper software engineering techniques to guarantee systemic qualities of the resulting product.
+The entire system is decomposed to subsystems and these are in turn decomposed to components.
+Each subsystem and component has a clearly defined responsibility.
+The components communicate only be using well-defined interfaces.
+The whole structure is documented using UML diagrams and it is reflected all the way to the smallest bit of source code.
+The architecture is very stable.
+In fact the basic structure of subsystems, components and their responsibilities haven't changed in years.
+This is *not* because we are rigid and afraid of change.
+Quite the contrary.
+We like to change and improve things.
+But there was no reason to change the architecture in years.
+It still works very well and in fact it even exceeds the expectations.
+
+Clean architecture is crucial.
+It is not just about nice colorful diagrams to show in presentations.
+Good architecture ensures that the individual components can efficiently evolve.
+This is critical not only for the development team but especially for the users of the IDM system.
+A software that cannot efficiently evolve is fundamentally broken.
+It is useless.
+It is waste of resources.
+And this is what happened to traditional IDM systems.
+Most of them were designed in the age of enterprise megalomania.
+Their architectures are based on expensive and complicated components.
+The component isolation inside these dinosaurs was broken ages ago - it was sacrificed to quickly bring in a new features to match the competition.
+These system cannot efficiently evolve any more.
+Any change, any fix and especially any new feature is extremely expensive and takes ages to implement.
+That's the reason why we work really hard to maintain clean architecture in midPoint.
+We do not want to get into that state.
+
+Anyone can make sure that the architecture of midPoint is sound.
+Because it is wiki:Architecture+and+Design[publicly available] for peer review.
+And the wiki:Source+Code[source code] is available as well so anyone can make sure that the architecture is not just a pretty picture and that it is well reflected in the product.
+We do not need to hide anything.
+We are not afraid of public review.
+Quite the contrary.
+We are proud about what we have achieved.
+And we want everybody to know about it.
+
+
+=== Openness
+
+Main article: wiki:Openness[Openness]
+
+midPoint is completely open-source system.
+Complete source code to all system components is available for download any use.
+Complete open-source approach allows anyone to modify and adapt the system, anyone can fix the bugs and anyone can see inside the system.
+That's an important advantage.
+But there are differences even between open-source products.
+Some mostly pretend to be open but they try quite hard to figure out tricks how to make their customers pay a fortune in the long run.
+We are not using such tricks.
+We are *not* using open-core approach or any other community/enterprise edition split.
+Every part of midPoint is open and publicly available.
+We have also chosen one of the most liberal open source license available: link:http://www.apache.org/licenses/LICENSE-2.0.html[Apache License]. And we strictly stick to that license.
+We have decided not to accept any contribution under any other license.
+We also do not ask for contributor copyright assignments therefore the license is efficiently frozen in place and even we will not have the power to change it in the future.
+MidPoint is open and will remain open forever.
+
+Source code is only part of the story.
+It is important part but you need more to actually run the system.
+Therefore we also provide full documentation for the product, including installation manuals, administration manual, architectural diagrams, various HOWTOs and tutorials and FAQs and even our "knowledge base" in form of trouble ticket system records and mailing list communication.
+We do not hide information.
+We actually want others to learn as much about midPoint as they can.
+This actually plays to our advantage because our business model is based on wiki:Approach[cooperation].
+
+
+=== Reasonable Reuse Before Reinvent
+
+The first and the most important principle of midPoint is that it must be *practical*. Therefore we are reusing existing data formats and technologies rather than re-invening them - as long as they serve us well.
+E.g. Java platform is not ideal but it is perhaps the best option now.
+We are also reusing several XML-related technologies (such as XSD) for their practical benefits.
+We are reusing a lot of open-source libraries such as Jasper Reports for reporting or Activiti to drive workflows.
+We are IDM experts.
+And we would gladly use the products of reporting experts or workflow experts because we could do anything better even if we tried.
+
+We highly value the benefits that good *standards* bring.
+But we also avoid lock-in to over-complicated and unusable standards.
+For example SPML is a "standard" in the identity management field that was targeting unification of provisioning protocols.
+It has failed.
+First version was overly simplistic, second version is too complex, very vague and not even internally consistent.
+We may expose a SPML endpoint externally (if really needed), but we will not commit ourselves to such non-practical solution internally.
+Internally we use our own set of interfaces that suits our purpose better.
+SCIM is slightly different case but it is unfortunately in many aspects very similar to SPML.
+SCIM is an excellent example of premature standardization.
+The definition is so vague that it simply does not make sense to implement it.
+The chance that two SCIM implementations will work together in real world is minimal.
+And the real world is what we are looking for, not just the laboratory environment of carefully designed interoperability tests.
+We might implement SCIM support in the future if there will be an sufficient demand.
+But we do not see any reason to do so right now.
+We rather bet on reusing the connector infrastructures and on the proven flexibility and ability of the connectors to solve real-world problems.
+
+We believe that standards have to be accompanied by a working (open source) code or ideally originate from such code.
+A standard needs to be practical, not just being a broad compromise of competing interests that does not really work in practice.
+A "standard" without a successful fully-featured open-source reference implementation is not a standard at all.
+
+We also *avoid hypes* that just re-invent existing technology.
+That's the reason why we don't use JSON internally.
+We think of JSON as yet another data representation format which is almost the same as XML.
+While JSON tries to improve the problems of XML, it mostly makes them only worse.
+Also, there is insufficient support of JSON (and JSON schema, namespaces, ...) in existing libraries, therefore committing to JSON would considerably slow down the development.
+We support JSON as much as we support XML: as a data representation format.
+But our wiki:Prism+Objects[internal data representation] is much more generic than XML or JSON.
+
+There are many examples of IDM systems that have fallen into the technological traps and bound themselves to a bad standards or data formats.
+The way out of that trap is very difficult and in many cases it is a death sentence.
+We have been lucky enough to foresee the situation and we have successfully avoided such pitfalls.
+
+
+=== Pragmatic SOA and REST
+
+Service-Oriented Architecture (SOA) is a great idea.
+However this is usually not the case when it comes down to the implementation of SOA concepts.
+The deployers of SOA solutions too often forget about the basic principles of the software architecture which should be the crucial part of Service-Oriented _Architecture_. The widely spread idea is that the first and essential part of SOA is an Enterprise Service Bus (ESB) and that this single component is a solution  to all the problems.
+It isn't. We can tell for sure.
+We have wiki:midPoint+History[been there] already.
+Several times.
+
+We fully support SOA *principles* such as publishing of independent services which can be composed into a larger solutions.
+We just know first-hand that the *techniques* which are currently used to implement it are more than questionable.
+They way in which we support Service-Oriented Architecture is what we call *pragmatic SOA*. It is basically this:
+
+* MidPoint is exposing vast majority of its functionality in the form of a network service which follows a *well-defined interface*.
+
+* The service is exposed in several forms:
+
+** Java API (local only)
+
+** SOAP-based web service with WSDL definition
+
+** HTTP-based RESTful service
+
+
+
+* The specific interface definition is adapted to the form which is appropriate for each technology.
+E.g. We have Java classes for Java API and WSDL for SOAP.
+Shamefully REST does not have any way of formal interface definition therefore we at least have a textual description and examples.
+
+* The functionality of all the interface forms is roughly equivalent - considering limitations of each technology.
+
+* We try to follow standards (Java, WSDL) and existing conventions (REST) as much as practically possible.
+
+* The interfaces follow a proper software engineering practice: none of them is designed especially for a specific case or architecture.
+They are generic.
+Universal.
+
+Therefore:
+
+* MidPoint can be used as a service in traditional ESB-driven Service-Oriented Architectures by the means of midPoint SOAP web service.
+
+* MidPoint can be used as a service in Resource-Oriented Architectures (ROA) by the means of midPoint RESTful service.
+
+* MidPoint can be used as an orchestrator for the purposes of identity integration.
+
+Which in fact means that midPoint can be used in almost all the currently fashionable architectures as a first-class citizen.
+However midPoint is not bound to any particular integration architecture.
+It just follows the practical, pragmatic way, good engineering practices and common sense.
+That's the reason it works so well.
+
+
+== See Also
+
+* wiki:Approach[Approach]
+
+* wiki:Relativity[Relativity]
+
+* wiki:Deltas[Deltas]
+
+* wiki:Consistency+mechanism[Consistency mechanism]
+
+* wiki:Prism+Objects[Prism Objects]
+
+* wiki:Architecture+and+Design[Architecture and Design]
+
+* wiki:Openness[Openness]
+
