@@ -15,7 +15,6 @@ gem "evolveum-jekyll-theme", "~> 0.1.0"
 group :jekyll_plugins do
   gem "jekyll-feed", "~> 0.12"
   gem 'jekyll-asciidoc'
-  gem 'coderay'
 end
 
 # Windows and JRuby does not include zoneinfo files, so bundle the tzinfo-data gem
@@ -28,5 +27,4 @@ end
 # Performance-booster for watching directories on Windows
 gem "wdm", "~> 0.1.1", :install_if => Gem.win_platform?
 
-gem "kramdown-syntax-coderay"
 gem "evolveum-jekyll-plugin"
