@@ -1,0 +1,163 @@
+= Messaging Resources
+:page-wiki-name: Messaging Resources
+:page-planned: true
+:page-upkeep-status: red
+:page-upkeep-note: Reflect recent developmnet
+:page-toc: top
+
+== Background
+
+Normal midPoint operation assumes that the resource support full range of CRUD (create-read-update-delete) operations.
+This makes perfect sense as vast majority of real-world resources are using CRUD paradigm.
+But there are also resources that do not work in the CRUD way - or resources where the CRUD-like access is not desirable.
+Those are often resources that publish updates to resource objects by using messaging technologies.
+MidPoint cannot read from such resources.
+But it can get information about all updated objects in form of notification messages.
+Or in other cases midPoint can send out update commands using messages.
+
+The big problem here is that midPoint cannot read directly from the resource.
+However, midPoint is designed to work with the most recent data from the resource as this is the most efficient way and it also lowers the risk of data problems such as inconsistencies.
+Therefore midPoint assumes that data from the resource are readily available.
+Many algorithms are based on this assumption.
+Luckily, midPoint is also based on concept of wiki:Relativity[relative changes], therefore it can be quite forgiving if the data are not entirely up-to-date.
+But some data need to be available for the computation.
+Which is obviously a problem for resources where we cannot read or search the data.
+
+
+== Solution
+
+This is not the first time that we encounter this problem.
+Previous work on midPoint motivated us to start experimenting with wiki:Attribute+Caching[attribute caching] some time ago.
+This mechanism allows midPoint to keep track of the last known resource attribute values.
+MidPoint can then use cached values as a base for computation in case that the original is not available.
+This approach could be used for messaging-based resources.
+
+Second part of the solution is the interface for the messaging system.
+And that is the part where there is a big difference between source and target systems.
+
+
+=== Source Resources
+
+In this case the resource is sending updates to midPoint.
+MidPoint is supposed to process the updates and acknowledge the messages when they are processed.
+This type of information would be used to connect to a system which is a source of information.
+This would typically involve massive user bases where it is not realistic to use reconciliation.
+Therefore message-based updates with (nearly) transactional reliability are the best option.
+
+The implementation will involve a new service in midPoint.
+Therefore midPoint will become a listener on a message queue.
+MidPoint will process the messages, internally invoking notifyChange() operation which is a part of wiki:IDM+Model+Interface[IDM Model Interface]. This operation is used to let midPoint know that a change has occurred on the resource - which is exactly the meaning of the message.
+This interaction can handle synchronization (inbound create, update and delete changes).
+Read and search operations will be handled by wiki:Attribute+Caching[attribute caching]. Outbound write operations (create, update and delete) will not be supported.
+
+*Implementation note:* The notifyChange() operation is designed to work with shadows and the inbound message will not contain any reference to the shadow.
+Therefore we will need to implement a mechanism what is using the message to locate appropriate shadow and then invoke notifyChange(). But this is almost the same process as provisioning component already does for synchronization.
+This just needs some thoughts about proper architecture, placing into components and so on.
+There is also an error handling problem: what to do with message that point to shadow which is not there?
+
+Message acknowledge is a very important aspect for reliability of the communication channel.
+The act of message acknowledge means that midPoint takes over the responsibility for reacting on the message.
+Therefore the message must be acknowledged only if its effects are _durable_. In midPoint parlance this usually means that we can acknowledge the message only after the focal object was successfully updated.
+This means that midPoint have also tried to update the resources.
+And in any case of failures there will be pending operations or that the values are recorded in another way (e.g. recorded in focal object and waiting for reconciliation).
+If implemented correctly this should be relatively straightforward and reliable mechanism.
+However, we may need to make this configurable for each resource.
+
+*Explanation: Why we cannot use ConnId connector for this?* There are several reasons.
+Firstly, there is no reliable way how the synchronization could acknowledge or not acknowledge a message.
+The only supported mechanism is to interrupt synchronization if any error occurs.
+Which may be sufficient for simple cases.
+But it may be a dead end in case that we need to do smarter error handling.
+Secondly, ConnId synchronization assumes that the connector can get a complete new state of the resource object.
+Which is a reasonable assumption to make for ordinary connectors.
+But messaging-based connectors need to get "latest known" state from midPoint cache.
+That cache is a midPoint-specific mechanism and ConnId connectors are generic.
+Therefore connectors do not have access to that cache.
+Strictly speaking, it may be possible to midPoint ConnId framework to support this mode of operation.
+But it will undoubtedly complicate the framework.
+In fact, the primary benefit of the framework is to provide protocol adaptation.
+But in this case the JMS itself is a protocol adapter.
+All of that combined with fact that the wiki:ICF+Issues[framework is ageing] suggest that a solution not based on ConnId framework may provide a better perspective for the future.
+
+
+=== Target Resources
+
+Target messaging-based resource may use a new special built-in midPoint connector in a similar way that wiki:Manual+Resource+and+ITSM+Integration[manual resources] are using.
+Such connector will be write-only.
+Reading part will be provided by the attribute cache.
+
+
+=== Discussion
+
+This will be just one common "connector" code for all resources.
+We rely on JMS to provide protocol adaptation - and also message format adaptation to some extent.
+JMS should abstract the specific details of the messaging system (protocols, queues, message filters).
+But that also means that the message format is fixed (see below).
+
+We would like to have separate queue connection parameters for each resource.
+Therefore the queue and parameters of JMS connection should be part of resource configuration.
+As this won't be ConnId connector and the next-gen connector framework is still far from being finished, this may be slightly harder to achieve.
+But it can work if we make this kind of messaging connectors as one of the "built-in" connectors (similar to manual connector).
+The drawback is that it will be quite hard to have custom message processing code.
+At least until the next-gen connector framework is finished.
+
+We do want this approach to be resource-centric or connector-like.
+Alternative approach would be to create custom service that invokes Model API directly (or use wiki:Messaging+API[Messaging API]) using CRUD paradigm.
+But that would not be resource-centric as that would update the user.
+What we want is to use notification about resource object (account) update.
+The former case (updating user) means that the custom service needs to do all data mapping.
+Therefore the mapping will be hardcoded and less flexible.
+The later case (updating account) means that we may use midPoint wiki:Inbound+Mapping[inbound mappings] that are easily configurable.
+
+There may be a benefit in exploring how to unify inbound and outbound connectors.
+We should explore unification of the configuration parameters at the very least.
+However, unification attempts may be interesting for the development of next-gen framework, as this kind of "listener" connector is something that we would like to support in the next-gen platform.
+
+This approach could be extended in the future to include other "change listener" approaches.
+Such as REST "endpoint" that would listen for change notification.
+This is essential a very similar mechanism, just the communication protocol is different.
+Therefore this approach (and possible a lot of code) can be reused.
+
+It may be worthwhile to explore possibility of combining ordinary CRUD-like connector with this "change listener" connector.
+Similar wiki:Multi-Connector+Resource[multi-connector] functionality was achieved for wiki:Manual+Resource+Configuration[semi-manual resources ] therefore it may also be possible in this case.
+
+
+=== Drawbacks
+
+The connector will support a fixed message format, which is essentially simple attribute-value pairs.
+Those may be JMS "map" message or simple XML or JSON formats.
+However, it is a responsibility of the sender to adapt to the message format.
+In practice this is often achieved by message transformation in intermediaries (e.g. message bus).
+
+Such connectors cannot (directly) support reconciliation mechanism.
+MidPoint cannot actively read from the resource, therefore ordinary reconciliation is not possible.
+Reconciliation-like functionality may be possible by using the messages in a creative way, e.g. by sending update messages with all the attributes for all the objects.
+However, this may be very expensive operation.
+The wiki:Multi-Connector+Resource[multi-connector] functionality may be one of the solutions here.
+
+Error handling may be more difficult that it may seem at the first sight.
+E.g. there is a problem of unprocessable message.
+Should such message stop all the processing, which will block processing of all subsequent messages? That would be a safe thing to do, as there may be dependencies in message ordering (message announcing creation of a group should be processed before any messaging assigning members to that group).
+But that means a single malformed message can knock out entire IDM solution.
+On the other hand, ignoring the message and proceeding with the processing may be dangerous, especially considering that we cannot do efficient reconciliation.
+In traditional enterprise IDM reconciliation was always considered as a safety measure that will fix everything in case that something goes wrong.
+We will not have that luxury in this case.
+
+wiki:Resource+Schema[Resource schema] needs to be configured manually in midPoint, as there is no way for automatic schema discovery in this case.
+But this is not a big problem (once again it is similar to manual connectors).
+
+While midPoint is built with wiki:Relativity[relativity] in mind, this relativity is not complete.
+MidPoint evolution, and especially financial and scheduling constraints, forced us to make compromises during midPoint development.
+This does not affect correctness of midPoint computation, but it may affect performance.
+The deployments that rely on a lightweight processing of large number of small changes may be affected.
+Please see wiki:Complete+Relativity[Complete Relativity] page for more details.
+
+
+== See Also
+
+* wiki:Attribute+Caching[Attribute Caching]
+
+* wiki:Messaging+API[Messaging API]
+
+* wiki:Complete+Relativity[Complete Relativity]
+

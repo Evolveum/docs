@@ -1,0 +1,150 @@
+= Expression Profiles: Full Implementation
+:page-wiki-name: Expression Profiles: Full Implementation
+:page-planned: true
+:page-upkeep-status: yellow
+
+== Motivation
+
+MidPoint wiki:Expression[expressions] are a very flexible tool that can be used to customize midPoint behavior almost to the extreme.
+Expressions are used everywhere: wiki:Mapping[mappings], role conditions, reports and all the way up to user interface customization.
+This flexibility is a fundamental part of midPoint design and it work incredibly well.
+
+However, flexibility also has a dark side.
+MidPoint expressions are powerful.
+But for some purposes they may be just too powerful.
+Expressions, and especially wiki:Script+Expression[scripting expressions], can do anything.
+This can be abused by a malevolent attacker to gain unauthorized access to data, disable the system or do almost any kind of damage.
+This is the very nature of customization based on scripting.
+Even though the dangers are quite obvious and self-explanatory, we have wiki:Security+Guide[warned] the users about this all the time.
+The recommendation was not to allow any untrusted user to set up any expression.
+
+But this can be improved by using wiki:Expression+Profiles[expression profiles.] Expression profiles are definitions, what an expression can and cannot do.
+For example an expression profile may dictate, that particular expression can only use `asIs` and `path` evaluators.
+And in case that `script` evaluator is used, only Groovy can be used as a scripting language, the script should be type-checked and only use of particular safe classes should be allowed.
+
+Expression profiles stared in midPoint 4.0. But the implementation is very limited.
+Only some restrictions can be applied, and even those limitations are quite shallow.
+
+
+=== Current Limitations
+
+Expression profiles is currently a very limited feature.
+General infrastructure for expression profiles is implemented in midPoint core, however it is not applied to all expressions.
+In fact, the only type of expression that is constrained by expression profiles are expression in JasperReport reports used in midPoint.
+
+For scripting evaluators, the only scripting language that can be constrained by a permission profile is Groovy.
+Other languages do not have this ability yet.
+And even Groovy is only constrained on a "compilation level", which is very shallow protection.
+There is no sandboxing yet.
+
+Support for expression profile identification in archetype policy is missing.
+
+There may be performance issues when using expression profiles, especially when used with big and complex permission profiles.
+The code is not yet optimized for performance.
+
+See wiki:Expression+Profile+Configuration[Expression Profile Configuration] page for more details.
+
+
+== Planed Improvements
+
+
+=== Play Well With Archetypes
+
+Expression profiles are designed to work with wiki:Archetypes[archetypes]. Archetypes are a good fit for expression profile identification.
+However, this functionality is not present in midPoint 4.0 yet.
+Once implemented, the use should be very simple:
+
+[source,xml]
+----
+<archetype>
+    ...
+    <archetypePolicy>
+        ...
+        <expressionProfile>safe</expressionProfile>
+        ...
+    </archetypePolicy>
+    ...
+</archetype>
+----
+
+Interesting things can be done when protection profiles are coupled with archetypes.
+For example, we can have wiki:Function+Libraries[function libraries] that can only contain constant literals (`value` expression evaluator).
+Therefore we can safely delegate administration of such function library to an administrator with limited privileges.
+We can sure that if such function library is used in scripts, it will not contain any harmful code.
+Or we can have role definitions, whose expression are heavily restricted to only use simple string operations in Groovy.
+Administration of such roles can also be safely delegated.
+
+
+=== Apply Profiles To All Expressions Everywhere
+
+The crucial part of expression profiles is to systematically apply them to all the expressions.
+It takes just a single unchecked expression to circumvent system security barriers and the impact could be catastrophic.
+Therefore the implementation should take care that the profiles are always applied for evaluation of all the expressions.
+MidPoint code is somehow prepared for this, as there is special code that the evaluation must pass through.
+Just the checks need to implemented and properly initialized from all the parts of the system.
+
+Testing will be also quite a big part of this task.
+There has to be a huge number of "negative" tests - tests that check that operations are properly denied.
+
+
+=== Sandbox
+
+Groovy is the only scripting language that can be constrained now.
+And even for Groovy the protection is quite shallow, as it is based on capabilities of Groovy compiler.
+The compiler-based protection only examines the script on the surface.
+Therefore the script cannot execute `System.exit()` directly.
+But somewhere in the system there may be a method which can be tricked to executing `System.exit()` under some circumstances.
+If such method is used, the compiler does not know that invoking that method may bring the system down.
+This can only be achieved by a run-time _sandboxing_ of the script execution.
+While Java platform supports this concept, it is not implemented into midPoint script evaluator yet.
+
+But that can be improved.
+We can implement full sandboxing of expression evaluation.
+In that case the script will be encapsulated in a _sandbox._ Java platform will check for any attempts that the code could make to escape the sandbox.
+The check is done at run-time, there even indirect attempts of a script to do any harm can be detected and eliminated.
+This is a native capability of the platform and it is pretty much bulletproof.
+And it can apply to all the scripting languages.
+However, it is not very easy to use and we expect a lot of unexpected surprises - as they often happen when sandboxing is used in practice.
+Not many libraries are used or tested in sandbox environment, and therefore it is often the case that a library needs much more privileges than strictly necessary.
+Compiler-based checks would pass in this case, as those are only concerned with the surface of what the script is using directly.
+But sandbox is "defense in depth", it checks for all the action that script does directly, but also for all the effects that script's actions are causing indirectly.
+And those are quite difficult to predict until we get to a practical use cases.
+This will require a lot of time for testing and fine-tuning.
+But when done, this will be the ultimate cage to restrain misbehaving scripts.
+
+
+=== Privileged Function Libraries
+
+There are cases when a script has to do something dangerous.
+As with all the dangerous things in life, it is very important to know how to do them safely.
+Obviously, there is some need for personal protective equipment.
+But this is not that easy if we lock up our script in a sandbox which the script cannot escape.
+We usually want those scripts to execute potentially dangerous code, if it is executed in a safe way.
+For example, we want the script to be able to access wiki:IDM+Model+Interface[midPoint model interface], as that interface is enforcing authorizations.
+But that one is quite easy, as we can hardcode such exceptions or make them configurable in protection profiles.
+But what about accessing custom functions, e.g. functions stored in wiki:Function+Libraries[function libraries]. For that we can create a privileged function libraries, whose methods can escape the protection of a sandbox.
+Privileged actions could be executed safely, as the library code may check for all the proper conditions and limitations before executing privileged operation.
+
+
+=== Performance
+
+The performance of expressions is crucial for the overall performance of midPoint deployments.
+We are doing quite a lot of things to make sure that expression performance is acceptable, e.g. we are caching compiled expressions to avoid the overhead of repeated compilations.
+The result is that midPoint expressions are lightning fast and there is almost no performance concern of using many expressions.
+And the use of really many expressions is a typical case for almost all midPoint deployment.
+
+However, things are slightly different when it comes to expression profiles.
+It is perhaps understandable, that enforcement of the profiles has some inherent overhead.
+But that overhead does not seem to be prohibitively high.
+The problem is that current implementation of expression profiles was created for smaller implementations.
+It was not developed with a performance in mind.
+Therefore the performance of profile checks in larger deployments should be tested and most likely improved to be practically usable.
+
+
+== See Also
+
+* wiki:Expression+Profiles[Expression Profiles]
+
+* wiki:Expression+Profile+Configuration[Expression Profile Configuration]
+
+* wiki:Security+Guide[Security Guide]
