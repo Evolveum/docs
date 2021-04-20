@@ -1,0 +1,146 @@
+= Development with LookupTable
+:page-wiki-name: Development with LookupTable
+:page-upkeep-status: yellow
+
+LookupTable is a strange new kind of animal that appeared in midPoint 3.1.1. What's strange about LookupTable is that is it both wiki:Basic+Data+Model[midPoint Object (with XML representation)] and a plain database table with several fixed columns.
+There are reasons for that:
+
+* We want LookupTable to be a midpoint object because we want it to be backed up and restored, migrated between environments, upgraded, etc.
+But when the LookupTable is presented as midPoint object it *does not need to be efficient*. E.g. the operations may take quite a long time and can be resource-intensive.
+Usual repository operations are used to access LookupTable as a midpoint object (e.g. getObject, modifyObject).
+
+* We want LookupTable to behave like an ordinary database table because we want to do very efficient queries (e.g. in GUI) and scalable mappings of large data sets.
+This kind of operation *must be very efficient* and it has to have minimal overhead.
+E.g. we want to call it quite often because of GUI auto-completion fields.
+
+
+== LookupTable Structure
+
+TODO:
+
+[source]
+----
+<lookupTable>
+  <name>Contry Codes</name>
+  <table>
+      <key>sk</key>
+      <value>Slovakia</value>
+      <label>Slovenská republika</label>
+  </table>
+  <table>
+      <key>tr</key>
+      <value>Turkey</value>
+      <label>Türkiye Cumhuriyeti</label>
+  <table>
+</lookupTable>
+----
+
+TODO: column meaning
+
+
+== Create and Modify LookupTable
+
+These are done by the ordinary wiki:Identity+Repository+Interface[Identity Repository Interface] operations.
+
+Creating LookupTable is easy.
+Just use repository.createObject(...). As is deleting, deleteObject(...) will do.
+
+The tricky part is table modification.
+All the properties can be modified as usual (e.g. `name`, `description`, `parentOrgRef`, ...). Except for the content of the `table` container.
+This one is special.
+
+The `table` container has one complex multi-valued property `row`. The row property has four elements: `key`, `value`, `label` and `lastChangeTimestamp`. Ordinary complex properties take all the elements into consideration when adding or deleting values.
+But `row` is different.
+The `row` only considers the `key` element.
+It means that:
+
+* When adding new value to the `row` property: repository looks at the `key` of the new value.
+If there is no record in the lookup table with such key, then the record is added.
+If there is already a record, that record is replaced.
+
+* When deleting a value of the `row` property: repository looks at the `key` of the value to remove.
+Only at the key.
+If there is any record with that key such record is removed.
+If there no such record then nothing happens.
+The other elements of the value (`value`, `label`, `lastChangeTimestamp`) does not matter in this case.
+Only the key is considered.
+
+* Replacing the values of the `row` property is a brutal thing to do.
+This will clean up entire table and put in a new set of value.
+It may cause a lot of database churn.
+We do not recommend to use this operation unless your really know what you are doing.
+
+There is also one more special thing.
+The `lastChangeTimestamp` element is operational.
+It is automatically maintained by the repository.
+If this value is not set in the row then repository will set it to the current time when the row is modified.
+Please note that if the `lastChangeTimestamp` is set then it is preserved.
+Repository will not overwrite it.
+This is a way how to preserve metadata, e.g. for backup/restore, migration or upgrades.
+
+
+== Query LookupTable
+
+LookupTable is queried by using usual getObject(LookupTableType, ...) operation.
+However to query the table efficiently there are options that allow to select just appropriate part of the table (which is usually just a single row).
+Use the `relationalValueSearchQuery` option with a selector that points to `table` item path.
+The option is defined in `RelationalValueSearchQuery` class.
+The class specifies one very simple search criterion.
+The result will be that the object of type LookupTableType is returned with all the usual attributes.
+But the `table` container will have only the values that match the query in the `relationalValueSearchQuery` option.
+
+*Do not use repository.searchObjects(...) with the content of lookup table (the `table` container).* This won't do any good.
+The repository behavior in this case is undefined.
+It may work sometimes, but it may also end with an error.
+Therefore just do not use it.
+Using searchObjects(...) with other properties is OK (e.g. searching by name or parentOrgRef).
+
+
+== Example
+
+[source]
+----
+<mapping>
+    <strength>strong</strength>
+    <expression>
+        <script>
+            <code>
+                import com.evolveum.midpoint.xml.ns._public.common.common_3.LookupTableRowType;
+                import com.evolveum.midpoint.xml.ns._public.common.common_3.LookupTableType;
+                import com.evolveum.midpoint.schema.GetOperationOptions;
+                import com.evolveum.midpoint.schema.RelationalValueSearchQuery;
+                import com.evolveum.midpoint.schema.RelationalValueSearchType;
+                import com.evolveum.midpoint.schema.SelectorOptions;
+
+                // default label, if key is not in lookup table
+                returnValue = 'DEFAULT LABEL';
+
+                query = new RelationalValueSearchQuery(LookupTableRowType.F_KEY, 'myKeyValue', RelationalValueSearchType.EXACT);
+                options = SelectorOptions.createCollection(prismContext.toUniformPath(LookupTableType.F_ROW), GetOperationOptions.createRetrieve(query));
+                LookupTableType lookup = midpoint.getObject(LookupTableType.class, 'lookup-table-oid', options);
+
+                log.info('lookup object = {}',lookup);
+                lookupRow = lookup.getRow();
+                log.info('lookup Row = {}',lookupRow);
+
+                // check if value exists in lookup table
+                if (lookupRow.size() > 0) {
+                    returnValue = basic.stringify(lookupRow[0].getLabel());
+                }
+
+                log.info('Returned value = {}',returnValue);
+                return returnValue;
+            </code>
+        </script>
+    </expression>
+    <target>
+        <path>$user/extension/myAttribute</path>
+    </target>
+</mapping>
+----
+
+
+== See Also
+
+* wiki:Identity+Repository+Interface[Identity Repository Interface]
+
