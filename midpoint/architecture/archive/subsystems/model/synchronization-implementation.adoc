@@ -1,0 +1,77 @@
+= Synchronization Implementation
+:page-archived: true
+:page-obsolete: true
+:page-wiki-name: Synchronization Implementation
+
+
+== Introduction
+
+The purpose of Synchronization functionality in midPoint is keep the data in the Resources and the midPoint repository synchronized.
+That may not necessarily mean the data needs to be the same.
+By "synchronized" we mean that the data should be as complete and up-to-date as possible and should not be contradictory.
+The data format and attribute meaning will vary from resource to resource, therefore midPoint cannot just blindly copy the data.
+Transformation and business rules must be applied to data as they pass in and out of midPoint.
+
+By _synchronization_ we mean quite a wide collection of mechanisms ranging from near-real-time process (_live synchronization_) to a scheduled batch processes (_reconciliation_). All such mechanisms are following the same principles and are using the same set of policies (configuration).
+
+
+== User in the Center
+
+The synchronization of several Resource accounts is always done indirectly, using the User object as an mid-point.
+Therefore the synchronization of (for example) LDAP and AD resources goes roughly like follows:
+
+. wiki:Provisioning+Subsystem[Provisioning] connector detects the change.
+It does its own housekeeping and notifies wiki:IDM+Model+Subsystem[IDM Model] about the change.
+
+. wiki:IDM+Model+Subsystem[Model] transforms the change of an account to a change of a user and applies that change to the User object in the IDM repository.
+
+. The change of the user object triggers normal provisioning changes to all Resource accounts that the user has.
+Roles may also come into the play here, e.g. triggering creation of a new account.
+
+. wiki:IDM+Model+Subsystem[Model] will invoke wiki:Provisioning+Subsystem[provisioning] to carry out the changes.
+
+First set of steps deals with an _inbound_ change.
+The change notification goes from the Resource into IDM.
+The second set of changes describes _outbound_ change.
+The changes go out of IDM to the Resources.
+
+Both inbound and outbound changes need to be transformed:
+
+* Inbound change is a change of an account object.
+It needs to be transformed to a change of a user object.
+
+* Outbound change is a change of a user object.
+It needs to be transformed to a change of an account object.
+
+Both types of transformations are defined in the `schemaHandling` section of appropriate _Resource_ definition.
+Each `attribute` part of the `schemaHandling` section may have an `inbound` expression and `outbound` expression.
+These expressions are usual midPoint expressions, which in fact means they are Groovy, JavaScript or Python scriptlets.
+See the wiki:Mappings+and+Expressions[Mappings and Expressions] page for an introduction to this topic.
+
+The reason for using the user object as a intermediary for all synchronization is to keep complexity under control.
+User object provides a common data schema, a common _lingua franca_ that can be mapped to any type of resource.
+This approach reduces the number of mappings that are needed to synchronize data in all resources.
+The number of mappings in midPoint is proportional to the number of resources (O(n)) while the number of any-to-any mappings is proportional to the square of number of resources (O(n^2^)). The any-to-any mapping gets out of control very quickly.
+Such mapping is usually very difficult to maintain for the number of resources as small as five, it is almost impossible to maintain if the number of resource is greater than ten.
+The user-centric mapping in midPoint can easily handle mapping of tens of resources and mapping of hundreds of resources is still maintainable.
+This is one of the ways how midPoint promotes good design of IDM deployments.
+
+
+== See Also
+
+* wiki:Synchronization[Synchronization]
+
+* wiki:Synchronization+Situations[Synchronization Situations]
+
+* wiki:Synchronization+Flavors[Synchronization Flavors]
+
+* wiki:Data+Model[Data Model]
+
+* link:https://svn.evolveum.com/midpoint/trunk/infra/schema/src/main/resources/xml/ns/public/common/common-1.xsd[Common XSD Schema] has a lot of in-line documentation.
+
+* wiki:Mappings+and+Expressions[Mappings and Expressions]
+
+* wiki:XML+Object+Query[XML Object Query]
+
+* wiki:User+Synchronizer[User Synchronizer]
+

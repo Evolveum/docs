@@ -1,0 +1,251 @@
+= User Synchronizer
+:page-wiki-name: User Synchronizer
+:page-archived: true
+:page-obsolete: true
+
+== Introduction
+
+User synchronizer (`UserSynchronizer`) is a heart of the wiki:IDM+Model+Subsystem[IDM Model Subsystem]. It takes care of synchronizing users and accounts in any situation.
+Therefore it is responsible for ordinary provisioning, live sync, reconciliation and even import.
+User synchronizer takes care of executing user template, computing assignments and RBAC, outbound expressions, credentials, etc.
+It is a place through which any modification of user object must pass.
+
+The goal of user synchronizer is to correctly propagate changes of accounts to the user (inbound), apply policies (user template, assignments, RBAC) and propagate user changes to accounts (outbound).
+User synchronizer is doing that in several steps that are described below.
+
+TODO: picture
+
+
+== Synchronization Context
+
+User synchronizer is *not* applying the changes by invoking provisioning or repository services.
+It is only computing the changes.
+This has several advantages.
+Firstly, if there is any critical error while the changes are being computed the whole operation can be safely aborted as no changes were done yet.
+Secondly, user synchronizer can be used to create a "preview" of changes before really applying them.
+
+User synchronizer is storing all the changes in a data structure called _synchronization context_ (`SyncContext`). Synchronization context describes user and all accounts that are linked to it (or accounts that are going to be linked).
+User always contain exactly *one user* and may contain *any number of accounts*. Each account is identified by _resource account type_ (RAT) which is a combination of resource OID and account type (e.g. `user`, `admin`, `test`).
+
+The context maintains several structures for the user and accounts:
+
+* *Old object* (`userOld`, `accountOld`): State of the object before the change.
+May be null if there was no such object before the change.
+Also note that in case of accounts it may not contain full account, but just a repository account shadow (depends whether reconciliation was requested or not).
+
+* *New object* (`userNew`, `accountNew`): State of the object after the change.
+This is in fact "old object" with all the relevant deltas applied to it.
+It may be null if there is no object after the change (e.g. user or account is deleted).
+
+* *Primary delta*: Change of user or account that was explicitly requested.
+E.g. a change that the IDM admin initiated from the GUI.
+This is considered to be immutable by the user synchronizer.
+Synchronizer will never change it.
+
+* *Secondary delta*: Changes that are caused by setting of expressions and policies.
+This is usually computed from the primary delta and various expressions (inbound, outbound, assignments, etc).
+Secondary delta is empty when user synchronizer is started and it may be updated in every step of synchronizer execution.
+
+* *Synchronization delta*: Changes that already happened before the synchronizer was invoked.
+This is the set of changes that the synchronizer may react to but it cannot change it in any way because it has already happened.
+
+
+== Synchronizer Steps
+
+Synchronizer executes in several sequential steps.
+Each step has a clear responsibility which part of synchronization policy it incorporates into the context.
+Each step usually transforms changes of user object to account objects or vice versa.
+
+The sequence of the steps can be observed by looking at system logs:
+
+Setting `MODEL` subsystem or `com.evolveum.midpoint.model.synchronizer` package to the `DEBUG` level will produce short description of changes after every step:
+
+.Synchronizer step debug example
+[source]
+----
+2012-05-07 14:11:31,194 [main] DEBUG [MODEL](c.e.m.model.synchronizer.SynchronizerUtil): Synchronization context changes after load:
+ObjectDelta(oid=c0c010c0-d34d-b33f-f00d-111111115555,MODIFY: ReferenceDelta( / {.../common/common-1.xsd}linkRef, ADD))
+ObjectDelta(oid=null,ADD: account:null(null))
+
+----
+
+Setting `MODEL` subsystem or `com.evolveum.midpoint.model.synchronizer` package to the `TRACE` level will produce following dumps after every step:
+
+.Synchronizer step dump example
+[source]
+----
+---[ CONTEXT after load ]--------------------------------
+SyncContext
+  Settings: assignments:NONE
+  USER old:
+    PO: {.../common/common-1.xsd}user, c0c010c0-d34d-b33f-f00d-111111115555 def({.../common/common-1.xsd}UserType)
+      PCV: null
+        PP: {.../common/common-1.xsd}description = [  ] def({http://www.w3.org/2001/XMLSchema}string)
+        PP: {.../common/common-1.xsd}name = [ PPV(String:wturner) ] def({http://www.w3.org/2001/XMLSchema}string)
+        PP: {.../common/common-1.xsd}fullName = [ PPV(String:Will Turner) ] def({http://www.w3.org/2001/XMLSchema}string)
+        PP: {.../common/common-1.xsd}givenName = [ PPV(String:Will) ] def({http://www.w3.org/2001/XMLSchema}string)
+        PP: {.../common/common-1.xsd}familyName = [ PPV(String:Turner) ] def({http://www.w3.org/2001/XMLSchema}string)
+        PP: {.../common/common-1.xsd}honorificPrefix = [  ] def({http://www.w3.org/2001/XMLSchema}string)
+        PP: {.../common/common-1.xsd}honorificSuffix = [  ] def({http://www.w3.org/2001/XMLSchema}string)
+        PP: {.../common/common-1.xsd}employeeNumber = [  ] def({http://www.w3.org/2001/XMLSchema}string)
+        PP: {.../common/common-1.xsd}locality = [  ] def({http://www.w3.org/2001/XMLSchema}string)
+        PC: {.../common/common-1.xsd}credentials def({.../common/common-1.xsd}CredentialsType)
+          PCV: null
+            PP: {.../common/common-1.xsd}allowedIdmAdminGuiAccess = [  ] def({http://www.w3.org/2001/XMLSchema}boolean)
+            PC: {.../common/common-1.xsd}password def({.../common/common-1.xsd}PasswordType)
+              PCV: null
+                PP: {.../common/common-1.xsd}protectedString = [ PPV(ProtectedStringType:com.evolveum.midpoint.xml.ns._public.common.common_1.ProtectedStringType@725d9b[encryptedData=org.w3._2001._04.xmlenc.EncryptedDataType@5f6d64[encry
+ptionMethod=org.w3._2001._04.xmlenc.EncryptionMethodType@106f9df[content=<null>,algorithm=http://www.w3.org/2001/04/xmlenc#aes256-cbc],keyInfo=org.w3._2000._09.xmldsig.KeyInfoType@fea41a[content=[
+               , javax.xml.bind.JAXBElement@1c7bbfc,
+            ],id=<null>],cipherData=org.w3._2001._04.xmlenc.CipherDataType@6d198[cipherValue={-107,82,54,124,-90,1,23,85,-20,-77,28,-72,31,24,54,126,-54,-109,88,80,-124,5,12,-27,-65,69,-96,15,73,77,-106,-40,-11,-104,124,-51,-31,27,-48,-1
+08,106,42,72,-11,-54,115,-18,-93},cipherReference=<null>],encryptionProperties=<null>,id=<null>,type=http://www.w3.org/2001/04/xmlenc#Element,mimeType=<null>,encoding=<null>],clearValue=<null>]) ] def({.../common/common-1.xsd}ProtectedSt
+ringType)
+        PP: {.../common/common-1.xsd}additionalNames = [  ] def({http://www.w3.org/2001/XMLSchema}string)
+        PP: {.../common/common-1.xsd}emailAddress = [ PPV(String:will.turner@blackpearl.com) ] def({http://www.w3.org/2001/XMLSchema}string)
+        PP: {.../common/common-1.xsd}employeeType = [  ] def({http://www.w3.org/2001/XMLSchema}string)
+        PP: {.../common/common-1.xsd}telephoneNumber = [ PPV(String:+1 408 555 1234) ] def({http://www.w3.org/2001/XMLSchema}string)
+        PP: {.../common/common-1.xsd}organizationalUnit = [  ] def({http://www.w3.org/2001/XMLSchema}string)
+  USER new:
+    PO: {.../common/common-1.xsd}user, c0c010c0-d34d-b33f-f00d-111111115555 def({.../common/common-1.xsd}UserType)
+      PCV: null
+        PP: {.../common/common-1.xsd}description = [  ] def({http://www.w3.org/2001/XMLSchema}string)
+        PP: {.../common/common-1.xsd}name = [ PPV(String:wturner) ] def({http://www.w3.org/2001/XMLSchema}string)
+        PP: {.../common/common-1.xsd}fullName = [ PPV(String:Will Turner) ] def({http://www.w3.org/2001/XMLSchema}string)
+        PP: {.../common/common-1.xsd}givenName = [ PPV(String:Will) ] def({http://www.w3.org/2001/XMLSchema}string)
+        PP: {.../common/common-1.xsd}familyName = [ PPV(String:Turner) ] def({http://www.w3.org/2001/XMLSchema}string)
+        PP: {.../common/common-1.xsd}honorificPrefix = [  ] def({http://www.w3.org/2001/XMLSchema}string)
+        PP: {.../common/common-1.xsd}honorificSuffix = [  ] def({http://www.w3.org/2001/XMLSchema}string)
+        PP: {.../common/common-1.xsd}employeeNumber = [  ] def({http://www.w3.org/2001/XMLSchema}string)
+        PP: {.../common/common-1.xsd}locality = [  ] def({http://www.w3.org/2001/XMLSchema}string)
+        PC: {.../common/common-1.xsd}credentials def({.../common/common-1.xsd}CredentialsType)
+          PCV: null
+            PP: {.../common/common-1.xsd}allowedIdmAdminGuiAccess = [  ] def({http://www.w3.org/2001/XMLSchema}boolean)
+            PC: {.../common/common-1.xsd}password def({.../common/common-1.xsd}PasswordType)
+              PCV: null
+                PP: {.../common/common-1.xsd}protectedString = [ PPV(ProtectedStringType:com.evolveum.midpoint.xml.ns._public.common.common_1.ProtectedStringType@725d9b[encryptedData=org.w3._2001._04.xmlenc.EncryptedDataType@5f6d64[encry
+ptionMethod=org.w3._2001._04.xmlenc.EncryptionMethodType@106f9df[content=<null>,algorithm=http://www.w3.org/2001/04/xmlenc#aes256-cbc],keyInfo=org.w3._2000._09.xmldsig.KeyInfoType@fea41a[content=[
+               , javax.xml.bind.JAXBElement@1c7bbfc,
+            ],id=<null>],cipherData=org.w3._2001._04.xmlenc.CipherDataType@6d198[cipherValue={-107,82,54,124,-90,1,23,85,-20,-77,28,-72,31,24,54,126,-54,-109,88,80,-124,5,12,-27,-65,69,-96,15,73,77,-106,-40,-11,-104,124,-51,-31,27,-48,-108,106,42,72,-11,-54,115,-18,-93},cipherReference=<null>],encryptionProperties=<null>,id=<null>,type=http://www.w3.org/2001/04/xmlenc#Element,mimeType=<null>,encoding=<null>],clearValue=<null>]) ] def({.../common/common-1.xsd}ProtectedStringType)
+        PP: {.../common/common-1.xsd}additionalNames = [  ] def({http://www.w3.org/2001/XMLSchema}string)
+        PP: {.../common/common-1.xsd}emailAddress = [ PPV(String:will.turner@blackpearl.com) ] def({http://www.w3.org/2001/XMLSchema}string)
+        PP: {.../common/common-1.xsd}employeeType = [  ] def({http://www.w3.org/2001/XMLSchema}string)
+        PP: {.../common/common-1.xsd}telephoneNumber = [ PPV(String:+1 408 555 1234) ] def({http://www.w3.org/2001/XMLSchema}string)
+        PP: {.../common/common-1.xsd}organizationalUnit = [  ] def({http://www.w3.org/2001/XMLSchema}string)
+  USER primary delta: null
+  USER secondary delta: null
+  ACCOUNTS:
+    ACCOUNT RAT(ef2bc95b-76e0-59e2-86d6-3d4f02d3ffff: null):
+      OID: 53e04545-48d1-48d2-be7f-546d8b7d0836, assigned=false, recon=true, decision=null
+      ACCOUNT old:
+        PO: {.../common/common-1.xsd}account, 53e04545-48d1-48d2-be7f-546d8b7d0836 def({.../common/common-1.xsd}AccountShadowType)
+          PCV: null
+            RAC: {.../common/common-1.xsd}attributes def({.../resource/instance/ef2bc95b-76e0-59e2-86d6-3d4f02d3ffff}AccountObjectClass)
+              PCV: null
+                RA: {.../connector/icf-1/resource-schema-1.xsd}name = [ PPV(String:uid=wturner,ou=People,dc=example,dc=com) ] def({http://www.w3.org/2001/XMLSchema}string)
+                RA: {.../resource/instance/ef2bc95b-76e0-59e2-86d6-3d4f02d3ffff}sn = [ PPV(String:Turner) ] def({http://www.w3.org/2001/XMLSchema}string)
+                RA: {.../resource/instance/ef2bc95b-76e0-59e2-86d6-3d4f02d3ffff}mail = [ PPV(String:will.turner@blackpearl.com) ] def({http://www.w3.org/2001/XMLSchema}string)
+                RA: {.../resource/instance/ef2bc95b-76e0-59e2-86d6-3d4f02d3ffff}l = [ PPV(String:Caribbean) ] def({http://www.w3.org/2001/XMLSchema}string)
+                RA: {.../resource/instance/ef2bc95b-76e0-59e2-86d6-3d4f02d3ffff}objectClass = [ PPV(String:person), PPV(String:inetOrgPerson), PPV(String:organizationalPerson), PPV(String:top) ] def({http://www.w3.org/2001/XMLSchema}string)
+                RA: {.../resource/instance/ef2bc95b-76e0-59e2-86d6-3d4f02d3ffff}telephoneNumber = [ PPV(String:+1 408 555 1234) ] def({http://www.w3.org/2001/XMLSchema}string)
+                RA: {.../connector/icf-1/resource-schema-1.xsd}uid = [ PPV(String:0686072f-0331-491f-85b7-561ed9c02ec3) ] def({http://www.w3.org/2001/XMLSchema}string)
+                RA: {.../resource/instance/ef2bc95b-76e0-59e2-86d6-3d4f02d3ffff}facsimileTelephoneNumber = [ PPV(String:+1 408 555 4321) ] def({http://www.w3.org/2001/XMLSchema}string)
+                RA: {.../resource/instance/ef2bc95b-76e0-59e2-86d6-3d4f02d3ffff}givenName = [ PPV(String:Will) ] def({http://www.w3.org/2001/XMLSchema}string)
+                RA: {.../resource/instance/ef2bc95b-76e0-59e2-86d6-3d4f02d3ffff}uid = [ PPV(String:wturner) ] def({http://www.w3.org/2001/XMLSchema}string)
+                RA: {.../resource/instance/ef2bc95b-76e0-59e2-86d6-3d4f02d3ffff}cn = [ PPV(String:Will Turner) ] def({http://www.w3.org/2001/XMLSchema}string)
+            PP: {.../common/common-1.xsd}objectClass = [ PPV(QName:{.../resource/instance/ef2bc95b-76e0-59e2-86d6-3d4f02d3ffff}AccountObjectClass) ] def({http://www.w3.org/2001/XMLSchema}QName)
+            PP: {.../common/common-1.xsd}name = [ PPV(String:uid=wturner,ou=People,dc=example,dc=com) ] def({http://www.w3.org/2001/XMLSchema}string)
+            PR: {.../common/common-1.xsd}resourceRef = [ PRV(oid=ef2bc95b-76e0-59e2-86d6-3d4f02d3ffff, targetType={.../common/common-1.xsd}ResourceType, type=null, source=null),  ] def
+            PC: {.../common/common-1.xsd}activation def({.../common/common-1.xsd}ActivationType)
+              PCV: null
+                PP: {.../common/common-1.xsd}enabled = [ PPV(Boolean:true) ] def({http://www.w3.org/2001/XMLSchema}boolean)
+            PC: {.../common/common-1.xsd}credentials def({.../common/common-1.xsd}CredentialsType)
+      ACCOUNT new: null
+      ACCOUNT primary delta: null
+      ACCOUNT secondary delta: null
+      ACCOUNT sync delta: null
+
+----
+
+The dump shows the state of the synchronization context after a _load_ step.
+See wiki:Diagnostics+Abbreviations[Diagnostics Abbreviations] for explanation of the acronyms.
+
+There is an explicit _recompute_ after each step.
+It means that if (secondary) deltas were changed during the step such change in deltas will be reflected to the `userNew` and `accountNew` objects after the step.
+
+
+=== Load Step
+
+Load step loads the missing parts of the context from the respository or provisioning.
+This is currently limited to the accounts.
+The load step will scan for any `linkRef` references in the user or user deltas, locate appropriate accounts and load the shadows from repository (usual case) or full accounts from provisioning (reconciliation case).
+
+
+=== Inbound Step
+
+Inbound step is processing the changes on accounts and reflects that to the user as specified by inbound expressions.
+Both _primary_ and _synchronization_ changes are processed in this step.
+
+
+=== User Policy Step
+
+User policy step currently applies user template to the user.
+It only works on user, not accounts.
+The goal is to maintain internal integrity of the user object as defined by the user template.
+This step is processing all user changes (both primary and secondary), recomputes them using user template and adds any extra changes to user secondary delta.
+
+
+=== Assignments Step
+
+Assignments step is processing all user assignments.
+It considers both existing user assignments and deltas of user assignments (added or removed assignments).
+It is also indirectly triggering the processing of RBAC roles.
+RBAC roles and direct assignments are all reduced to _account construction_ structures (`AccountConstruction`) that describe how a particular account type (RAT) should be constructed.
+Account constructions usually contain _value constructions_ (`ValueConstruction`) that describe how a particular account attribute should be constructed.
+
+Assignment step is *not* reflecting the changes to the deltas.
+It does not have enough information to do it yet.
+In particular the information about processing of outbound expression is missing at the very least.
+Assignments step is therefore storing the intermediate results in the `accountConstructionDeltaSetTriple` property of account context.
+This is used later in the values step.
+
+
+=== Outbound Step
+
+Outbound step is projecting user changes to accounts.
+It is following the outboud expressions defined in schema handling.
+It is also representing the results in a form of _account construction_. Similarly to the previous step the outbound step is *not* changing the deltas yet.
+Resluts of outbound step are stored in the `outboundAccountConstruction` property of account context.
+
+
+=== Values Step
+
+Values consolidation step is merging together the results of assignments and outbound steps and it is also validating the result.
+Values step determines the correct attribute values from (pre-computed) assignments, roles and outbound expressions stored in account context.
+It is processing the `initial` and `authoritative` flags, enforces access limitations (e.g. read only attributes), etc.
+
+The values step also checks for account uniqueness.
+In case that the uniqueness check fails, the values steps updates the iteration counter (and token), clears temporary computation results and restarts all the steps that deal with account attribute values (assignment and outbound).
+The iteration count and token are recorded in the account context.
+They are also displayed in the dumps but only during second and subsequent iterations.
+
+
+=== Credentials Step
+
+Credentials step replicates user credentials to the account.
+It deals with initial account credentials as well as credentials change.
+
+
+=== Activation Step
+
+Activation steps deals with account activation.
+It replicates user activation status to the account.
+
+
+=== Reconciliation Step
+
+Reconciliation step is an optional step that compares real account values with the computed values.
+This step creates "correction" deltas for values that do not match, adding missing values and removing surplus values.
+Reconciliation step expects that a full account was loaded into an account context in the load step.
+
+Reconciliation step is only executed if account reconciliation was requested (by a flag in account context).
+

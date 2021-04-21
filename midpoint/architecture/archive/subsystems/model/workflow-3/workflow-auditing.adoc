@@ -1,0 +1,262 @@
+= Workflow Auditing
+:page-wiki-name: Workflow Auditing
+:page-archived: true
+:page-obsolete: true
+
+
+[TIP]
+====
+This information applies to midPoint 3.6 and later.
+====
+
+[WARNING]
+====
+Auditing of delegation and escalation events is not supported yet.
+====
+
+
+== How workflow actions map to audit records
+
+
+=== Work Item creation / completion
+
+Audit record created - we show here only those fields that differ from the default:
+
+[%autowidth]
+|===
+| Field | Abbreviation | Description
+
+| Event Type
+| `et`
+| WORK\_ITEM
+
+
+| Event Stage
+| `es`
+| REQUEST (0) = work item creation, EXECUTION (1) = work item completion, delegation, escalation, or cancellation.
+
+
+| Initiator
+| `I`
+| For work item creation: User that originated the original request that is to be approved; technically, it is the owner of the workflow task.
+(It is NOT the approver!)For work item delegation/escalation/completion/cancellation: User that requested the action (or user running the trigger task for timed delegation/escalation/completion/cancellation).
+
+
+| Target
+| `T`
+| Object (focus) of the approval.
+
+
+| Target Owner
+| `TO`
+| Not used for now.
+
+
+| Deltas
+| `D`
+| *For primary-stage change approvals:*
+
+** For work item creation: Deltas that had to be approved by the respective workflow process instance.
+
+** For work item completion/cancellation: If approved, the delta coming from the custom form is here.
+(TODO: should we merge this additional delta with the original one? Because currently we have to look at the request to know the delta that was to be approved.)
+
+*For general workflows:* Anything that workflow process author considers appropriate.
+(TODO)
+
+
+| Channel
+| `ch`
+| Not used for now.
+
+
+| Outcome
+| `o`
+| Only SUCCESS for now.
+
+
+| Parameter
+|
+| Stage information (name, displayName, number).
+Note that this field is not displayed in the standard audit log report.
+
+
+| Message
+|
+| For work item creation: Stage information (the same as parameter)For work item completion: Stage information + "Approved"/"Rejected"/"(no decision)" + approver's comment"No decision" is in cases where the work item was cancelled: either when process itself is stopped or deleted, or when work item is no longer necessary (as in "first decides" scenarios, or in "all approve" scenarios when the some approver rejects its work items - all the others are then cancelled).
+
+
+| Result
+| r
+| For work item completion: "Approved" / "Rejected".Otherwise this field is empty.
+
+
+|===
+
+Additional items (specific for work items):
+
+[%autowidth]
+|===
+| Name | Type | Description
+
+| wf.originalAssignee
+| single-valued reference
+| Original assignee for the task item.
+(The same as Target owner - repeated here for clarity when shown via Audit log viewer.)
+
+
+| wf.currentAssignee
+| multivalued reference
+| Current assignee(s) for the task item.
+(Multiple values only when doing delegation/escalation.) Does *not* contain candidate users, roles, orgs.
+
+
+| wf.escalationLevelNumber
+| single-valued property
+| Escalation level number.
+Value of 0 means "no escalation".
+
+
+| wf.escalationLevelName
+| single-valued property
+| Escalation level name, if defined.
+
+
+| wf.escalationLevelDisplayName
+| single-valued property
+| Escalation level display name, if defined.
+
+
+| wf.comment
+| single-valued property
+| Comment from the approver (on completion).
+Note that the result (approved/rejected) is stored in the Result field.
+The delta coming from filling-in a form is in the Delta field.
+
+
+| wf.workItemId
+| single-valued property
+| Activiti ID of the work item (Activiti task).
+
+
+|===
+
+
+==== Process instance creation / completion
+
+[%autowidth]
+|===
+| Field | Abbreviation | Description
+
+| Event Type
+| `et`
+| WORKFLOW\_PROCESS\_INSTANCE
+
+
+| Event Stage
+| `es`
+| REQUEST (0) = workflow process instance start, EXECUTION (1) = workflow process instance end
+
+
+| Initiator
+| `I`
+| User that originated the original request that is to be approved; technically, it is the owner of the workflow task.
+
+
+| Target
+| `T`
+| Object (focus) of the approval.
+
+
+| Target Owner
+| `TO`
+| Not used for now.
+
+
+| Deltas
+| `D`
+| *For primary-stage change approvals:*Deltas that had to be approved by the respective workflow process instance (if applicable) - for REQUEST; +
+deltas that are output by the workflow process instance (if applicable) - for EXECUTION. +
+ +
+This is a bit questionable, because in this scheme the whole picture can be get only by pairing REQUEST with EXECUTION.
+By looking at EXECUTION alone, we do not see what was requested.*For general workflows:* Anything that workflow process author considers appropriate.
+(TODO)
+
+
+| Channel
+| `ch`
+| Not used for now.
+
+
+| Outcome
+| `o`
+| Only SUCCESS for now.
+
+
+| Parameter
+|
+| On completion: Stage information (name, displayName, number)
+
+
+| Message
+|
+| On completion: Stage information + Result
+
+
+| Result
+|
+| On completion: Workflow process instance result: "Approved" / "Rejected" / null
+
+
+|===
+
+Additional items (applies to both processes and work items):
+
+[%autowidth]
+|===
+| Name | Type | Description | Note
+
+| wf.object
+| single-valued reference
+| Object (focus) of the approval.
+|
+
+
+| wf.target
+| single-valued reference
+| Target of the assignment that is being approved (if applicable).
+|
+
+
+| wf.stageNumber
+| single-valued property
+| Current stage number (starting from 1)
+| For processes, this is present on completion only.
+
+
+| wf.stageCount
+| single-valued property
+| Total number of stages for this process instance
+| For processes, this is present on completion only.
+
+
+| wf.stageName
+| single-valued property
+| Stage name, if defined.
+| For processes, this is present on completion only.
+
+
+| wf.stageDisplayName
+| single-valued property
+| Stage display name, if defined.
+| For processes, this is present on completion only.
+
+
+| wf.processInstanceId
+| single-valued property
+| Activiti ID of the process instance.
+|
+
+
+|===
+
