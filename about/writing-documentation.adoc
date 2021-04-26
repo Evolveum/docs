@@ -1,0 +1,983 @@
+= Writing Evolveum Documentation
+:page-toc: top
+:page-display-order: 50
+:page-description: This document provides overview of how the docs site works, and how to write and maintain Evolveum documentation.
+:page-alias: { "parent" : "/midpoint/guides/" }
+:page-upkeep-status: yellow
+
+// TODO: copyright and trademarks
+// TODO: upkeep-status and upkeep-note
+// TODO: keywords, description and other "SEO" and indexing thingies
+
+{% raw %}
+
+This document provides overview of how the _docs_ site works, and how to write and maintain Evolveum documentation.
+
+== Overview
+
+The "docs" site is built using https://jekyllrb.com/[Jekyll] static site generator, spiced up with https://asciidoctor.org/[Asciidoctor] and other goodies.
+The site is generated from the "sources" into static HTML files.
+There is no dynamic interpretation of HTTP requests, however there is some client-side JavaScript to improve site presentation.
+Everything has to be generated before the first request comes, including headers, footers, navigation and everything else.
+
+Site sources are maintained in https://github.com/Evolveum/docs[GitHub docs repository].
+There is an automatic hook in github, that triggers rebuild of the site when the source code is updated.
+
+== AsciiDoc
+
+Bulk of the documentation is maintained in https://asciidoc.org/[AsciiDoc] format.
+If you are new to AsciiDoc, please have a look at xref:asciidoc/[AsciiDoc Writing Guide] for an introduction.
+If you are familiar with AsciiDoc, you can start writing your documents right away.
+However, please keep the "one sentence per line" convention.
+
+Use AsciiDoc whenever possible.
+Jekyll that runs this site allows also other documentation formats, such as HTML or Markdown.
+Use HTML only in case AsciiDoc would not do the job, or it would be very complicated.
+Do not use Markdown at all.
+We do not like Markdown here.
+
+== Creating Pages
+
+Site source code has almost exactly the same structure as the generated website.
+A picture stored as `midpoint/foo/bar.png` in the site source code will be published as `https://docs.evolveum.com/midpoint/foo/bar.png`.
+For text documents, Jekyll automatically converts them and hides file extension.
+Therefore `midpoint/foo/bar.adoc` becomes `https://docs.evolveum.com/midpoint/foo/bar/`.
+
+AsciiDoc pages can be created in a very straightforward way.
+Just place your document in a suitable directory, make sure it has `adoc` extension and that's it.
+The document should be well-formatted according to the xref:asciidoc/[AsciiDoc Writing Guide].
+In that case Jekyll takes all the data and meta-data from the document itself, properly setting document title, placing it in the navigation and all the other things.
+*AsciiDoc is strongly recommended* method of creating and maintaining documents.
+https://www.jetbrains.com/idea/[IntelliJ IDEA] has a very convenient plugin for AsciiDoc editing.
+Developers and engineers would probably like to clone the site sources from gitlab and open them as a project in the IDEA.
+
+While Jekyll does almost all the work transparently for AsciiDoc documents, other document types need a couple of additional things.
+Especially HTML documents usually need a place to specify document title and other meta-data.
+This place is called _front matter_ and it is located at the beginning of the document:
+
+[source,html]
+----
+---
+layout: page
+title: IAM Best Practice
+nav-title: Best Practice
+display-order: 700
+---
+<p>
+    These are the things that work in IAM deployments.
+</p>
+... other HTML elements ...
+----
+
+In this case, the front matter sets document title, navigation title and display order.
+It also specifies page layout (see later), and it may also specify almost arbitrary data and meta-data for the page.
+Front matter is YAML-formatted.
+However, the most common form of front matter is just a simple attribute-value list as the one shown above.
+
+AsciiDoc documents may also specify front matter attributes if needed.
+In AsciiDoc, the attributes need to be specified in AsciiDoc format with `page-` prefix.
+The front matter above can be expressed in AsciiDoc like this:
+
+[source,asciidoc]
+----
+= IAM Best Practice
+:page-nav-title: Best Practice
+:page-display-order: 700
+
+These are the things that work in IAM deployments.
+
+... other AsciiDoc things ...
+----
+
+However, AsciiDoc documents usually do not need any front matter or attributes at all.
+E.g. in this case we did not even need to specify title and layout.
+Title was taken from AsciiDoc title, and `page` layout was applied by default.
+Everything is easier with AsciiDoc.
+
+== Directory Structure
+
+Site source code follows closely the resulting site structure, except for some URL translations.
+Such translations usually apply to asciidoc documents and index files (`index.html`, `index.adoc`).
+It is perhaps best to explain the URL translation on examples:
+
+[%autowidth]
+|====
+| Source file location | URL | Note
+
+| `index.html`
+| `https://docs.evolveum.com/`
+| Site home document
+
+| `foo/bar.adoc`
+| `https://docs.evolveum.com/foo/bar/`
+|
+
+| `foo/bar.html`
+| `https://docs.evolveum.com/foo/bar/`
+|
+
+| `foo/index.adoc`
+| `https://docs.evolveum.com/foo/`
+| `index.adoc` is a special name that stands for the entire directory.
+
+| `foo/index.html`
+| `https://docs.evolveum.com/foo/`
+| `index.html` is a special name that stands for the entire directory.
+
+| `foo/bar.png`
+| `https://docs.evolveum.com/foo/bar.png`
+| Image files (`*.png`, `*.jpg`), PDFs (`*.pdf`) and similar data files are not translated.
+
+|====
+
+Which means that there are two ways how to store your document:
+
+* `foo.adoc`: This is suitable for simple documents that do not have any embedded data.
+It can work well even for long documents.
+
+* `foo/index.adoc`: Good method for documents that contain embedded data, such as pictures.
+The best strategy is to place the pictures into the same directory as `index.adoc`.
+You will have everything neatly stored in one place.
+
+Both methods will results in the same URL.
+URL is all that matters for the web.
+You can change `foo.adoc` to `foo/index.adoc` at any time and Jekyll will generate the same URL.
+Therefore you can easily start with `foo.adoc` and then switch to `foo/index.adoc` later if needed.
+
+== Links
+
+We love links.
+Please, put a lot of links in your documents.
+There are two ways how to do it: `link` or `xref`.
+
+=== Xref Macro
+
+Xref macro (`xref`) is intended for cross-referencing in a document and between documents.
+We use the `xref` macro for links in our site:
+
+[source,asciidoc]
+----
+Please see xref:/foo/bar.adoc[FooBar page] for more details.
+You can also use simple xref:bar.adoc[], document title will be automatically used as link text.
+----
+
+The `xref` macro points to the source file, not to the URL.
+In this case Evolveum plugins take care of proper translation of file names to URLs.
+However, you can also use directory URLs, just make sure they end with slash (`/`) character:
+
+[source,asciidoc]
+----
+This is a link to xref:/midpoint/projects/midprivacy/[MidPrivacy initiative].
+----
+
+The plugin checks that the xref points to an existing site page.
+There will be an error message during the build if the link is broken.
+
+.Implementation details
+TIP: This is not a default behavior of Asciidoctor or Jekyll.
+This functionality was implemented as Asciidoctor extension in evolveum-jekyll-plugin gem.
+There is a custom inline macro processor for the `xref` macro that looks up appropriate Jekyll page, determines the URL and (optionally) a link title.
+
+=== Link Macro
+
+AsciiDoc has a `link` macro to do generic HTML linking.
+
+[source,asciidoc]
+----
+Maybe you wonder link:https://en.wikipedia.org/wiki/Foobar[what foobar is].
+----
+
+You may also write links without explicit `link:` prefix, as asciidoctor defined `http` and `https` as macros for convenience:
+
+[source,asciidoc]
+----
+Maybe you wonder https://en.wikipedia.org/wiki/Foobar[what foobar is].
+----
+
+Neither Jekyll nor Asciidoctor checks that the link is valid.
+You can link to whatever you want, but you are responsible to make sure that the link is not broken.
+
+Use the `link` macro for external links only (links that point outside of _docs_ site).
+For internal links use `xref` macro instead.
+
+=== Bug Macro
+
+Link to an issue can be done using the `bug` macro:
+
+[source,asciidoc]
+----
+Due to bug:MID-1234[] issue, you are pretty much out of luck.
+Also, beware of bug:MID-4321[a particularly nasty issue] in midPoint 1.8.
+Maybe it is finally time to upgrade to midPoint 4.3?
+----
+
+
+== Table Of Contents
+
+Document table of contents (ToC) can be automatically generated.
+This mechanisms if controlled by `page-toc` asciidoc variable:
+
+----
+= AsciiDoc Fairy Tale
+:page-toc: top
+
+This is a nice short fairy tale ...
+----
+
+The variable may contain several values, changing the type of ToC:
+
+|====
+| `page-toc` value | description
+
+| `top`
+| ToC at the top of the document, right after the main title.
+
+| `float-right`
+| ToC floating in a "frame" on the right side.
+The document text is wrapped on the left side.
+However, if the introduction is too short, the headings may not fit well.
+
+| `float-left`
+| ToC floating in a "frame" on the left side.
+Experimental.
+|====
+
+.Implementation details
+TIP: The `page-toc` asciidoc variable translates to `toc` Jekyll variable.
+Jekyll is using this variable in the templating engine (`_layouts/page.html`) to ivoke special `tocify_asciidoc` filter on asciidoc document.
+The value of this variable is used to set the CSS style.
+
+== Page Warnings
+
+Docs pages may easily include common "warnings" at the top of a page.
+
+If you are using midPoint versions, it is recommended to enclose them in double quotes.
+Jekyll interprets variables as JSON/YAML, therefore version `1.10` will be interpreted as number.
+The it will be considered to be the same as `1.1`.
+Specifying the version quoted as `"1.10"` solves the problem.
+
+=== Experimental
+
+Warns that the page describes an experimental functionality:
+
+[source,asciidoc]
+----
+= Foo Feature
+:page-experimental: true
+----
+
+NOTE: Do not confuse the `page-experimental` attribute with `experimental` attribute.
+The `experimental` attribute turns on Asciidoctor experimental features (suc as GUI button and menu links),
+while `page-experimental` attribute marks page content as experimental.
+
+=== Since
+
+Notice that this functionality is available only from a certain version:
+
+[source,asciidoc]
+----
+= Foo Feature
+:page-since: "4.3"
+----
+
+Or in a slightly more complex case:
+
+[source,asciidoc]
+----
+= Foo Feature
+:page-since: "4.0"
+:page-since-improved: [ "4.1", "4.2" ]
+:page-since-description: This feature is expected to reach its full functionality in version 4.8.
+----
+
+This feature was introduced in 4.0, improved in 4.1 and 4.2, and there is additional description that will be added to the notice.
+
+More than one version can be specified if needed:
+
+[source,asciidoc]
+----
+= Foo Feature
+:page-since: [ "4.1", "4.0.2" ]
+----
+
+The "since" notice can be included inside the page, e.g. under a specific heading.
+This comes handy when describing functionality improvements that came later.
+In this case it is required to use Liquid `include` mechanism:
+
+[source,asciidoc]
+----
+= Foo Feature
+
+Blah blah blah, same old functionality as always ... blah blah blah.
+
+== New Cool Improvement
+
+++++
+{% include since.html since="3.5" %}
+++++
+
+This is a very cool improvement that changes everything ....
+----
+
+The `\\++++` marks are necessary.
+Those mark Asciidoc passthrough block.
+The Liquid `include` produces HTML, not asciidoc.
+We need to tell asciidoc that this block should be "passed through" to output without processing.
+
+=== Deprecated
+
+Notice that this functionality is deprecated:
+
+[source,asciidoc]
+----
+= Foo Feature
+:page-deprecated: true
+----
+
+Alternatively, a version may be specified:
+
+[source,asciidoc]
+----
+= Foo Feature
+:page-deprecated-since: "4.3"
+----
+
+=== Obsolete
+
+Notice that this functionality is obsolete:
+
+[source,asciidoc]
+----
+= Foo Feature
+:page-obsolete: true
+----
+
+Alternatively, a version may be specified:
+
+[source,asciidoc]
+----
+= Foo Feature
+:page-obsolete-since: "4.3"
+----
+
+=== Replaced By
+
+Deprecated and obsolete pages may specify an optional replacement URL:
+
+[source,asciidoc]
+----
+= Foo Feature
+:page-replaced-by: /features/bar/
+----
+
+== Liquid Templating
+
+Jekyll is using _Liquid_ templating language.
+If is very simple templating language that is using "curly bracket" markup: `{{`, `}}`, `{%`, `%}`.
+Liquid can be used to add basic logic to the documents, such as this:
+
+[source,html]
+----
+        ...
+        <h1>{{ page.title | escape }}</h1>
+
+        {% if page.toc %}
+        <div class="toc-{{page.toc}}">
+            <title>Table of Contents</title>
+            {{ page.document | tocify_asciidoc }}
+        </div>
+        {% endif %}
+        ...
+----
+
+See https://shopify.github.io/liquid/[Liquid documentation] for the details.
+
+There are some custom Liquid tags that are implemented by Evolveum plugin, such as `{{ childern }}`.
+
+NOTE: Liquid is enabled in all AsciiDoc documents by default.
+There is a slight chance Liquid may interfere with AsciiDoc formatting.
+Therefore, please be careful when using curly brackets in asciidoc documents.
+There are rare cases when Liquid interferes with your document, such as this document that needs to include lot of liquid example code.
+In such cases use Liquid tags `raw` and `endraw` to avoid Liquid processing.
+You can have a look at the source code of this document for an example.
+
+== Special Files and Directories
+
+Most of the files in the Jekyll project are documents.
+But there are some special directories and files:
+
+[%autowidth]
+|====
+| Directory | Description
+
+| `_config.yml`
+| Global configuration of the site.
+There are global variables such as site name, base URL and so on.
+There is also Jekyll configuration, such as specification of theme and list of plugins.
+
+| `Gemfile`
+| Ruby files that specifies _gems_ that are used by this site.
+Gems are Ruby components (libraries).
+In this case, the gems provide additional functionality to the site.
+
+| `_data`
+| Jekyll _data files_.
+Data files are small databases that contain structured data.
+The data are used in some of the pages that display them in user-friendly form.
+
+| `_layouts`
+| Jekyll _layouts_.
+Layouts are templates for pages.
+If there is a repetitive page, it can be a good idea to set up a template (layout) for it.
+The usual layouts are `default` and `page`.
+However, these are part of Evoleveum _theme_, therefore they are not present of site `_layouts` directory.
+
+| `_includes`
+| Include files.
+Small parts of HTML code that are often repeated in pages can be placed here.
+This snippets can be included in other pages by using `{% include ... %}` Liquid tag.
+
+| `_sass`
+| Syntactically Awesome Style Sheets (SASS) files that set up the site look and feel.
+SASS files are automatically compiled to CSS files for the website.
+Most SASS files are present in the template, the site itself will usually need only to set some variables.
+
+| `assets`
+| Website _assets_ such as images, fonts, icons and other decorations.
+
+|====
+
+Generally speaking, the files and directories that start with an underscore (`_`) are not directly translated to website content.
+Such files influence the way how the site behaves.
+However, many files are transformed to website content indirectly.
+E.g. the SASS stylesheets in _sass are transformed to CSS and published on the website.
+
+== Navigation
+
+Navigation is an important aspect of a website that is packed with documents.
+There was no ready-made navigation mechanism for Jekyll, therefore we had to develop our own.
+It is part of Evolveum Jekyll plugin and supported by Evolveum theme.
+
+The navigation tree generated automatically for all documents on the site.
+There is nothing special to do when a new document is added.
+It will be automatically added to the navigation tree.
+However, you may want to customize the way how the navigation mechanism displays your document.
+
+=== Navigation Title
+
+Navigation tree will take the title of your document by default.
+However, your title may be too long and may want to have shorter title in the navigation tree.
+You can set the navigation title by using `nav-title` page property, like this:
+
+[source,asciidoc]
+----
+= IAM Best Practice
+:page-nav-title: Best Practice
+
+... page content here ...
+----
+
+[source,html]
+----
+---
+layout: page
+title: IAM Best Practice
+nav-title: Best Practice
+---
+... page content here ...
+----
+
+=== Sorting
+
+Navigation tree is sorted alphabetically based on document title by default.
+However, there may be a need to sort the pages explicitly.
+This can be achieved by using `display-order` page property.
+The `display-order` contains a numeric value.
+The pages at the same navigation level will be sorted by the value of `display-order`.
+Pages that have the same `display-order` will be sorted alphabetically.
+The default value of `display-order` is `100`.
+
+[source,asciidoc]
+----
+= Foo Bar
+:page-display-order: 800
+
+... page content here ...
+----
+
+[source,html]
+----
+---
+layout: page
+title: Foo Bar
+display-order: 800
+---
+... page content here ...
+----
+
+
+=== Visibility
+
+All the pages are publicly visible by default.
+However, there may be a need to hide a page.
+Maybe we do not want to complicate the navigation with our page.
+Maybe the page is just a draft and we do not want to publicly publish it just yet.
+There may be variety of reasons.
+
+Page visibility can be controlled by `visibility` page property.
+The property can take several values:
+
+[%autowidth]
+|====
+| Visibility | Description | Shown in navigation | Shown in sitemap.xml
+
+| `visible` (default)
+| Publicly visible page.
+| Yes
+| Yes
+
+| `draft`
+| Document intended for public publication, but it is not ready yet.
+| No
+| No
+
+| `hidden`
+| Page that we do not want to advertise to the public audience in any way.
+Maybe some testing pages.
+| No
+| No
+
+| `data`
+| Public data file.
+This is a document, but it is not HTML-presentatble.
+Maybe used for PDF presentation slides, binary downloads and so on.
+There needs to be some HTML/AsciiDoc page that points to this file.
+| No
+| Yes
+
+| `auxiliary`
+| Auxiliary or helper page, but still public.
+Page for special purpose.
+| No
+| Yes
+
+| `system`
+| System object.
+Needed for the page to work properly.
+Not really a "document".
+| No
+| No
+
+|====
+
+Set the property like this:
+
+[source,asciidoc]
+----
+= Foo Bar
+:page-visibility: hidden
+
+... page content here ...
+----
+
+[source,html]
+----
+---
+layout: page
+title: Foo Bar
+visibility: hidden
+---
+... page content here ...
+----
+
+.Hidden pages are still public.
+WARNING: Everything that is present on the site is ultimately public.
+Hiding a page will remove it from the navigation and site maps.
+The users will not be able to find the page on the site, and we will do what we can do to hide it from search engines.
+But the page will still be accessible if the user knows the URL or looks at source code.
+The page is just *hidden*, it is not protected.
+
+
+=== Child Pages
+
+There may be a need to list your child pages at your page.
+This is usually used on various _index_ pages that you do not want to maintain manually.
+You can use `{% children %}` Liquid tag for this:
+
+[source,asciidoc]
+----
+= Project Foo Documents
+:page-liquid:
+
+Blah blah blah ... the pages:
+
+++++
+{% children %}
+++++
+
+<p>That's it</p>
+----
+
+[source,html]
+----
+---
+layout: page
+title: Project Foo Documents
+---
+<p>Blah blah blah ... the pages:</p>
+
+{% children %}
+
+<p>That's it</p>
+----
+
+=== Aliases
+
+There may be a need to show the same page at several places in the navigation tree.
+Aliases can help with that:
+
+[source,asciidoc]
+----
+= MidPrivacy Initiative
+:page-alias: { "parent" : "/midpoint/" }
+----
+
+[source,html]
+----
+---
+layout: page
+title: MidPrivacy Initiative
+---
+alias: { "parent" : "/midpoint/" }
+----
+
+This specification will make the `MidPrivacy Initiative` appear under the `/midpoint` page, in addition to the normal location of the `MidPrivacy Initiative` page.
+The URL link will point to the correct (canonical) page URL.
+The alias influences the navigation structure only, it does not influence page URLs.
+
+The alias can specify even more details for the "symlink" in the menu:
+
+[source,asciidoc]
+----
+= MidPrivacy Initiative
+:page-alias: { "parent" : "/midpoint/", "title" : "MidPrivacy", "display-order" : 300 }
+----
+
+
+== Stubs
+
+Jekyll (or rather our plugin) will generate "stub" pages for documents that are missing in the tree.
+For example, let's assume that we have `foo/bar.adoc` and `/foo/baz.adoc`, but we do not have `foo.adoc` nor `foo/index.adoc`.
+In that case Jekyll will automatically generate "stub" for `/foo/`.
+The "stub" is a simple page that just lists the children pages.
+
+The stub will have an ugly title, derived from the URL.
+In the above example, the title of the stub will be simply `foo`.
+Therefore it is still recommended to explicitly create a simple page:
+
+.foo/index.adoc
+[source,asciidoc]
+----
+= Foo Documents
+:page-liquid:
+
+++++
+{% children %}
+++++
+----
+
+.foo/index.html
+[source,html]
+----
+---
+layout: page
+title: Foo Documents
+---
+{% children %}
+----
+
+== Hiding Subtrees
+
+You may want to hide entire subtree.
+This can also be achieved with a simple _index_ document:
+
+.foo/index.adoc
+[source,asciidoc]
+----
+= Foo
+:page-visibility: hidden
+:page-liquid:
+
+++++
+{% children %}
+++++
+----
+
+.foo/index.html
+[source,html]
+----
+---
+layout: page
+title: Foo
+visibility: hidden
+---
+{% children %}
+----
+
+This document hides the entire `foo/*` subtree, as the navigation algorithm will not dive into a hidden page.
+However, page breadcrumbs will still work, even in the hidden subtree.
+Therefore other documents in the subtree may be discovered using breadcrumbs.
+
+=== Top Navigation Bar
+
+Top navigation bar is special.
+There is very little space, therefore only selected pages can appear here.
+The content of the navigation bar is controlled by `_data/navbar.yml` file:
+
+._data/navbar.yml
+[source,yaml]
+----
+- label: MidPoint
+  url: /midpoint/
+
+- label: IAM Introduction
+  url: /iam/
+
+- label: Book
+  url: /book/
+
+- label: Identity Connectors
+  url: /connectors/
+
+- label: Talks
+  url: /talks/
+----
+
+== Moving Pages
+
+Generally, the pages should not be moved.
+Once the page is created on a certain URL, it should stay on that URL.
+Of course, it is OK to change `foo.adoc` to `foo/index.adoc`, as the URL stays the same.
+But the pages should not be moved in a way that changes the URL.
+
+When the page really needs to be moved, there is a mechanism how to leave behind a redirect from the old URL to new URL:
+
+./support/index.adoc
+[source,asciidoc]
+----
+= MidPoint Support
+:page-moved-from: /midpoint/support/
+
+Bla bla
+----
+
+./support/index.html
+[source,html]
+----
+---
+layout: page
+title: MidPoint Support
+moved-from: /midpoint/support/
+---
+Bla bla
+----
+
+The `moved-from` attribute specifies the local part of the old URL.
+Jekyll will generate a redirect from the old URL to a new URL of the page.
+In this case, Jekyll will redirect `/midpoint/support/` to `/support/`.
+
+In a case that an entire subtree needs to be moved, the `*` notation can be used to set up a subtree redirect:
+
+[source,asciidoc]
+----
+= MidPoint Support
+:page-moved-from: /midpoint/support/*
+
+Bla bla
+----
+
+[source,html]
+----
+---
+layout: page
+title: MidPoint Support
+moved-from: /midpoint/support/*
+---
+Bla bla
+----
+
+.Implementation detail
+TIP: Jekyll generates the redirects as a series of Apache `RewriteRule` statements in `.htaccess` file.
+The code is in the `jekyll-redirect-plugin.rb` file in the `evolveum-jekyll-plugin` project.
+
+== Data Files
+
+Jekyll _data files_ are small databases that can be used to hold structured data.
+The data files are placed in the `_data` directory.
+The files are formatted in YAML, like this:
+
+._data/talks.yml
+[source,yaml]
+----
+- id:  2020-09-data-provenance-workshop
+  title: Data Provenance and Metadata Management in IdM
+  date: 2020-09
+  event: Evolveum on-line workshop
+  author: Slávek Licehammer, Radovan Semančík
+  slidesFile: 2020-09-data-provenance-workshop.pdf
+  videoUrl: /media/2020-09-10-data-provenance-workshop.mp4
+
+- id: 2020-05-whats-new-in-midpoint-4-1
+  title: What's New In MidPoint 4.1
+  date: 2020-05
+  event: Evolveum Webinar
+  author: Radovan Semančík
+  slidesFile: 2020-05-whats-new-in-midpoint-4-1.pdf
+----
+
+The files are usually used in HTML pages, with a help of Liquid tags:
+
+.talks/index.yml (simplified)
+[source,html]
+----
+---
+layout: page
+title: Talks
+---
+<dl>
+{% for talk in site.data.talks %}
+  <dt><a href="files/{{ talk.slidesFile }}">{{ talk.title }}</a>
+  </dt>
+  <dd>
+        {{ talk.date }}, {{ talk.author }},
+        {% if talk.eventUrl %}<a href="{{ talk.eventUrl }}">{% endif %}{{talk.event}}{% if talk.eventUrl %}</a>{% endif %}{% if talk.description %}:{% endif %}
+        {{ talk.description }}</dd>
+{% endfor %}
+</dl>
+----
+
+The `talks.yml` data file will be present in Liquid variable `site.data.talks`.
+As the content of `talks.yml` file represents a list, the content of `site.data.talks` can be processed by simple `for` liquid tag.
+
+Liquid tags `{%` and `%}` control the flow of the template. The `{{` and `}}` tags are used for displaying data.
+The `{{ talk.data }}` and `{{ talk.author }}` refer to the `date` and `author` fields in the `talks.yml` file.
+
+Simple, isn't it?
+
+If you want to create a new database, just create a new `_data/foo.yml` file and fill it with data.
+Content of the file will be present in the `site.data.foo` variable.
+
+== Layouts
+
+Jekyll _layouts_ are templates to construct particular type of page.
+The most common layout is `page`, which is used for vast majority of pages in our sites.
+The `page` layout has a pre-set formatting for page title, breadcrumbs, navigation tree and all other necessities.
+However, sometimes there is a need for a different layout.
+For example, site home page (landing page) usually does not have a title.
+Having empty HTML tags for the title can ruin the design.
+Therefore, there is special `home` layout that is almost the same as `page` layout, but it does not have a title.
+
+Evolveum theme contains following layouts ready to be used:
+
+[%autowidth]
+|====
+| Layout | Description
+
+| `page`
+| The most common layout.
+It has title, breadcrumbs, navigation tree and all the other goodies.
+
+| `home`
+| Layout for site home page.
+It does not have title and breadcrumbs.
+It still has navigation tree to let users access site content.
+
+| `default`
+| Barebones layout.
+It contains only the most necessary things that all web pages on our site must have, such as header and footer.
+
+|====
+
+You can create your own custom layouts if you need to.
+Just place them into the `_layouts` directory.
+You can use the `exercise` layout on docs as an inspiration.
+
+== Stylesheets
+
+Site look and feel is given by stylesheets (SASS and CSS) combined with the layouts.
+Layouts dictate which HTML elements are used in the page, stylesheets specify how the elements look like.
+
+The design is a living thing.
+The design has to be _responsive_, it has to adapt to various devices.
+We want to display rich navigation tree on big notebook displays, but we do not have a place for that on mobile phones.
+Creating stylesheets for such a design is a difficult work.
+Therefore we are not starting from scratch.
+We are basing our design on https://getbootstrap.com/[Bootstrap] framework.
+
+The stylesheets are created and maintained in a form of https://sass-lang.com/[Syntactically Awesome Style Sheets (SASS)].
+The SASS files are automatically compiled into ordinary CSS files by Jekyll.
+Most of the stylesheets are part of Evolveum theme and there is usually no need to change them.
+Some look and feel of the site can be adapted by changing values of SASS variables.
+
+There is a special Evolveum theme applied to this site.
+The theme specifies basic site design, such as CSS/SASS styles and HTML page templates.
+The theme contains stylesheets (SASS), page layouts, fonts, icons, evolveum logo and anything else that is used on all our sites.
+The theme has file structure that is almost the same as Jekyll site structure.
+
+The theme is supplemented by Evolveum Jekyll plugin, which adds more complex elements, such as the navigation.
+The plugin is a small piece of Ruby code that add some features to Jekyll.
+
+Both the theme and the plugin are designed to be used as Ruby _gems_.
+There is a `build.sh` script that builds and installs the gems.
+
+The use of the theme and the plugin is specified in `_config.yml` file in the site.
+
+When the site refers to `page` layout, that layout is taken from the theme, from `_layouts` directory.
+Our `page` layout file (`_layouts/page.html`) specifies the structure of pages on our sites.
+This layout contains Liquid tags to render navigational elements (`{% breadcrumbs %}`, `{% navtree %}`).
+These are custom Liquid tags that are implemented in `evolveum-jekyll-plugin`.
+
+== Copyright and Licensing
+
+Please note that the content of docs site is licensed under the terms of *https://creativecommons.org/licenses/by-nc-nd/4.0/[Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International (CC BY-NC-ND 4.0) license]*.
+There are limitations to the use of both the content of the site, and its source code.
+Please also note, that the license does not cover use of trademarks, which may be used on this site.
+
+Generally speaking, Contributor License Agreement (CLA) is needed to contribute to the content of this site.
+
+Please see xref:/copyright/[] for details.
+
+== Legacy
+
+Most of the documentation on this site was migrated from Evolveum Wiki, that was used to maintain the documentation before 2021.
+There is some legacy from the old times, such as the pages contain `wiki-name` and Wiki metadata variables.
+
+=== Wiki Macro
+
+Linking to the wiki page can be done wiki `wiki` macro:
+
+[source,asciidoc]
+----
+Please see wiki:Architecture+and+Design[] page for more details.
+
+Or maybe you want to see wiki:Design+Notes[this page].
+----
+
+The `wiki` macro will automatically generate appropriate URL to docs page if the page was migrated to docs.
+The macro will indicate an error if such a page cannot be found.
+
+.Implementation detail
+NOTE: The `wiki` macro is looking for a page with matching `wiki-name` variable.
+
+
+== See Also
+
+* xref:asciidoc/[]
+
+* https://jekyllrb.com/docs/[Jekyll documentation]
+
+* https://shopify.github.io/liquid/[Liquid documentation]
+
+* xref:/copyright/[]
+
+{% endraw %}
