@@ -1,0 +1,87 @@
+= Tracing in tests
+:page-wiki-name: Tracing in tests
+:page-wiki-id: 39584013
+:page-wiki-metadata-create-user: mederly
+:page-wiki-metadata-create-date: 2019-10-22T09:49:24.437+02:00
+:page-wiki-metadata-modify-user: mederly
+:page-wiki-metadata-modify-date: 2019-10-22T10:25:41.435+02:00
+:page-upkeep-status: yellow
+
+Sometimes it is quite useful to diagnose test failures by analyzing the respective traces.
+Let's describe the steps we need to take to obtain them.
+
+
+== Enabling automatic task management
+
+Traces for tests are automatically stored in `AbstractIntegrationTest.``storeTraceIfRequested()`  "after" method.
+Currently this method is not enabled by default.
+It must be enabled by including the following in the test class:
+
+[source,java]
+----
+    @Override
+    protected boolean isAutoTaskManagementEnabled() {
+        return true;
+    }
+----
+
+After this override is present, we should obtain `task`  and `result` variables in the test like this:
+
+[source,java]
+----
+    @Test
+    public void test110AddAlumni() throws Exception {
+        Task task = getTask();
+        OperationResult result = getResult();
+        ...
+----
+
+This has a direct advantage of simplifying the test code.
+And after setting up tracing in the following step, traces will be created for our test method executions.
+
+
+== Enabling tracing of test methods executions
+
+By specifying the following, the pair of "before" and "after" methods will provide stored traces for our test executions:
+
+[source,java]
+----
+    @Override
+    protected TracingProfileType getTestMethodTracingProfile() {
+        return createModelAndProvisioningLoggingTracingProfile()				// here we can choose the profile
+                .fileNamePattern(TEST_METHOD_TRACING_FILENAME_PATTERN);
+    }
+----
+
+The trace file created after the test method execution will include the operation result tree covering the whole method execution.
+(Assuming that we consistently use `result`  variable in inner method calls within the test.)
+
+
+== Enabling tracing of other executions during the tests
+
+Quite often, there are other tasks executing during the tests.
+Either asynchronous ones (live sync, reconcile, etc), or ad-hoc tasks in the `main`  thread that are created separately from the test method's main task instance.
+
+In order to trace such tasks executions we can use this e.g. in `initSystem`  method:
+
+[source,java]
+----
+setGlobalTracingOverride(createModelAndProvisioningLoggingTracingProfile());
+----
+
+This will cause traces to be automatically created at all traceable points.
+Currently these are:
+
+* CLOCKWORK\_RUN,
+
+* ITERATIVE\_TASK\_OBJECT\_PROCESSING,
+
+* ASYNCHRONOUS\_MESSAGE\_PROCESSING,
+
+* LIVE\_SYNC\_CHANGE\_PROCESSING,
+
+* WORKFLOW\_OPERATION.
+
+(See `TracingRootType` enum.)
+
+Note that we can use this to trace everything also in running midPoint at any time.

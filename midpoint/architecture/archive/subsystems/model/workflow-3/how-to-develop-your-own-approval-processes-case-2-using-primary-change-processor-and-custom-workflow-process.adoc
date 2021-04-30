@@ -1,0 +1,155 @@
+= How to develop your own approval processes - case 2 - using primary change processor and custom workflow process
+:page-wiki-name: How to develop your own approval processes - case 2 - using primary change processor and custom workflow process
+:page-wiki-id: 14286933
+:page-wiki-metadata-create-user: mederly
+:page-wiki-metadata-create-date: 2014-03-11T13:02:43.595+01:00
+:page-wiki-metadata-modify-user: mederly
+:page-wiki-metadata-modify-date: 2014-03-11T20:14:22.927+01:00
+:page-archived: true
+:page-obsolete: true
+
+== Introduction
+
+When you want to use your own process, you have to implement the following changes with respect to the default scenario.
+
+
+== On process instance start
+
+You have to tell the process start instruction the following information about process to be started:
+
+. the name (definition key),
+
+. character (dump/smart),
+
+. interface bean name.
+
+For example:
+
+[source]
+----
+instruction.setProcessDefinitionKey("MyApprovalProcess");
+instruction.setSimple(false);
+instruction.setProcessInterfaceBean(myApprovalProcessInterface);
+----
+
+Also, you have to set process variables that are specific for your own process.
+
+
+== On process instance end
+
+
+
+
+
+
+
+Usually the default implementation (provided by PrimaryChangeAspectHelper) suffices:
+
+[source]
+----
+/*
+ * In the default case, mapping deltaIn -> deltaOut is extremely simple.
+ * DeltaIn contains a delta that has to be approved. Workflow answers simply yes/no.
+ * Therefore, we either copy DeltaIn to DeltaOut, or generate an empty list of modifications.
+ */
+public List<ObjectDelta<Objectable>> prepareDeltaOut(ProcessEvent event, PrimaryChangeProcessorJob pcpJob, OperationResult result) throws SchemaException {
+    List<ObjectDelta<Objectable>> deltaIn = pcpJob.retrieveDeltasToProcess();
+    if (CommonProcessVariableNames.isApproved(event.getAnswer())) {
+        return new ArrayList<ObjectDelta<Objectable>>(deltaIn);
+    } else {
+        return new ArrayList<ObjectDelta<Objectable>>();
+    }
+}
+----
+
+But if you would like to do something special (e.g. if you have an approval process in which user may change the original request somehow), you could provide your own implementation of prepareDeltaOut method.
+
+The other method that has to be implemented is *getApprovedBy* method:
+
+[source]
+----
+/**
+ * Returns a list of users who have approved the particular request. This information is then stored in the task by the wf module,
+ * and eventually fetched from there and put into metadata (createApproverRef/modifyApproverRef) by the model ChangeExecutor.
+ *
+ * However, information about the approvers is process-specific. Default implementation of this method in BaseWrapper corresponds
+ * to behavior of general ItemApproval process.
+ *
+ * @param event Current ProcessEvent providing information on what happened within wf process instance.
+ * @return List of references to approvers that approved this request.
+ */
+List<ObjectReferenceType> getApprovedBy(ProcessEvent event);
+----
+
+[.green]#In this case, a default implementation in BaseWrapper can be used only if you are using standard ItemApproval process.# If not, you have to provide your own code.
+For an inspiration, here is the default implementation:
+
+[source]
+----
+/*
+ * Default implementation of getApprovedBy expects that we are using general item approval process.
+ */
+@Override
+public List<ObjectReferenceType> getApprovedBy(ProcessEvent event) {
+    List<ObjectReferenceType> retval = new ArrayList<ObjectReferenceType>();
+    if (!CommonProcessVariableNames.isApproved(event.getAnswer())) {
+        return retval;
+    }
+    List<Decision> allDecisions = (List<Decision>) event.getVariable(ProcessVariableNames.ALL_DECISIONS);
+    for (Decision decision : allDecisions) {
+        if (decision.isApproved()) {
+            retval.add(MiscSchemaUtil.createObjectReference(decision.getApproverOid(), SchemaConstants.C_USER_TYPE));
+        }
+    }
+    return retval;
+}
+----
+
+Overall interaction at the moment of process starting and finishing is shown in the following figure.
+There is a process of approving a delta, in "execute all immediately" mode.
+
+Interaction of primary change processor with a wrapper is shown using blue lines.
+
+image::[]
+
+
+
+If you need to provide your own process instance GUI panel, have a look at the link:https://fisheye.evolveum.com/browse/midPoint-git/gui/admin-gui/src/main/java/com/evolveum/midpoint/web/component/wf/processes/itemApproval/ItemApprovalPanel.java?hb=true[ItemApprovalPanel] code.
+You have to provide a class of type Panel that implements two-argument constructor, accepting wicket ID and a model of type IModel<ProcessInstanceDto>.
+It's then absolutely up to you what information you will display based on these inputs.
+As an inspiration, the default implementation for ItemApproval process displays the following:
+
+. item to be approved, e.g. a given role,
+
+. approval schema, i.e. who has to approve, in what order and under what conditions,
+
+. decisions done so far,
+
+. list of currently active work items, waiting to be completed.
+
+
+
+It has to implement the following method:
+
+[source]
+----
+/**
+ * Externalizes internal state of the process instance. Typically, uninteresting (auxiliary) data elements
+ * are thrown away, internal representation suitable for workflow processing is replaced by "clean" prism
+ * object structure, and untyped Map[String,Object] is replaced by typed prism data.
+ *
+ * @param variables internal process state represented by a map
+ * @return external representation in the form of PrismObject
+ */
+PrismObject<? extends PrimaryApprovalProcessInstanceState> externalizeInstanceState(Map<String, Object> variables);
+----
+
+The itemApproval process interface provides an implementation of this method, so we simply call it in our change aspect:
+
+[source]
+----
+@Override
+public PrismObject<? extends PrimaryApprovalProcessInstanceState> externalizeInstanceState(Map<String, Object> variables) {
+    return itemApprovalProcessInterface.externalizeInstanceState(variables);
+}
+----

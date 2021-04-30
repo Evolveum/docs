@@ -1,0 +1,90 @@
+= Tight ESB Integration
+:page-wiki-name: Tight ESB Integration
+:page-wiki-id: 1310727
+:page-wiki-metadata-create-user: semancik
+:page-wiki-metadata-create-date: 2011-05-09T17:21:25.947+02:00
+:page-wiki-metadata-modify-user: semancik
+:page-wiki-metadata-modify-date: 2011-05-12T18:15:14.376+02:00
+:page-archived: true
+:page-obsolete: true
+
+The original idea in OpenIDM was to base the entire product on ESB.
+This is how we have seen the rationale:
+
+
+[quote]
+____
+OpenIDM is based on ESB, more specifically OpenESB project.
+It is a composite application (called Service Assembly in JBI speak): it contains several modules that talk together using The Bus (ESB).
+These components are said to be loosely coupled, interacting only using the interfaces (defined using WSDL).
+The modules does not know to what specific implementation of the interface that talks to.
+The Bus will decide that.
+And the routing decisions of The Bus are based on the configuration of the composite application that is created at assembly time, right before the application is deployed.
+So much about ESB/JBI theory.
+This is not a correct place to describe all the principles, but I'm quite sure Google knows about some good tutorials on that.ESB is usually used as an integration tool.
+It is used in the enterprises to connect several information systems and services that won't talk to each other without ESB (e.g. because they use non-compatible protocols or interfaces).
+This is not how we use ESB.
+There is no real benefit in using ESB this way in identity management, because identity management is really not about the services.
+It is about the data.
+And structured and quite sensitive data: identities.
+The system that synchronizes identities does not care only about the syntax and formats (as usually ESBs do), but especially about the meaning of individual user attributes.
+Therefore it looks like IDM systems are (at least) one layer above typical ESB deployments.ESB systems are usually message-based.
+Request-response.
+Notification.
+They do not maintain any substantial state.
+However, IDM systems are inherently state-full.
+IDM systems maintain user database and synchronizes that to other systems.
+IDM system must be able to handle inconsistent data, contradictory data, lost messages, manual changes to the target systems, invalid source data - and policy violations.
+Pure message-based system cannot do that.
+This is not about events, this is all about state.
+And typical user management interfaces do not support any consistency guarantees, therefore we also do not have a way how to (transactionaly) convert state to messages (a method typically used in bank transactions and similar applications).All of that could suggest that ESB is not suitable for creating an IDM system.
+But there are still two advantages to base OpenIDM on ESB or, more exactly, JBI: assembly-time wiring and variability.*Assembly-Time Wiring*We mentioned before that the calling component in ESB does not know which specific implementation it calls.
+Both caller and callee only depend on a common interface, not on each other.
+The Bus decides in run-time how the call should be routed.
+That makes the entire application very flexible and customizable.
+Components can be replaced at assembly time, long after the OpenIDM product is developed, build and packaged.
+Anyone can do it, and it does not directly involve any Java development.For example let's imagine that you do not like our implementation of the repository (database).
+You will Google a bit and find a madman somewhere on the Moon's orbit that implemented our repository interface and his implementation will store identity data on a sheets of special crystalline paper for extended durability.
+You can download that implementation, add it to the project change the wiring of the project, build, deploy and ... enjoy the eternity.Changing the wiring usually means to drag few arrows in the so called CASA editor in netbeans.
+It does not involve programming and therefore is efficient to do by IDM engineers.Much more tricks can be done by changing wiring, not just replacing an existing component.
+New components can be added, e.g. as an proxy between two existing components.
+This can be used to manipulate data, add auditing, pass the data to third-party system and back and so on.
+The system can be re-structured from the ground up if needed.
+This brings us much closer to the component-based development than ever.*Variability*JBI introduces the concept of service engines.
+Service engines can be though of as interpreters.
+You give instructions to the service engine in a form of some programming language.
+The service engine will use the code as an implementation of a service.
+The code may be Java, BPEL or any other programming language - as long as there is a service engine that understands that.
+All the service engines has a common point: service interfaces defined by WSDL.
+Therefore the services can inter-operate even when they are implemented in different languages.
+And the best thing is: all of that happens in a single Java Virtual Machine instance, in a single composite application.That gives us variability.
+The most parts of OpenIDM is written in Java.
+But if we should try to force all IDM engineers to become master Java developers, we would definitely face an angry mob.
+Java is good language, but sometimes it is way too cumbersome for high-level and business-oriented tasks.
+BPEL is usually a language of choice for that now - and we are not sure what the future may bring.
+By using JBI, we can combine Java and BPEL and whatever in the same application, sharing the same interfaces, working for the same purpose.*Packaging and Deployment*Therefore we use ESB inside the OpenIDM system.
+We are not exposing it outside.
+OpenIDM is a single (composite) application, running in a single JVM (JBI container).
+OpenIDM may as well be just a simple web application - it cannot really be distinguished from the outside.
+The real benefit of JBI is really only apparent from the inside.We normally do not want to directly interconnect OpenIDM ESB and other ESBs that there may be in the enterprise.
+We do not see any substantial advantage to that.
+At least not now.
+But that may change as all of the industry starts to understand ESB and SOA and all these buzzwords much better than they are understood now.
+____
+
+However, the practice was a but different than we have expected.
+First of all, OpenIDM was based on OpenESBv2.
+OpenESB was at that time mostly a dead project.
+It was not developed in the open, the bugs were not fixed.
+And that slowed down the entire OpenIDM development as the bugs were virtually everywhere.
+It was very difficult to diagnose the errors as many of the problems ended up with `log message is null` or similar "helpful" error message.
+Fighting with OpenESB and looking for workarounds was a terrible waste of time.
+The hope for OpenESBv3 (a.k.a. Fuji) was never fulfilled and looking back now it was never realistic.
+
+When midPoint project started the first thing that we have done was a drastic remove of OpenESB.
+That alone contributed to a much faster development pace.
+We were looking for a replacement.
+We were considering ServiceMix or OSGi.
+But we have found that a plain basic Spring is just enough.
+We do not need much more.
+Therefore, midPoint is no longer ESB-based.

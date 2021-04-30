@@ -1,0 +1,112 @@
+= Unit Tests
+:page-wiki-name: Unit Tests
+:page-wiki-id: 13074853
+:page-wiki-metadata-create-user: semancik
+:page-wiki-metadata-create-date: 2013-12-09T09:22:21.293+01:00
+:page-wiki-metadata-modify-user: virgo
+:page-wiki-metadata-modify-date: 2020-03-16T09:08:24.577+01:00
+:page-upkeep-status: yellow
+
+Strict link:https://en.wikipedia.org/wiki/Unit_testing[unit testing] definition aside, when we talk about unit tests we can possibly mean at least two things:
+
+* Tests run by some unit testing framework - in our case link:https://testng.org/doc/[TestNG]. But TestNG is not only a unit testing framework, especially when combined with Spring testing support when just initialization of the test environment (Spring context) can last for tens of seconds.
+
+* Tests run by Maven's link:http://maven.apache.org/surefire/maven-surefire-plugin/[Surefire plugin]. This is just a technicality, there is nothing preventing you from running integration tests with the same plugin, but this should be a job of link:https://maven.apache.org/surefire/maven-failsafe-plugin/[Failsafe plugin].
+
+In midPoint we have many tests run by Surefire plugin, many of them are typical unit tests, but many also use Spring integration.
+That's why the build with *-DskipITs* (that runs only Surefire tests) can still last up to 30 minutes depending on the machine you use.
+
+
+== Pure unit test
+
+To implement pure unit tests, extend the test class from *link:https://github.com/Evolveum/midpoint/blob/master/tools/test-ng/src/main/java/com/evolveum/midpoint/tools/testng/AbstractUnitTest.java[AbstractUnitTest]*. This class provides couple of features:
+
+* It logs start and end of the test with its duration.
+
+* It provides protected *logger* instance field - with TestNG we can avoid using static code as even the class lifecycle methods are non-static.
+
+* Anywhere in the tests you can use methods from *link:https://github.com/Evolveum/midpoint/blob/master/tools/test-ng/src/main/java/com/evolveum/midpoint/tools/testng/MidpointTestMixin.java[MidpointTestMixin]* like *getTestName()* and various *display*()* methods.
+
+* In many modules there is often available abstract subclass of *AbstractUnitTests*, e.g. *AbstractScriptTest* or *AbstractPrismTest*. Classes like these provide additional feature, or centralize suite initialization (methods marked with *@BeforeSuite*).
+
+* Finally, add the test class to *testng-unit.xml* file located in the root of the module.
+
+
+== Tests using Spring context
+
+Normally, to implement test with Spring context, one typically has to extend *AbstractTestNGSpringContextTests* (TestNG support requires extending class, unlike JUnit).
+To provide our test support functionality, extend test classes from link:https://github.com/Evolveum/midpoint/blob/master/infra/test-util/src/main/java/com/evolveum/midpoint/test/util/AbstractSpringTest.java[AbstractSpringTest]. This class, again, provides all the functions from *MidpointTestMixin*. The rest is the same like in other Spring tests:
+
+* Specify the Spring configuration with *@ContextConfiguration* annotation.
+(Will we use annotation based configuration for this? Likely! When? I don't know yet!)
+
+* Specify *@DirtiesContext* if you write something to the repository (database), which is likely for most tests.
+(Will we try different approach to avoid this? Likely! When? Hopefully soon.)
+
+* There can be more configuration, Spring profile or property source declarations and also TestNG *@Listeners*.
+
+* Many modules have their own abstract subclasses providing more functionality - most prominent is link:https://github.com/Evolveum/midpoint/blob/master/repo/repo-test-util/src/main/java/com/evolveum/midpoint/test/AbstractIntegrationTest.java[AbstractIntegrationTest] that can help you with midPoint *Task*s and *OperationResult*s and much more.
+But this one is NOT run by Surefire anymore and we are clearly in the space of our wiki:Integration+Tests[Integration Tests].
+
+
+== Typical test method structure
+
+Tests can have one of the typical structures:
+
+* Most tests have *link:https://en.wikipedia.org/wiki/Given-When-Then[given-when-then]* structure which is useful for both unit and higher level tests.
+To support this structure *MidpointTestMixin* provides methods like *given()*, *when()* and *then()*. These mark the start of the section in test output and take optional string describing the section in human readable string.
+It is preferable to use the description (although existing tests don't).
+
+* Test structure can degrade to *when-then* if given is trivial.
+There is no need to mention empty given.
+
+* Sometimes the test is so trivial, that tested functionality can be inlined into the asserts.
+In that case use simple *expect()* section, if at all.
+Always consider if the test is really that simple.
+But if it is and the code and/or the test name says it all very clearly, don't bother with section unless you want to add something to the test output.
+
+Test should have asserts - this is absolutely crucial.
+Testing that something just runs is not enough.
+
+Although we use TestNG, for historic reasons we use mostly JUnit assertions.
+It is recommended to write new assertions with link:https://assertj.github.io/doc/[AssertJ] library.
+
+
+== Surefire configuration
+
+Most of the configuration of both test plugins is placed in the top-level *link:https://github.com/Evolveum/midpoint/blob/master/pom.xml[pom.xml]*. Check the respective plugin sections there.
+
+By default the tests log into the file and only the tests mentioned in *testng-unit.xml* are run.
+
+
+== Running tests
+
+[TIP]
+====
+In many midPoint test classes the tests methods depend on each other, they should run in alphabetic order and we don't generally recommend running a single test method - especially for integration tests.
+Sometimes it works, you can always try, but if it doesn't try running the whole test class instead.
+====
+
+Running tests in IDE is not covered here.
+Check wiki:How+to+start+with+Eclipse[How to start with Eclipse] or wiki:How+to+start+with+IntelliJ+IDEA[How to start with IntelliJ IDEA].
+
+During Maven build, all Surefire tests are run, unless *-DskipTests* flag is used that disables test execution for both Surefire and Failsafe plugins.
+
+To run unit tests for a single module (assuming project was successfully built previously to avoid downloading potentially conflicting SNAPSHOTS from our Nexus) use this command:
+
+[source]
+----
+mvn test -pl infra/schema
+----
+
+If you use goal *install* instead of *test*, integration tests are run as well and flag *-DskipITs* can be useful, unless the module doesn't have integration tests.
+
+To run a single test class (short name is enough) with test output to the terminal instead of file, use:
+
+[source]
+----
+mvn test -pl infra/schema -DredirectTestOutputToFile=false -Dtest=TestParseUser
+----
+
+For more see the Surefire reference.
+For instance, it is possible to debug the tests run by Maven (it will suspend the forked JVM and you can connect from IDE with remote debugger) and much more, but for most cases using IDE directly will be more comfortable.

@@ -1,0 +1,120 @@
+= Backporting Code to Support Branch
+:page-wiki-name: Backporting Code to Support Branch
+:page-wiki-id: 12517433
+:page-wiki-metadata-create-user: semancik
+:page-wiki-metadata-create-date: 2013-09-13T15:22:06.681+02:00
+:page-wiki-metadata-modify-user: semancik
+:page-wiki-metadata-modify-date: 2017-01-19T12:08:22.852+01:00
+:page-upkeep-status: yellow
+
+The support branch is created in git after every minor release (see wiki:Release+Process[Release Process]). It has the name in the form:
+
+
+....
+support-X.Y
+....
+
+Where X.Y is the last minor release.
+This branch is used to group changes for patch releases and maintenance releases.
+
+
+== Fix on Master
+
+Fix the bug on `master`, test it, commit and push as usual
+
+[WARNING]
+.master first, support second
+====
+Usually all the development work is done on `master` or on topic branches that are rebased/merged to `master`. *This includes bugfixes that should end up in support branch*. Everything is fixed in the master branch first and then the patch is backported (cherrypicked) to the support branch.
+We need to this to make sure that we do not omit any bugfix during the development of the next release.
+Also the bug might have already been fixed on `master` and only needs to be backported.
+Perhaps the only exception to this method is the case if the bug cannot be fixed on `master`, e.g. because the bug is in deprecated code which has already been removed in `master`. In such cases the fix may go to the support branch directly.
+
+====
+
+
+== Checkout Support Branch
+
+To check out the branch as local tracking branch (only needs to be done once):
+
+[source]
+----
+git checkout --track origin/support-3.5
+----
+
+or just switch to the branch and make sure it is up-to-date
+
+[source]
+----
+git checkout support-3.5
+git pull
+----
+
+[TIP]
+.Note
+====
+If you get a message "fatal: Cannot update paths and switch to branch 'support-3.5' at the same time" after you have issued the above-mentioned "git checkout --track ..." command, use the "git remote update" command first and then retry the failed operation.
+====
+
+
+== Cherrypick
+
+Cherrypick the commit from the `master` to the support branch.
+
+[source]
+----
+git cherry-pick de265e5
+----
+
+Use the commit ID from the master branch as argument.
+Repeat this if more commits needs to be backported.
+Mare sure you maintain correct ordering of the cherrypicking.
+Also have a close look at the commit messages and/or patches of the commits that you are cherrypicking.
+The code cherrypicked from master may depend on some previous work done on `master` that was not cherrypicked to support branch yet.
+In such case these commits needs to be taken to support branch as well.
+Alternatively a cherrypick gone bad may be manually fixed with a direct commit to the support branch.
+
+You may get conflicts during the cherry-pick.
+The `git status` command will show the conflicts.
+The same command will also tell you how to fix them: just open the conflicting files, find where the conflict occured and modify the file to the correct version.
+The use `git add` to mark the conflict fixed.
+Do this for all the conflicting files.
+Then continue the cherry-pick with: `git cherry-pick --continue`
+
+Please note that the cherrypick is different from a merge.
+Cherrypick creates new commits (also see reasoning below).
+
+
+== Test and Push
+
+Make sure that the cherrypick went OK by building the branch and runnig (at least some) tests.
+
+Then push the changes to the server:
+
+[source]
+----
+git push
+----
+
+
+== Check Bamboo
+
+After the push please make sure everything works by checking the state of link:https://bamboo.evolveum.com/browse/MID-SUPPORT[MID-SUPPORT plan on Bamboo]
+
+
+== Reasoning
+
+We want to have mostly linear development because we want to integrate the code continually.
+All the time.
+We avoid branching.
+There are git-based models that use a lot of branching and merging (such as link:http://nvie.com/posts/a-successful-git-branching-model/[http://nvie.com/posts/a-successful-git-branching-model/]). We don't like these models for midpoint core team.
+The core team is small and works well together.
+Although we use some topic branches we otherwise try to keep things simple and avoid branching.
+
+Our focus is on the development of next midpoint version which happens on `master`. All bugfixes usually go there.
+Backporting a fix mostly an exception.
+When we create a fix we do not know whether it will need to be backported later or not.
+Therefore we do the easiest thing which is also a common case: fix on `master`. If the fix needs to be backported then just cherrypick it to support branch.
+Cherrypick creates new commit and efficiently breaks merging.
+But that's not a problem.
+We do not expect that we will ever merge support branch back to `master`.

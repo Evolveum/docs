@@ -1,0 +1,288 @@
+= How to develop your own approval processes - case 1 - using primary change processor and general item approval process
+:page-wiki-name: How to develop your own approval processes - case 1 - using primary change processor and general item approval process
+:page-wiki-id: 11370685
+:page-wiki-metadata-create-user: mederly
+:page-wiki-metadata-create-date: 2013-07-27T17:26:14.152+02:00
+:page-wiki-metadata-modify-user: mederly
+:page-wiki-metadata-modify-date: 2014-03-11T20:14:06.331+01:00
+:page-archived: true
+:page-obsolete: true
+:page-toc: top
+
+
+
+== Introduction
+
+Imagine you would like to provide your own, specific, approval process.
+For example, although midPoint out-of-the-box supports approvals for assigning new roles, you might want e.g. to approve:
+
+* assigning user accounts,
+
+* modifying these assignments,
+
+* modifying sensitive user information,
+
+* modifying other kinds of objects (roles, system configuration),
+
+* and so on.
+
+In this text we will describe how to create a *primary-stage approval process*, i.e. process that executes during primary stage of model operation.
+We will use the link:https://fisheye.evolveum.com/browse/midPoint-git/model/workflow-impl/src/main/java/com/evolveum/midpoint/wf/processors/primary/PrimaryChangeProcessor.java?hb=true[PrimaryChangeProcessor] to do that, because it implements a lot of technical code, allowing you to concentrate on your business.
+Moreover, we will use existing general link:https://fisheye.evolveum.com/browse/midPoint-git/model/workflow-impl/src/main/resources/processes/ItemApproval.bpmn20.xml?hb=true[ItemApproval] BPMN process.
+This option is strongly recommended, because it frees us from many annoying technical details related to BPMN and supporting Java code.
+
+Just to provide the whole picture, there are other options, namely:
+
+. you could use primary change processor, but provide your own workflow process,
+
+. you could use general change processor to handle almost any workflow-related scenario, or
+
+. you could write your own change processor.
+
+You can read about these approaches in respective parts (2, 3 and 4) of this document.
+
+Now, if you have not done so, please read the document about the wiki:Workflow+Management[workflow module architecture]. The part most important for you is the PrimaryChangeAspect interface.
+It deals with a given (elementary) kind of primary-stage change, and has the following duties:
+
+. When a change arrives - change aspect tries to recognize whether the change contains relevant delta(s); if so, it prepares instruction(s) to start related workflow approval process(es).
+
+. When a process instance finishes, change aspect:
+
+.. modifies the delta(s) related to particular process instance and passes them along, to be executed,
+
+.. provides a list of approvers that is to be stored in modified object's metadata.
+
+
+
+. When a user wants to work on his task, the change aspect prepares a form to be presented to the user.
+
+. When a user asks about the state of process instance(s), the change aspect prepares that part of the answer that is specific to individual process.
+
+
+== Starting workflow process instances
+
+First of change aspect's duties corresponds to the method *prepareJobCreationInstructions*. Its goal is to tell which wf-related jobs to start, and how to change original object delta.
+So, for example, if you build an aspect that manages approvals for a specific security-sensitive user attribute A, in this method you would look for any changes related to this attribute.
+If you would find one, you would *remove* it from the original delta and start a workflow process to approve such a change.
+
+Preparation of a wf-related job start is a quite complex task; fortunately, midPoint provides a couple of helpful methods there.
+An example code how to use them follows (taken from AddRoleAssignmentAspect):
+
+[source]
+----
+// create a JobCreateInstruction for a given change processor (primaryChangeProcessor in this case)
+PcpChildJobCreationInstruction instruction =
+    PcpChildJobCreationInstruction.createInstruction(getChangeProcessor());
+
+// set some common task/process attributes
+instruction.prepareCommonAttributes(this, modelContext, objectOid, requester);
+
+// prepare and set the delta that has to be approved
+ObjectDelta<? extends ObjectType> delta = ...;
+instruction.setDeltaProcessAndTaskVariables(delta);
+
+// set the names of midPoint task and activiti process instance
+instruction.setTaskName("Workflow for approving adding " + roleName + " to " + userName);
+instruction.setProcessInstanceName("Adding " + roleName + " to " + userName);
+
+// setup general item approval process
+String approvalTaskName = "Approve adding " + roleName + " to " + userName;		// name to be given to approval work items (activiti tasks)
+ApprovalRequest approvalRequest = ...;											// what has to be approved and how
+itemApprovalProcessInterface.prepareStartInstruction(instruction, approvalRequest, approvalTaskName);
+
+// set some aspect-specific variables
+instruction.addProcessVariable(AddRoleVariableNames.USER_NAME, userName);
+
+instructions.add(instruction);
+----
+
+Concerning setting up the general ItemApproval process, the first variable that is set (approvalRequest) contains an instruction about what is to be approved, and how. The second variable (approvalTaskName) is simply a name that will be given to work items, i.e. Activiti tasks, that will be used for soliciting users' approvals.
+
+ApprovalRequest can be set up in a following way:
+
+[source]
+----
+ApprovalRequest<AssignmentType> approvalRequest = new ApprovalRequestImpl(
+	assignmentType, 				// ItemToApprove: item to be approved
+	role.getApprovalSchema(), 		// aproval schema
+	role.getApproverRef(), 			// approvers references
+	role.getApproverExpression(), 	// approvers expressions
+	role.getAutomaticallyApproved(), // expression telling when the approval will be automatically granted
+	prismContext);
+----
+
+ItemToApprove can be anything - the only condition is that it should be serializable and (somehow) displayable. Second, third, fourth, and fifth parameter sent to the ApprovalRequestImpl constructor describe how the approvals are done: either using (a potentially complex) approval schema, or using simple (constant) list of approvers, an expression providing the list of approvers, and/or an expression that says when the approvals can be skipped. In this case, all approval-related data are taken directly from the RoleType.
+
+
+=== Real example
+
+For a real example, have a look at AddRoleAssignmentAspect and see how prepareJobCreationInstructions is implemented there.
+You might notice that there is a method named* getAssignmentToApproveList* that looks for role assignment creations.
+It separately treats cases of user addition and user modification.
+In both cases it looks for assignments of abstract roles that are "sensitive" (in a sense they have defined an approver or more complex approval schema), removes them from the add/modify request, and for each such assignment creates an link:https://fisheye.evolveum.com/browse/midPoint-git/model/workflow-api/src/main/java/com/evolveum/midpoint/wf/processes/itemApproval/ApprovalRequest.java?hb=true[ApprovalRequest]. As mentioned above, ApprovalRequest is a simple data structure describing what has to be approved (itemToApprove) and by which means (approvalSchema).
+It is a part of general item approval process (com.evolveum.midpoint.wf.processes.itemApproval).
+
+Please note that other jobs (root job, task0) are created automatically by the primaryChangeProcessor.
+Also the execution strategy ("execute all afterwards", "execute all immediately", "mixed mode") is determined automatically within instruction.prepareCommonAttributes(...) method, by looking at respective option in the model context.
+
+
+== Finishing workflow process instance
+
+When workflow process instance finishes, primary change processor invokes the *prepareDeltaOut* and *prepareApprovedBy* methods.
+The former should decide what will be the resulting delta - based on the original delta and the process instance outcome, represented by process instance variables.
+The latter returns a list of users who have approved the particular request.
+This information is then stored in the task by the wf module, and eventually fetched from there and put into metadata (createApproverRef/modifyApproverRef) by the model ChangeExecutor.
+
+The default implementations provided by PrimaryChangeAspectHelper class (to whom they are delegated by BasePrimaryChangeAspect, a suggested superclass of all primary change aspect classes), delegates these duties to ProcessMidPointInterface instance of the BPMN process used.
+In our case, the item approval process fully covers required functionality, so we have to do nothing special.
+
+
+== User interaction
+
+There are two cases of user interaction with an approval process instance:
+
+. when a user wants to work on his work item (e.g. approve or reject the request),
+
+. when (potentially another) user wants to see the state of the approval process instance.
+
+Let's have a look on these cases in turn.
+
+
+=== Approving a work item
+
+When a work item is being approved, the following information is shown to the user and/or requested from the user:
+
+. General information about a request:  +
+
+
+.. work item name (e.g. "Approve adding Sensitive Role 1 to jsmith"),
+
+.. name of the user who have requested the operation,
+
+.. date and time when the operation was requested,
+
+.. date and time when this work item has been created.
+
+
+
+. Specific information about a request, e.g. in the case of role addition, here could be:
+
+.. user name: to whom is a role being requested,
+
+.. role to be approved: which role was requested to be added,
+
+.. time interval: what is the validity time of the assignment that was requested,
+
+.. requester's comment: a text that the requester entered when he requested the operation to be carried out,
+
+.. approver's comment - here the approver writes his comments on approving or rejecting the work item.
+
+
+
+. Supplementary information:
+
+.. data on requester, i.e. his complete prism object,
+
+.. data on a object that is related to the request; this could be arbitrary object, e.g. when adding a role assignment, this is the role itself (again, in the form of prism object),
+
+.. object before change, e.g. the user object before the role was added,
+
+.. object after proposed change, e.g. the user object after the role would be added (if approved),
+
+.. tracking (diagnostic) data - auxiliary information useful for tracking problems, e.g. activiti task id, activiti process instance id, activiti process execution id, and so on,
+
+.. delta to be approved,
+
+.. information on whole process instance.
+
+
+
+What you, as an implementer, have primarily to provide, is the second item in the above list: *specific information about a request*. We call it QuestionForm.
+In order to do that, you have to implement *prepareQuestionForm* method:
+
+[source]
+----
+/**
+ * Returns a PrismObject containing information about a work item to be processed by the user. For example, for 'approve role addition' process
+ * here is the RoleApprovalFormType prism object, having the following items:
+ * - user: to whom is a role being requested,
+ * - role: which role was requested to be added,
+ * - timeInterval: what is the validity time of the assignment that was requested,
+ * - requesterComment: a text that the requester entered when he requested the operation to be carried out,
+ * - comment - here the approver writes his comments on approving or rejecting the work item.
+ *
+ * @param task activiti task corresponding to the work item that is being displayed
+ * @param variables process instance variables at the point of invoking the work item (activiti task)
+ * @param result operation result where the operation status should be reported
+ * @return PrismObject containing the specific information about work item
+ * @throws SchemaException if any of key objects cannot be retrieved because of schema exception
+ * @throws ObjectNotFoundException if any of key objects cannot be found
+ */
+PrismObject<? extends QuestionFormType> prepareQuestionForm(org.activiti.engine.task.Task task, Map<String, Object> variables, OperationResult result) throws SchemaException, ObjectNotFoundException;
+----
+
+For an example, please see the implementation in AddRoleAssignmentAspect.
+
+In a similar way, *an object related to the request* has to be returned by *prepareRelatedObject* method:
+
+[source]
+----
+/**
+ * Returns a object related to the work item at hand. E.g. for 'approve role addition' process this method returns corresponding role object.
+ *
+ * @param task activiti task corresponding to the work item that is being displayed
+ * @param variables process instance variables at the point of invoking the work item (activiti task)
+ * @param result operation result where the operation status should be reported
+ * @return PrismObject containing the object related to the work item
+ * @throws SchemaException if the object cannot be retrieved because of schema exception
+ * @throws ObjectNotFoundException if the object cannot be found
+ */
+PrismObject<? extends ObjectType> prepareRelatedObject(org.activiti.engine.task.Task task, Map<String, Object> variables, OperationResult result) throws SchemaException, ObjectNotFoundException;
+----
+
+A sample implementation for role addition approval process is:
+
+[source]
+----
+@Override
+public PrismObject<? extends ObjectType> prepareRelatedObject(org.activiti.engine.task.Task task, Map<String, Object> variables, OperationResult result) throws SchemaException, ObjectNotFoundException {
+    ApprovalRequest<AssignmentType> approvalRequest = (ApprovalRequest<AssignmentType>) variables.get(ProcessVariableNames.APPROVAL_REQUEST);
+    approvalRequest.setPrismContext(prismContext);
+    if (approvalRequest == null) {
+        throw new IllegalStateException("No approval request in activiti task " + task);
+    }
+    String oid = approvalRequest.getItemToApprove().getTargetRef().getOid();
+    return repositoryService.getObject(RoleType.class, oid, null, result);
+}
+----
+
+(We utilize approvalRequest variable here, which is specific to the generic itemApproval process that we use in this case.
+The itemToApprove member of the request contains OID of the role to be added.)
+
+
+=== Displaying the state of the approval process
+
+When displaying the state of an approval process, there are some items common to all processes (e.g. instance name, instance id, start and finish timestamp, midPoint task oid), but the most useful information is specific to a particular BPMN process.
+In order to ensure most effective display of such information we require workflow processes authors to provide their own GUI code to do so.
+The code itself has to reside in GUI module, but the change aspect has to provide a reasonably well-structured data to it.
+
+Default implementation delegates this duty to ProcessMidPointInterface again; so we have nothing to do here.
+
+
+== Conclusion
+
+That's all.
+Now you only have to put your newly created change aspect into operation, by listing it in workflow configuration section of midpoint config.xml file, such as:
+
+[source]
+----
+<workflow>
+    <changeProcessors>
+        <primaryUserChangeProcessor>
+            <aspect>addRoleAssignmentAspect</aspect>
+        </primaryUserChangeProcessor>
+    </changeProcessors>
+</workflow>
+----
+
+After restarting midPoint, your change aspect should be active.

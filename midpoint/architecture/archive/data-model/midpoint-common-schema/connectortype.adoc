@@ -1,0 +1,196 @@
+= ConnectorType
+:page-archived: true
+:page-obsolete: true
+:page-wiki-name: ConnectorType
+:page-wiki-id: 4424208
+:page-wiki-metadata-create-user: semancik
+:page-wiki-metadata-create-date: 2012-06-27T18:32:32.138+02:00
+:page-wiki-metadata-modify-user: maikeru
+:page-wiki-metadata-modify-date: 2013-05-29T13:33:23.099+02:00
+
+`Connector` object describes a generic connector.
+Connector in midPoint is any method of connection to the resource.
+The actual implementation, connector framework or protocol does not matter but the most common type of connector is wiki:OpenICF[OpenICF] connector.
+
+The values of `framework`, `connectorType`, `connectorVersion` and `connectorHost` (if present) together form a unique identification of the connector.
+That means that two ConnectorType objects that have these values same represent the same connector.
+Only one such instance of ConnectorType should exist in the repository.
+
+[%autowidth,cols="h,1,1"]
+|===
+| Property | Type | Description
+
+| framework
+| URL
+| Identification of the framework or mechanism that implements this connector.
+
+
+| connectorType
+| string
+| Type of the connector, as seen by the framework.
+The value is framework-specific.
+
+
+| connectorVersion
+| string +
+ optional
+| Version of the connector.
+Used only for display purposes and for searching during imports.
+Therefore it may be any (sensible) string, but it should be reasonably stable to avoid broken imports.
+May be any string (numeric convention is recommended, but not required).
+The value is framework-specific.
+
+
+| connectorBundle
+| string +
+ optional
+| Name of a package that the connector comes in.
+It may be a name of the JAR file, ICF bundle name, URL or any other designation of the packaging.
+The value is framework-specific.
+
+
+| targetSystemType
+| URL +
+ optional
+| Identification of the kind of target system that the connector can connect to, such as "LDAP" or "DB Table".
+Used only for display purposes and for searching during imports.
+Therefore it may be any (sensible) string, but it should be reasonably stable to avoid broken imports.
+
+
+| namespace
+| URL +
+ optional
+| Connector-private namespace.
+This is the namespace that is private for a specific connector (and optionally connector version).
+It may be used by the connector to generate connector configuration schema or for other purposes.
+
+
+| connectorHostRef (connectorHost)
+| ObjectReference (wiki:ConnectorHostType[ConnectorHostType])
+| Reference to the host that this connector is installed on.
+
+
+| schema
+| xsd:any  +
+ read-only
+| XSD definition of connector configuration schema. It defines connector configuration variables and data types such as host names, ports, administrator names and so on.
+Connector schema is only available at run-time and may be different for every connector.
+It is supposed to be dynamically interpreted in run-time.
+
+
+|===
+
+
+== Connector Schema
+
+Connector schema defines connector configuration variables and data types such as host names, ports, administrator names and so on.
+
+Connector schema is dynamic, it is only available at run-time and may be different for every connector.
+It is supposed to be dynamically interpreted in run-time.
+It is generated directly from the connector, there is no need to create it manually.
+
+See wiki:Resource+and+Connector+Schema+Explanation[Resource and Connector Schema Explanation] for a detailed description how the dynamic schemas work together.
+
+
+== Local and Remote Connectors
+
+There are two types of connectors:
+
+* *Local connectors* are installed on the same host (and in the same web application context) as midPoint.
+Therefore midPoint instance can call them directly.
+MidPoint can discover such connectors and do most of the connector lifecycle tasks automatically.
+
+* *Remote connectors* are installed on a different host (or in a different application context) than midPoint.
+No midPoint instance has direct access to such connector.
+Some form of inter-process communication is needed to interact with such connector.
+
+
+== Connector Discovery
+
+Local connectors are discovered automatically when the system starts.
+Connector object will be created for each of the discovered connectors if it haven't existed before.
+
+MidPoint will never delete a connector object during discovery, not even if the connector is missing.
+Deleting an object may break links that are created in existing configured resources.
+Even if the connector object is re-created later it may have different OID and therefore the links may break.
+Old connector objects needs to be deleted manually by system administrator.
+
+Remote connectors are *not* discovered automatically.
+These needs to be set up manually (for now).
+
+
+== Samples
+
+.ICF LDAP Connector Example (simplified)
+[source,xml]
+----
+<connector>
+   <name>ICF org.identityconnectors.ldap.LdapConnector</name>
+   <namespace>http://midpoint.evolveum.com/xml/ns/public/connector/icf-1/bundle/org.forgerock.openicf.connectors.ldap.ldap/org.identityconnectors.ldap.LdapConnector</namespace>
+   <connectorVersion>1.1.0.0-e1</connectorVersion>
+   <framework>http://midpoint.evolveum.com/xml/ns/public/connector/icf-1</framework>
+   <connectorBundle>org.forgerock.openicf.connectors.ldap.ldap</connectorBundle>
+   <connectorType>org.identityconnectors.ldap.LdapConnector</connectorType>
+   <schema>
+      <definition xmlns="http://midpoint.evolveum.com/xml/ns/public/common/common-2a">
+         <xsd:schema targetNamespace="http://midpoint.evolveum.com/xml/ns/public/connector/icf-1/bundle/org.forgerock.openicf.connectors.ldap.ldap/org.identityconnectors.ldap.LdapConnector">
+            <xsd:complexType name="ConfigurationPropertiesType">
+               <xsd:sequence>
+                  ...
+                  <xsd:element minOccurs="0" name="credentials" type="c:ProtectedStringType">
+                     <xsd:annotation>
+                        <xsd:appinfo>
+                           <a:displayName>Password</a:displayName>
+                           <a:help>Password</a:help>
+                        </xsd:appinfo>
+                     </xsd:annotation>
+                  </xsd:element>
+                  <xsd:element minOccurs="0" name="port" type="xsd:int">
+                     <xsd:annotation>
+                        <xsd:appinfo>
+                           <a:displayName>TCP Port</a:displayName>
+                           <a:help>TCP Port</a:help>
+                        </xsd:appinfo>
+                     </xsd:annotation>
+                  </xsd:element>
+                  <xsd:element minOccurs="0" name="principal" type="xsd:string">
+                     <xsd:annotation>
+                        <xsd:appinfo>
+                           <a:displayName>Principal</a:displayName>
+                           <a:help>Principal</a:help>
+                        </xsd:appinfo>
+                     </xsd:annotation>
+                  </xsd:element>
+                  <xsd:element maxOccurs="unbounded" minOccurs="0" name="baseContexts" type="xsd:string">
+                     <xsd:annotation>
+                        <xsd:appinfo>
+                           <a:displayName>Base Contexts</a:displayName>
+                           <a:help>Base Contexts</a:help>
+                        </xsd:appinfo>
+                     </xsd:annotation>
+                  </xsd:element>
+                  <xsd:element minOccurs="0" name="host" type="xsd:string">
+                     <xsd:annotation>
+                        <xsd:appinfo>
+                           <a:displayName>Host</a:displayName>
+                           <a:help>Host</a:help>
+                        </xsd:appinfo>
+                     </xsd:annotation>
+                  </xsd:element>
+                  ...
+               </xsd:sequence>
+            </xsd:complexType>
+            ...
+            <xsd:element name="configuration" type="tns:ConfigurationType">
+               <xsd:annotation>
+                  <xsd:appinfo>
+                     <a:container/>
+                  </xsd:appinfo>
+               </xsd:annotation>
+            </xsd:element>
+         </xsd:schema>
+      </definition>
+   </schema>
+</connector>
+
+----

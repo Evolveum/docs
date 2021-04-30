@@ -1,0 +1,319 @@
+= Streams and ItemPath performance
+
+Recently we found out that using streams in ItemPath implementation can cause performance degradation, manifesting itself as excessive heap allocation.
+This questions the whole idea of using streams in midPoint: _shouldn't we avoid using streams (lambdas) in midPoint altogether_?
+
+This article does not give an answer, although some preliminary ideas are formulated.
+I have written it just to sum up observations done so far.
+
+
+== Test setup
+
+The following two implementations were compared:
+
+.Implementation using streams
+[source,java]
+----
+public static boolean containsSuperpathOrEquivalent(Collection<ItemPath> paths, ItemPath pathToBeFound) {
+    return paths.stream().anyMatch(p -> p.isSuperPathOrEquivalent(pathToBeFound));
+}
+----
+
+.Implementation using for-each cycle
+[source,java]
+----
+public static boolean containsSuperpathOrEquivalent(Collection<ItemPath> paths, ItemPath pathToBeFound) {
+    for (ItemPath p : paths) {
+        if (p.isSuperPathOrEquivalent(pathToBeFound)) {
+            return true;
+        }
+    }
+    return false;
+}
+----
+
+The test code was inspired by many others available (link:https://dzone.com/articles/do-not-let-your-java-objects-escape[this one] in particular) and looked like this:
+
+[source]
+----
+public static void test(int n) throws IOException {
+    test1(n);
+    System.out.println("Round 0 done.");
+    System.gc();
+
+    test1(n);
+    System.out.println("Round 1 done.");
+
+    test1(n);
+    System.out.println("Round 2 done.");
+
+    test1(n);
+    System.out.println("Round 3 done.");
+}
+
+public static void test1(int n) {
+    System.out.println("test1 starting");
+    long start = System.currentTimeMillis();
+    List<ItemPath> paths = Arrays.asList(
+            new ItemPath("a", "b"),
+            new ItemPath("a", "c"),
+            new ItemPath("a", "d"),
+            new ItemPath("a", "e"),
+            new ItemPath("a", "f"));
+    int c = 0;	// just to make java think that the result is relevant
+    for (int i = 0; i < n; i++) {
+        c += test2(paths, i);
+    }
+    long delta = System.currentTimeMillis() - start;
+    System.out.println("Result: " + c + " in " + delta + " ms (" + (1000000L * delta / n) + " ns per op)");
+}
+
+private static int test2(List<ItemPath> paths, int i) {
+    return containsSuperpathOrEquivalent(paths, new ItemPath("a", String.valueOf(i))) ? 1 : 0;
+}
+----
+
+
+== Test results
+
+Each implementation was run under Java 1.8.151 and Java 9.0.1. The machine was quad-core i7-6700 (3.4 GHz) with 16 GB RAM.
+For each of these situations the test was run three times.
+
+In the following table we show execution times (for each operation, in nanoseconds) from rounds 1-3. Round 0 i.e. warm-up is ignored.
+
+[%autowidth]
+|===
+| Implementation | Environment | Run 1 | Run 2 | Run 3 | Average | Interval
+
+| streams
+| 1.8.151
+| 254, 255, 255
+| 255, 255, 255
+| 252, 252, 253
+| 254.00
+| 252-255
+
+
+| streams
+| 9.0.1
+| 249, 248, 249
+| 261, 258, 258
+| 258, 258, 254
+| 254.78
+| 248-261
+
+
+| for each
+| 1.8.151
+| 236, 238, 236
+| 237, 233, 233
+| 240, 237, 238
+| 236.44
+| 233-240
+
+
+| for each
+| 9.0.1
+| 221, 216, 216
+| 231, 230, 230
+| 234, 222, 222
+| 224.67
+| 216-234
+
+
+|===
+
+So, for Java 1.8.151, streams-based implementation is 7.4% slower than for-each based one.
+For Java 9.0.1 the difference is 13.4%.
+
+These numbers are only illustrative.
+As we will see in a moment, the rest of ItemPath implementation is not quite optimal - there are too many objects allocated, for both cases.
+We assume that if we optimized the implementation, the difference between streams and for-each implementation would be even higher.
+
+This is how it looks like from the point of heap allocation.
+Note that the absolute values of #instances and #bytes *are not important* - their value depends on the moment when the memory snapshot was taken (how many of them were created after last GC).
+What is important is # instances/bytes *per iteration*.
+
+.Top instances for streams implementation (Java 1.8.151)
+[source]
+----
+C:\Java\jdk1.8.0_151\bin>jmap -histo 6016 | more
+ num     #instances         #bytes  class name                                                 # instances per iteration   bytes per iteration
+-----------------------------------------------------------------------------------------------------------------------------------------------
+   1:       2096405       50313720  path.IdItemPathSegment                                                        10               240
+   2:        209641       11739896  java.util.stream.ReferencePipeline$Head                                        1                56
+   3:        419291       10062984  javax.xml.namespace.QName                                                      2                48
+   4:        211946        6921744  [C                                                                             1                32
+   5:        209641        6708512  java.util.Spliterators$ArraySpliterator                                        1                32
+   6:        211922        5086128  java.lang.String                                                               1                24
+   7:        210598        5076056  [Ljava.lang.Object;                                                            1                24
+   8:        209715        5034240  [Ljava.lang.String;                                                            1                24
+   9:        209657        5031768  java.util.ArrayList                                                            1                24
+  10:        209647        5031528  path.ItemPath                                                                  1                24
+  11:        209647        5031528  path.NameItemPathSegment                                                       1                24
+  12:        209641        5031384  java.util.stream.MatchOps$$Lambda$2/2074407503                                 1                24
+  13:        209641        5031384  java.util.stream.MatchOps$1MatchSink                                           1                24
+  14:        209646        3354336  path.ObjectReferencePathSegment                                                1                16
+  15:        209641        3354256  path.ItemPath$$Lambda$1/1831932724                                             1                16
+-----------------------------------------------------------------------------------------------------------------------------------------------
+  Total per iteration                                                                                             25               632
+----
+
+.Top instances for streams implementation (Java 9.0.1)
+[source]
+----
+C:\Java\jdk-9.0.1\bin>jmap -histo 11936 | more
+ num     #instances         #bytes  class name (module)                                                   # instances per iteration   bytes per iteration
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+   1:       3746509       89916216  path.IdItemPathSegment                                                                   10               240
+   2:        374651       20980456  java.util.stream.ReferencePipeline$Head (java.base@9.0.1)                                 1                56
+   3:        749310       17983440  javax.xml.namespace.QName (java.xml@9.0.1)                                                2                48
+   4:        374651       11988832  java.util.Spliterators$ArraySpliterator (java.base@9.0.1)                                 1                32
+   5:        379661        9270360  [B (java.base@9.0.1)                                                                      1                24
+   6:        376416        9107104  [Ljava.lang.Object; (java.base@9.0.1)                                                     1                24
+   7:        379460        9107040  java.lang.String (java.base@9.0.1)                                                        1                24
+   8:        374725        8994720  [Ljava.lang.String; (java.base@9.0.1)                                                     1                24
+   9:        374665        8991960  java.util.ArrayList (java.base@9.0.1)                                                     1                24
+  10:        374657        8991768  path.ItemPath                                                                             1                24
+  11:        374657        8991768  path.NameItemPathSegment                                                                  1                24
+  12:        374651        8991624  java.util.stream.MatchOps$$Lambda$27/361993357 (java.base@9.0.1)                          1                24
+  13:        374651        8991624  java.util.stream.MatchOps$1MatchSink (java.base@9.0.1)                                    1                24
+  14:        374656        5994496  path.ObjectReferencePathSegment                                                           1                16
+  15:        374651        5994416  path.ItemPath$$Lambda$26/1757293506                                                       1                16
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+  Total per iteration                                                                                                        25               624
+----
+
+.Top instances for for-each implementation (Java 1.8.151)
+[source]
+----
+C:\Java\jdk1.8.0_151\bin>jmap -histo 18628 | more
+ num     #instances         #bytes  class name          # instances per iteration   bytes per iteration
+-------------------------------------------------------------------------------------------------------
+   1:       1352971       32471304  path.IdItemPathSegment                10               240
+   2:        270603        6494472  javax.xml.namespace.QName              2                48
+   3:        137016        4499952  [C                                     1                32
+   4:        135297        4329504  java.util.AbstractList$Itr             1                32
+   5:        136993        3287832  java.lang.String                       1                24
+   6:        135926        3279712  [Ljava.lang.Object;                    1                24
+   7:        135367        3249896  [Ljava.lang.String;                    1                24
+   8:        135314        3247536  java.util.ArrayList                    1                24
+   9:        135304        3247296  path.ItemPath                          1                24
+  10:        135303        3247272  path.NameItemPathSegment               1                24
+  11:        135303        2164848  path.ObjectReferencePathSegment        1                16
+-------------------------------------------------------------------------------------------------------
+  Total per iteration                                                     21               512
+----
+
+.Top instances for for-each implementation (Java 9.0.1)
+[source]
+----
+C:\Java\jdk-9.0.1\bin>jmap -histo 1052 | more
+ num     #instances         #bytes  class name (module)                             # instances per iteration   bytes per iteration
+-----------------------------------------------------------------------------------------------------------------------------------
+   1:       4661279      111870696  path.IdItemPathSegment                                            10               240
+   2:        932265       22374360  javax.xml.namespace.QName (java.xml@9.0.1)                         2                48
+   3:        471101       11464160  [B (java.base@9.0.1)                                               1                24
+   4:        467884       11302240  [Ljava.lang.Object; (java.base@9.0.1)                              1                24
+   5:        470900       11301600  java.lang.String (java.base@9.0.1)                                 1                24
+   6:        466203       11190192  [Ljava.lang.String; (java.base@9.0.1)                              1                24
+   7:        466142       11187408  java.util.ArrayList (java.base@9.0.1)                              1                24
+   8:        466134       11187216  path.ItemPath                                                      1                24
+   9:        466134       11187216  path.NameItemPathSegment                                           1                24
+  10:        466133        7458128  path.ObjectReferencePathSegment                                    1                16
+-----------------------------------------------------------------------------------------------------------------------------------
+  Total per iteration                                                                                 20               472
+----
+
+The following table summarizes memory allocation facts and relates them to the execution time.
+
+[%autowidth]
+|===
+| Implementation | Environment | Instances per iteration | Bytes per iteration | Average execution time
+
+| streams
+| 1.8.151
+| 25
+| 632
+| 254.00
+
+
+| streams
+| 9.0.1
+| 25
+| 624
+| 254.78
+
+
+| for each
+| 1.8.151
+| 21
+| 512
+| 236.44
+
+
+| for each
+| 9.0.1
+| 20
+| 472
+| 224.67
+
+
+|===
+
+
+== Discussion
+
+First of all: both implementations were fully functional.
+None has caused any out-of-memory issues.
+There was only a slight difference in performance.
+
+But when looking at the objects created, one thing came to my mind: what about link:https://dzone.com/articles/overview-of-javas-escape-analysis[Escape Analysis]? It should eliminate heap allocation of objects that do not outlive the method that created them, shouldn't it?
+
+Generally, this is true.
+It can be seen e.g. when running streams scenario in Java 1.8.151 with escape analysis turned off via `-XX:-DoEscapeAnalysis` switch.
+The results are significantly worse: the average execution time per iteration is approx 295 ns (compared with 254 ns in the normal case).
+And the memory allocation looks like this:
+
+.Top instances for for-each implementation with Escape Analysis disabled (java 1.8.151)
+[source]
+----
+C:\Java\jdk1.8.0_151\bin>jmap -histo 11512 | more
+ num     #instances         #bytes  class name                                                 # instances per iteration   bytes per iteration
+-----------------------------------------------------------------------------------------------------------------------------------------------
+   1:       2707030       86624960  path.ItemPath$ItemPathNormalizingIterator                                    10               320
+   2:       2707031       64968744  path.IdItemPathSegment                                                       10               240
+   3:        270703       15159368  java.util.stream.ReferencePipeline$Head                                       1                56
+   4:        541419       12994056  javax.xml.namespace.QName                                                     2                48
+   5:        273019        8876192  [C                                                                            1                32
+   6:        270703        8662496  java.util.Spliterators$ArraySpliterator                                       1                32
+   7:        272994        6551856  java.lang.String                                                              1                24
+   8:        271665        6541664  [Ljava.lang.Object;                                                           1                24
+   9:        270778        6499752  [Ljava.lang.String;                                                           1                24
+  10:        270724        6497376  java.util.ArrayList                                                           1                24
+  11:        270715        6497160  path.ItemPath                                                                 1                24
+  12:        270714        6497136  path.NameItemPathSegment                                                      1                24
+  13:        270703        6496872  java.util.stream.MatchOps$$Lambda$2/2074407503                                1                24
+  14:        270703        6496872  java.util.stream.MatchOps$1MatchSink                                          1                24
+  15:        270703        6496872  java.util.stream.MatchOps$MatchOp                                             1                24
+  16:        270713        4331408  path.ObjectReferencePathSegment                                               1                16
+  17:        270703        4331248  path.ItemPath$$Lambda$1/1831932724                                            1                16
+-----------------------------------------------------------------------------------------------------------------------------------------------
+  Total per iteration                                                                                            36               976
+----
+
+It is 36 instances (976 bytes) without EA vs.
+25 instances (632 bytes) with EA.
+So, EA works with objects like `ItemPath$ItemPathNormalizingIterator`. Why does it not work with the others, namely with the lambda `p -> p.isSuperPathOrEquivalent(pathToBeFound)` that is obviously confined to the `containsSuperpathOrEquivalent` method execution? As mentioned e.g. link:https://stackoverflow.com/questions/41230802/java-8-stream-objects-significant-memory-usage[here] (in a quite similar context): "(...) _escape analysis fails as there are too many interdependent objects inside the stream API, so actual allocations occur_". That's it.
+(This was confirmed: when I created an unrelated lambda in the code and used it in simpler context, EA took care of it.
+It did not appear in the heap information.)
+
+
+== Conclusions
+
+Not much so far.
+ It seems that replacing streams implementations of ItemPath methods with traditional ones was a good idea.
+Also, planned optimization of ItemPath with regards to memory allocations (and perhaps general code optimization) is a good idea as well.
+☺ However, streams and lambdas as such are - in my opinion - very useful and should be used where appropriate.
+Saying that, their use in performance-critical code should be carefully scrutinized (and, in unclear situation, better avoided).
+

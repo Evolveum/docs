@@ -1,0 +1,213 @@
+= Model Integration Tests
+:page-wiki-name: Model Integration Tests
+:page-wiki-id: 22741923
+:page-wiki-metadata-create-user: semancik
+:page-wiki-metadata-create-date: 2016-07-21T15:20:31.093+02:00
+:page-wiki-metadata-modify-user: semancik
+:page-wiki-metadata-modify-date: 2018-10-25T16:01:44.778+02:00
+:page-upkeep-status: yellow
+
+[TIP]
+.Integration Tests
+====
+This page describes details of the integration tests setup that is special to the Model Integration Tests (model-intest).
+See the xref:../[] page for a generic introduction.
+====
+
+Model Integration Tests are testing the system by using wiki:IDM+Model+Interface[IDM Model Interface] and similar interfaces on that level (namely ModelInteractionService).
+The tests are located in a special-purpose `model-intest` component that contains large number of integration tests.
+This component has in fact only the tests and no other code.
+This is the most intensive integration test suite for midPoint.
+
+
+== Common Configuration
+
+All model integration tests share parts of a common set-up.
+This is good for efficient writing of a new tests and also for maintenance.
+However writing a new tests requires familiarity with the common configuration, which is currently quite rich.
+Also it is quite difficult to test exotic configurations or configurations that are not entirely compatible with the common configuration.
+Almost all o the tests are using wiki:Dummy+Resource[Dummy Resource].
+
+
+=== Essential Objects
+
+There is a set of objects essential for midPoint to work, such as system configuration, administrator user and superuser role.
+
+
+=== Resources
+
+There is a wild range of dummy resource configurations.
+There is one default dummy resource (resource with null name) that has the most typical configuration.
+And then there are is quite a rich collection of different resource configurations.
+Therese are (historically) named by colors.
+So there is a red resource that has strong mappings, green that is configured as a source, white which has minimal configuration and so on.
+The characteristics of these resource should be documented in the comments in the `AbstractConfiguredModelIntegrationTest` and also in each individual XML file that contains the definition.
+But some comments are missing.
+If you find a missing comment please add it.
+
+There are some sync and recon tasks for the resources prepared for the tests.
+However these are *not* loaded automatically.
+They have to be loaded where needed.
+
+
+
+[%autowidth,cols="h,1,1,1,1,1,1"]
+|===
+| Resource name | Outline | Details | Recommended for | Out-bound | In-bound | Entit-lements
+
+| null
+| generic *target +
+*(but also source)
+| Used in most tests.
+Has some "unisex" configuration that is supposed to fit broad variety of tests.
+| All tests that do not require any special configuration.
+| YES +
+(mixed)
+| YES
+| YES
+
+
+| red
+| target +
+*strong* mappings
+|
+| Tests with strong outbound mappings.
+| YES +
+(strong)
+|
+|
+
+
+| blue
+| target +
+*weak* mappings
+|
+| Tests with weak outbound mappings.
+| YES +
+(weak)
+|
+|
+
+
+| green
+| generic *source*(but also target)
+| This is authoritative source resource, but it also has outbound mappings.
+| Synchronization tests (as a source).
+Inbound mappings.
+| YES
+| YES
+| no
+
+
+|
+| TODO
+|
+|
+|
+|
+|
+
+
+| purple +
+(gensync)
+| *inbound association*
+| Basic inbound entitlement (priv) association setup.
+|
+| YES
+| YES
+| YES
+
+
+|===
+
+
+
+
+=== Users
+
+There is selection of users and accounts.
+Some users are already loaded (see `AbstractInitializedModelIntegrationTest.initSystem()`). Some users even have existing accounts.
+Other users are just lying there and are not automatically loaded.
+There are ready to be loaded and added by your test code as appropriate.
+
+
+=== Roles, Orgs, etc.
+
+There is a selection of roles that usually induce an account on the default dummy resource.
+There is a small organizational structure that has hierarchical and a flat parts.
+Loading of this orgstruct can be turned off if needed.
+
+
+== Test Superclasses
+
+There are two abstract superclasses:
+
+* `AbstractConfiguredModelIntegrationTest` has only a very basic system configuration applied in its initSystem() method.
+But this superclass has all the constants for file paths and OIDs and names of all the common configuration objects.
+Extend this superclass if you want to make a very custom system initialization yourself.
+
+* `AbstractInitializedModelIntegrationTest` does quite a big system initialization in its initSystem() method.
+It loads a lot of users, roles, organizational structure, it initializes a wide spectrum of colorful resources and so on.
+This superclass is used by most tests.
+
+
+== Philosophy
+
+Model integration tests are designed especially to easily create new tests.
+Hence the rich common configuration.
+If you need to add new test case there are high chances that all you need is to add a new method to an existing test class.
+It is worth spending the time exploring the tests and looking for the right place to add you test method.
+
+In your test method or test class try to avoid creating new configuration (resources, roles or orgs) unless really necessary.
+We want to have maximum reuse in model-intest to make maintenance feasible.
+It is often better to change or extend existing common configuration.
+Do not worry too much about influencing other tests.
+Just modify the configuration and run all the other tests.
+If they pass then your configuration change is probably OK.
+
+Creating few configuration objects specific for your test class is perfectly OK.
+But if you need to create a a lot of custom configuration without reusing much from the existing common then please consider placing your test in wiki:Story+Tests[Story Tests] instead.
+
+
+== Creating New Test
+
+The tests in the model-intenst components can be used as an examples to create new tests.
+
+* Create a test class, e.g. `TestMagicCredentials`. This class should extend the `AbstractInitializedModelIntegrationTest` or `AbstractConfiguredModelIntegrationTest` superclass.
+Make sure you have proper annotations on the class to initialize and clean up spring context (copy&paste from existing test classes).
+
+* If you need special configuration create configuration subdirectory, e.g. `src/test/resources/magic-credentials`. The `TEST_DIR` constant should point to that.
+
+* Put all your configuration objects into that directory.
+
+* Implement initSystem() method to load these objects.
+See existing test classes for examples how to do that.
+Important: do not forget to invoke the superclass method: `super.initSystem(...)`
+
+* Initialize your resources in the initSystem() method.
+E.g. see wiki:Dummy+Resource[Dummy Resource] page.
+Not *not* use `OpenDJController` to start embedded LDAP server instance (see note about test execution below).
+Use other existing test classes as examples.
+
+* Write the test methods.
+
+* Add your tests to testng-integration.xml
+
+
+== Test Execution
+
+The model integration tests *are executed during normal midPoint build*. Which happens pretty much continually during whole workday in bamboo.
+Therefore if you modify a test here please keep an eye on bamboo.
+In case of a failure please fix the test as soon as possible.
+This is quite important as we rely quite heavily on these tests to see whether midPoint is broken or not.
+
+Please also keep the test running time reasonable.
+Do not create tests that run too long or that are too resource-intensive.
+If you want a really hardcore intensive test please place it in wiki:Story+Tests[Story Tests] or longtests.
+
+
+== See Also
+
+* xref:../[]
+
+* wiki:Dummy+Resource[Dummy Resource]

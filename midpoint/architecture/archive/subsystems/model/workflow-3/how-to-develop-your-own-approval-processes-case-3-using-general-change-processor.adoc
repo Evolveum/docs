@@ -1,0 +1,81 @@
+= How to develop your own approval processes - case 3: using general change processor
+:page-wiki-name: How to develop your own approval processes - case 3: using general change processor
+:page-wiki-id: 13074900
+:page-wiki-metadata-create-user: mederly
+:page-wiki-metadata-create-date: 2013-12-17T18:26:10.938+01:00
+:page-wiki-metadata-modify-user: mederly
+:page-wiki-metadata-modify-date: 2014-10-28T08:26:16.461+01:00
+:page-archived: true
+:page-obsolete: true
+
+In this document we will explain how to create your own approval process with the help of the GeneralChangeProcessor.
+
+Let's assume you want to have any change on a given resource approved by a responsible person.
+For simplicity, the first version of the approval process will not enable the person to modify the change request, just to approve or reject it.
+
+
+== Scenarios for general change processor
+
+General change processor works with a list of scenarios, whereas each scenario consists of the following:
+
+. *name*: A human-readable name of the scenario.
+
+. *activationCondition*: A condition controlling whether this scenario applies, i.e. whether a defined approval process should be started.
+
+. *processName*: A name of the approval process.
+When the above condition is met, this process is started.
+It has to evaluate the situation, seek user's (or users') approval(s), modifying the situation if necessary.
+
+In our case, the scenario (in the context of whole workflow configuration) will look like this:
+
+[source]
+----
+<workflow>
+    <changeProcessors>
+        <generalChangeProcessor>
+            <c:generalChangeProcessorConfiguration xmlns:c="http://midpoint.evolveum.com/xml/ns/public/common/common-2a">
+                <c:scenario>
+                    <c:name>Approving changes on the resource Dummy Green</c:name>
+                    <c:activationCondition>
+                        <c:script><c:code>
+                            context.getState() == com.evolveum.midpoint.model.api.context.ModelState.SECONDARY &amp;&amp;
+                            context.findProjectionContext(new com.evolveum.midpoint.common.refinery.ResourceShadowDiscriminator("10000000-0000-0000-0000-000000000404", null)) != null
+                        </c:code></c:script>
+                    </c:activationCondition>
+                    <c:processName>ApprovingDummyGreenResourceChangesProcess</c:processName>
+                </c:scenario>
+            </c:generalChangeProcessorConfiguration>
+        </generalChangeProcessor>
+    </changeProcessors>
+</workflow>
+----
+
+The activationCondition is an expression that can use one predefined variable: *context*. This variable is the link:https://fisheye.evolveum.com/browse/midPoint-git/model/model-api/src/main/java/com/evolveum/midpoint/model/api/context/ModelContext.java?hb=true[ModelContext] valid at a given time instant.
+The above condition evaluates to true if the clockwork is in the secondary phase and if there is any projection context related to resource Dummy Green (described by its OID 10000000-0000-0000-0000-000000000404).
+In that case, the ApprovingDummyGreenResourceChangesProcess is started.
+
+Note that there can be more such scenarios in the configuration.
+The change processor evaluates each activation condition and kicks off *the first* scenario whose condition is true.
+Other scenarios are then ignored.
+
+
+== BPMN processes
+
+BPMN processes managed by GeneralChangeProcessor are "smart" ones (for the time being), having the following obligatory variable:
+
+* *modelContext* (input/output).
+This variable is filled-in at the start of the process by midPoint.
+It contains actual ModelContext of the model operation.
+Because workflow process instance variables are "long-lived", and generally must be robust enough to survive midPoint upgrades, we store it in a special way: as XML text, wrapped in link:https://fisheye.evolveum.com/browse/midPoint-git/model/workflow-impl/src/main/java/com/evolveum/midpoint/wf/util/JaxbValueContainer.java?hb=true[JaxbValueContainer].
+
+Other variables, as wiki:Workflow+Management#WorkflowManagement-Howtowriteandmanageworkflowprocesses[described here], will be also present in the process instance.
+And, of course, you can (and probably will) create and use any other variables that you find necessary.
+
+The following code excerpt shows how to work with the modelContext variable:
+
+[source]
+----
+util.revive(modelContext)                     // set prismContext for the modelContext JaxbValueContainer
+modelContextType = modelContext.getValue()    // get the "prismified" value of modelContext (LensContextType - JAXB form of PrismContainer)
+modelContextUnwrapped = util.midpoint().unwrapModelContext(modelContextType)  // get the original value of modelContext (ModelContext)
+----

@@ -1,0 +1,71 @@
+= Messaging API
+:page-wiki-name: Messaging API
+:page-wiki-id: 27361362
+:page-wiki-metadata-create-user: semancik
+:page-wiki-metadata-create-date: 2018-12-13T15:35:28.409+01:00
+:page-wiki-metadata-modify-user: semancik
+:page-wiki-metadata-modify-date: 2018-12-14T15:12:46.471+01:00
+:page-planned: true
+:page-upkeep-status: yellow
+:page-toc: top
+
+== Introduction
+
+MidPoint architecture is composed of several subsystems and components that are wired together by using interfaces.
+Perhaps the most important interface in the entire system is wiki:IDM+Model+Interface[IDM Model Interface]. This interface is available in several forms:
+
+* Local Java API
+
+* RESTful service
+
+* SOAP-based web service
+
+However, one form is missing: message-based service.
+Although message-oriented integration patterns are currently not very fashionable, messaging is a viable and often very desirable integration mechanism.
+Therefore there is benefit in exposing the wiki:IDM+Model+Interface[IDM Model Interface] using a messaging service.
+
+
+== Implementation
+
+The operations of wiki:IDM+Model+Interface[IDM Model Interface] were originally designed as strictly synchronous operations.
+But even in early days of midPoint development it became clear that we also need to support asynchronous processing.
+As the primary form of wiki:IDM+Model+Interface[IDM Model Interface] is native Java code, direct asynchronous support is not entirely straightforward.
+Therefore most operations are still synchronous and asynchronous processing is implemented by using "in progress" operation results and wiki:Task[tasks].
+
+Therefore the fist iteration of messaging-based API would follow the same (almost)synchronous approach.
+There will be request messages and response messages that will be used to compose a communication protocol.
+Please note that there may be several response messages for one request (e.g. in case of search operations).
+But all the operations will be synchronous in nature, i.e. the operations will be executed by the server in synchronous way.
+If the operation cannot provide final result because (e.g. due to wiki:Approval[approval] process or similar "asynchronicity"), then the operation will indicate "in progress" status and may refer to a task that governs further execution of the message.
+But a message that indicates "in progress" status is considered to conclude the operation as far as message exchange is concerned.
+
+The message-based interface will be implemented using Java Messaging Service (JMS) mechanism.
+Therefore all the benefits and limitations of JMS should also apply here.
+
+Messages used in message-based form of this interface will be directly related to existing operations in other forms of the wiki:IDM+Model+Interface[IDM Model Interface]. E.g. there will be `GetObjectRequest` and `GetObjectResponse` messages, `ExecuteChangesRequest` and `ExecuteChangesResponse` and so on.
+We expect same operations and same parameters as are in the other forms of this interface.
+
+
+== Future Development
+
+The quasi-asynchronicity described above makes sense for synchronous forms of the interface - and so far all the forms were in fact synchronous.
+But for messaging interface we could do better.
+Messaging-based interface would probably prefer to receive a completion message for an asynchronous operation when the operation is completed.
+It is perhaps still useful to send "in progress" messages, but the code should be modified to send "done" message once the complete operation is finished.
+Given the nature of some midPoint mechanisms (e.g. due to wiki:Approval[approval] process or operation retries), the final message may be delivered hours of even days after the initial request.
+While this is not acceptable for synchronous forms of wiki:IDM+Model+Interface[IDM Model Interface], it may be perfectly OK for message-based forms.
+
+
+== Related Work
+
+This form of wiki:IDM+Model+Interface[IDM Model Interface] may be useful for some integration use cases.
+But we do *not* recommend to use it for integration with resources.
+Ordinary provisioning connectors should be used for that purpose whenever possible.
+In case that there is a resource which sends updates using a message-based transport, wiki:Messaging+Resources[Messaging Resources] mechanism may be much more appropriate.
+
+
+== See Also
+
+* wiki:IDM+Model+Interface[IDM Model Interface]
+
+* wiki:Messaging+Resources[Messaging Resources]

@@ -1,0 +1,143 @@
+= XML Conventions
+:page-wiki-name: XML Conventions
+:page-wiki-id: 655465
+:page-wiki-metadata-create-user: semancik
+:page-wiki-metadata-create-date: 2011-04-29T14:37:46.424+02:00
+:page-wiki-metadata-modify-user: semancik
+:page-wiki-metadata-modify-date: 2012-04-18T14:13:34.796+02:00
+:page-upkeep-status: yellow
+
+== XML Namespaces
+
+XML namespace URIs should follow the following pattern:
+
+[source]
+----
+http://midpoint.evolveum.com/xml/ns/public|private|experimental|test/<component>/[<subcomponent>/[<subcomponent>/[...]]]/<artifact-name>-<majorversion>
+----
+
+*public, private, experimental*: the level of protection of the concepts in the namespace:
+
+* public: Schema, interface or concept available outside of the component or subsystem.
+Public interface.
+It should be reasonably stable.
+E.g. common schema, public WSDL interfaces, etc.
+
+* private: Concepts and schemas that are private for a specific component, that may be deployment-dependent or wiring-dependent.
+It may be somewhat unstable.
+E.g. concrete WSDL templates (including port names) and private XSD schemas.
+
+* experimental: Laboratory stuff.
+Schemas for testing new concepts, improvements, or just outright crazy ideas.
+These are not part of the production system.
+Very unstable.
+Handle with utmost care.
+
+*component:* name of the component or subsystem or interface, e.g. `repository`, `provisioning`. For common components it should be also something meaningful, e.g. `common`.
+
+*subcomponent:* name of a sub-component or sub-concept, e.g. `idconnector`
+
+*artifact-name:* name of the file, schema or concept.
+E.g. `identity`, `model`, etc.
+Multiple words should be separated by dashes (-) if needed.
+
+*majorversion:* number specifying major version.
+It will change if there is an incompatible change to the schema.
+Minor version should not be part of XML namespace as changing a minor version should be compatible change and therefore must not break existing code (and namespace URI is part of the code).
+Technically, the actual value of the version number does not matter as long as it is changed to a unique value in case of non-compatible change.
+However, the version number should be numeric and increasing in time.
+
+Namespace names should be composed only from lower-case letters, multiple words separated by dashes if needed.
+The camelCase should *not* be used.
+This approach avoids various case-sensitivity issues in various operating systems.
+
+Only *public* portion of the namespace should be shared and used between components.
+However, there may be cases where we need to work around a specific issue and therefore also parts of the private namespace are referenced between components.
+These cases must be avoided if possible.
+If they cannot be avoided, such cases must be well documented.
+
+
+=== Namespace Examples
+
+* `link:http://midpoint.evolveum.com/xml/ns/public/common/common-1[http://midpoint.evolveum.com/xml/ns/public/common/common-1]`
+
+* `link:http://midpoint.evolveum.com/xml/ns/public/resource/idconnector/configuration-1[http://midpoint.evolveum.com/xml/ns/public/resource/idconnector/configuration-1]`
+
+* `link:http://midpoint.evolveum.com/xml/ns/private/model/defaultModelWrapper-1[http://midpoint.evolveum.com/xml/ns/private/model/defaultModelWrapper-1]`
+
+* `link:http://midpoint.evolveum.com/xml/ns/experimental/ldap-resource-schema-0[http://midpoint.evolveum.com/xml/ns/experimental/ldap-resource-schema-0]`
+
+
+== URI-QName Mapping
+
+WWW Architecture mandates that URIs and QNames are to be considered equivalent.
+It is not universally followed, but we should follow it.
+It will also help us avoid some OpenESB bugs and limitations of various components. +
+
+The QNames are mapped to URIs by concatenating namespace URI and a local name.
+If URI does not end with slash (/) or hash (\#) character, hash (#) is concatenated to the URI before adding the local name.
+The URI-QName mapping is the reverse process.
+Local names must not contain hash or slash characters.
+
+The namespace name should *not* end with hash (\#) (see explanation below).
+XML schema, WSDL document namespace and other "abstract" definitions should *not* end with slash (/), so the hash (#) is assumed at the end.
+All the QNames used in such "abstract" definitions there are included in the same document and a single fetch of the schema is sufficient to fetch them all.
+The hash character in URI is specifying just that.
+
+Namespace components (names) should be in lowerCamelCase.
+Spaces or special characters should not be used.
+Create namespace names in a simple way to avoid need for URI escaping by even the most paranoid software components.
+
+[.red]#TODO: the mapping is not entirely reversible, (in case of trailing # in namespace)#
+
+
+=== URI-QName Mapping
+
+[%autowidth]
+|===
+|  QName namespace  |  QName local part  |  URI
+
+| link:http://midpoint.evolveum.com/xml/ns/public/common/common-1[http://midpoint.evolveum.com/xml/ns/public/common/common-1]
+| `ObjectType`
+| link:http://midpoint.evolveum.com/xml/ns/public/common/common-1#ObjectType[http://midpoint.evolveum.com/xml/ns/public/common/common-1#ObjectType]
+
+
+| link:http://midpoint.evolveum.com/foo/bar/[http://midpoint.evolveum.com/foo/bar/]
+| `baz`
+| link:http://midpoint.evolveum.com/foo/bar/baz[http://midpoint.evolveum.com/foo/bar/baz]
+
+
+| link:http://midpoint.evolveum.com/foo/bar#[http://midpoint.evolveum.com/foo/bar#]
+| `baz`
+| link:http://midpoint.evolveum.com/foo/bar#baz[http://midpoint.evolveum.com/foo/bar#baz]
+
+
+|===
+
+
+== XML Schemas
+
+XML Element names, WSDL message names, parts and similar "concrete" parts of the definitions should be in lowerCamelCase.
+
+XSD Types and similar "abstract" definitions should be in UpperCamelCase.
+The XML types should also end with "Type", e.g. UserType or ResourceObjectType.
+
+
+== See Also
+
+See wiki:XML+Namespace+List[XML Namespace List]
+
+
+== Additional Explanation
+
+The namespaces are theoretically independent from the files containing the individual artifacts.
+But we have chosen to follow the same naming convention for directories/files and for namespaces to make things simpler.
+But still please do not assume that this will always be the same.
+
+Only a major version of the artifact is propagated to the schema.
+Minor version is not important for compatibility and in fact can cause a lot of problems.
+The authoritative source of the versioning information the source code management system (SVN).
+Major version in the namespace should only be considered a mechanism for marking compatible and non-compatible changes to the schemas and interfaces.
+
+The namespace name should *not* end with hash (#) due to a buggy software (such as some Glassfish components) that blindly append hash character to namespace when forming a QName.
+That results in two hashes in the URI.
