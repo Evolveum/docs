@@ -1,7 +1,7 @@
 = System Performance Testing
 :page-toc: top
 
-This is a description of a preliminary version of the system performance testing code.
+This is a description of a preliminary version of the system performance testing scenario.
 
 == Testing Scenario Overview
 
@@ -16,92 +16,95 @@ on each source and one account on each target resource. The number of resources 
 === Data Structures and Mappings
 
 One of goals of this scenario is to test the performance of mapping evaluation. Therefore, we evaluate
-a set of `IM~single~` ≥ 0 mappings of dummy single-valued attributes/properties, and a set of `IM~multi~` ≥ 0
-mappings of dummy multi-valued attributes/properties, from which each has `V` ≥ 1 distinct values for each account.
-(`IM` stands for _inbound mapping_ here. If the `IM~single~` = `IM~multi~` we can simply speak of `IM`.)
+a set of `SM~single~` ≥ 0 mappings of dummy single-valued attributes/properties, and a set of `SM~multi~` ≥ 0
+mappings of dummy multi-valued attributes/properties, each of which has `V` ≥ 1 distinct values for each account.
+(`SM` stands for _source mapping_ here. If `SM~single~` = `SM~multi~`, we can simply speak of `SM`.)
 
-In order to avoid collisions, single-valued mappings are present only on the first source resource.
-We call it the _primary_ source. Multi-valued properties are evaluated resource-wise: each value is prefixed
-by the identifier of the resource from which it originates, and the mapping has an appropriate range defined.
+In order to avoid values being overwritten, single-valued mappings are present only on the first source resource.
+We call it the _primary_ source. Multi-valued properties are evaluated separately per resource: each value is prefixed
+by the identifier of the resource on which it originates, and the mapping has an appropriate range defined. See below.
 
-Similarly, outbound mappings are defined as well. We can define their number using `OM~single~`, `OM~multi~`
-(or simply `OM`) parameters. Note that unlike single-valued inbound mappings, which are present only on
+Similarly, target (outbound) mappings are defined as well. We can define their number using `TM~single~`, `TM~multi~`
+(or simply `TM`) parameters. Note that unlike single-valued inbound mappings, which are present only on
 primary source resource, both single- and multi-valued outbound mappings are present equally on all
 target resources.
 
-The following picture show a situation with two sources (`S` = 2), single target (`T` = 1), 100 single-valued
+The following picture shows a situation with two sources (`S` = 2), single target (`T` = 1), 100 single-valued
 inbound mappings (on primary source) and 100 multi-valued outbound mappings (on both sources), and 100 + 100
-mappings on the target resource (`IM` = `OM` = 100).
+mappings on the target resource (`SM` = `TM` = 100).
 
 image::data-flow.png["Data flow"]
 
 Note that besides dummy attributes/properties there are some other ones: obvious `name`, and custom
 `roles` and `membership`. They will be described later.
 
-For simplicity, the account/user names are unified. being in the form of `u-00000001`. Number of accounts
-on each resource is driven by parameter `U` ≥ 1.
+For simplicity, the accounts (users) names are unified. They are in the form of `u-00000001`.
+The number of accounts on each resource is driven by parameter `U` ≥ 1.
 
 The dummy mappings look like this:
 
 Inbound single-valued:
-====
-            <attribute>
-                <ref>ri:a-single-0000</ref>
-                <inbound>
-                    <expression>
-                        <script>
-                            <code>input</code>
-                        </script>
-                    </expression>
-                    <target>
-                        <path>extension/p-single-0000</path>
-                    </target>
-                </inbound>
-            </attribute>
-====
+// [source,xml]
+----
+<attribute>
+    <ref>ri:a-single-0000</ref>
+    <inbound>
+        <expression>
+            <script>
+                <code>input</code>
+            </script>
+        </expression>
+        <target>
+            <path>extension/p-single-0000</path>
+        </target>
+    </inbound>
+</attribute>
+----
 
 Inbound multi-valued:
-====
-            <attribute>
-                <ref>ri:a-multi-0047</ref>
-                <inbound>
-                    <expression>
-                        <script>
-                            <code>'source-000:' + input</code>
-                        </script>
-                    </expression>
-                    <target>
-                        <path>extension/p-multi-0047</path>
-                        <set>
-                            <condition>
-                                <script>
-                                    <code>input.startsWith('source-000:')</code>
-                                </script>
-                            </condition>
-                        </set>
-                    </target>
-                </inbound>
-            </attribute>
-====
+// [source,xml]
+----
+<attribute>
+    <ref>ri:a-multi-0047</ref>
+    <inbound>
+        <expression>
+            <script>
+                <code>'source-000:' + input</code>
+            </script>
+        </expression>
+        <target>
+            <path>extension/p-multi-0047</path>
+            <set>
+                <condition>
+                    <script>
+                        <code>input.startsWith('source-000:')</code>
+                    </script>
+                </condition>
+            </set>
+        </target>
+    </inbound>
+</attribute>
+----
 
 Outbound mappings are similar. For example, multi-valued ones are like this:
 
-====
-            <attribute>
-                <ref>ri:a-multi-0000</ref>
-                <outbound>
-                    <source>
-                        <name>data</name>
-                        <path>extension/p-multi-0000</path>
-                    </source>
-                    <expression>
-                        <script>
-                            <code>data</code>
-                        </script>
-                    </expression>
-                </outbound>
-            </attribute>
-====
+// [source,xml]
+----
+<attribute>
+    <ref>ri:a-multi-0000</ref>
+    <outbound>
+        <source>
+            <name>data</name>
+            <path>extension/p-multi-0000</path>
+        </source>
+        <expression>
+            <script>
+                <code>data</code>
+            </script>
+        </expression>
+    </outbound>
+</attribute>
+----
 
 === Extension Schema
 
@@ -128,15 +131,84 @@ The number of user assignments is driven by parameter `A` ≥ 0.
 (Actually, both `I` and `A` can be also numeric intervals, to provide some randomness in the scenario.
 Then we can speak of `A~min~`, `A~max~`, `I~min~`, and `I~max~`.)
 
+The technical role looks like this:
+
+// [source,xml]
+----
+<role oid="022c720a-3e94-409a-80f3-808d17f2d49a"
+      xmlns="http://midpoint.evolveum.com/xml/ns/public/common/common-3"
+      xmlns:ri="http://midpoint.evolveum.com/xml/ns/public/resource/instance-3">
+
+<name>technical-0000</name>
+    <assignment>
+        <construction>
+            <resourceRef oid="f8574dcf-4541-46cb-97cb-9e0c9cdb8f99" /> <!-- target-000 -->
+            <kind>entitlement</kind>
+            <intent>group</intent>
+        </construction>
+    </assignment>
+
+    <identifier>g-0000</identifier>
+
+    <inducement>
+        <construction>
+            <resourceRef oid="f8574dcf-4541-46cb-97cb-9e0c9cdb8f99" /> <!-- target-000 -->
+            <attribute>
+                <ref>ri:membership</ref>
+                <outbound>
+                    <expression>
+                        <script>
+                            <code>
+                                // assuming user -> business -> technical role assignment path
+                                assignmentPath[0].target.name + '-' + assignmentPath[1].target.name
+                            </code>
+                        </script>
+                    </expression>
+                </outbound>
+            </attribute>
+            <association>
+                <ref>ri:group</ref>
+                <outbound>
+                    <expression>
+                        <associationFromLink>
+                            <projectionDiscriminator>
+                                <kind>entitlement</kind>
+                                <intent>group</intent>
+                            </projectionDiscriminator>
+                        </associationFromLink>
+                    </expression>
+                </outbound>
+            </association>
+        </construction>
+    </inducement>
+</role>
+----
+
 === Scenario Execution (Tasks)
 
 The scenario runs in four stages:
 
-1. Initial import of accounts from sources, starting from the primary one.
-2. Repeated imports of accounts from sources. They are also called "no-op" because nothing changes
+[%autowidth]
+[%header]
+|===
+| Number | Name | Description
+| 1
+| Initial import
+| Initial import of accounts from sources, starting from the primary one.
+
+| 2
+| No-op imports
+| Repeated imports of accounts from sources. They are called "no-op" because nothing changes
 on sources, so there should be no changes in repository nor on targets (except for e.g. some metadata).
-3. Reconciliations of sources. Again, without any changes on sources.
-4. Recomputation of users. Still with no changes.
+
+| 3
+| Source reconciliation
+| Reconciliation of each source resource in turn. Again, without any changes on sources.
+
+| 4
+| User recomputation
+| Recomputation of all imported users. Still with no changes.
+|===
 
 The execution of stages 2-4 is there to model situations when there are large reconciliation/recomputation
 tasks scheduled to ensure the eventual consistency of the system. In the future we might add some changes
@@ -144,7 +216,7 @@ on sources to check the performance also in this case.
 
 == Technical Scenario Parameters
 
-The conceptual parameters like `S`, `T`, `M`, `U`, `IM`, `OM`, `A` (and others) are driven
+The conceptual parameters like `S`, `T`, `SM`, `TM`, `U`, `A` (and others) are driven
 by Java system properties described here.
 
 === Sources and Inbound Mappings
@@ -167,17 +239,17 @@ Sources are defined using the following system properties:
 
 | `sources.single-mappings`
 | Number of inbound mappings for single-valued dummy attributes -> properties.
-| `IM~single~`
+| `SM~single~`
 | 1
 
 | `sources.multi-mappings`
 | Number of inbound mappings for multi-valued dummy attributes -> properties.
-| `IM~multi~`
+| `SM~multi~`
 | 1
 
 | `sources.multi-attr-values`
 | Number of values for each multi-valued dummy attribute.
-|
+| `V`
 | 5
 |===
 
@@ -196,12 +268,12 @@ Targets are defined using the following system properties:
 
 | `targets.single-mappings`
 | Number of outbound mappings for single-valued dummy properties -> attributes.
-| `OM~single~`
+| `TM~single~`
 | 0
 
-| `sources.multi-mappings`
+| `targets.multi-mappings`
 | Number of outbound mappings for multi-valued dummy properties -> attributes.
-| `OM~multi~`
+| `TM~multi~`
 | 0
 |===
 
@@ -313,7 +385,7 @@ Tasks are driven by the following Java properties:
 | Number of worker threads for the recomputation task.
 | 0 (i.e. single-threaded execution)
 
-| `taskTimeout`
+| `taskTimeout` footnote:[Will be changed to `tasks.timeout` soon.]
 
 | Timeout for individual tasks (in milliseconds)
 | 1800000 (i.e. 30 minutes)
@@ -332,8 +404,8 @@ NOTE: Multi-node tasks are not supported yet by this scenario.
 |===
 | Property | Meaning | Default value
 | `label` | Custom label to be used for the scenario.
-| Computed string in the form of (e.g.) `1s-50m-0t-0m-0a`, reflecting `S`, `IM`, `T`, `OM`, and `A`, respectively.
-Special variants are present for `IM~single~` ≠ `IM~multi~` and `OM~single~` ≠ `OM~multi~`.
+| Computed string in the form of (e.g.) `1s-50m-0t-0m-0a`, reflecting `S`, `SM`, `T`, `TM`, and `A`, respectively.
+Special variants are present for `SM~single~` ≠ `SM~multi~` and `TM~single~` ≠ `TM~multi~`.
 |===
 
 === Other Aspects
@@ -348,10 +420,14 @@ or different parameters.
 
 Compilation looks like this:
 
- mvn clean install -DskipTests -pl :story -am
+// [source,bash]
+----
+mvn clean install -DskipTests -pl :story -am
+----
 
 And the execution then looks like this:
 
+// [source,bash]
 ----
 #
 # Single source, increasing number of mappings: 1, 10, 50, 100, 200 (both single and multi)
@@ -515,7 +591,8 @@ with
 
 * Intel(R) Core(TM) i7-6700 CPU @ 3.40GHz,
 * 16 GB memory: DDR4 Synchronous Unbuffered (Unregistered) 2133 MHz,
-* 500 GB SSD: Samsung SSD 860.
+* 500 GB SSD: Samsung SSD 860,
+* Ubuntu 20.04.1.
 
 image::perf-import.png["Import performance"]
 image::perf-recomputation.png["Recomputation performance"]
