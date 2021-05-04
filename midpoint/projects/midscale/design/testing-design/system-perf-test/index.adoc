@@ -3,125 +3,343 @@
 
 This is a description of a preliminary version of the system performance testing code.
 
-== Testing Scenarios
+== Testing Scenario Overview
+
+=== Source and Target Resources
 
 image::general.png["General schema"]
 
-There is a single source resource (an in-memory dummy resource) that hosts a defined number of accounts.
-For each one, a user object is created, and it - in turn - creates an account on each of target resources.
+There is a set of `S` source and `T` target resources. Each identity (midPoint user) has one account
+on each source and one account on each target resource. The number of resources is configurable:
+`S` ≥ 1, `T` ≥ 0.
 
-All of this is done in various synchronization tasks.
+=== Data Structures and Mappings
 
-=== Scenario Parameters
+One of goals of this scenario is to test the performance of mapping evaluation. Therefore, we evaluate
+a set of `IM~single~` ≥ 0 mappings of dummy single-valued attributes/properties, and a set of `IM~multi~` ≥ 0
+mappings of dummy multi-valued attributes/properties, from which each has `V` ≥ 1 distinct values for each account.
+(`IM` stands for _inbound mapping_ here. If the `IM~single~` = `IM~multi~` we can simply speak of `IM`.)
 
-In order to pinpoint potential performance issues, as well as to match various real-life situations,
-this basic structure is translated into a set of specific scenarios, described by a couple of _parameters_.
+In order to avoid collisions, single-valued mappings are present only on the first source resource.
+We call it the _primary_ source. Multi-valued properties are evaluated resource-wise: each value is prefixed
+by the identifier of the resource from which it originates, and the mapping has an appropriate range defined.
 
-==== Extension Schema
+Similarly, outbound mappings are defined as well. We can define their number using `OM~single~`, `OM~multi~`
+(or simply `OM`) parameters. Note that unlike single-valued inbound mappings, which are present only on
+primary source resource, both single- and multi-valued outbound mappings are present equally on all
+target resources.
 
-There are the following variations related to the extension schema. They are controlled by setting
-`schema` Java system property to an appropriate value described below.
+The following picture show a situation with two sources (`S` = 2), single target (`T` = 1), 100 single-valued
+inbound mappings (on primary source) and 100 multi-valued outbound mappings (on both sources), and 100 + 100
+mappings on the target resource (`IM` = `OM` = 100).
 
-[%autowidth]
-|===
-| Value | Description
+image::data-flow.png["Data flow"]
 
-| `basic` | 10 multi-valued and 100 single-valued string extension properties. None of them is indexed.
-| `indexed` | The same properties but this time they are indexed by the repository.
-| `big` | 10 multi-valued and 1000 single-valued string extension properties, not indexed.
-Among them, only first 100 are really used.
-| `big-global` | The same number of properties, but defined as global level, not specifically
-as a user extension.
-|===
+Note that besides dummy attributes/properties there are some other ones: obvious `name`, and custom
+`roles` and `membership`. They will be described later.
 
-NOTE: The idea was that the large amount of schema-defined properties (even if they are not used)
-can negatively influence the performance. However, first tests indicate that it is not the case.
-So it looks like `big` and `big-global` values are of not much use.
+For simplicity, the account/user names are unified. being in the form of `u-00000001`. Number of accounts
+on each resource is driven by parameter `U` ≥ 1.
 
-==== Source Data Processing
+The dummy mappings look like this:
 
-At source, we have a variable number of attributes, with a variable amount of content
-(for multi-valued ones). Also, a different sets of mappings are available. This
-aspect is controlled by setting `source` Java system property, with these values:
+Inbound single-valued:
+====
+            <attribute>
+                <ref>ri:a-single-0000</ref>
+                <inbound>
+                    <expression>
+                        <script>
+                            <code>input</code>
+                        </script>
+                    </expression>
+                    <target>
+                        <path>extension/p-single-0000</path>
+                    </target>
+                </inbound>
+            </attribute>
+====
 
-[%autowidth]
-|===
-| Value | # of inbound mappings | Single-value attributes | Multi-value attributes | # of values for each
+Inbound multi-valued:
+====
+            <attribute>
+                <ref>ri:a-multi-0047</ref>
+                <inbound>
+                    <expression>
+                        <script>
+                            <code>'source-000:' + input</code>
+                        </script>
+                    </expression>
+                    <target>
+                        <path>extension/p-multi-0047</path>
+                        <set>
+                            <condition>
+                                <script>
+                                    <code>input.startsWith('source-000:')</code>
+                                </script>
+                            </condition>
+                        </set>
+                    </target>
+                </inbound>
+            </attribute>
+====
 
-| `ms2-5` | 2 | 1 | 1 | 5
-| `ms20-5` | 20 | 10 | 10 | 5
-| `ms110-5` | 110 | 100 | 10 | 5
-| `ms110-20` | 110 | 100 | 10 | 20
-| `ms110-100` | 110 | 100 | 10 | 100
-| `ms110-1000` | 110 | 100 | 10 | 1000
-|===
+Outbound mappings are similar. For example, multi-valued ones are like this:
 
-==== Size of User Population
+====
+            <attribute>
+                <ref>ri:a-multi-0000</ref>
+                <outbound>
+                    <source>
+                        <name>data</name>
+                        <path>extension/p-multi-0000</path>
+                    </source>
+                    <expression>
+                        <script>
+                            <code>data</code>
+                        </script>
+                    </expression>
+                </outbound>
+            </attribute>
+====
 
-The number of accounts at source resource (and, therefore, the users) is controlled by
-setting `population` Java system property, with these values:
+=== Extension Schema
+
+As seen above, the extension schema contains definitions for `p-single-xxxx` and `p-multi-xxxx` properties.
+These can be indexed or not, depending on the configuration.
+
+=== Roles
+
+image::roles.png["Roles"]
+
+There is a two-level structure of roles:
+
+1. User is assigned _business_ roles (based on the value of `role` attribute on the primary source).
+An example: `business-0014`.
+2. Each business role induces `I` ≥ 0 _technical_ roles, e.g. `technical-0001`
+3. Each technical role is bound to a single target resource (e.g. `target-000`) and is
+projected into a group object on that resource with the name like `technical-0001`. It induces:
+
+a. membership in the particular group,
+b. a record in the `membership` attribute, containing the name of both business and technical role,
+e.g. `business-0014-technical-0001`.
+
+The number of user assignments is driven by parameter `A` ≥ 0.
+(Actually, both `I` and `A` can be also numeric intervals, to provide some randomness in the scenario.
+Then we can speak of `A~min~`, `A~max~`, `I~min~`, and `I~max~`.)
+
+=== Scenario Execution (Tasks)
+
+The scenario runs in four stages:
+
+1. Initial import of accounts from sources, starting from the primary one.
+2. Repeated imports of accounts from sources. They are also called "no-op" because nothing changes
+on sources, so there should be no changes in repository nor on targets (except for e.g. some metadata).
+3. Reconciliations of sources. Again, without any changes on sources.
+4. Recomputation of users. Still with no changes.
+
+The execution of stages 2-4 is there to model situations when there are large reconciliation/recomputation
+tasks scheduled to ensure the eventual consistency of the system. In the future we might add some changes
+on sources to check the performance also in this case.
+
+== Technical Scenario Parameters
+
+The conceptual parameters like `S`, `T`, `M`, `U`, `IM`, `OM`, `A` (and others) are driven
+by Java system properties described here.
+
+=== Sources and Inbound Mappings
+
+Sources are defined using the following system properties:
 
 [%autowidth]
 [%header]
 |===
-| Value | # of accounts
-| `10` | 10
-| `100` | 100
-| `1k` | 1,000
-| `10k` | 10,000
-| `100k` | 100,000
-| `1m` | 1,000,000
+| Property | Description | Symbolic name | Default value
+| `sources.resources`
+| Number of source resources.
+| `S`
+| 1
+
+| `sources.accounts`
+| Number of accounts on each resource. (This corresponds to the number of imported midPoint users.)
+| `U`
+| 10
+
+| `sources.single-mappings`
+| Number of inbound mappings for single-valued dummy attributes -> properties.
+| `IM~single~`
+| 1
+
+| `sources.multi-mappings`
+| Number of inbound mappings for multi-valued dummy attributes -> properties.
+| `IM~multi~`
+| 1
+
+| `sources.multi-attr-values`
+| Number of values for each multi-valued dummy attribute.
+|
+| 5
 |===
 
-==== Threading
+=== Targets and Outbound Mappings
 
-In order to provide an adequate performance, it is possible to fine-tune the number of threads
-and tasks. The setting of `threading` Java system property is applied to all the tasks present
-in the test (import, recomputation, and so on).
+Targets are defined using the following system properties:
 
 [%autowidth]
 [%header]
 |===
-| Value | # of tasks | # of threads (total)
-| `1t` | 1 | 1
-| `4t` | 1 | 4
-| `6t` | 1 | 6
-| `8t` | 1 | 8
-| `12t` | 1 | 12
-| `16t` | 1 | 16
-| `40t-4n` | 4 | 40
+| Property | Description | Symbolic name | Default value
+| `targets.resources`
+| Number of target resources.
+| `T`
+| 0
+
+| `targets.single-mappings`
+| Number of outbound mappings for single-valued dummy properties -> attributes.
+| `OM~single~`
+| 0
+
+| `sources.multi-mappings`
+| Number of outbound mappings for multi-valued dummy properties -> attributes.
+| `OM~multi~`
+| 0
 |===
 
-NOTE: The multi-task variant `40t-4n` is not implemented yet.
+=== Roles
 
-==== Other
+Roles and their assignments are defined using the following system properties:
 
-There will be parameters to define the number of target resources (currently there are no such resources).
-Also, number of assignments, template mappings, policy rules, and so on will be configurable.
+[%autowidth]
+[%header]
+|===
+| Property | Description | Symbolic name | Default value
 
-Finally, there are some generic properties:
+| `roles.business.count`
+| Number of generated business roles.
+|
+| 2
+
+| `roles.technical.count`
+| Number of generated technical roles.
+|
+| 2
+
+| `roles.assignments.count`
+| Fixed number of business role assignments per user.
+If specified, then `A~min~` = `A~max~` = `A`.
+| `A`
+|
+
+| `roles.assignments.min`
+| Minimal number of business role assignments per user.
+| `A~min~`
+| 1
+
+| `roles.assignments.max`
+| Maximal number of business role assignments per user.
+| `A~max~`
+| `A~min~`
+
+| `roles.inducements.count`
+| Fixed number of business -> technical role inducements per business role.
+If specified, then `I~min~` = `I~max~` = `I`.
+| `I`
+|
+
+| `roles.inducements.min`
+| Minimal number of inducements per business role.
+| `I~min~`
+| 1
+
+| `roles.inducements.max`
+| Maximal  number of inducements per business role.
+| `I~max~`
+| `I~min~`
+
+|===
+
+=== Extension Schema
+
+The extension schema is a basic prerequisite for the testing scenario to work, because extension properties
+used by mappings are defined in it. The schema itself is governed by the following Java properties:
+
+[%autowidth]
+|===
+| Property | Description | Default value
+
+| `schema.single-valued-properties`
+| Number of single valued properties, i.e. `p-single-xxxx` in the schema.
+Please make sure the number is high enough to cover the needs of inbound/outbound mappings.
+| 100
+
+| `schema.multi-valued-properties`
+| Number of multi valued properties, i.e. `p-multi-xxxx` in the schema.
+Please make sure the number is high enough to cover the needs of inbound/outbound mappings.
+| 10
+
+| `schema.indexed-percentage`
+| Percentage of properties that should be indexed. Use an integer value between 0 and 100.
+E.g. if 25, then properties 0003, 0007, 0011, 0015, etc are indexed, while the others are not.
+If 50, then properties 0001, 0003, 0005, 0007, etc are indexed.
+| 0
+
+|===
+
+=== Tasks
+
+Tasks are driven by the following Java properties:
+
+[%autowidth]
+|===
+| Property | Description | Default value
+
+| `import.threads`
+| Number of worker threads for the import tasks.
+| 0 (i.e. single-threaded execution)
+
+| `import.no-op-runs`
+| Number of "no-op" runs of each of the import tasks.
+| 1
+
+| `reconciliation.threads`
+| Number of worker threads for the source reconciliation tasks.
+| 0 (i.e. single-threaded execution)
+
+| `reconciliation.runs`
+| Number of runs of each of the reconciliation tasks.
+| 1
+
+| `recomputation.threads`
+| Number of worker threads for the recomputation task.
+| 0 (i.e. single-threaded execution)
+
+| `taskTimeout`
+
+| Timeout for individual tasks (in milliseconds)
+| 1800000 (i.e. 30 minutes)
+|===
+
+NOTE: Currently, it looks like the number of threads should be slightly less than the number
+of logical or virtual CPUs. However, this depends. Generally, one should try to find the number
+such that the throughput is maximized.
+
+NOTE: Multi-node tasks are not supported yet by this scenario.
+
+=== Other Properties
 
 [%autowidth]
 [%header]
 |===
 | Property | Meaning | Default value
-| `taskTimeout` | Timeout for individual tasks (in milliseconds) | 1800000 (i.e. 30 minutes)
+| `label` | Custom label to be used for the scenario.
+| Computed string in the form of (e.g.) `1s-50m-0t-0m-0a`, reflecting `S`, `IM`, `T`, `OM`, and `A`, respectively.
+Special variants are present for `IM~single~` ≠ `IM~multi~` and `OM~single~` ≠ `OM~multi~`.
 |===
 
-=== General Scenario Execution
+=== Other Aspects
 
-Currently, the scenario contains three execution tests:
-
-[%autowidth]
-[%header]
-|===
-| Test | Description
-| `test100Import` | Imports users into clean repository.
-| `test110ImportAgain` | Imports users again. No changes are there. This is similar to e.g. reconciliation with no changes.
-| `test120RecomputeUsers` | Recomputes users with no changes.
-|===
-
-The number of tests will be gradually extended.
+In the future we plan to other features, like template mappings, policy rules,
+organizational structure, and so on.
 
 == How to Run
 
@@ -135,23 +353,131 @@ Compilation looks like this:
 And the execution then looks like this:
 
 ----
- mvn clean integration-test -pl :story -o -Pextratest -Dit.test=TestSystemPerformance -Dconfig=/.../postgresql-42.properties -Dpopulation=10k -Dthreading=6t -Dschema=basic -Dsource=ms2-5
- mvn integration-test -pl :story -o -Pextratest -Dit.test=TestSystemPerformance -Dconfig=/.../postgresql-42.properties -Dpopulation=10k -Dthreading=6t -Dschema=basic -Dsource=ms2-5
- mvn integration-test -pl :story -o -Pextratest -Dit.test=TestSystemPerformance -Dconfig=/.../postgresql-42.properties -Dpopulation=10k -Dthreading=6t -Dschema=basic -Dsource=ms2-5
+#
+# Single source, increasing number of mappings: 1, 10, 50, 100, 200 (both single and multi)
+# Number of accounts is decreasing from 2000 to 500.
+#
+mvn clean integration-test -pl :story -o -Pextratest -Dit.test=TestSystemPerformance -Dconfig=/.../postgresql.properties \
+ -Dsources.accounts=2000 -Dsources.resources=1 -Dsources.single-mappings=1 -Dsources.multi-mappings=1 -Dsources.multi-attr-values=5 \
+ -Dtargets.resources=0 \
+ -Droles.business.count=0 -Droles.technical.count=0 -Droles.assignments.count=0 -Droles.inducements.count=0 \
+ -Dschema.single-valued-properties=10 -Dschema.multi-valued-properties=10 \
+ -Dimport.threads=6 -Dreconciliation.runs=0 -Drecomputation.threads=6
 
- mvn integration-test -pl :story -o -Pextratest -Dit.test=TestSystemPerformance -Dconfig=/.../postgresql-42.properties -Dpopulation=10k -Dthreading=6t -Dschema=basic -Dsource=ms110-5
- mvn integration-test -pl :story -o -Pextratest -Dit.test=TestSystemPerformance -Dconfig=/.../postgresql-42.properties -Dpopulation=10k -Dthreading=6t -Dschema=basic -Dsource=ms110-5
- mvn integration-test -pl :story -o -Pextratest -Dit.test=TestSystemPerformance -Dconfig=/.../postgresql-42.properties -Dpopulation=10k -Dthreading=6t -Dschema=basic -Dsource=ms110-5
+mvn integration-test -pl :story -o -Pextratest -Dit.test=TestSystemPerformance -Dconfig=/.../postgresql.properties \
+ -Dsources.accounts=2000 -Dsources.resources=1 -Dsources.single-mappings=10 -Dsources.multi-mappings=10 -Dsources.multi-attr-values=5 \
+ -Dtargets.resources=0 \
+ -Droles.business.count=0 -Droles.technical.count=0 -Droles.assignments.count=0 -Droles.inducements.count=0 \
+ -Dschema.single-valued-properties=10 -Dschema.multi-valued-properties=10 \
+ -Dimport.threads=6 -Dreconciliation.runs=0 -Drecomputation.threads=6
 
- mvn integration-test -pl :story -o -Pextratest -Dit.test=TestSystemPerformance -Dconfig=/.../postgresql-42.properties -Dpopulation=10k -Dthreading=6t -Dschema=basic -Dsource=ms110-20
- mvn integration-test -pl :story -o -Pextratest -Dit.test=TestSystemPerformance -Dconfig=/.../postgresql-42.properties -Dpopulation=10k -Dthreading=6t -Dschema=basic -Dsource=ms110-20
- mvn integration-test -pl :story -o -Pextratest -Dit.test=TestSystemPerformance -Dconfig=/.../postgresql-42.properties -Dpopulation=10k -Dthreading=6t -Dschema=basic -Dsource=ms110-20
+mvn integration-test -pl :story -o -Pextratest -Dit.test=TestSystemPerformance -Dconfig=/.../postgresql.properties \
+ -Dsources.accounts=1000 -Dsources.resources=1 -Dsources.single-mappings=50 -Dsources.multi-mappings=50 -Dsources.multi-attr-values=5 \
+ -Dtargets.resources=0 \
+ -Droles.business.count=0 -Droles.technical.count=0 -Droles.assignments.count=0 -Droles.inducements.count=0 \
+ -Dschema.single-valued-properties=50 -Dschema.multi-valued-properties=50 \
+ -Dimport.threads=6 -Dreconciliation.runs=0 -Drecomputation.threads=6
 
- mvn integration-test -pl :story -o -Pextratest -Dit.test=TestSystemPerformance -Dconfig=/.../postgresql-42.properties -Dpopulation=100 -Dthreading=6t -Dschema=basic -Dsource=ms110-100
- mvn integration-test -pl :story -o -Pextratest -Dit.test=TestSystemPerformance -Dconfig=/.../postgresql-42.properties -Dpopulation=100 -Dthreading=6t -Dschema=basic -Dsource=ms110-100
- mvn integration-test -pl :story -o -Pextratest -Dit.test=TestSystemPerformance -Dconfig=/.../postgresql-42.properties -Dpopulation=100 -Dthreading=6t -Dschema=basic -Dsource=ms110-100
+mvn integration-test -pl :story -o -Pextratest -Dit.test=TestSystemPerformance -Dconfig=/.../postgresql.properties \
+ -Dsources.accounts=1000 -Dsources.resources=1 -Dsources.single-mappings=100 -Dsources.multi-mappings=100 -Dsources.multi-attr-values=5 \
+ -Dtargets.resources=0 \
+ -Droles.business.count=0 -Droles.technical.count=0 -Droles.assignments.count=0 -Droles.inducements.count=0 \
+ -Dschema.single-valued-properties=100 -Dschema.multi-valued-properties=100 \
+ -Dimport.threads=6 -Dreconciliation.runs=0 -Drecomputation.threads=6
 
- ...
+mvn integration-test -pl :story -o -Pextratest -Dit.test=TestSystemPerformance -Dconfig=/.../postgresql.properties \
+ -Dsources.accounts=500 -Dsources.resources=1 -Dsources.single-mappings=200 -Dsources.multi-mappings=200 -Dsources.multi-attr-values=5 \
+ -Dtargets.resources=0 \
+ -Droles.business.count=0 -Droles.technical.count=0 -Droles.assignments.count=0 -Droles.inducements.count=0 \
+ -Dschema.single-valued-properties=200 -Dschema.multi-valued-properties=200 \
+ -Dimport.threads=6 -Dreconciliation.runs=0 -Drecomputation.threads=6
+
+#
+# Increasing number of sources (having 50 + 50 mappings): 5, 10, 20
+# Number of accounts is decreasing from 1000 to 500.
+#
+
+mvn integration-test -pl :story -o -Pextratest -Dit.test=TestSystemPerformance -Dconfig=/.../postgresql.properties \
+ -Dsources.accounts=1000 -Dsources.resources=5 -Dsources.single-mappings=50 -Dsources.multi-mappings=50 -Dsources.multi-attr-values=5 \
+ -Dtargets.resources=0 \
+ -Droles.business.count=0 -Droles.technical.count=0 -Droles.assignments.count=0 -Droles.inducements.count=0 \
+ -Dschema.single-valued-properties=50 -Dschema.multi-valued-properties=50 \
+ -Dimport.threads=6 -Dreconciliation.runs=0 -Drecomputation.threads=6
+
+mvn integration-test -pl :story -o -Pextratest -Dit.test=TestSystemPerformance -Dconfig=/.../postgresql.properties \
+ -Dsources.accounts=500 -Dsources.resources=10 -Dsources.single-mappings=50 -Dsources.multi-mappings=50 -Dsources.multi-attr-values=5 \
+ -Dtargets.resources=0 \
+ -Droles.business.count=0 -Droles.technical.count=0 -Droles.assignments.count=0 -Droles.inducements.count=0 \
+ -Dschema.single-valued-properties=50 -Dschema.multi-valued-properties=50 \
+ -Dimport.threads=6 -Dreconciliation.runs=0 -Drecomputation.threads=6
+
+mvn integration-test -pl :story -o -Pextratest -Dit.test=TestSystemPerformance -Dconfig=/.../postgresql.properties \
+ -Dsources.accounts=500 -Dsources.resources=20 -Dsources.single-mappings=50 -Dsources.multi-mappings=50 -Dsources.multi-attr-values=5 \
+ -Dtargets.resources=0 \
+ -Droles.business.count=0 -Droles.technical.count=0 -Droles.assignments.count=0 -Droles.inducements.count=0 \
+ -Dschema.single-valued-properties=50 -Dschema.multi-valued-properties=50 \
+ -Dimport.threads=6 -Dreconciliation.runs=0 -Drecomputation.threads=6
+
+#
+# Increasing number of targets (having 1 source, 50 + 50 mappings): 5, 10, 20
+# Number of accounts is decreasing from 1000 to 500.
+#
+
+mvn integration-test -pl :story -o -Pextratest -Dit.test=TestSystemPerformance -Dconfig=/.../postgresql.properties \
+ -Dsources.accounts=1000 -Dsources.resources=1 -Dsources.single-mappings=50 -Dsources.multi-mappings=50 -Dsources.multi-attr-values=5 \
+ -Dtargets.resources=5 -Dtargets.single-mappings=50 -Dtargets.multi-mappings=50 \
+ -Droles.business.count=0 -Droles.technical.count=0 -Droles.assignments.count=0 -Droles.inducements.count=0 \
+ -Dschema.single-valued-properties=50 -Dschema.multi-valued-properties=50 \
+ -Dimport.threads=6 -Dreconciliation.runs=0 -Drecomputation.threads=6
+
+mvn integration-test -pl :story -o -Pextratest -Dit.test=TestSystemPerformance -Dconfig=/.../postgresql.properties \
+ -Dsources.accounts=500 -Dsources.resources=1 -Dsources.single-mappings=50 -Dsources.multi-mappings=50 -Dsources.multi-attr-values=5 \
+ -Dtargets.resources=10 -Dtargets.single-mappings=50 -Dtargets.multi-mappings=50 \
+ -Droles.business.count=0 -Droles.technical.count=0 -Droles.assignments.count=0 -Droles.inducements.count=0 \
+ -Dschema.single-valued-properties=50 -Dschema.multi-valued-properties=50 \
+ -Dimport.threads=6 -Dreconciliation.runs=0 -Drecomputation.threads=6
+
+mvn integration-test -pl :story -o -Pextratest -Dit.test=TestSystemPerformance -Dconfig=/.../postgresql.properties \
+ -Dsources.accounts=500 -Dsources.resources=1 -Dsources.single-mappings=50 -Dsources.multi-mappings=50 -Dsources.multi-attr-values=5 \
+ -Dtargets.resources=20 -Dtargets.single-mappings=50 -Dtargets.multi-mappings=50 \
+ -Droles.business.count=0 -Droles.technical.count=0 -Droles.assignments.count=0 -Droles.inducements.count=0 \
+ -Dschema.single-valued-properties=50 -Dschema.multi-valued-properties=50 \
+ -Dimport.threads=6 -Dreconciliation.runs=0 -Drecomputation.threads=6
+
+#
+# Increasing number of assignments (having 1 source, 5 targets, 50 + 50 mappings; each BR has 2 TRs): 5, 10, 20, 100
+# Number of accounts is decreasing from 1000 to 500.
+#
+
+mvn integration-test -pl :story -o -Pextratest -Dit.test=TestSystemPerformance -Dconfig=/.../postgresql.properties \
+ -Dsources.accounts=1000 -Dsources.resources=1 -Dsources.single-mappings=50 -Dsources.multi-mappings=50 -Dsources.multi-attr-values=5 \
+ -Dtargets.resources=5 -Dtargets.single-mappings=50 -Dtargets.multi-mappings=50 \
+ -Droles.business.count=100 -Droles.technical.count=500 -Droles.assignments.count=5 -Droles.inducements.count=2 \
+ -Dschema.single-valued-properties=50 -Dschema.multi-valued-properties=50 \
+ -Dimport.threads=6 -Dreconciliation.runs=0 -Drecomputation.threads=6
+
+mvn integration-test -pl :story -o -Pextratest -Dit.test=TestSystemPerformance -Dconfig=/.../postgresql.properties \
+ -Dsources.accounts=500 -Dsources.resources=1 -Dsources.single-mappings=50 -Dsources.multi-mappings=50 -Dsources.multi-attr-values=5 \
+ -Dtargets.resources=5 -Dtargets.single-mappings=50 -Dtargets.multi-mappings=50 \
+ -Droles.business.count=100 -Droles.technical.count=500 -Droles.assignments.count=10 -Droles.inducements.count=2 \
+ -Dschema.single-valued-properties=50 -Dschema.multi-valued-properties=50 \
+ -Dimport.threads=6 -Dreconciliation.runs=0 -Drecomputation.threads=6
+
+mvn integration-test -pl :story -o -Pextratest -Dit.test=TestSystemPerformance -Dconfig=/.../postgresql.properties \
+ -Dsources.accounts=500 -Dsources.resources=1 -Dsources.single-mappings=50 -Dsources.multi-mappings=50 -Dsources.multi-attr-values=5 \
+ -Dtargets.resources=5 -Dtargets.single-mappings=50 -Dtargets.multi-mappings=50 \
+ -Droles.business.count=100 -Droles.technical.count=500 -Droles.assignments.count=20 -Droles.inducements.count=2 \
+ -Dschema.single-valued-properties=50 -Dschema.multi-valued-properties=50 \
+ -Dimport.threads=6 -Dreconciliation.runs=0 -Drecomputation.threads=6
+
+mvn integration-test -pl :story -o -Pextratest -Dit.test=TestSystemPerformance -Dconfig=/.../postgresql.properties \
+ -Dsources.accounts=500 -Dsources.resources=1 -Dsources.single-mappings=50 -Dsources.multi-mappings=50 -Dsources.multi-attr-values=5 \
+ -Dtargets.resources=5 -Dtargets.single-mappings=50 -Dtargets.multi-mappings=50 \
+ -Droles.business.count=100 -Droles.technical.count=500 -Droles.assignments.count=100 -Droles.inducements.count=2 \
+ -Dschema.single-valued-properties=50 -Dschema.multi-valued-properties=50 \
+ -Dimport.threads=6 -Dreconciliation.runs=0 -Drecomputation.threads=6
+
+...
 ----
 
 Note that the first command cleans the `target` directory in the `story` module. The other ones should not contain
@@ -160,10 +486,6 @@ Note that the first command cleans the `target` directory in the `story` module.
 The `-Dconfig=...` should point to a testing repository configuration.
 
 The other `-Dx=y` flags define individual test parameters.
-
-The number of threads should be slightly less than the number of virtual CPUs or physical CPU threads available.
-E.g. on 4 core/8 threads machine we can use threading of `6t`, whereas on 8 core/16 threads iron we can use
-`12t`.
 
 == Results
 
@@ -185,3 +507,21 @@ if needed.
 
 Note that also `test.log` contains dumps of tasks during the course of tests executions, so this file
 is worth keeping, if possible.
+
+== Preliminary Results
+
+The following charts show preliminary test results obtained on HP ProDesk 490 G3 MT Business PC (T9S84ES#BCM)
+with
+
+* Intel(R) Core(TM) i7-6700 CPU @ 3.40GHz,
+* 16 GB memory: DDR4 Synchronous Unbuffered (Unregistered) 2133 MHz,
+* 500 GB SSD: Samsung SSD 860.
+
+image::perf-import.png["Import performance"]
+image::perf-recomputation.png["Recomputation performance"]
+
+Test results are summarized link:test-2021-05-03-C1-nightly-run/summary.ods[here].
+(Note that labels are little different from the ones used in the current version of the test.
+In particular, the test was run without outbound mappings.)
+
+All relevant data are stored link:test-2021-05-03-C1-nightly-run/all-data.zip[here].
