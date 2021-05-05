@@ -1,0 +1,68 @@
+= System Performance Testing Environment
+:page-nav-title: Environment
+
+|====
+| Component | Role | Description
+
+| MidPoint
+|
+| Cluster.
+Starting with 4 nodes, but number of nodes should be parametrizable later.
+
+| PostgreSQL
+| MidPoint repository
+| Separate container from all other resources.
+Reasonable sizing for test size.
+
+| PostgreSQL table(s)
+| Source system
+| Source data table, filled with data.
+One table, or several tables.
+For use with ScriptedJDBC connector
+Only one source resource for now, but more may come in the future.
+
+Amount of data should be varaible, e.g. we need tests with 100k entries, 1M entries, 5M entries, 10M entries, 50M entries.
+Let's start with 100k entries.
+
+| OpenLDAP
+| Target system
+| Almost empty. Only basic OUs, admin user, ACIs, etc.
+Sizing for test size, e.g. mdb with appropriate memory setting for millions of entries.
+suffix: dc=example,dc=com
+
+| PostgreSQL table(s)
+| Target resource
+| Single database table.
+For use with DatabaseTable connector.
+Let's start with one such resource (one table).
+More target resource like this will come to testing environment later.
+The number of such resouces should be easy to change, e.g. run the test with 30 DatabaseTable resources.
+
+|====
+
+
+== Test Scenario Outline
+
+Preparation/preconditions:
+
+. Start all resources in clean state (Databases, LDAP)
+
+. Start midPoint. Almost empty repo, just resource configuration, administrator, basic roles.
+
+. Run sanity checks, e.g. "test connection" on all resources. Schema assertions (optional).
+
+Test scenarios:
+
+. Import: Import accounts from source resource.
+The import should run mappings, create users, provision accounts to target resources.
+
+. Empty recon: Run import again, with the same state of resources and midPoint.
+Recon should change nothing.
+
+. Start livesync task for source resource (timestamp-based). Check sanity (make sure the task runs, token is updated, etc.)
+
+. (optional) Small livesync: Initiate small change in source resource (e.g. change a couple of accounts). Make sure that change is picked up by the task and processed correctly.
+
+. Big livesync: Initiate big change on the source resource (e.g. changing 10% of all accounts).
+Make sure the change is picked up by a single livesync run.
+Make sure that change is  processed correctly.
