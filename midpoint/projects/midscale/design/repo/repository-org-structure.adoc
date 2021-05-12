@@ -1,0 +1,246 @@
+= Repository
+:page-toc: top
+
+== The problem
+
+* Object can belong under organizations which is reflected in `parentOrgRef`.
+* For org-filter we need to know not just the immediate parent/child, but also more distant
+ancestors (`isChildOf` filter, that is `SUBTREE` scope in XML) and descendants (`isParentOf` filter
+or `ANCESTORS` scope).
+* Org filter is used extensively in midPoint, e.g. when manager works with the users in their
+organization, etc.
+
+The cost of the query must be acceptable on average.
+Occasionaly slower (within reason) query is acceptable only if it amortizes the cost on average.
+
+== Options
+
+* Using closure table, just like in the current repo.
+This is cheap and efficient for select.
+Trouble is the update of the closure table which can have non-satisfactory performance.
+Another problem is concurrency of this update.
+* Using query mechanisms like https://www.postgresql.org/docs/current/queries-with.html[`WITH` queries]
+(also known as _Common Table Expressions_ or CTE).
+This is possible, but much easier for custom queries aimed to do specific job.
+To use CTE as part of an interpreted universal query is not just less flexible, but the performance
+may suffer.
+PG is also known not to be best in utilizing indexes of the table backing the CTE part.
+Even when the `WITH` query performs at its best, it does not beat the query with pre-computed closure table.
+* PG also has https://www.postgresql.org/docs/current/ltree.html[ltree] module which can make
+tree queries very fast, but this supports only pure trees.
+Our parent-org structure is not a strict tree, organization can have various "parents", typically
+with various relations - but all this is stored in the `m_ref_object_parent_org` table.
+Closure can handle any DAG structure, it can even have cycle detection (although cycles are not
+desired), which makes it very flexible and high-performant for queries at the same time.
+
+=== Using closure
+
+After testing various solutions, we chose to continue with the pre-computed closure.
+CTE options are still open for the future, but at this time the focus is on closure.
+Options with the closure table are:
+
+* Reimplementation of the existing solution with the table that is updated by the application.
+There are multiple options how to update it, currently matrix multiplication is used with the
+closure table tracking number of paths from A to B as described https://evolveum.com/transitive-closure/[here].
+
+* Making the solution transparent for the application, e.g. by using triggers.
+
+The first solution requires more complicated application code either with various disruptive
+`if` conditions (as in the current repository) or possibly hidden in the concrete mapping subclass
+(`QOrgMapping`).
+Big advantage is that it does not require any DB specialties like triggers, procedures, etc.
+But this is also the problem as the solution requiring multiple roundtrips to the database requires
+stronger locking and leads to contention which is *the problem we're trying to solve*.
+
+The second solution is covered in the next section.
+
+=== Refreshing closure transparently for the application
+
+This solution has a couple of conceptual solutions, but not all are easy or possible with PG.
+
+* Simple trigger for any change on the `m_ref_object_parent_org` table that refreshes the view.
+This is very simple, but not very efficient.
+It still is surprisingly good, refreshing 50k closure in a small-scale VM easily happens under 1s,
+most of it taken by the query itself.
+
+* Delay the refresh at the end of the transaction, this is a bit tricky as the deferred triggers
+are run for each changed row anyway, but there are
+https://github.com/twosigma/postgresql-contrib/blob/master/commit_trigger.sql[workarounds for this]
+(of course, simpler solutions are possible).
+This brings better performance if multiple parents are added/deleted for a single organization.
+
+Any of the solutions above can be implemented using more efficient existing matrix multiplication
+algorithms.
+The concept (not the logic implementation necessarily) is trival for `each row` trigger and possible
+for deffered trigger too (e.g. gather the changes in temporary table and go over it before commit).
+
+The disadvantage is that both solutions above refresh the view unnecessarily during massive org imports.
+
+There are the solutions on the reading side (non-closure solutions like CTE were covered before):
+
+* Delay the refresh until the first select.
+This would slow down the first select (and any parallel select using the same resource because
+of blocking on the shared resource, but that is actually desired in this case) but then it would
+work as fast as possible - all this without affecting writing.
+Trigger is needed only to mark the view as "needing refresh".
+The trouble is how to implement this lazy refresh:
+** PG does not have any before-select triggers.
+** Alternative that allows to run something before query is view rule returning query from
+a function that does the refresh when necessary.
+This is described lower in detail, but *the performance is abysmal* as the function in the middle
+prevents optimizer to use the indexes on the closure table.
+
+* While not transparent for the application anymore, it is also possible to run the refresh from
+the application when the org filter is used.
+The refresh is executed only when needed but this is handled by the DB procedure that is called
+every time.
+This adds the roundtrip to the database but it can be done in separate transaction and only if
+org filter is used in the query - which is easy to detect.
+
+* It is also possible to run the refresh-if-needed regularly, either from application scheduler
+or with something like https://github.com/citusdata/pg_cron[pg_cron extension].
+This can be done in addition to the solutions above to prevent the delay before the select that
+would have otherwise triggered the refresh or (whisper-on) if the eventual consistency
+is acceptable for the period of such a refresh (whisper-off).
+
+=== Current solution
+
+We will use closure update immediately after changes.
+Ideal solution is to use current efficient matrix multiplication transparently in the database
+(either for each row or deferred to the end of transaction).
+Current "prototype-level" solution is refresh of materialized view (defined using CTE) on each
+change of the parent-org ref table.
+
+== Experiment with view refreshed before select
+
+Following solution was a demo for lazy-refresh before the first select after change
+in the parent org ref table.
+It is based on the "before select trigger" idea which does not exist in PostgreSQL,
+but rules for views come close.
+The trouble is that the function returning the select breaks optimization and the performance
+of such a select when used with `JOIN` is terrible.
+
+Rough comparative numbers for the query searching for users with name ending with some string under
+the top level organization returning ~400 rows (30k orgs, 180k users, org closure with 110k rows):
+
+* This solution with select returned from the function used by the view rule: >20 s
+* CTE query without any closure at all: 400-2000ms (depending on the query customization)
+* Using closure in a materialized view/table with indexes: 150 ms
+
+Until there are before select triggers that don't affect the resulting query in such a way,
+this is *not* a feasible solution.
+
+----
+CREATE TABLE m_ref_object_parent_org (
+    owner_oid UUID NOT NULL REFERENCES m_object_oid(oid) ON DELETE CASCADE,
+    referenceType ReferenceType GENERATED ALWAYS AS ('OBJECT_PARENT_ORG') STORED,
+
+    -- TODO wouldn't (owner_oid, targetOid, relation_id) perform better for typical queries?
+    PRIMARY KEY (owner_oid, relation_id, targetOid)
+)
+    INHERITS (m_reference);
+
+-- region org-closure
+-- Closure is handled by two views - one materialized (m_org_closure_internal) and one with return
+-- rule (m_org_closure). Only the second one is used from the outside.
+-- Trigger on m_ref_object_parent_org creates flag that the materialized view must be refreshed
+CREATE MATERIALIZED VIEW m_org_closure_internal AS
+WITH RECURSIVE org_h (
+    ancestor_oid, -- ref.targetoid
+    descendant_oid --ref.owner_oid
+) AS (
+    -- gather all organizations with parents
+    SELECT r.targetoid, r.owner_oid
+        FROM m_ref_object_parent_org r
+        WHERE r.owner_type = 'ORG'
+    UNION
+    -- generate their parents
+    SELECT par.targetoid, chi.descendant_oid -- leaving original child there generates closure
+        FROM m_ref_object_parent_org as par, org_h as chi
+        WHERE par.owner_oid = chi.ancestor_oid
+)
+SELECT * FROM org_h;
+
+-- unique index is like PK if it was table
+CREATE UNIQUE INDEX m_org_closure_internal_asc_desc_idx
+    ON m_org_closure_internal (ancestor_oid, descendant_oid);
+CREATE INDEX m_org_closure_internal_desc_asc_idx
+    ON m_org_closure_internal (descendant_oid, ancestor_oid);
+
+-- no keys/indexes needed, this is backed by m_org_closure_internal
+CREATE TABLE m_org_closure (
+    ancestor_oid UUID, -- ref.targetoid
+    descendant_oid UUID --ref.owner_oid
+);
+
+CREATE OR REPLACE PROCEDURE m_refresh_org_closure()
+    LANGUAGE plpgsql
+AS $$
+DECLARE
+    flag_val text;
+BEGIN
+    -- We use advisory session lock only for the check + refresh, then release it immediately.
+    -- This can still dead-lock two transactions in a single thread on the select/delete combo,
+    -- (I mean, who would do that?!) but works fine for parallel transactions.
+    PERFORM pg_advisory_lock(47);
+    SELECT value INTO flag_val FROM m_global_metadata WHERE name = 'orgClosureRefreshNeeded';
+    IF flag_val = 'true' THEN
+        REFRESH MATERIALIZED VIEW m_org_closure_internal;
+        DELETE FROM m_global_metadata WHERE name = 'orgClosureRefreshNeeded';
+    END IF;
+    PERFORM pg_advisory_unlock(47);
+EXCEPTION WHEN OTHERS THEN
+    -- Whatever happens we definitely want to release the lock.
+    PERFORM pg_advisory_unlock(47);
+END; $$;
+
+-- Function implementing select for rule on m_org_closure, refreshing backing view if needed.
+CREATE OR REPLACE FUNCTION m_return_org_closure()
+    RETURNS TABLE (
+        ancestor_oid UUID, -- ref.targetoid
+        descendant_oid UUID --ref.owner_oid
+    )
+    LANGUAGE plpgsql
+AS $$
+DECLARE
+    flag_val text;
+BEGIN
+    -- No lock here, if the view is OK, we don't want any locking at all.
+    SELECT value INTO flag_val FROM m_global_metadata WHERE name = 'orgClosureRefreshNeeded';
+    IF flag_val = 'true' THEN
+        CALL m_refresh_org_closure();
+    END IF;
+
+    RETURN QUERY SELECT * FROM m_org_closure_internal;
+END $$;
+
+CREATE RULE "_RETURN" AS ON SELECT TO m_org_closure DO INSTEAD SELECT * from m_return_org_closure();
+
+-- The trigger for m_ref_object_parent_org that flags the view for refresh.
+CREATE OR REPLACE FUNCTION mark_org_closure_for_refresh()
+    RETURNS trigger
+    LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF OLD.owner_type = 'ORG' OR NEW.owner_type = 'ORG' THEN
+         INSERT INTO m_global_metadata VALUES ('orgClosureRefreshNeeded', 'true')
+         ON CONFLICT (name) DO UPDATE SET value = 'true';
+    END IF;
+
+    -- after trigger returns null
+    RETURN NULL;
+END $$;
+
+CREATE TRIGGER m_ref_object_parent_org_closure1_tr
+AFTER INSERT OR UPDATE OR DELETE ON m_ref_object_parent_org
+FOR EACH ROW EXECUTE PROCEDURE mark_org_closure_for_refresh();
+CREATE TRIGGER m_ref_object_parent_org_closure2_tr
+AFTER TRUNCATE ON m_ref_object_parent_org
+FOR EACH STATEMENT EXECUTE PROCEDURE mark_org_closure_for_refresh();
+-- endregion
+----
+
+== Resources
+
+* https://evolveum.com/transitive-closure/[Old repo solution with closure]
+* https://docs.evolveum.com/midpoint/reference/concepts/query/query-api/[Query API]
