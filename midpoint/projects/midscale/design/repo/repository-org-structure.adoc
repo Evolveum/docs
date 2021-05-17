@@ -105,13 +105,109 @@ is acceptable for the period of such a refresh (whisper-off).
 
 === Current solution
 
-We will use closure update immediately after changes.
-Ideal solution is to use current efficient matrix multiplication transparently in the database
-(either for each row or deferred to the end of transaction).
-Current "prototype-level" solution is refresh of materialized view (defined using CTE) on each
-change of the parent-org ref table.
+We will use closure implemented as materialized view refreshed by the application (Java code)
+when org filter is used in a query.
+The conditional refresh logic is hidden in the procedure that checks the flat
+While not application transparent, it can be implemented easily.
 
-== Experiment with view refreshed before select
+* Closure contains identity rows (o = o) as it makes some selects simpler.
+* Closure contains only organizations, not other objects that are members of these orgs.
+* Triggers on `m_ref_object_parent_org` mark the view for refresh using an entry
+in the `m_global_metadata` table.
+* Call of refresh procedure must run in a separate transaction before the query, or in the query
+transaction if read/write transaction was used for it.
+We use read-only transaction for query and separate transaction for calling the refresh procedure.
+
+This is the SQL code:
+
+[source,sql]
+----
+CREATE MATERIALIZED VIEW m_org_closure AS
+WITH RECURSIVE org_h (
+    ancestor_oid, -- ref.targetoid
+    descendant_oid --ref.owner_oid
+    -- paths -- number of different paths, not used for materialized view version
+    -- depth -- possible later, but cycle detected must be added to the recursive term
+) AS (
+    -- non-recursive term:
+    -- Gather all organization oids from parent-org refs and initialize identity lines (o => o).
+    -- We don't want the orgs not in org hierarchy, that would require org triggers too.
+    SELECT o.oid, o.oid FROM m_org o
+        WHERE EXISTS(
+            SELECT 1 FROM m_ref_object_parent_org r
+                WHERE r.targetOid = o.oid OR r.owner_oid = o.oid)
+        -- It's possible to exclude orgs not in parent-org-refs (either owner or target!),
+        -- but it's not a big deal and makes things simple for JOINs (no outer needed).
+    UNION
+    -- recursive (iterative) term:
+    -- Generate their parents (anc => desc, that is target => owner), => means "is parent of".
+    SELECT par.targetoid, chi.descendant_oid -- leaving original child there generates closure
+        FROM m_ref_object_parent_org as par, org_h as chi
+        WHERE par.owner_oid = chi.ancestor_oid
+)
+SELECT * FROM org_h;
+
+-- unique index is like PK if it was table
+CREATE UNIQUE INDEX m_org_closure_asc_desc_idx
+    ON m_org_closure (ancestor_oid, descendant_oid);
+CREATE INDEX m_org_closure_desc_asc_idx
+    ON m_org_closure (descendant_oid, ancestor_oid);
+
+-- The trigger for m_ref_object_parent_org that flags the view for refresh.
+CREATE OR REPLACE FUNCTION mark_org_closure_for_refresh()
+    RETURNS trigger
+    LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF TG_OP = 'TRUNCATE' OR OLD.owner_type = 'ORG' OR NEW.owner_type = 'ORG' THEN
+        INSERT INTO m_global_metadata VALUES ('orgClosureRefreshNeeded', 'true')
+        ON CONFLICT (name) DO UPDATE SET value = 'true';
+    END IF;
+
+    -- after trigger returns null
+    RETURN NULL;
+END $$;
+
+CREATE TRIGGER m_ref_object_parent_mark_refresh_tr
+    AFTER INSERT OR UPDATE OR DELETE ON m_ref_object_parent_org
+    FOR EACH ROW EXECUTE PROCEDURE mark_org_closure_for_refresh();
+CREATE TRIGGER m_ref_object_parent_mark_refresh_trunc_tr
+    AFTER TRUNCATE ON m_ref_object_parent_org
+    FOR EACH STATEMENT EXECUTE PROCEDURE mark_org_closure_for_refresh();
+
+-- This procedure for conditional refresh when needed is called from the application code.
+-- The refresh can be forced, e.g. after many changes with triggers off (or just to be sure).
+CREATE OR REPLACE PROCEDURE m_refresh_org_closure(force boolean = false)
+    LANGUAGE plpgsql
+AS $$
+DECLARE
+    flag_val text;
+BEGIN
+    SELECT value INTO flag_val FROM m_global_metadata WHERE name = 'orgClosureRefreshNeeded';
+    IF flag_val = 'true' OR force THEN
+        -- We use advisory session lock only for the check + refresh, then release it immediately.
+        -- This can still dead-lock two transactions in a single thread on the select/delete combo,
+        -- (I mean, who would do that?!) but works fine for parallel transactions.
+        PERFORM pg_advisory_lock(47);
+        BEGIN
+            SELECT value INTO flag_val FROM m_global_metadata WHERE name = 'orgClosureRefreshNeeded';
+            IF flag_val = 'true' OR force THEN
+                REFRESH MATERIALIZED VIEW m_org_closure;
+                DELETE FROM m_global_metadata WHERE name = 'orgClosureRefreshNeeded';
+            END IF;
+            PERFORM pg_advisory_unlock(47);
+        EXCEPTION WHEN OTHERS THEN
+            -- Whatever happens we definitely want to release the lock.
+            PERFORM pg_advisory_unlock(47);
+            RAISE;
+        END;
+    END IF;
+END; $$;
+----
+
+== Various implementation experiments
+
+=== View refreshed before select
 
 Following solution was a demo for lazy-refresh before the first select after change
 in the parent org ref table.
@@ -130,6 +226,7 @@ the top level organization returning ~400 rows (30k orgs, 180k users, org closur
 Until there are before select triggers that don't affect the resulting query in such a way,
 this is *not* a feasible solution.
 
+[source,sql]
 ----
 CREATE TABLE m_ref_object_parent_org (
     owner_oid UUID NOT NULL REFERENCES m_object_oid(oid) ON DELETE CASCADE,
@@ -239,6 +336,41 @@ AFTER TRUNCATE ON m_ref_object_parent_org
 FOR EACH STATEMENT EXECUTE PROCEDURE mark_org_closure_for_refresh();
 -- endregion
 ----
+
+=== View refreshed by trigger on update
+
+The following triggers can be set to refresh the materialized view after each update
+of `m_ref_object_parent_org` if the owner type of the updated ref is `ORG`.
+If the ref is owned by other type, it does not change the closure - unless the closure contains
+all org children regardless of the type (which it does not in our case).
+
+[source,sql]
+----
+-- The trigger for m_ref_object_parent_org that refreshes the view.
+CREATE OR REPLACE FUNCTION m_org_closure_refresh()
+    RETURNS trigger
+    LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF TG_OP = 'TRUNCATE' OR OLD.owner_type = 'ORG' OR NEW.owner_type = 'ORG' THEN
+        REFRESH MATERIALIZED VIEW m_org_closure;
+    END IF;
+
+    -- after trigger returns null
+    RETURN NULL;
+END $$;
+
+CREATE TRIGGER m_ref_object_parent_org_refresh_tr
+    AFTER INSERT OR UPDATE OR DELETE ON m_ref_object_parent_org
+    FOR EACH ROW EXECUTE PROCEDURE m_org_closure_refresh();
+CREATE TRIGGER m_ref_object_parent_org_trunc_refresh_tr
+    AFTER TRUNCATE ON m_ref_object_parent_org
+    FOR EACH STATEMENT EXECUTE PROCEDURE m_org_closure_refresh();
+----
+
+This is a correct and very simple solution, but suffers low performance on the writing end.
+In the same environment the test could add 450 organizations in a second, while with the refresh
+hardly 10 orgs/s were possible for a test adding 15k orgs, each with a single parent org.
 
 == Resources
 
