@@ -1,0 +1,118 @@
+= MidPoint Deployment Language Draft
+
+== Introduction
+
+This document describes new language that could be used to handle configuration changes and their deployment in midPoint environments.
+
+== Handling configuration changes
+
+Changes in configuration are part of day to day operation within midPoint operations.
+New resources being managed, old resources being decommissioned, upgrades being done.
+Each configuration change can be non-trivial and can contain multiple steps.
+This creates challenges on multiple fronts:
+
+* How document steps being executed during configuration change?
+* How to make sure all steps were executed and in correct order?
+* How to manage change execution in multiple environments, e.g. test, acceptance, QA, production?
+* What if someone else have to execute configuration change in higher environments (eg. operation team responsible for production)?
+
+== Design
+
+To address problems mentioned in previous chapter one should have a tool that can describe how configuration change should be applied.
+As an example we can use IT infrastructure. Currently, there are many tools used to handle configuration changes like Ansible, Chef, Terraform, etc.
+Similar approach could be used to deploy changes in midPoint environment.
+
+We could describe changes for midpoint environment using YAML file and then use tool to execute changes described in file.
+Similarly, we could generate documentation (steps).
+Tool should be integrated with others in midPoint ecosystem (studio, ninja, midscribe).
+
+Example of configuration change:
+
+[source,yaml]
+```
+name: some package name
+description: some description
+
+midpoint:
+  urls:
+    - host1
+    - host2
+    - host3
+    - host4
+  properties:
+    plain: asdf.properties
+    encrypted: credentials.kdbx
+  user:
+    name: jdoe
+    password: FROM_SOMEWHERE
+
+tasks:
+  - name: Upload template
+    upload:
+      raw: true       # optional
+#      object: text
+#      file: something.xml  # could be directory
+#      test: true      # test connection if object was resource
+  - name: Task handling
+    task:
+      # maybe suspend/resume all  hat will put some identifier to documentation/description to know how to resume them later. how about ordering?
+      command: start  # suspend | resume
+#      oid: some-oid   # name or oid needed or file to be uploaded beforehand
+#      name: some-name
+#      file: task.xml
+#      wait:           # wait until task is finished? maybe timeout
+#  - name: get object
+#    get:
+#      raw: true
+#      oid: 123
+#      name: some name
+#  - name: sync midpoint home
+#    home:
+#      sync: true
+#      command: upload # or something similar...
+#  - name: list objects
+#    list:
+#      raw: true
+#      query: TODO     # how to query
+#      type: user
+#  - name: modify object
+#    modify:
+#      raw: true
+#      delta: xml delta
+#      file: pointer to file/directory
+#  - name: manual step
+#    manual:
+#      title: some title
+#      description: asdf
+#      confirmation: true
+```
+
+=== Missing Features
+
+* `midpoint.home` folder manageable via REST API
+
+== Implementation
+
+todo
+
+== Unsorted Notes
+
+=== Todo
+
+- what about new midpoint rest endpoint that will be able to manage midpoint-home folder???? Yummy REST CRUD for file system changes
+- tasks: maybe import one account for testing/validation purposes
+- validate midpoint version?
+- allow elevate user in rest
+- timeout for all tasks
+- timeout for rest calls
+- find a way to pause/resume playbook (during manual steps for example)
+- test resource connection against all urls defined (as optional)
+- delete object
+
+==== Todo Optional
+
+- find a way to do tasks in parallel
+- check status of cluster, metrics etc, print them
+- figure out how to validate progress when uploading or waiting for task to finish
+- allow extendability via plugins or custom tasks
+
