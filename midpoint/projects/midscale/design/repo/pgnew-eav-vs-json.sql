@@ -94,7 +94,7 @@ DECLARE
     v VARCHAR;
     id UUID;
 BEGIN
-    FOR r IN 1000001..3000000 LOOP
+    FOR r IN 100001..1000000 LOOP
 
         id := gen_random_uuid();
 
@@ -191,7 +191,7 @@ and ext ? 'email';
 -- index experiments
 analyze;
 CREATE INDEX tjson_exttmp_idx ON tjson (cast(ext->'eid' as int));
-CREATE INDEX tjson_exttmp_idx ON tjson (((ext->'eid')::int)); -- the same as above
+CREATE INDEX tjson_ext_eid_int_idx ON tjson (((ext->'eid')::int)); -- the same as above
 
 select * from pg_indexes where tablename = 'tjson';
 select * from pg_index where indrelid = 951043;
@@ -238,6 +238,18 @@ CREATE INDEX teav_ext_string_value_email_trgm_idx ON teav_ext_string USING gin(v
 EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)
 select * from teav t where exists (select from teav_ext_string es where es.ownerOid = t.oid and es.key = 'email' and es.value ILIKE 'USER2%') LIMIT 50;
 select from teav_ext_string ex where es.key = 'email' and es.value ILIKE 'USER2%' limit 500;
+
+-- selecting item with any of two hobbies:
+-- see https://dba.stackexchange.com/a/130863/157622
+select * from tjson where ext @> ANY (ARRAY['{"hobbies": ["video"]}', '{"hobbies": ["photo"]}']::jsonb[]);
+
+-- This is marginally slower and the plan contains BitmapOr:
+select * from tjson where ext @> '{"hobbies": ["video"]}' OR ext @> '{"hobbies": ["photo"]}';
+
+-- Selecting first values of arrays, this is safe for scalar value too (and can used in index):
+insert into tjson values ('00000000-0000-0000-0000-000000000000', 'scalar-test', '{"hobbies": "scalar"}');
+select oid, ext, ext->'hobbies'->0 from tjson where oid='00000000-0000-0000-0000-000000000000'; -- works for scalar too
+select oid, ext, ext->'hobbies'->0 from tjson; -- and works fine for all the rest
 
 -- selects
 -- pgbench -r -P 5 -f - -t 30 << "--EOF"
