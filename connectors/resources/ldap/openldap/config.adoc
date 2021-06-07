@@ -82,13 +82,88 @@ The rest of this guide will use `slapdconf` for configuring OpenLDAP, as doing i
 
 == Setting up SSL/TLS
 
+In theory, it is as simple as:
+
 [source]
 ----
 slapdconf set-server-prop olcTLSCACertificateFile:/etc/ldap/tls/cacert.pem
-slapdconf set-server-prop olcTLSCertificateFile:/etc/ldap/tls/triglav.nlight.eu-cert.pem
-slapdconf set-server-prop olcTLSCertificateKeyFile:/etc/ldap/tls/triglav.nlight.eu-privkey.pem
+slapdconf set-server-prop olcTLSCertificateFile:/etc/ldap/tls/triglav.example.com-cert.pem
+slapdconf set-server-prop olcTLSCertificateKeyFile:/etc/ldap/tls/triglav.example.com-privkey.pem
 slapdconf set-server-prop olcTLSCipherSuite:NORMAL
 ----
+
+However, OpenLDAP and TLS are never as easy in practice.
+
+=== TLS on Debian/Ubuntu
+
+When running on Debian/Ubuntu, the things are a bit more difficult.
+Debian-based OpenLDAP packages are linked with GnuTLS instead of OpenSSL.
+The OpenLDAP-GnuTLS integration leaves a lot to be desired.
+E.g. you will not see any diagnostic or error message from GnuTLS.
+All you got is mysterious "code 80" error.
+There are also groups and apparmor that needs to be set up when using letsencrypt or similar certificate management.
+
+Firstly, you have to make sure that OpenLDAP can read the certificates and the key.
+If you are using letsencrypt, you will need to make sure the files are readable by the `ssl-cert` group.
+Then you need to add `opendlap` account to the `ssl-cert` group.
+However, the access is still prohibited by apparmor.
+Therefore you need to allow `slapd` to access the `/etc/letsencrypt` directory:
+
+./etc/apparmor.d/local/usr.sbin.slapd
+[source]
+----
+/etc/letsencrypt/** r,
+----
+
+NOTE: It is perhaps better to be more specific in the pathname if your machine has several certificates. E.g. allow access only to certificate/keys for one specific host only.
+We leave that as an exercise for the reader.
+
+Restart apparmor and slapd afterwards:
+
+[source,bash]
+----
+sudo systemctl restart apparmor
+sudo systemctl restart slapd
+----
+
+GnuTLS needs to set both the cert and the key in one operation.
+Therefore you will need to do this:
+
+[source]
+----
+slapdconf set-server-prop olcTLSCACertificateFile:/etc/ldap/tls/cacert.pem
+slapdconf set-server-prop olcTLSCertificateFile:/etc/ldap/tls/triglav.example.com-cert.pem olcTLSCertificateKeyFile:/etc/ldap/tls/triglav.example.com-privkey.pem
+slapdconf set-server-prop olcTLSCipherSuite:NORMAL
+----
+
+Finally, you need to add LDAPS port (663) to the list of ports that `slapd` listens on:
+
+./etc/default/slapd
+[source]
+----
+SLAPD_SERVICES="ldap:/// ldaps:/// ldapi:///"
+----
+
+... and restart `slapd`
+
+[source]
+----
+sudo systemctl restart slapd
+----
+
+If you ever encounter a GnuTLS problem, you will need to enable GnuTLS logging to see what is the problem.
+You can use `GNUTLS_DEBUG_LEVEL` environment variable to enable the logging.
+However, GnuTLS logs the messages on STDOUT/STDERR, not in syslog.
+Therefore perhaps the easiest way is to set the `GNUTLS_DEBUG_LEVEL` variable in shell and then run `slapd` in foreground by using the `-d` option (as root):
+
+[source,bash]
+----
+systemctl stop slapd
+export GNUTLS_DEBUG_LEVEL=10
+/usr/sbin/slapd -h "ldap:/// ldaps:/// ldapi:///" -g openldap -u openldap -F /etc/ldap/slapd.d -d 256
+----
+
+Once you figure out what the problem is, you can start OpenLDAP using `systemctl` again.
 
 
 == Initializing OpenLDAP
@@ -104,7 +179,6 @@ dc=whatever,dc=com
 
 If you are OK with the existing suffix you may skip this section.
 If not then you have to delete the suffix (see xref:administraton.adoc[]).
-
 
 === Setting up logging
 
