@@ -67,7 +67,8 @@ select * from teav limit 500;
 ----
 
 If `pgbench` is prefixed with `--` it can be part of SQL file as a comment, hence `--EOF` as a delimiter.
-Delimiter is quoted to avoid any accidental shell expansions within the block.
+It is easy to copy/paste from such an SQL file directly to shell to run the `pgbench`.
+Delimiter is quoted with `"` to avoid any accidental shell expansions within the block.
 
 Results can be taken from the final report of average latency per statement (enabled by `-r` option).
 Results may vary widely between runs, especially for shorter queries.
@@ -75,6 +76,8 @@ Also, running the whole script and running smaller bulks provides different resu
 typically better for smaller amount of statement (this may be caused by rather limited VM performance).
 Measurements for shorter queries were repeated with longer queries commented out and option `-t 30`
 to get more repetitions per statement (30 in this case) which typically leads to lower, but also more representative, averages.
+
+Full SQL file is link:../pgnew-eav-vs-json.sql[attached here].
 
 == Insert
 
@@ -386,13 +389,120 @@ h| non-weighted counts total h| 3845 h| 10648
 h| non-weighted select total h| 160 ms h| 254 ms
 |===
 
+== Update
+
+The problem with JSONB type is that it is not efficient to update, see https://stackoverflow.com/a/26704636/658826[this SO answer].
+Even though there are functions to update JSONB in a fine-grained manner, the whole row is written
+anyway, which also solves some MVCC (Multiversion Concurrency Control) problems.
+This can make little updates of large rows prohibitive.
+
+There are cases when extension property holds thousands of items (e.g. groups in LDAP) and these
+must be written as a whole document when JSONB is used.
+Such properties are often index-only, that is, they are not stored in *fullObject* serialized form.
+With EAV model only small individual rows would be manipulated (deleted or inserted) which may be
+more efficient.
+
+Using JSONB still may provide reasonable performance and there are various solutions:
+
+* The final extension value may be calculated in midPoint, JSONB is created and updated as a whole.
+This means the old value of the property must be obtained first (this can be controlled by
+configuration flags `enableNoFetchExtensionValuesInsertion/Deletion` for the old repository)
+it must travel from the DB to the application but makes the update process cleaner and more reliable
+from midPoint perspective.
+* Only updates are sent to the database.
+This does not prevent writing of the whole row internally but saves network bandwidth.
+There are currently no tests whether the updates (especially multiple updates like add/delete
+combinations) are more efficient in the database or in midPoint (including additional traffic).
+Also, this can lead to inconsistent data, e.g. double adds.
+
+Also, main reason NOT to use JSONB is when the data is used in a relational way, e.g. for JOINs.
+This is not the case - except maybe for extension references if they are traversed with `@`.
+Various `WHERE` conditions can be supported by
+https://www.postgresql.org/docs/current/datatype-json.html#JSON-INDEXING[GIN indexes], optionally
+with https://www.postgresql.org/docs/current/pgtrgm.html#id-1.11.7.40.8[gin_trgm_ops] for better
+`(I)LIKE` support.
+
+== Other types
+
+Various data types are possible in extension attributes and these must be represented in JSONB.
+
+* Keys will actually be surrogate IDs from extension item catalog, probably numbers in `"`.
+Shortcuts are possible if readability is important, but unwrapping the JSONB in selects is possbile
+if necessary (see the next section).
+
+* Numbers can be representad as JSON numbers which support `NUMERIC` range internally.
+This would allow for numeric comparison not possible with some number types in old repository.
+
+* Date/time types can be represented as strings formated using ISO 8601.
+This allows for comparison as well as the string representation order is the same as temporal
+(but not between various date/time types, of course).
+
+* Multivalues are stored consistently as arrays, even when one value is stored.
+No value/empty array can be omitted.
+It may be wise to store any value in an array, which makes the system simpler, although the values
+must be always unwrapped (e.g. for comparision and corresponding indexes).
+But this allows for change of `maxOccurs` in the extension schema from 1 to more or `unbounded`
+without any need of reindexing.
+
+In general mixing scalar and arrays for operations can be tricky.
+Conditions `ext @> '{"hobbies":["eating"]}'` and `ext @> '{"hobbies":"eating"}'` (without array)
+are two different conditions that do not work the same way.
+Using arrays very time means there is no need to reindex when `maxOccurs` in shema changes.
+Threre are still other cases when recomputing of extension column (aka "reindexing") is relevant.
+
+=== Example of JSON unwrapping to rows
+
+Given a row:
+[source,sql]
+----
+select * from tjson
+where oid = '0cbe39c7-c7af-4cf3-a334-098400284a0a';
+----
+
+That returns something like:
+|===
+| oid | name | ext
+
+| 0cbe39c7-c7af-4cf3-a334-098400284a0a | user-0000038799
+| {"eid": 38799, "hobbies": ["eating", "books", "dancing", "walking", "video"]}
+|===
+
+We can explode all the top level values including the array with this select:
+
+[source,sql]
+----
+select oid, key, coalesce(aval, sval) val from (
+    select oid, key,
+        CASE WHEN jsonb_typeof(value) = 'array' THEN value END avals,
+        CASE WHEN jsonb_typeof(value) <> 'array' THEN value END sval
+    from tjson, jsonb_each(tjson.ext) fields
+) x left join jsonb_array_elements(avals) aval on true
+where oid = '0cbe39c7-c7af-4cf3-a334-098400284a0a';
+----
+
+Which returns:
+
+|===
+| oid | key | val
+
+| 0cbe39c7-c7af-4cf3-a334-098400284a0a | eid | 38799
+| 0cbe39c7-c7af-4cf3-a334-098400284a0a | hobbies | "eating"
+| 0cbe39c7-c7af-4cf3-a334-098400284a0a | hobbies | "books"
+| 0cbe39c7-c7af-4cf3-a334-098400284a0a | hobbies | "dancing"
+| 0cbe39c7-c7af-4cf3-a334-098400284a0a | hobbies | "walking"
+| 0cbe39c7-c7af-4cf3-a334-098400284a0a | hobbies | "video"
+|===
+
+Obviously, this is not performance tuned, but for a single/few object(s) it is no problem at all.
+
 == Conclusion
 
 * JSON with index takes less space than EAV+ext table with their indexes (4GB vs 7GB, not counting unique indexes on names).
 This may change when keys are normalized using "ext item catalog", but both JSON and EAV would benefit from it.
 * Performance wise they are trading blows, but JSON is ~2 times faster overall, depending on the mix of selects.
 ** EAV's biggest win was finding any 500 rows with hobbies=sleeping (15x faster).
-** JSON was over 20x faster for 4 selects, all related to email LIKE searches (no index support on either solution).
+** JSON was over 20x faster for 4 selects, all related to email `LIKE` searches (no index support
+on either solution).
 * There are ways how to improve searching with function based indexes, especially for specific
 attributes in JSON (see the slow select with `eid` above).
 * Extension table index on key+value was used only for rare multi-value values (sleeping) and for exact matches of single values (eid).
