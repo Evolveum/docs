@@ -1,0 +1,115 @@
+= DB maintenance
+
+// TODO this is various selects thrown here, need to sort it out and add some narrative
+
+[source,sql]
+----
+-- indexes for a table
+select * from pg_indexes where tablename = 'm_user';
+
+-- list of selects using the most time, change order to get other avg/max/calls to top
+-- (remove "_exec" from columns for PG < 13)
+-- NOTE: postgresql.conf must have (+restart): shared_preload_libraries = 'pg_stat_statements'
+-- Also first, to see pg_stat_statements table: CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+select
+    (total_exec_time / 1000 / 60)::numeric(20,4) as total_min, -- min as minutes here
+    mean_exec_time::numeric(20,2) as avg_ms,
+    max_exec_time::numeric(20,2) as max_ms,
+    calls,
+    query
+from pg_stat_statements
+-- optional where to limit it to one database, if needed (e.g. shared/test DB)
+-- where dbid = (select oid from pg_database where datname = 'midpoint')
+order by 1 desc -- change order as necessary
+limit 50;
+
+-- show locks and related activities
+select l.locktype, l.mode, d.datname, c.relname,
+       l.pid, a.application_name, a.client_addr
+from pg_locks l
+join pg_stat_activity a on l.pid = a.pid
+join pg_database d on d.oid = l.database
+join pg_class c on c.oid = l.relation
+;
+
+-- shows activities waiting for locks, see https://wiki.postgresql.org/wiki/Lock_Monitoring for more
+select blocked_locks.pid as blocked_pid,
+    blocked_activity.usename as blocked_user,
+    blocking_locks.pid as blocking_pid,
+    blocking_activity.usename as blocking_user,
+    blocked_activity.query as blocked_statement,
+    blocking_activity.query as current_statement_in_blocking_process,
+    blocked_activity.application_name as blocked_application,
+    blocking_activity.application_name as blocking_application
+from pg_catalog.pg_locks blocked_locks
+join pg_catalog.pg_stat_activity blocked_activity on blocked_activity.pid = blocked_locks.pid
+join pg_catalog.pg_locks blocking_locks on blocking_locks.locktype = blocked_locks.locktype
+    and blocking_locks.database is not distinct from blocked_locks.database
+    and blocking_locks.relation is not distinct from blocked_locks.relation
+    and blocking_locks.page is not distinct from blocked_locks.page
+    and blocking_locks.tuple is not distinct from blocked_locks.tuple
+    and blocking_locks.virtualxid is not distinct from blocked_locks.virtualxid
+    and blocking_locks.transactionid is not distinct from blocked_locks.transactionid
+    and blocking_locks.classid is not distinct from blocked_locks.classid
+    and blocking_locks.objid is not distinct from blocked_locks.objid
+    and blocking_locks.objsubid is not distinct from blocked_locks.objsubid
+    and blocking_locks.pid != blocked_locks.pid
+join pg_catalog.pg_stat_activity blocking_activity on blocking_activity.pid = blocking_locks.pid
+where not blocked_locks.granted
+;
+
+-- showing all extension values exploded to rows (including multi-val)
+select oid, key, coalesce(aval, sval) val from (
+    select oid, key,
+        case when jsonb_typeof(value) = 'array' then value end avals,
+        case when jsonb_typeof(value) <> 'array' then value end sval
+    from m_user, jsonb_each(ext) fields
+) x left join jsonb_array_elements(avals) aval on true
+where oid = '0cbe39c7-c7af-4cf3-a334-098400284a0a'
+-- other conditions possible, but let's not run it on the whole table or order by ext values
+;
+----
+
+Table sizes, vacuum, etc.
+
+[source,sql]
+----
+-- Find all tables and when they were last vacuumed/analyzed, either manually or automatically
+select relname, last_vacuum, last_autovacuum, last_analyze, last_autoanalyze
+from pg_stat_all_tables
+where schemaname = 'public'
+order by last_vacuum desc;
+
+-- Find any running processes that are doing autovacuum and which tables they're working on
+select pid,
+    age(query_start, clock_timestamp()),
+    usename,
+    query
+from pg_stat_activity
+where query != '<IDLE>' and query ilike '%vacuum%'
+order by query_start asc;
+
+-- Find table/index sizes for all tables in a schema
+select -- *,
+    oid, table_schema, table_name, row_estimate,
+    pg_size_pretty(total_bytes) as total,
+    pg_size_pretty(table_bytes) as table,
+    pg_size_pretty(toast_bytes) as toast,
+    pg_size_pretty(index_bytes) as index
+from (
+    select *, total_bytes - index_bytes - coalesce(toast_bytes, 0) as table_bytes
+    from (
+        select c.oid,
+            nspname as table_schema,
+            relname as table_name,
+            c.reltuples as row_estimate,
+            pg_total_relation_size(c.oid) as total_bytes,
+            pg_indexes_size(c.oid) as index_bytes,
+            pg_total_relation_size(reltoastrelid) as toast_bytes
+        from pg_class c
+        left join pg_namespace n on n.oid = c.relnamespace
+        where relkind = 'r') a
+    ) a
+where table_schema = 'public'
+order by total_bytes desc;
+----

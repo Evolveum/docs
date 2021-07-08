@@ -182,55 +182,67 @@ Unused Hibernate entities for audit tables are still used for automatic DB creat
 
 * Testing considerations for automated TestNG tests:
 ** We want to develop tests that will be run on both 4.2 version (support branch) and in master.
-** See link:../testing-design.adoc[Testing design] for more.
+** See link:/midpoint/projects/midscale/design/testing-design/[Testing design] for more.
 
 * How to get to minimum viable product (MVP) as soon as possible?
 ** In 4.3 we'd like to have rough implementation of `repo-api` (`RepositoryService`).
 ** In 1-2 months to have representative DB schema covering most issues mentioned above.
 Testing on SQL level with many rows, etc.
 
-== Current schema to repository mapping
+== Schema to repository mapping
 
 Table shows only descendands of `ObjectType`, not other containers, assignments, etc.
 See also https://wiki.evolveum.com/download/attachments/4424005/midpoint-db-4.2.png[schema diagram for midPoint 4.2].
 
 |===
-| Schema type | Repo type | Note
+| Schema type | Repo Q-type | Rows (expected max or typical for smaller tables)
 
 3+| *Objects*
-| ObjectType .2+| RObject |
-| \|- AssignmentHolderType |
+| ObjectType | QObject .2+| no physical rows in new repo
+| \|- AssignmentHolderType | QAssignmentHolder (none in old repo)
 | \|{nbsp}\|-{nbsp}AbstractAccessCertificationDefinitionType | - |
 | \|{nbsp}\|{nbsp}\|-{nbsp}AccessCertificationDefinitionForReportType | ? |
-| \|{nbsp}\|{nbsp}+-{nbsp}AccessCertificationDefinitionType | RAccessCertificationDefinition |
-| \|{nbsp}\|-{nbsp}AccessCertificationCampaignType | RAccessCertificationCampaign |
-| \|{nbsp}\|-{nbsp}CaseType | RCase |
-| \|{nbsp}\|-{nbsp}ConnectorHostType | RConnector |
-| \|{nbsp}\|-{nbsp}ConnectorType | RConnectorHost |
-| \|{nbsp}\|-{nbsp}DashboardType | RDashboard |
-| \|{nbsp}\|-{nbsp}FocusType | RFocus |
-| \|{nbsp}\|{nbsp}\|-{nbsp}AbstractRoleType | RAbstractRole |
-| \|{nbsp}\|{nbsp}\|{nbsp}\|-{nbsp}ArchetypeType | RArchetype |
-| \|{nbsp}\|{nbsp}\|{nbsp}\|-{nbsp}OrgType | ROrg |
-| \|{nbsp}\|{nbsp}\|{nbsp}\|-{nbsp}RoleType | RRole |
-| \|{nbsp}\|{nbsp}\|{nbsp}+-{nbsp}ServiceType | RService |
-| \|{nbsp}\|{nbsp}\|-{nbsp}GenericObjectType | RGenericObject |
-| \|{nbsp}\|{nbsp}+-{nbsp}UserType | RUser |
-| \|{nbsp}\|-{nbsp}FormType | RForm |
-| \|{nbsp}\|-{nbsp}FunctionLibraryType | RFunctionLibrary |
-| \|{nbsp}\|-{nbsp}LookupTableType | RLookupTable |
-| \|{nbsp}\|-{nbsp}NodeType | RNode |
-| \|{nbsp}\|-{nbsp}ObjectCollectionType | RObjectCollection |
-| \|{nbsp}\|-{nbsp}ObjectTemplateType | RObjectTemplate |
-| \|{nbsp}\|-{nbsp}ReportDataType | RReport |
-| \|{nbsp}\|-{nbsp}ReportType | RReportData |
-| \|{nbsp}\|-{nbsp}ResourceType | RResource |
-| \|{nbsp}\|-{nbsp}SecurityPolicyType | RSecurityPolicy |
-| \|{nbsp}\|-{nbsp}SequenceType | RSequence |
-| \|{nbsp}\|-{nbsp}SystemConfigurationType | RSystemConfiguration |
-| \|{nbsp}\|-{nbsp}TaskType | RTask |
-| \|{nbsp}+-{nbsp}ValuePolicyType | RValuePolicy |
-| +-{nbsp}ShadowType | RShadow |
+| \|{nbsp}\|{nbsp}`-{nbsp}AccessCertificationDefinitionType | QAccessCertificationDefinition |
+| \|{nbsp}\|-{nbsp}AccessCertificationCampaignType | QAccessCertificationCampaign |
+| \|{nbsp}\|-{nbsp}CaseType | QCase |
+| \|{nbsp}\|-{nbsp}ConnectorHostType | QConnector |
+| \|{nbsp}\|-{nbsp}ConnectorType | QConnectorHost |
+| \|{nbsp}\|-{nbsp}DashboardType | QDashboard |
+| \|{nbsp}\|-{nbsp}FocusType | QFocus |
+| \|{nbsp}\|{nbsp}\|-{nbsp}AbstractRoleType | QAbstractRole |
+| \|{nbsp}\|{nbsp}\|{nbsp}\|-{nbsp}ArchetypeType | QArchetype |
+| \|{nbsp}\|{nbsp}\|{nbsp}\|-{nbsp}OrgType | QOrg |
+| \|{nbsp}\|{nbsp}\|{nbsp}\|-{nbsp}RoleType | QRole |
+| \|{nbsp}\|{nbsp}\|{nbsp}`-{nbsp}ServiceType | QService |
+| \|{nbsp}\|{nbsp}\|-{nbsp}GenericObjectType | QGenericObject |
+| \|{nbsp}\|{nbsp}`-{nbsp}UserType | QUser | 20M
+| \|{nbsp}\|-{nbsp}FormType | QForm |
+| \|{nbsp}\|-{nbsp}FunctionLibraryType | QFunctionLibrary |
+| \|{nbsp}\|-{nbsp}LookupTableType | QLookupTable |
+| \|{nbsp}\|-{nbsp}NodeType | QNode |
+| \|{nbsp}\|-{nbsp}ObjectCollectionType | QObjectCollection |
+| \|{nbsp}\|-{nbsp}ObjectTemplateType | QObjectTemplate |
+| \|{nbsp}\|-{nbsp}ReportDataType | QReport |
+| \|{nbsp}\|-{nbsp}ReportType | QReportData |
+| \|{nbsp}\|-{nbsp}ResourceType | QResource |
+| \|{nbsp}\|-{nbsp}SecurityPolicyType | QSecurityPolicy | ~10, 100k possible for multi-tenant
+| \|{nbsp}\|-{nbsp}SequenceType | QSequence |
+| \|{nbsp}\|-{nbsp}SystemConfigurationType | QSystemConfiguration | 1
+| \|{nbsp}\|-{nbsp}TaskType | QTask |
+| \|{nbsp}`-{nbsp}ValuePolicyType | QValuePolicy |
+| `-{nbsp}ShadowType | QShadow | 200M (~10 per user)
+3+| *Containers*
+| AssignmentType | QAssignment | 200M (~10 per user)
+3+| *Refs* are split by type
+.4+| Referencable | QReference |
+| \|- QObjectReference | Ref types: archetype, delegated, include, projection,
+create/modify approver, parent org, persona, resource/business/approver, role membership.
+
+100M rows in most used tables.
+|  `- QAssignmentReference | Ref types: create/modify approver.
+
+500M rows possible.
+| TODO case WI, cert WI... |
 |===
 
 == Explored alternatives
