@@ -2,65 +2,200 @@
 :page-keywords: [ 'IGA' ]
 :page-visibility: hidden
 
+// TODO: IGA high-level architecture
+
 == Identity Governance and Administration Capabilities
+
+NOTE: This list of capabilities is based on terminology widely established in the industry.
+Although there are numerous ambiguities, we preferred established terms over re-inventing the terminology.
+We are pointing out the ambiguities in the description as needed.
 
 === Identity Lifecycle Management
 
 Alternative names: Lifecycle management, Identity lifecycle
 
-TODO: Maintaining digital identities.
-TODO: management of attributes, identifiers (e.g. lookup of unique username)
-TODO: credential management?
-TODO: identity types/classes/archetypes: person and non-person identities
-users, services/applications, devices, things, ...
+Identity lifecycle management deals with maintenance of digital identities.
+It maintains state of digital identities through various lifecycle changes, such as creation, modification, archival and deletion.
+Digital identities are usually complex data structures, composed of numerous attributes.
+The structure of identity data and its relationship with other identity-related objects is specified by an _identity model_.
+Identity lifecycle management is responsible for maintaining _identity model_, keeping the attributes structured and consistent.
+This includes management of identifiers, including creation and validation of unique identifier values.
+Identity lifecycle management may include management of _credentials_, such as passwords and multi-factor authentication cryptographic material.
 
-TODO: lifecyle: creation -> active -> archival -> deletion
-Mention pre-provisioning, delayed delete, data erasure, etc.
+Lifecycle state model is often used to manage identity lifecycle.
+An identity is transitioned through a set of _lifecycle states_ such as `candidate`, `active`, `deprecated` and `archived`.
+Identity lifecycle is often bound to policies and fulfilment actions, creating functionality such as pre-provisioning of accounts for new employee, delayed delete of accounts, erasure of data on archival due to data protection regulations, and so on.
 
-Administration GUI
+IGA systems deal with many identity _types_ (a.k.a. _classes_ or _archetypes_).
+The most important identity types are usually person identities, such as employees, students, customers and citizens.
+However, comprehensive IGA systems must routinely deal with non-person identity types as well, such as services, applications, organizations, devices and "things".
+Each identity type may have its own characteristics, such as attributes, policies and lifecycle states.
+Such variation is used to implement various operation modes, such as business-to-employee (B2E), business-to-business (B2B) or business-to-consumer/citizen (B2C).
 
-common operation modes: B2E, B2B, B2C
+Complex identity models may include concept of _personas_, an alternative representation of a person designed for use in a specific context.
 
-Personas
+Partial management of organizational structure may be included in identity lifecycle management.
+Although organizational structure management is not a responsibility of identity governance and administration per se, policies are often bound to organizational structures.
+In such case, IGA systems must be able to process organizational structures to be able to evaluate the policies.
+Even though the depth of organization structure management required by IGA systems is, in theory, very shallow, practical IGA deployment often need to go much deeper than expected (see notes below).
 
-TODO: orgstruct?
+Identity lifecycle management almost always includes administration user interface, allowing identity administrators to review identities managed in the system, or even manage them manually.
+Self-service interface for ordinary users is usually also present, providing means for a user to maintain parts of user profile.
+
+There are some IGA features related to the identity lifecycle, features that require cooperation of several capabilities.
+Identity merge/split is related to the synchronization/correlation capability, however it may require support from workflow capability.
+Similarly, progressive profiling, self-service registration, invites and similar capabilities require parts of workflow capability, or a special-purpose interface.
 
 === Entitlement Management
 
-Association between identities and entitlements
+Entitlement management deals with association between identities and entitlements.
+Entitlements are assigned to an identity, giving an identity access to a particular asset or an operation.
+These are usually groups, permissions, associations to access control lists, low-level system roles and so on.
+Simply speaking, entitlement management deals with a question: Who has access to what?
 
-Who has access to what - on a low system level: accounts, groups, permissions, system roles (entitlement catalog)
+Entitlement management usually works on a lower level, it deals with concepts related to applications, services and directories, such as groups, filesystem permissions and application privileges.
+There is an ambiguity whether high-level concepts such as _business roles_ are subject of entitlement management, or whether they are part of a policy that drives entitlement management.
+Strictly speaking, in IGA context, a business role does not specify _who has access to what_, it rather specifies _who should have access to what_.
+Therefore, business roles are closer to the _policy_ (what _should be_) rather than operational reality (what _is_).
+Nevertheless, interpretation and implementation of the concepts of _roles_ and _entitlements_ varies from system to system.
 
-TODO: Are bussiness roles "entitlements"?
+Similarly, there is an ambiguity in the depth of details the entitlement management is concerned with.
+For example, it is not clear whether entitlement management is concerned with the name and format of an an attribute that associates LDAP group to LDAP account, or weather this is a responsibility of fullfilment capability.
+Strictly speaking, fulfilment is concerned with a propagation of changes to target systems, and group membership is often an information source.
+Therefore we consider management of association attributed to be a responsibility of entitlement management.
+
+In comprehensive IGA deployments, entitlements can themselves be identities and vice versa.
+E.g. user's membership in an organization, in which organization (identity) is considered an entitlement when assigned to a user.
+On the other hand, a role (entitlement) can be considered an identity, for example in a case that it is automatically synchronized with LDAP group or an application role.
 
 === Fulfillment
 
-Alternative names: Provisioning/deprovisioning
+Alternative names: Provisioning/deprovisioning, Change propagation
 
-Propagation of changes to target systems.
+Simply speaking, fulfilment is a capability that deals with propagation of changes to target systems.
+Fulfilment creates, modifies and deletes user accounts.
+Strictly speaking, this capability fulfils the policy, e.g. by creating an account when such an account is mandated by the policy.
+However, fulfilment often needs to read and compare the data in addition to create, modify and delete operations.
+This creates a significant overlap with other capabilities, namely entitlement management and synchronization.
+Moreover, attribute schema management, interpretation and transformation of attribute values and other functions are required for almost every IGA capability as well as they are required for fulfilment.
+Therefore we will be using the term _fulfilment_ to mean all the necessary low-level functions that deal with target and source systems, we will not limit the fulfilment to mere propagation of changes.
 
-provisioning dependencies
-attribute mapping, type conversions
-error handling, retries
-provisioning scripts
+The desired implementation of fulfilment is almost always _automatic fulfilment_.
+In that case the changes are made to target system automatically, by a connector on an agent that executes the commands of an IGA system.
+This is quite obviously the most convenient and reliable method.
+However, development and maintenance of a connector or an agent may be quite demanding.
+Some target systems may not even provide required capabilities in a form of re-usable programming interface (API).
+Therefore, the deployments sometimes opt for _manual fulfilment_.
+In that case the change is executed by a human operator, driven by a request from an IGA system.
+IT service management (ITSM) systems are often used to deliver instructions to the operator, and to track the progress of the task.
+While the manual fulfilment is usually practical and very cost-efficient solution, it has major drawbacks.
+As an IGA system cannot reach the target system, it cannot make sure that the account was created correctly, or even more importantly, that the privileges were correctly removed or account deleted.
+This creates a serious security issue.
+Therefore, some IGA systems provide an option for _semi-manual fulfilment_.
+In that case the operations are executed by a human operator.
+However, there is process to periodically export the data from the target system and deliver them to IGA platform for inspection.
+IGA platform identifies any inconsistencies, and creates tasks for operators to remedy the situation.
 
-Automatic or manual.
-Semi-manual.
+Automatic fulfilment is usually implemented using _identity connectors_.
+Connectors are relatively small bundles of code, implementing the details of network communication with the target system.
+Connectors are using standardized network protocols or interfaces (APIs) to communicate with target system, whenever such protocols or interfaces are available.
+Some IGA platforms are using _agents_ instead of connectors.
+Agents are installed into the environment of the target system, communicating with the target system locally.
+Agents are usually more powerful than connectors, however, they usually create a significant maintenance burden.
 
-Connectors
+Apart from connector management, the fulfilment capability includes significant amount of error handling functionality.
+Protocols and interfaces provided by target systems significantly vary as to their capabilities.
+E.g. some systems can disable accounts, other cannot.
+Some systems can delete an account, other can only permanently disable it.
+Some of these details can be addressed in the connector code.
+However, many details and edge cases have to be addressed by the fulfilment components.
+For example, the fulfilment usually need to simulate capabilities that the target systems do not have, such as simulation of account disable by disabling/changing the credentials.
+Error handling is an important part of the functionality, e.g. making sure that an operation is re-tried in case of network failures.
+Error handling code is often very complex, as there are numerous interactions with other capabilities, especially synchronization, entitlement management and the policies.
+
+Fulfilment components usually provide additional functionalities, such as ability to execute scripts on target systems.
+Such functionality is often used to complete account provisioning, or it is used to archive filesystem data in case of account archival.
 
 === Synchronization
 
-Synchronization, reconciliation, orphaned account detection
+Alternative names: Reconciliation, Correlation
 
-Inbound synchronization, correlation (identity matching)
+Synchronization capability provides functions that keep identity data consistent across all the connected systems.
+While fulfilment can make sure that the account is created in accord with the policy, it is synchronization that makes sure that it stays compliant with the policy all the time.
+This makes synchronization perhaps the most important infrastructural capability of any IGA platform.
+
+Synchronization also provides the means to feed data into the IGA platform.
+There is often at least one authoritative data source, in enterprise scenarios usually provided by the human resource (HR) system.
+Such data source provides authoritative information regarding legal data and employment status of a user.
+However, comprehensive IGA deployments need much more data than just the basic information provided by the HR system.
+Therefore, even in relatively simple deployments there are often many data sources with varied levels of authoritativeness.
+Such data sources often provide additional details, such as contact information, organizational structure assignment and so on.
+Several data feeds are often used to populate IGA platform with data on non-person identities, such as organizational structure, partner organizations, security tokens, devices and "things".
+Such "automatic" data sources are often supplemented with data that are maintained manually, usually maintained in form of spreadsheets and manually imported into the IGA system.
+It is not unusual that some identity types are maintained manually in an IGA platform as an authoritative source.
+
+There are usually several sources feeding data to IGA system.
+Each of the sources is likely to have its own schema, data formats, codes and other specific characteristics.
+Such a diverse data need to be mapped and transformed into a form consistent with the identity model of the IGA system.
+Moreover, records that describe the same identity have to be _correlated_ and merged.
+Correlation is not a completely reliable process, even in enterprise scenarios where some correlation identifiers (such as employee number) are readily available.
+The source data were most likely maintained manually, there is relatively high probably of data errors and inconsistencies.
+As the IGA system is the system where the data meet for the first time, it is likely that there will be correlation failures and mis-matches that need to be handled manually.
+Correlation is even harder in case there is no reliable correlation identifier, or if there are several semi-reliable correlation attributes.
+Probabilistic correlation (a.k.a. _identity matching_) can be used in that case.
+However, such correlation almost always requires human intervention, resulting in semi-automatic process.
+Most of the correlation effort is expected at the time when IGA platform is deployed, or when a new system is connected to IGA platform.
+However, the source data are changing all the time, user groups grow and fluctuate.
+Therefore identity correlation is a continuous process, a part of day-to-day identity management routine.
+
+TODO: Almost-real-time synchronization - event based. Pull or push models. Message-based.
+
+Synchronization is meant to enforce continuous consistency of data in all the connected systems.
+However, this task is much harder than it may seem.
+IGA platform is interconnecting several _independent_ systems, each of them maintaining a database with various data models, access protocols, operational characteristics and consistency constraints.
+There is no universal mechanism that can be used to make sure that the data remain consistent even during one simple operation.
+Transactional mechanism can be used only for some systems (usually relational databases), and even there the details vary significantly to make such mechanism all but useless for universal cross-system data consistency.
+Many systems are based on REST interfaces (APIs), and not provide any data consistency guarantees at all.
+The data may change shortly after an operation is completed, or even during execution of an operation.
+In such environment, short-term data consistency is definitely a significant challenge.
+Long-term data consistency is a colossal task.
+
+Most IGA platforms seem to acknowledge the reality and adopt an _eventual consistency_ approach.
+In this paradigm, the data may be inconsistent at some point in time, yet the data will become consistent eventually.
+Eventual consistency is achieved by a combination of several mechanisms, while _reconciliation_ is perhaps the most widespread and universal one.
+
+_Reconciliation_ is a process of comparing data stored in IGA platform with the data in target systems.
+There are various forms of reconciliation.
+The most lightweight reconciliation processes simply look at account existence, ignoring all the attributes and entitlements.
+The most heavyweight processes are running a full policy evaluation for each user, checking account status, all the attribute values and entitlements.
+All forms of reconciliation can usually detect _orphaned accounts_.
+Orphaned accounts are accounts that do not have matching identity in IGA database.
+These are usually accounts that should have been deleted, but remained in the system.
+The account was not deleted due to human error, because of a bug in the connector code, it might have been manually created by system administrator, perhaps as a testing account, it may be an artefact of disaster recovery, restoring data from an older back-up, or there may be numerous other reasons that the account was overlooked.
+Orphaned accounts are often a major security risk, therefore detection and clean-up of orphaned accounts is a critical capability of IGA deployment.
+
+TODO: detection of wrong entitlements, wrong attribute values, wrong account status (enabled/disabled).
+
+
+TODO: reconciliation is used for source systems as well
+
+TODO: full reconciliation is a demanding, long-running process, But it is necessary.
+Full reconciliation as a failsafe mechanism, for all resources, especially for real-time sync.
+Full reconciliation is usually the only practical mechanism to make sure that the data are consistent, and remain consistent in the long term.
+It should be running periodically.
+
 Connecting new systems with existing data.
 
-Eventual consistency (no transactions), discovery
+Account discovery
 
 Synchronization of non-person identities: (application) roles, organizational units, services
+Sometimes synchronization from _target_ systems, e.g. automatically creating application role for each AD group, allowing users to request access.
 
 Connectors
+
+Synchronization is often an overlooked capability.
+It is usually dismissed by the analysts, included in fulfillment without any deeper interest.
+However, synchronization is important for reliable operation of all connected systems, and it is absolutely critical for information security.
 
 === Policy and Role Management
 
