@@ -148,6 +148,27 @@ Most of the correlation effort is expected at the time when IGA platform is depl
 However, the source data are changing all the time, user groups grow and fluctuate.
 Therefore identity correlation is a continuous process, a part of day-to-day identity management routine.
 
+There are two fundamental model of continuous data feed from data sources to IGA system:
+
+* *Pull model* (polling): IGA platform is periodically polling for new data.
+For example, IGA system may be looking for database rows that were changed since the last poll.
+Polling intervals are relatively short, usually in order of minutes.
+Therefore, this approach can provide "near-real-time" synchronization, which is sufficient for many common cases.
+Pull-based synchronization is usually simple to deploy and maintain, as long as there is a suitable change identifier (change serial number, timestamp, sequence number or similar).
+However, there is an inherent synchronization delay (polling interval).
+Also, the source system need to keep additional state (change timestamps, change log or similar).
+Perhaps the most painful drawback of pull-based mechanisms is detection of deleted objects.
+This especially impacts timestamp-based polling mechanisms, where objects are deleted without a trace.
+Timestamp-based polling mechanism cannot detect deleted objects in such cases.
+
+* *Push model* (messaging): Source system is actively notifying IGA platform about data updates.
+Message-based systems are often used to implement push-based synchronization feeds.
+Such feeds can provide synchronization that is very close to real time, given that the circumstances are ideal (low volume of changes, fast processing of changes).
+Moreover, push-based synchronization allows moving of state-keeping functions to a dedicated intermediary (message broker), de-coupling source system from IGA platform.
+However, this approach usually adds additional components and indirection into the data pathway, increasing complexity of the solution.
+
+TODO: lost messages (full queue)
+
 TODO: Almost-real-time synchronization - event based. Pull or push models. Message-based.
 
 Synchronization is meant to enforce continuous consistency of data in all the connected systems.
@@ -172,17 +193,18 @@ All forms of reconciliation can usually detect _orphaned accounts_.
 Orphaned accounts are accounts that do not have matching identity in IGA database.
 These are usually accounts that should have been deleted, but remained in the system.
 The account was not deleted due to human error, because of a bug in the connector code, it might have been manually created by system administrator, perhaps as a testing account, it may be an artefact of disaster recovery, restoring data from an older back-up, or there may be numerous other reasons that the account was overlooked.
-Orphaned accounts are often a major security risk, therefore detection and clean-up of orphaned accounts is a critical capability of IGA deployment.
-
-TODO: detection of wrong entitlements, wrong attribute values, wrong account status (enabled/disabled).
+Orphaned accounts are often a major security risk, therefore detection and clean-up of orphaned accounts is a critical functionality of IGA deployment.
+However, detection of orphaned accounts alone is not sufficient to maintain continous security level.
+Reconciliation have to detect wrong account status, wrong attribute values and wrong entitlements to maintain data consistency and hence security.
+This can be achieved by full reconciliation process that checks consistency of information end-to-end: from the data sources, through the IGA platform, all the way to the target systems.
+Full reconciliation is a demanding, slow and long-running process.
+Yet it is a necessary process.
+Full reconciliation is usually the only practical mechanism to make sure that the data are consistent, and remain consistent in the long term.
+It should be running periodically.
 
 
 TODO: reconciliation is used for source systems as well
-
-TODO: full reconciliation is a demanding, long-running process, But it is necessary.
 Full reconciliation as a failsafe mechanism, for all resources, especially for real-time sync.
-Full reconciliation is usually the only practical mechanism to make sure that the data are consistent, and remain consistent in the long term.
-It should be running periodically.
 
 Connecting new systems with existing data.
 
