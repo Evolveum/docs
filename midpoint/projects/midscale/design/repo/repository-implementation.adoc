@@ -31,23 +31,146 @@ to object OID if multiple types are possible, FK to `m_object` does not work thi
 == TODO (not-implemented yet)
 
 * Modify object with reindex
-* Exists filter
-* Support for `@` dereferencing in queries
+* JPEG out of full-object (kinda "index-only")
 * Right-hand path support (e.g. column = other column, including `..` support)
-* Better OperationResult treatment/review
-* FullText filter (textInfo), including storage of the info
-* Index-only extension properties (`indexOnly=true`)
-* Retry mechanism
-* Support for various get/search/modify options, raw support
-* Tests for container search
-* Audit service
-* Query playground (`executeQueryDiagnostics()`)
-* Multi-value polystrings org/orgunit (was `m_user_organization` and `m_user_organizational_unit`)
-* Shadow partitioning? Must be based on inheritance (managed by admin or app), declarative paritioning is not possible here.
+* FullText filter (textInfo), including storage of the info (Virgo)
+* Index-only extension properties (`indexOnly=true`) - these are probably stored correctly and can
+be filtered on, but they are not added to the obtained object (`getObject`).
+** They should be included only when asked for specifically, e.g. for shadow attribute
+`ObjectSelector.path`=`c:attributes` and `GetOperationOptions.retrieve`=`INCLUDE`.
+* Support for various get/search/modify options
+* Audit service - WIP
+* Audit service - add iterative search
+* Query playground: `executeQueryDiagnostics()`
+* Proper `modifyObjectDynamically()` implementation
+* Multi-node safety for `UriCache` and `ExtItemCache`
+* Retry mechanism (if/where necessary)
+* Better OperationResult treatment/review (code review)
+
+Minor, tentative, questinable:
+
+* Dereferencing (`@`) for extension refs stored in JSONB.
+* Grouping is not supported and the semantics for SQL without ORM is unclear.
+This is not used by midPoint itself and there are no tests for it.
+* Arbitrary ordering for iterative search - currently only one path is supported.
+Fixes for `NULL` values are needed - TODO in the code.
+Multi-path ordering throws - this can probably wait a bit.
 
 == Adding object
 
-TODO
+TODO docs
+
+== How to add a new field/column?
+
+Example - let's add `operationalState` column for `m_node` table.
+
+* Let's start in the SQL schema, locate the table `m_node` and add `operationalState` column to it.
+Consider logical order of the columns - even though it's not relevant for upgraded DB,
+it is relevant for future readability.
+Notice, how columns for items from subcontainers are grouped in existing tables.
+Also, we name the columns "Java style", although Postgres doesn't care aboute casing.
+The same name will be used in so called "M-class" (`MNode` in our example).
+Sometimes the name contains container name prefix, this is not used for metadata, activation
+and similar common containers - even these are still pure camel-case names.
+
+* What type is it?
+Simple things are easy (`TEXT`, `INTEGER`), some items require multiple columns (references,
+poly-strings), follow the patterns used previously for such cases.
+Our `operationalState` is enum type - great!
+Read the next bullet how to do that.
+Some multi-value types can be represented by arrays like `TEXT[]` or `JSONB` columns.
+If we're talking about whole new multi-value container, whoa-whoa... that's out of scope of this
+humble instruction sheet!
+
+* If the type is previously unused enum, we've got just a bit more work to do.
+First we need to add `CREATE TYPE` for it to the schema.
+Find the section with custom types, read its intro comment and add the enum specification.
+Very likely it will be "schema enum", not specialized repository internal enum - that's typical.
+Use the class name for the custom type to make things as obvious as possible,
+so it's `NodeOperationalStateType` for our case.
+Copy/paste the values to avoid any mistake... other than copy/paste error, that is.
+Don't forget to mention this enum in the `SqaleRepoContext` constructor.
+Alphabetic order, please!
+
+* Let's change the "M-class", `MNode` in our example.
+Simply add public field for the column, like `public NodeOperationalStateType operationalState`.
+Keep the order consistent with the table.
+BTW, "M" does *not* stand for "mapping", we will see mapping class later.
+
+* Now it's great time to update `SqaleRepoAddDeleteObjectTest`!
+Find the method testing mapping for this class and add value and assert for the new item.
+Feel free to add the method if this entity/object type is not yet tested - just like
+https://github.com/Evolveum/midpoint/commit/8165c46f5f5e775de8dd41a982f4caa86e208314[I did].
+Run the test, it should fail for the new attribute, which is a good sign.
+
+* We need to declare the new column in a "Q-class" which extends from Querydsl type hierarchy.
+Technically it's mapping for Querydsl, but it's still not "our" mapping for midPoint (soon, I promise!).
+For our example, it's `QNode` - and there are two sections:
+
+** First, static column metadata, find good example from other class if necessary.
+In our case, I'll add:
++
+[source,java]
+----
+public static final ColumnMetadata OPERATIONAL_STATE =
+  ColumnMetadata.named("operationalState").ofType(Types.OTHER);
+----
++
+For enum types we use `Types.OTHER`, again, see existing examples from other classes for your type.
+** Next, we add non-static column (or attribute) path:
++
+[source,java]
+----
+public final EnumPath<NodeOperationalStateType> operationalState =
+  createEnum("operationalState", NodeOperationalStateType.class, OPERATIONAL_STATE);
+----
++
+The name of the column (the same like the name of the field in M-class) appears twice here,
+because we want the same name again for Q-class paths.
+Previously specified column metadata are used.
+As before, see examples from other Q-classes to use the right `create*` method and path type.
+
++
+Keep the order consistent with SQL and M-class in both sections.
+Good, now Querydsl knows what to do with our field in the M-class.
+
+* Now it's time to add the insert code.
+Finally, we're getting to the "mapping class" - `QNodeMapping` in our case.
+Locate `toRowObjectWithoutFullObject` and add the following line there:
++
+[source,java]
+----
+row.operationalState = node.getOperationalState();
+----
++
+As always, follow the order from SQL and M-class.
+The code for enum and many other types is as trivial as shown above, but there is great support
+for refs, poly-strings and many more too - just find the examples in other Q-Mapping classes.
+
+* *Nearly there!*
+We still need one more thing to support searching and modifications too.
+Go to the constructor of the mapping class (`QNodeMapping` for us) and add (respecting the right
+order again, of course!):
++
+[source,java]
+----
+addItemMapping(F_OPERATIONAL_STATE, enumMapper(q -> q.operationalState));
+----
++
+I mean, seriously, can it be any more auto-magical than this?
+It is possible to write test to this as well, but honestly, we don't bother when adding a new
+mapping for well-working type.
+Just be sure to use the right item name (`F_OPERATIONAL_STATE` imported statically from `NodeType`),
+proper mapper method (`enumMapper`) and proper path (`q.operationalState`, which is that final
+non-static field we added on the Q-class).
+
+* And SQL alter script, of course!
+OK, the alter script is not yet in place (this is written before 4.4 is out), but find it and
+add the modification there using the newest fashionable method available.
+Hopefully, it's something utilizing `apply_change` and - for your sake - same examples are already available.
+
+To see the whole success story, check https://github.com/Evolveum/midpoint/commit/1a7c2e43c93d9b090b73c64a347b142c033c7d0a[this commit]
+(add-test was committed separately and linked previously).
 
 == Collation (ordering)
 

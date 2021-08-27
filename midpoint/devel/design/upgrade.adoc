@@ -1,67 +1,215 @@
-= Upgrade Design Notes
+= Upgrade and Data Migration in midPoint 4.4 and Beyond (Design Notes)
 :page-nav-title: Upgrade
 
-Design notes on upgrade for midPoint 4.4 and beyond.
+== Goal
 
-== Database Upgrade and Migration
+NOTE: This is a long-term goal, for midPoint 4.4-4.8
 
-=== Up to 4.4
+Seamless, mostly automatic upgrades from older midPoint versions to newer midPoint versions.
+We assume that there will be changes in schema, configuration changes, changes in default values and so on.
+The goal of the upgrade is to:
 
-Upgrade to 4.4 will use the usual mechanism.
-No changes planned.
+. Maintain behavior of old version, with a configuration that is valid for new version.
 
-=== After 4.4
+. Provide basic configuration ("initial objects") for features present in new version.
+
+We want to:
+
+* Automate as much of the upgrade process as possible.
+Ideally, midPoint should upgrade itself without any need for system administrator intervention.
+
+* In case that any manual steps are needed, inform the administrator before upgrade, ideally while still running on old version of midPoint.
+We want to automate this as well.
+E.g. running `ninja verify _new-version_` should list all the necessary manual data migration issues.
+
+We will probably not reach this goal in 4.4, but we want to get closer than we are now.
+
+== Approach
+
+The problem can be divided into two parts:
+
+. *Schema progress*.
+Schema is changed, behavior is not changed.
+We want new version to maintain the same behavior as we had in old version.
+However, the configuration schema was changed in the meantime.
+E.g. we want to change deprecated configuration property to a newer style of the same property (e.g. property rename).
+We want to remove a property that is no longer needed.
+
+. *Configuration progress*.
+Schema is the same, behavior is different.
+We want new version to enable new features that were not present in the old version.
+E.g., we want to add new archetype, and apply it to a subset of existing roles.
+We want to add new section (container) to system configuration, to provide baseline configuration for a new feature.
+
+Both parts are changing the data, yet they are changing them in different ways.
+In practice, we will need both methods.
+In that case the schema progress should be applied first, the configuration progress second.
+
+=== Upgrade Paths
+
+There are two upgrade paths:
+
+* previous release -> latest release, e.g. 4.2.1 -> 4.3
+* LTS -> LTS, e.g. 4.0.4 -> 4.4
+
+The deployment has to be upgraded to the latest maintenance version for its minor/major version before the upgrade to next minor/major versions.
+E.g. upgrade to 4.4 is possible from 4.0.4, as it is the latest maintenance version in 4.0.x family.
+However, direct upgrade from 4.0 to 4.4 is not possible.
+The deployment has to be upgraded to 4.0.4 first, then it can be upgraded to 4.4.
+
+This may mean three steps in total, if a migration to a different database is required:
+
+. Upgrade to the latest maintenance version (4.0 -> 4.0.4).
+Should be very straightforward, no change in data or database schema.
+This is usually natural part of routine system maintenance anyway (e.g. bugfixes and security updates).
+Well-maintained system should be running the latest maintenance version already.
+
+. Upgrade to next minor/major version (4.0.4 -> 4.4).
+Database schema is altered, but does not require substantial changes in data.
+Usually only small configuration changes due to removed/deprecated items are necessary.
+
+. Change of the database (4.4 with Oracle -> 4.4 with Postgres).
+This requires migration of the data: export of data from old database and import to a new database.
+
+== Process
+
+New version of midPoint will accept data produced by old version of midPoint.
+The data may be provided as an export file (XML, JSON) or a database content.
+
+Common upgrade/migration processes:
+
+. Database. Old midPoint is stopped, new midPoint is installed, new midPoint is started.
+Data produced in old version of midPoint are stored in the database.
+
+. Export of data from old version (big XML/JSON file).
+Import of the data to a new midPoint version (which has almost empty database).
+
+Ideally, we would like to have some "script" that will conduct the upgrade, make all checks, apply all the changes, make post-upgrade checks, etc.
+
+=== Database Schema Changes
 
 New PostgreSQL repo will use "incremental" upgrade SQL scripts.
 The scripts will be smart enough to see whether they have been applied or not.
+The scripts will use incremental "change number" of the DB schema.
 We can cumulate the scripts across releases, to get upgrade from 4.4 to 4.8.
 
 The old repo will use the current approach.
 The scripts will not be smart.
 
-=== Changing Database
+TODO: "application reindex"? How to indicate that it is needed and execute it as part of upgrade process?
 
-We will use `ninja`.
-Export all the data from old database using ninja, import to new database.
-This requires downtime.
-The requirement is to migrate approx. 100M of objects in approx. 4 hours of downtime.
+=== Schema "Progress"
 
-`ninja` needs to be improved, e.g. for reliable multi-threaded export/import.
+Extend the current "migration" mechanism in schema (prism):
 
-==== Audit Data
+* Schema versioning.
+The schema needs to know which version it is.
+This may be an explicit version annotation in XSD, or an implicit version derived from project (midPoint version).
 
-Still needs to be figured out. Probably similar to objects: export to XML, import from XML.
+* Add `transition` to migration structure, specifying how much attention the migration requires from the admin.
+Values:
 
-This may be done whithout downtime, if done right.
+** `automatic`: everything happens automatically, no attention of an admin is needed.
 
-=== Upgrade and Migration
+** `semi-automatic`: object data are updated automatically, but still some admin attention may be needed.
+The data are formally correct and valid, but the system may not work properly.
+E.g. item is automatically renamed, and the data are updated, but the paths in mappings and queries are not updated.
 
-When upgrading and changing the database, this will have to be done in two steps:
+** `manual`: admin needs to take care of everything, but there is still a replacement functionality.
 
-. Upgrade to 4.4 using the same database as in 4.3/4.0
+** `dead end`: there is no transition from this functionality, there is no replacement.
 
-. Change the database while running on 4.4
+* Migration operation needs to be extended with:
 
-This has benefits, it is less risky, the same `ninja` is used to export and import the data, etc.
+** `transformed`: the item was changed in a way that cannot be described declaratively, but midPoint may have an algorithm how to modify the data automatically.
+E.g. a string value was split to several constituent fields ("hostname:port" to "hostname" and "port"), hostname was changed to URL and so on.
+This can be implemented by midPoint providing a "handler" to prism, handling the data transformation cases.
 
-=== Testing
+* Severity specification:
 
-This is LTS, therefore we need to test two upgrade paths:
+** `suggestion`: This specification is just a recommendation.
+Current configuration will work, and we do not plan to remove it anytime soon.
+E.g. we want to suggest to use a different method, while the original method still works, but it may be limited or non-optimal.
+Upgrade "script" may mention this, but it will not place any special attention to this issue.
 
-* 4.0 -> 4.4
-* 4.3 -> 4.4
+** `warning`: Warn that this item is likely to be removed soon, suggesting replacement.
+Current configuration will work, but we plan to remove it soon.
+This is likely to be used for deprecated items.
+Upgrade "script" may ask user to change the configuration to use new method.
 
-We need to test upgrades of "old" repo only.
+** `critical`: Old functionality is no longer available.
+Current configuration will not work any more.
+Upgrade "script" will probably apply the change without asking.
 
-However, we need to test old->new repo migration in 4.4 environment.
+* Filter (later, if needed).
+The migration may specify an optional filter, which can be used to migrate only a subset of objects.
+This may be used for a change in schema that affects only some object types.
+This can be useful in two cases:
 
-Start testing at 4.4-M3 (feature freeze) at the latest!
+** Data structures (complex types) that are reused at several places.
+Removed element may have a replacement in one place where the data structure is used, but may have no replacement in others.
+This will not work for all re-used data structures (e.g. AssignmentType), therefore we may need to add a path as well (later).
 
-=== Documentation
+** Correcting mistakes.
+We might have been using the schema incorrectly in some situations.
+The filter may be used to pinpoint such situations, and selectively correct them.
 
-We need a good upgrade guide for midPoint 4.4.
++
+The problem with filter is that the implementation may be complex.
+We need to parse an object to apply filter to it.
+But we cannot parse the object until we apply the migrations.
+Therefore, let's leave that for later.
+Maybe filter can be replaced by transformer code?
 
-== Automatic Upgrade
+=== Configuration "Progress"
+
+WARNING: this is just a rough idea now
+
+Maybe we can create something like "annotated delta" data structure:
+
+* Version in which the change happened
+
+* Description of the change: can be displayed to user, can be used to generate relevant release notes section.
+May this be automatically generated from a commit message?
+
+* OID of target object, or filter to handle several objects at once.
+
+* Modifications (item deltas)
+
+Maybe we can do the same for _add_ deltas as well, and completely replace initial objects with annotated deltas.
+This will simplify LTS upgrade paths, as we can easily merge the deltas from all applicable feature releases.
+
+As for _delete_ deltas, we can have them, but deleting something during upgrades seems to be too dangerous.
+It may be better idea to introduce special _obsolete_ lifecycle state and mark objects doomed to deletion with it.
+Then the administrator can review the objects after upgrade and decide to clean them up as a post-upgrade step.
+
+TIP: Maybe this can be aligned with "bulk actions".
+They already have the filter-modifications part, and they can be even more powerful.
+
+=== Implementation Notes
+
+Automatic data migration must be implemented in Prism.
+The removed/renamed elements do not exist in new schema version, therefore they cannot be presented as items, and the migration cannot happen after prism parsing.
+The migration has to happen as a part of prism parsing.
+
+Prism parsers have to indicate that the migration have happened.
+In that case the source document and the target documents are not the same.
+This indication can be used for continuous transparent data migration.
+E.g. repository can explicitly serialize and store the new version of the data when migration happened.
+
+=== Schema Maintenance
+
+Obviously, the flags that indicate deprecation, planned removal, etc. has to be maintained in the most recent versions (`master`).
+However, some of the flags (mostly "planned removal") should be backported to support branches. This is needed for the most recent maintenance versions to reliably warn users about removals in future midpoint versions (in pre-upgrade checks).
+
+This is especially important to backport the data into LTS support branches.
+There is a long time period between LTS upgrades and high probability of changes that can affect upgrades.
+
+=== Automatic Upgrade
+
+.After 4.4
+NOTE: Automatic upgrade will come after 4.4 (4.6? 4.7?).
+It would be nice to have it for next LTS upgrade (4.8/5.0).
 
 Goal: upgrade the installation by running a single script/command.
 
@@ -85,15 +233,73 @@ Maybe we would also like to do:
 
 . Automatically upgrade connector versions in resources?
 
-. "Singleuser" mode for midPoint? (only administrators can log in).
+. Maintenance mode for midPoint? (only administrators can log in).
 This may be nice to have for post-upgrade checks of the system, adjusting the configuration, etc.
-
-Automatic upgrade will come after 4.4 (4.6? 4.7?).
-It would be nice to have it for next LTS upgrade (4.8/5.0).
 
 Limitations: Works only for the "default" deployment: native PostgreSQL repo, standalone deployment, works only if path are correct (e.g. correctly set MIDPOINT_HOME), etc.
 
-== Java 17
+== Data Migration
+
+Used in case of database engine change, or in case of incompatible DB schema changes.
+
+=== Object Data Migration
+
+We will use `ninja`.
+Export all the data from old database using ninja, import to new database.
+This requires downtime.
+The requirement is to migrate approx. 100M of objects in approx. 4 hours of downtime.
+
+`ninja` needs to be improved, e.g. for reliable multi-threaded export/import.
+
+=== Audit Data Migration
+
+Still needs to be figured out. Probably similar to objects: export to XML, import from XML.
+
+This may be done whithout downtime, if done right.
+
+=== One Step Upgrade and Migration
+
+When upgrading and changing the database, this will have to be done in two steps:
+
+. Upgrade to 4.4 using the same database as in 4.3/4.0
+
+. Change the database while running on 4.4
+
+This has benefits, it is less risky, the same `ninja` is used to export and import the data, etc.
+
+
+== Testing
+
+This is LTS, therefore we need to test two upgrade paths:
+
+* 4.0 -> 4.4
+* 4.3 -> 4.4
+
+We need to test upgrades of "old" repo only.
+
+However, we need to test old->new repo migration in 4.4 environment.
+
+Start testing at 4.4-M3 (feature freeze) at the latest!
+
+== Documentation
+
+We need a good upgrade guide for midPoint 4.4.
+
+
+== Misc
+
+It is OK to support automatic upgrades only for Postgres with new repo.
+
+Maybe midPoint can later check for new version, notify the administrator, even offer upgrade?
+
+=== Up to 4.4
+
+Upgrade to 4.3 will use the usual mechanism.
+No changes planned.
+
+How about upgrade to 4.4?
+
+=== Java 17
 
 Java 17: we will try it for midPoint 4.4, starting with Java 16 builds.
 If it goes well, Java 17 support will be official for 4.4.
@@ -101,15 +307,37 @@ If not, we will provide Java 17 support in 4.4.1, 4.4.2 or something like that.
 
 We will still support Java 11, approx. until midPoint 4.6-4.7.
 
-== Open Questions
 
-How to reliably upgrade between LTS, with schema changes in between?
+== TODO and Open Questions
 
-E.g. element `foo` is deprecated in 4.1, removed in 4.3.
+* How to reliably upgrade between LTS, with schema changes in between?
+
+* E.g. element `foo` is deprecated in 4.1, removed in 4.3.
 How do we upgrade from 4.0 to 4.4?
 The ninja from 4.0 does not know that `foo` is removed.
 We cannot warn the user in pre-upgrade checks.
 
-We probably need to use upgrade tools (e.g. ninja) from the *new* version to do the upgrade.
+* We probably need to use upgrade tools (e.g. ninja) from the *new* version to do the upgrade.
 The tools will need to be aware that they work with old database.
 Which may be problematic, as we will work with two Prism schemas at the same time.
+
+* "Progress" is perhaps not a good name
+
+* How to deal with `SNAPSHOT` in schema versions?
+E.g. we want to specify that migrations are for version 4.4, but we want to apply them to 4.4-SNAPSHOT code to test it before release.
+
+* Automatic upgrade tests?
+
+* Obviously, we still need to decide what to implement in 4.4.
+We cannot do much, but we can still do something.
+
+* Make sure that schem migration can be applied to subtype, even when item is defined in supertype.
+E.g. we need to migrate `iteration` in cert campaigns, but we do not want to migrate `iteration` in users and roles.
+
+=== TODO in 4.4?
+
+* Upgrade and Migration Guide?
+
+* Automatic upgrade tests?
+** 4.0.x -> 4.4?
+** 4.3 -> 4.4?
