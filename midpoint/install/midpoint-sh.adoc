@@ -1,0 +1,255 @@
+= start script
+:page-visibility: draft
+:toc:
+
+NOTE: *DRAFT* +
+The page is still in draft and the content is changing (mainly new information is being added).
+
+== What is this about...
+
+There is folder bin contaning midpoint.sh, start.sh and stop.sh in the midpoint home directory (default is */opt/midpoint/* ).
+
+Start.sh is a wrapper to midpoint.sh adding parameter *start* so *<home dir>/bin/midpoint.sh start*. Stop.sh is wrapper to midpoint.sh adding parameter stop so *<home dir>/bin/midpoint.sh stop*.
+
+This page have focus direclty on midpoint.sh script which is covering what is needed to run the application.
+
+== Basic usage
+
+NOTE: At this place I will make assupmtion of home directory to be /opt/midpoint/
+
+To start the application simply use
+
+[source,bash]
+/opt/midpoint/bin/midpoint.sh start
+
+Alternatively you can use "wrapper" while all the mentioned information here is applicable the same way
+
+[source,bash]
+/opt/midpoint/bin/start.sh
+
+=== Advanced usage
+
+In some situation the default is not acceptable or simply you need to be sure about the state. 
+
+.example of explicit set of file encoding and database backend type
+[source,bash]
+export MP_SET_file_encoding=UTF8
+export MP_SET_midpoint_repository_database=postgresql
+/opt/midpoint/bin/midpoint.sh start
+
+Alternatively you can use other way - the result will be the same but the information will be processed different way. In this approach all the values has be provided in one variable or as a parameter :
+
+[source,bash]
+export JAVA_OPTS="-Dfile.encoding=UTF8 -Dmidpoint.repository.database=postgresql"
+/opt/midpoint/bin/midpoint.sh start
+
+[source,bash]
+/opt/midpoint/bin/midpoint.sh start -Dfile.encoding=UTF8 -Dmidpoint.repository.database=postgresql
+
+== Purpose of the script
+The script *midpoint.sh* is written to handle process of the starting and stoping the midpoint as an application. There is necessary to set some variables and options to have proper working application. As an example we need to know home directory for the appliaction or classpath for the necessary classes (libraries). It is also handling PID file which is used to prevent unwanted new instance of the application while there is already one instance which is running.
+
+There is also option to generate definition for the systemd service which will have all the parameters based on the current setting like you are running the application manually using this script.
+
+NOTE: *PID file* +
+PID file is the file where the PID (Process ID) is stored during the start of the application. Once there is request for the application start the script check existence of the PID file and in case it exists it make a test if the process with given PID exists. +
+This approach tries to prevent unwanted start of the application in case the instance is already running in background - daemonized.
+
+=== Default "elements" for the start
+
+There are few things which should be ready before we can sucesfully run the application.
+
+* xref:/midpoint/reference/deployment/midpoint-home-directory/index.adoc[home directory]
+** log 
+** xref:/midpoint/reference/deployment/post-initial-import.adoc[_post initial objects_]
+* class path / -jar
+* JAVA_OPTS
+
+*<home directory>/log*
+
+The directory contain log files and PID file. The count and content of the file depends on the application setting. By default there may be 3 files:
+
+*midpoint.pid*
+
+PID file containg the process ID of the running midpoint to prevent unwanted parallel start (e.g. the network port to listen would be occupied).
+
+*midpoint.out*
+
+The log file containg the output before application itself - catalina output.
+
+*midpoint.log*
+
+The application log.
+
+=== Default values for the parameters
+
+* -Xms2048M
+* -Xmx4096M
+* -Dpython.cachedir : ${MIDPOINT_HOME}/tmp
+* -Djavax.net.ssl.trustStore : ${MIDPOINT_HOME}/keystore.jceks
+* -Djavax.net.ssl.trustStoreType : jceks
+* -Dmidpoint.home : derived from the *midpoint.sh* location (usually /opt/midpoint )
+
+This is the defaults defined in the midpoint.sh script. For usual configuration it not require to do any changes.
+
+== available environment variables
+
+* *MP_GEN_SYSTEMD*
+
+In case this variable is defined and it is not empty (e.g. MP_GEN_SYSTEMD=1) the systemd service definition is generated to the STDOUT based on the current environment (like the midpoint would be started) and then exit. By the redirecting of the output the systemd definition can be created and used to for automatic start of the midpoint application directly by the systemd.
+
+.variable can be provided directly in command line
+[source,bash]
+MP_GEN_SYSTEMD=1 /opt/midpoint/bin/midpoint.sh start
+
+* *MP_MP_ENTRY_POINT*
+
+The <<entry point>> can be used to copy some file before the system start. It is usable mainly with container approach like Docker.
+
+* *MP_MEM_MAX*
+
+Alias for *JAVA_OPTS* variable *-Xmx[0-9]*. It may be usefull especially in case the "simply" key=value syntax would be prefered to the complex set of values in one variable.
+
+* *MP_MEM_INIT*
+
+Alias for *JAVA_OPTS* variable *-Xms[0-9]*. It may be usefull especially in case the "simply" key=value syntax would be prefered to the complex set of values in one variable.
+
+* *MP_SET_**
+
+To make the passing the variable for java easier there has been set "mapping" for the environment variables starting with *MP_SET_*. The result will be *-D** paramteres in *JAVA_OPTS* which is already passed to java process. The benefit is in maintaining configuration mainly for midpoint runnig in the containers where passing additional argument mean list all of them and not only new one. With this mapping it is easier to maintain or even generate the configuration for the container instance.
+
+By the processing *MP_SET_* "prefix" is removed and for the rest there is replaced _ with . (dot). The is exception _FILE which is handled. The prefix *-D* is added and the final result is added to the *JAVA_OPTS* variable which is used for the starting.
+
+NOTE: *example:* +
+(ENV) MP_SET_midpoint_repository_database=postgresql => (JAVA_OPTS) -Dmidpoint.repository.database=postgresql
+
+* *JAVA_OPTS*
+
+=== JAVA_OPTS environment variable
+
+_-Xmx_ +
+
+*-Xmx[0-9]* - Maximum memory. If not set the <<Default values for the parameters>> is unsed unless *--Xmx* is set.
+
+_--Xmx_ +
+
+Ignore <<Default values for the parameters>> for Xmx. The Java default value would be used (may differ with Java version)
+
+_-Xms_ +
+
+*-Xms[0-9]* - Start / Init memory. If not set the <<Default values for the parameters>> is unsed unless *--Xms* is set.
+
+_--Xms_ +
+
+Ignore <<Default values for the parameters>> for Xms. The Java default value would be used (may differ with Java version)
+
+_-D*_ +
+
+Next to other JAVA environment or application parameter *-D** can be used to xref:/midpoint/reference/deployment/midpoint-home-directory/overriding-config-xml-parameters.adoc[override config.xml parameters]. The structure of the "key" in config.xml hierarchy delimited by the *dot*.
+
+=== backwards compatible variables
+
+This parameters has been mentioned historicaly in some scenarios and may be deprecated in the future. At this moment it is still regognized and properly processed.
+
+[cols="2,3",options=header]
+|===
+|former parameter
+|current equivalent
+
+|REPO_DATABASE_TYPE
+|MP_SET_midpoint_repository_database
+
+|REPO_USER
+|MP_SET_midpoint_repository_jdbcUsername
+
+|REPO_PASSWORD_FILE
+|MP_SET_midpoint_repository_jdbcPassword_FILE
+
+|REPO_MISSING_SCHEMA_ACTION
+|MP_SET_midpoint_repository_missingSchemaAction
+
+|REPO_UPGRADEABLE_SCHEMA_ACTION
+|MP_SET_midpoint_repository_upgradeableSchemaAction
+
+|REPO_SCHEMA_VARIANT
+|MP_SET_midpoint_repository_schemaVariant
+
+|REPO_SCHEMA_VERSION_IF_MISSING
+|MP_SET_midpoint_repository_schemaVersionIfMissing
+
+|MP_KEYSTORE_PASSWORD_FILE
+|MP_SET_midpoint_keystore_keyStorePassword_FILE
+
+|REPO_PORT
+| *N/A* (see MP_SET_midpoint_repository_jdbcUrl)
+
+|REPO_HOST
+| *N/A* (see MP_SET_midpoint_repository_jdbcUrl)
+|===
+
+== example related to the environment variables
+
+In this section there is available sample definition related to the specific environment.
+
+The sample consists following environment variables:
+
+* MP_SET_midpoint_repository_initializationFailTimeout=60000
+* MP_SET_file_encoding=UTF8
+* MP_SET_midpoint_logging_alt_enabled=true
+
+=== Bash
+
+[source,bash]
+----
+export MP_SET_midpoint_repository_initializationFailTimeout=60000
+export MP_SET_file_encoding=UTF8
+export MP_SET_midpoint_logging_alt_enabled=true
+----
+
+=== Dockerfile
+
+[source]
+----
+ENV MP_SET_midpoint_repository_initializationFailTimeout=60000 \
+  MP_SET_file_encoding=UTF8 \
+  MP_SET_midpoint_logging_alt_enabled=true
+----
+
+=== kubernets (yaml syntax)
+
+[source]
+----
+env:
+  - name: MP_SET_midpoint_repository_initializationFailTimeout
+    value: 60000
+  - name: MP_SET_file_encoding
+    value: UTF8
+  - name: MP_SET_midpoint_logging_alt_enabled
+    value: true
+----
+ 
+=== Docker compose
+
+[source]
+----
+environment:
+  - MP_SET_midpoint_repository_initializationFailTimeout=60000
+  - MP_SET_file_encoding=UTF8
+  - MP_SET_midpoint_logging_alt_enabled=true
+----
+
+== more details for some features
+
+=== entry point
+
+In some situation it is not possible to directly mount some information to the midpoint structure (home directory). As an example may be xref:/midpoint/reference/deployment/post-initial-import.adoc[post initial objects] where once the object is processed the suffix *.done* is added to the name (after extension). This is normal and expected situation but in some scenario it is not what we want to realize.
+
+The example of this situation is docker environment. Once we create container (instance of the image) we may need to re-process the post initial objects to get the environment to the specific state. In case we would attach the objects in read-only mode the processing will fail as the objects are expected to be writable. Once it is mounted as external volume, with the first processing the name is changed and in case of new instance of image the objects seems to be already processed even it was done in previous instance...
+
+The solution may be to use "entry point" which will look for the directory and the files located there are copied to the corresponding structure in the midpoint's home directory. The result is writable copy of the object so the midpoint has full control over it and the objects can be re-use with the new instance of the container.
+
+The file which is processing is looked in the midpoint's home directory for the same name or the name with *.done* suffix. The result is that only new files are copied and once the file is found in the midpoint's home direcotry it is skipped.
+
+To use this feature there is available the environment parameter *MP_ENTRY_POINT*. Once it is set the "scan" is done before the regular start is initiated so it may be suitable even for the objects like schema extensions.
+
+
