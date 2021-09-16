@@ -35,6 +35,8 @@ to object OID if multiple types are possible, FK to `m_object` does not work thi
 * FullText filter (textInfo), including storage of the info (Virgo, WIP)
 * Query playground: `executeQueryDiagnostics()`
 
+=== Notes, non-issues
+
 Retry mechanism (if/where necessary) may not be necessary if tests don't show that.
 `SELECT ... FOR UPDATE` seems to do its work just fine.
 
@@ -70,6 +72,32 @@ be filtered on, but they are not added to the obtained object (`getObject`).
 * Audit service (original functionality without new iterative search)
 * Audit service - iterative search, single order supported, just like in main repo.
 * Multi-node safety for `UriCache` and `ExtItemCache`
+
+=== Modify Efficiency issues
+
+Modify efficiency for distributed full-object (`AccessCertificationCampaign` vs its case):
+
+* ADD modification for Case container of AccCertCampaign should not fetch other cases.
+Update of full object (but without cases), version, etc. works as usual.
+* DELETE modification for Case container of AccCertCampaign should not fetch any cases,
+only delete the case row (and update main full object).
+* REPLACE modification for `case` does not need to read any cases, just delete all the rows.
+* Modification going inside any Case should fetch only the needed case before applying the modification.
+
+This mechanism can be reused if full-object for assignments is split from object's full-object
+in the future (not sure about the correctness of the column name `fullObject`).
+
+Index-only attributes/extensions modify efficiency:
+
+* REPLACE modification does not require any fetch, it simply obliterates the previous value in the DB.
+* ADD/DELETE modification currently requires the fetch of the index-only property, which can be
+achieved by selective fetch of `ext->'id-of-index-only-property'`.
+Modification is then applied to prism object as usual.
+Value in the DB is overwritten by the new complete value for the property (like for REPLACE).
+** In the future, ideally, this would not need any fetch access (except for `reindex`) and issue
+fine-tuned SQL operations.
+This may also require more flexible storage options for extensions/attributes, e.g. promoting
+the index-only attribute to a separate array column or separate table even.
 
 == Adding object
 
