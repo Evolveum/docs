@@ -6,7 +6,7 @@ This is work-in-progress document for feature still in development!
 
 What is similar and what is different when configuring midPoint for the new repository?
 
-* New repository supports *only PostgreSQL database*, preferably version 13, 12 is possible too.
+* New repository supports *only PostgreSQL database*, preferably version 13 or 14, 12 is possible too.
 The database cannot be embedded and must be prepared
 link:/midpoint/reference/repository/db/postgresq[as documented here].
 * Different schema SQL files are used, so stop before the *Run database script* step.
@@ -16,7 +16,8 @@ is working as before.
 * Main difference in `config.xml` is to use `<type>sqale</type>` instead of
 `<repositoryServiceFactoryClass>` element.
 Alternatively, just set the value of `<repositoryServiceFactoryClass>` element to `sqale`.
-* *At this moment, SQL audit is not supported and must be commented out.*
+* For audit replace old repository value in `auditServiceFactoryClass`
+with `com.evolveum.midpoint.audit.impl.LoggerAuditServiceFactory`.
 
 == Database setup
 
@@ -40,6 +41,7 @@ connect to the database remotely.
 * Restart PostgreSQL.
 
 In short, this can all be added to the end `postgresql.conf` (then restart the server):
+
 ----
 listen_addresses = '*'
 
@@ -67,15 +69,33 @@ CREATE DATABASE midpoint WITH OWNER = midpoint ENCODING = 'UTF8' TABLESPACE = pg
 ----
 
 To initialize the database connect to `midpoint` database as `midpoint` user and execute
-the content of `repo/repo-sqale/sql/pgnew-repo.sql` file from midPoint sources.
-The location of the file will likely change, and it will be packed in the distribution as well.
+the content of two schema files from the `repo/repo-sqale/sql` directory:
+
+* `pgnew-repo.sql` is the content of the main repository schema without audit tables.
+This file also creates `public` schema if missing - dropping the whole `public` schema is often
+the fastest way to replace any previous schema (obviously, not recommended for production).
+* `pgnew-repo-audit.sql` is the content of audit schema.
+It can be applied on top of the main repository schema or separately to another database.
+If both schemas are to be applied, first apply main repository schema followed by audit schema.
+
+See link:/midpoint/reference/security/audit/configuration/[Audit configuration] for details how
+to set it up in a database separate from the main repository.
+Be aware that with new repository *both databases have to be PostgreSQL databases.*
+It is possible to use different versions for each database as long as they are supported (12 or higher).
+
+The location of the files will likely change, and it will be packed in the distribution as well.
+
 You can use any client to do this, or we can download the file on the VM and use it like this:
 
 ----
 wget -q https://raw.githubusercontent.com/Evolveum/midpoint/master/repo/repo-sqale/sql/pgnew-repo.sql
+wget -q https://raw.githubusercontent.com/Evolveum/midpoint/master/repo/repo-sqale/sql/pgnew-repo-audit.sql
 # without this export psql will prompt for the password
 export PGPASSWORD=password
+# If you want to replace any previous tables in the schema, uncomment this drop too:
+#psql -h localhost midpoint midpoint -c "drop schema public cascade"
 psql -h localhost midpoint midpoint -f pgnew-repo.sql
+psql -h localhost midpoint midpoint -f pgnew-repo-audit.sql
 ----
 
 If you plan to use https://www.postgresql.org/docs/13/pgstatstatements.html[statement statistics extension]
@@ -113,7 +133,8 @@ psql -h localhost midpoint midpoint -f tables_postgres.sql
 
 Example `config.xml` is https://github.com/virgo47/midpoint-vagrantboxes/blob/master/vagrant-midpoint-db-pg-new-repo/config.xml[here].
 The main difference is `type` element (shorthand for `repositoryServiceFactoryClass`) set to `sqale`
-and removal of SQL audit - which is not implemented for new repo yet.
+and change in audit factory class from old repository value in `auditServiceFactoryClass`
+to `com.evolveum.midpoint.audit.impl.LoggerAuditServiceFactory`.
 
 With this `config.xml` you can start midPoint as usual.
 
@@ -124,8 +145,10 @@ Tests from `repo-sql-impl-test` are not usable for new repository at all, but th
 support for running later integration tests with the new repository.
 
 To run integration tests (e.g. from `model-intest` or `story` modules) with the new repo,
-you must provide this JVM argument to Maven of IDEA run configuration:
-`-Dtest.config.file=test-config-new-repo.xml`
+you have to enable Maven profile named `sqale`.
+Under the hood it adds JVM argument `-Dtest.config.file=test-config-new-repo.xml` for Surefire
+and Failsafe test plugins.
+This JVM argument also has to be used in IDEA run configurations for tests with new repository.
 
 Further `-Dmidpoint.repository.jdbc*=...` arguments can be added to point to the non-default database.
 Check the `test-config-new-repo.xml` in midPoint project for the default values.
