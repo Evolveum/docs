@@ -107,27 +107,69 @@ from pg_stat_activity
 where query != '<IDLE>' and query ilike '%vacuum%'
 order by query_start asc;
 
+-- List largest objects separately (TOAST, table, index)
+SELECT
+    t.oid,
+    CASE
+        WHEN tft.relname IS NOT NULL
+        THEN tft.relname || ' (TOAST)'
+        ELSE t.relname
+    END AS object,
+    pg_size_pretty(pg_relation_size(t.oid)) AS size,
+    t.reltuples as row_estimate,
+    t.relname as object_name
+FROM pg_class t
+    INNER JOIN pg_namespace ns ON ns.oid = t.relnamespace
+    -- table for toast
+    LEFT JOIN pg_class tft ON tft.reltoastrelid = t.oid
+    LEFT JOIN pg_namespace tftns ON tftns.oid = tft.relnamespace
+WHERE 'public' IN (ns.nspname, tftns.nspname)
+ORDER BY pg_relation_size(t.oid) DESC
+LIMIT 50;
+
 -- Find table/index sizes for all tables in a schema
-select -- *,
+SELECT
     oid, table_schema, table_name, row_estimate,
-    pg_size_pretty(total_bytes) as total,
-    pg_size_pretty(table_bytes) as table,
-    pg_size_pretty(toast_bytes) as toast,
-    pg_size_pretty(index_bytes) as index
-from (
-    select *, total_bytes - index_bytes - coalesce(toast_bytes, 0) as table_bytes
-    from (
-        select c.oid,
-            nspname as table_schema,
-            relname as table_name,
-            c.reltuples as row_estimate,
-            pg_total_relation_size(c.oid) as total_bytes,
-            pg_indexes_size(c.oid) as index_bytes,
-            pg_total_relation_size(reltoastrelid) as toast_bytes
-        from pg_class c
-        left join pg_namespace n on n.oid = c.relnamespace
-        where relkind = 'r') a
+    pg_size_pretty(total_bytes) AS total,
+    pg_size_pretty(table_bytes) AS table,
+    pg_size_pretty(toast_bytes) AS toast,
+    pg_size_pretty(index_bytes) AS index
+FROM (
+    SELECT *, total_bytes - index_bytes - COALESCE(toast_bytes, 0) AS table_bytes
+    FROM (
+        SELECT c.oid,
+            nspname AS table_schema,
+            relname AS table_name,
+            c.reltuples AS row_estimate,
+            pg_total_relation_size(c.oid) AS total_bytes,
+            pg_indexes_size(c.oid) AS index_bytes,
+            pg_total_relation_size(reltoastrelid) AS toast_bytes
+        FROM pg_class c
+        LEFT JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE relkind = 'r') a
     ) a
-where table_schema = 'public'
-order by total_bytes desc;
+WHERE table_schema = 'public'
+ORDER BY total_bytes DESC;
+
+-- Display settings different from defaults
+SELECT name,source,setting FROM pg_settings
+WHERE source<>'default' AND source<>'override';
+
+-- Display all settings (equivalent to show all with more info)
+SELECT * FROM pg_settings;
 ----
+
+== Troubleshooting
+
+When troubleshooting Postgres performance we need to check output of the following commands.
+First in bash or other shell:
+
+[source,bash]
+----
+df -h # disk sizes
+free # memory statistics
+ps xau | grep -i postgres # what postgres process are running
+----
+
+Then the use the SQL commands from section above to obtain settings and list of the largest objects.
+After that any other relevant query depending on the situation - locks, vacuum info, etc.
