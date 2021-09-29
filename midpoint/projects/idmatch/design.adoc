@@ -1,0 +1,157 @@
+= Identity Matching Design
+
+This is preliminary design description for "identity matching" functionality.
+
+This functionality is planned for midPoint 4.5.
+
+== Goal
+
+We want to allow external identity matching components (such as Internet2 ID Match) and manual interaction in midPoint correlation process.
+In the future, the functionality may be much broader, including various checks and "remediation" actions:
+
+* Probabilistic identity matching, with manual selection/confirmation of match candidates
+
+* Supplementing missing information (e.g. addresses, affiliation, etc.)
+
+* Probabilistic determining/deriving of information, with manual confirmation. E.g. determine name components (given name, family name, honorific titles) from a simple full name string, with manual confirmation in low-confidence cases.
+
+* Handling of data conflicts and corrections, e.g. two systems claiming different date of birth or employee number for identities that obviously match otherwise. The conflict is presented to the operator for resolution.
+
+Short term goal (midPoint 4.5) is to support only identity matching scenarios.
+However, we should keep other scenarios in mind during the design, to easily support them in the future.
+
+== Approach
+
+Identity correlation is currently implemented in `Synchronization Service` in midPoint.
+The assumption of current implementation is that the matching is synchronous.
+We have to change that.
+
+We will probably still try to execute the matching/correlation routines synchronously.
+However, we should expect that the matching/correlation code can have various results:
+
+* Returning no matches (with high confidence).
+No matches found, this is probably a new user, midPoint should proceed as usual.
+
+* Returning one result with high confidence: a single "exact match".
+In that case midPoint should go ahead, link the account and proceed as usual.
+
+* Returning several matches with medium/low confidence.
+In that case midPoint should stop the processing and let administrator decide.
+
+* Returning "unknown result" or "no answer", e.g. in case that the remote service is not accessible.
+MidPoint should suspend the operation and try later.
+The retry should be automatic, no need to bother a human operator.
+
+When the process is stopped (e.g. administrator decision is required), midPoint will create a xref:/midpoint/reference/cases/[case].
+Most cases will be probably correlation cases, selecting among potential match candidates.
+Special case type will be created for these, including appropriate parts of user interface (similarly to approval cases).
+
+The case may be used also for non-human interaction, e.g. when a matching decision is made in a third-party system.
+MidPoint still (most likely) creates a case, as a reference to a task in third-party system.
+Yet, this approach has to be further designed.
+
+It looks like there is a benefit in making this a two-step process:
+
+. Use "correlator" to match the identity and find the candidates.
+
+. If there is ambiguity, open a case to resolve the situation.
+
+This approach gives us flexibility what correlation algorithm to use, resolving the ambiguities in the same way for all algorithms.
+
+=== Correlators
+
+Correlator is a synchronous code, that tries to match the identity, returning candidates (or "no answer").
+
+There may be several algorithms:
+
+* Query: simple correlation query, as it was used in midPoint 4.4 and earlier.
+
+* Correlation script: use script expression to make correlation.
+More or less equivalent to "sorter" in midPoint 4.4 and earlier.
+Can be used to make simple custom correlations, usually by trying several queries.
+
+* ID Match: pass the information to ID Match server to make the correlation.
+
+* Internal probabilistic correlation modules (experimental, future).
+
+Later, we may want to make the correlators pluggable.
+
+NOTE: "Correlator" is just a working name, it might be changed.
+
+=== Cases
+
+When user decision is needed to resolve a situation, midPoint synchronization service will create a xref:/midpoint/reference/cases/[case].
+Cases form a generic mechanism to resolve various situation in midPoint that do not have algorithmic solutions.
+We will implement a "correlation case", that will contain:
+
+* The identity (account) being correlated.
+
+* Candidate users (with confidence information).
+
+This can be displayed to user.
+User may resolve the case by selecting a candidate (or stating that no candidate matches).
+Usual midPoint mechanisms for cases could be used here: escalations, commenting, forwarding the case to another user, etc.
+
+NOTE: Case management user inteface of midPoint works, and it can be work for correlation cases as well.
+However, on the UX side, the GUI leaves a lot to be desired.
+We sould consider improving the case management GUI as part of the implementation.
+
+=== Metadata
+
+Once the identity is correlated by user selecting a candidate, the case is closed.
+The job is done.
+However, we may later find out that this was a mistake, that the account does not correspond to the selected user.
+We may need to look back at the correlation case.
+However, closed case are cleaned-up (deleted) and the information may not be available any longer.
+Therefore we need to record at least some metadata about the correlation, such as:
+
+* Timestamp of the correlation decision.
+
+* User who has made the decision.
+
+* Comment specified by the user making the decision.
+
+Metadata may be useful when looking back and reviewing the decision.
+
+== ID Match
+
+Code specific to ID match should be part of "ID Match correlator", one of several correlation options in midPoint 4.5.
+The code will be based on link:https://github.com/Evolveum/playground/tree/master/id-match-client[prototype ID Match client] that we have developed.
+The prototype demonstrated that the communication works, ID Match can make correlation and specify candidates.
+
+Open question: what schema should we use when passing data to ID Match?
+Should be we use the resource schema (account), midPoint user schema or should we make this configurable?
+
+== Misc Notes
+
+Correlation may be useful for user self-registration, and even for progressive profiling.
+
+As user fills out registration form, we may be able to suggest that a similar user is already known to the system, suggesting re-use of existing data.
+This process is likely to be interactive, and very different than the "manual correlation" case.
+However, the same correlation code may be re-used to make the suggestions.
+
+== Open Questions
+
+* Selecting kind/intent.
+There are special cases, when we want to be very flexible about kind/intent, it may depend on correlation.
+E.g. we want to select "application" intent for an account if account identifier matches with a well-known application name.
+How to do that?
+"Sorter" was used to do that in midPoint 4.4, but how do we do that now?
+How to make the solution elegant?
+
+* What will be the "data model" for correlators?
+Will they take "raw" account attributes, mapping them to user properties as necessary?
+That is what current correlation query does.
+But that means that some code used in the mapping may be duplicated.
+Or, do we pass the attributes through inbound mappings first, translating the data.
+In that way correlator can work with the "user" data model on both sides of the query.
+Similar question applies to ID Match schema as well.
+
+* How to indicate match confidence, including confidence of "no matches" statement?
+Should we include confidence level with all matches?
+This can be a nice aid for administrator to focus on a higher-confidence match candidates.
+In "low-confidence no matches" case we may still want to stop the action and wait for administrator.
+
+* How to make the process generic?
+Not just for manual correlation, but also for other cases.
+E.g. how would we handle manual entry of a missing data before we try to do the correlation?
