@@ -109,7 +109,7 @@ Table sizes, vacuum, etc.
 select relname, last_vacuum, last_autovacuum, last_analyze, last_autoanalyze
 from pg_stat_all_tables
 where schemaname = 'public'
-order by last_vacuum desc;
+order by last_vacuum desc, last_autovacuum desc;
 
 -- Find any running processes that are doing autovacuum and which tables they're working on
 select pid,
@@ -120,6 +120,9 @@ from pg_stat_activity
 where query != '<IDLE>' and query ilike '%vacuum%'
 order by query_start asc;
 
+-- show database size
+SELECT pg_size_pretty(pg_database_size('midpoint'));
+
 -- List largest objects separately (TOAST, table, index)
 SELECT
     t.oid,
@@ -129,7 +132,8 @@ SELECT
         ELSE t.relname
     END AS object,
     pg_size_pretty(pg_relation_size(t.oid)) AS size,
-    t.reltuples as row_estimate,
+    t.relkind,
+    t.reltuples::bigint as row_estimate,
     t.relname as object_name
 FROM pg_class t
     INNER JOIN pg_namespace ns ON ns.oid = t.relnamespace
@@ -153,7 +157,7 @@ FROM (
         SELECT c.oid,
             nspname AS table_schema,
             relname AS table_name,
-            c.reltuples AS row_estimate,
+            c.reltuples::bigint AS row_estimate,
             pg_total_relation_size(c.oid) AS total_bytes,
             pg_indexes_size(c.oid) AS index_bytes,
             pg_total_relation_size(reltoastrelid) AS toast_bytes
@@ -180,8 +184,33 @@ First in bash or other shell:
 [source,bash]
 ----
 df -h # disk sizes
-free # memory statistics
+free # memory statistics, often useless on containers
 ps xau | grep -i postgres # what postgres process are running
+----
+
+In SQL:
+
+[source,sql]
+----
+CREATE EXTENSION pg_buffercache; -- required before first use to enable pg_buffercache
+
+-- What tables use memory buffers, pg_relation_size counts only table proper ("fork" they call it)
+-- while pg_table_size would count TOAST and few more structures too, which we don't care so much.
+-- Indexes are counted separately.
+-- See the docs for more: https://www.postgresql.org/docs/current/functions-admin.html#FUNCTIONS-ADMIN-DBSIZE
+WITH settings (shared_buffers) AS (SELECT setting FROM pg_settings WHERE name='shared_buffers')
+SELECT
+    c.relname,
+    pg_size_pretty(count(*) * 8192) as buffered,
+    100, count(*), (SELECT shared_buffers FROM settings)::integer,
+    round(100.0 * count(*) / (SELECT shared_buffers FROM settings)::integer, 2) AS buffers_percent,
+    least(round(100.0 * count(*) * 8192 / pg_relation_size(c.oid),1), 100) AS percent_of_table
+FROM pg_class c
+INNER JOIN pg_buffercache b ON b.relfilenode = c.relfilenode
+INNER JOIN pg_database d ON (b.reldatabase = d.oid AND d.datname = current_database())
+GROUP BY c.oid,c.relname
+ORDER BY count(*) DESC
+LIMIT 10;
 ----
 
 Then the use the SQL commands from section above to obtain settings and list of the largest objects.
