@@ -15,6 +15,10 @@ gem "evolveum-jekyll-theme", "~> 0.1.0"
 group :jekyll_plugins do
   gem "jekyll-feed", "~> 0.12"
   gem 'jekyll-asciidoc'
+
+  # Requirements: sudo apt install cmake bison flex libglib2.0-dev libcairo2-dev libpango1.0-dev libgdk-pixbuf2.0-dev libxml2-dev
+  # Anyway, does not work properly. We go for MathJAX But keeping here commented out, in case it may be needed.
+  #gem "asciidoctor-mathematical"
 end
 
 # Windows and JRuby does not include zoneinfo files, so bundle the tzinfo-data gem
