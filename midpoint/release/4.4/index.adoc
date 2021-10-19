@@ -106,8 +106,10 @@ This implementation is developed and tuned specially for PostgreSQL database, ta
 This is now the primary and recommended repository for midPoint deployments.
 
 Task management system was significantly updated during midScale project, especially the mechanisms that monitor and distribute tasks across nodes of midPoint cluster.
+New concept of "xref:/midpoint/reference/tasks/activities/[activity]" makes configuration of tasks easier, even for complex tasks.
+There are many improvements of distributed tasks (clustering).
 
-#TODO#: activity, auto-scaling
+#TODO#: details, auto-scaling, cluster-wide thresholds
 
 As midScale was focused on large midPoint deployments, there were also extensive improvements to diagnostics, visibility and especially monitoring of task progress.
 
@@ -528,43 +530,106 @@ Upgrade from the intermediary feature releases to midPoint {release-version} is 
 
 Upgrade from midPoint 3.9.x or older to midPoint {release-version} is not supported directly. Please upgrade to midPoint 4.0.x first, the upgrade to midPoint 4.4.
 
-=== TODO
+
+=== Changes In Initial Objects Since 4.3
+
+MidPoint has a built-in set of "initial objects" that it will automatically create in the database if they are not present.
+This includes vital objects for the system to be configured (e.g. role `Superuser` and user `administrator`).
+These objects may change in some midPoint releases.
+However, midPoint is conservative and avoids overwrite of customized configuration objects.
+Therefore midPoint does not overwrite existing objects when they are already in the database.
+This may result in upgrade problems if the existing object contains configuration that is no longer supported in a new version.
+The following list contains a summary of changes to the initial objects in this midPoint release.
+The complete new set of initial objects is in the `config/initial-objects` directory in both the source and binary distributions.
+Although any problems caused by the change in initial objects is unlikely to occur, the implementors are advised to review the changes and assess the impact on case-by-case basis:
+
+* `000-system-configuration.xml`: TODO
+
+* TODO
+
+Please review link:https://github.com/Evolveum/midpoint/commits/master/gui/admin-gui/src/main/resources/initial-objects[source code history] for detailed list of changes.
+
+
+=== Bundled Connector Changes Since 4.3
+
+* LDAP and AD connectors were upgraded to the latest available version 3.3.
+See xref:/connectors/connectors/com.evolveum.polygon.connector.ldap.LdapConnector/[LDAP connector page] and xref:/connectors/connectors/com.evolveum.polygon.connector.ldap.ad.AdLdapConnector/[Active Directory connector page] for details.
+
+* DatabaseTable connector was upgraded to the latest available version 1.4.9.0.
+See xref:/connectors/connectors/org.identityconnectors.databasetable.DatabaseTableConnector/[DatabaseTable connector page] for details.
+
+
+=== Behavior Changes Since 4.3
 
 * TODO Admin GUI config - identifies for #allUsers
 
-* TODO Removal of deprecated schema items, planned for removal in 4.4:
-----
-FocusType: objectType
+* TODO: task behavior changes: activities, buckets, etc.
 
-UserType: employeeType
-RoleType: roleType
-OrgType: orgType
-ServiceType: serviceType
+=== Schema Changes Since 4.3
 
-ResourceType.namespace
+* Property `objectType` was removed from `FocusType`.
+The functionality was replaced by xref:/midpoint/reference/schema/archetypes/[archetypes].
 
-ResourcePasswordDefinitionType.passwordPolicyRef
+* Properties `employeeType`, `roleType`, `orgType` and `serviceType` were removed.
+The functionality was replaced by `subtype` property, which was later replaced by xref:/midpoint/reference/schema/archetypes/[archetypes].
+The `subtype` property still remains, however it is deprecated.
+It is strongly recommended to migrate all object subtyping functionality to xref:/midpoint/reference/schema/archetypes/[archetypes].
 
-OperationResultType.minor
+* Property `namespace` was removed from resource definitions, without a replacement.
+The ability to explicitly specify custom resource namespace was considered redundant.
 
-PropertyLimitationsType.ignore
+* Property `passwordPolicyRef` was removed from `schemaHandling` section of resource definitions.
+The ability to specify resource password policy still remains, however it was consolidated with xref:/midpoint/reference/security/security-policy/[security policy].
+Please specify resource security policy instead of password policy.
 
-InternalsConfigurationType.subresultStripThreshold
+* Boolean property `minor` was removed from operation result data structure.
+It was replaced by `importance` enumeration property.
 
-reportOutput (element, object; we have reportData now)
+* Boolean property `ignore` was removed from `schemaHandling` section of resource definitions.
+It was replaced by `processing` enumeration property.
 
-AdminGuiConfigurationType.objectLists
-GuiObjectListViewsType.objectList
-GuiObjectListViewType.name
-GuiObjectListViewType.collectionRef
-DashboardType.visibility
+* Property `subresultStripThreshold` was removed from internals configuration data structure.
 
-SecurityPolicyType.registration
+* Element `reportOutput` was removed, together with associated report output object type.
+It was replaced by `reportData`, and associated report data object type, which allows specification of both output and input data.
 
-NodeType.jmxPort
-NodeType.running
-NodeType.operationalStatus -> operationalState
-----
+* Properties of admin GUI configuration `objectLists` and `objectList` were removed, replaced by view specification properties `objectCollectionViews` and `objectCollectionView`.
+
+* Property `name` was removed from some admin GUI configuration data structures, replaced by `identifier` property.
+
+* Reference `collectionRef` was removed from admin GUI view specification, replaced by more complex `collection` configuration.
+
+* Property `visibility` was removed from dashboard configuration, replaced by equivalent mechanism in admin GUI configuration.
+
+* Container `registration` was removed from security policy, replaced by self-registration flow specification.
+
+* Specification of `jmxPort` was removed from node object, as JMX intra-node communication mechanism was replaced by RESTful interface.
+
+* Property `running` was removed from node object.
+
+* Property `operationalStatus` was renamed to `operationalState` in node object.
+
+
+=== Public Interface Changes Since 4.3
+
+* Prism component was separated into a dedicated project.
+
+* Prism API was changes in several places.
+However, this is not yet stable public interface therefore the changes are not tracked in details.
+
+* There were changes to the xref:/midpoint/reference/interfaces/model-java/[IDM Model Interface] (Java).
+Please see source code history for details.
+
+
+=== Important Internal Changes Since 4.3
+
+These changes should not influence people that use midPoint "as is".
+These changes should also not influence the XML/JSON/YAML-based customizations or scripting expressions that rely just on the provided library classes.
+These changes will influence midPoint forks and deployments that are heavily customized using the Java components.
+
+* There were changes in internal code structure at numerous places do to refactoring and code cleanup.
+Most changes were related to the link:/midpoint/midscale/[midScale] effort.
+Heavy customizations of midPoint existing midPoint versions are likely to break in midPoint 4.4.
 
 
 ++++
