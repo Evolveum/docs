@@ -21,33 +21,25 @@ There are other related tables, typically for containers and other multi-value p
 Not all values are by default searchable/indexable in this way and it must be possible to specify
 what other properties are indexed.
 These can be properties from the default schema but also from
-link:/midpoint/reference/schema/custom-schema-extension/[schema extensions].
+xref:/midpoint/reference/schema/custom-schema-extension/[schema extensions].
 * _Each object is a separate "aggregate" and any inter-object references are soft, not constraints
 on the database level._
 For example, multi-value container `roleMembershipRef` is stored in `m_ref_role_membership` table
 which has a foreign key to the common OID pool `m_object_oid` (this is necessary for any FK pointing
 to object OID if multiple types are possible, FK to `m_object` does not work this way).
 
-== TODO (not-implemented yet)
+== TODO
 
-* Modify object with reindex
-* JPEG out of full-object (kinda "index-only")
-* Right-hand path support (e.g. column = other column, including `..` support)
-* FullText filter (textInfo), including storage of the info (Virgo)
-* Index-only extension properties (`indexOnly=true`) - these are probably stored correctly and can
-be filtered on, but they are not added to the obtained object (`getObject`).
-** They should be included only when asked for specifically, e.g. for shadow attribute
-`ObjectSelector.path`=`c:attributes` and `GetOperationOptions.retrieve`=`INCLUDE`.
-* Support for various get/search/modify options
-* Audit service - WIP
-* Audit service - add iterative search
+=== Open, Not-implemented yet
+
 * Query playground: `executeQueryDiagnostics()`
-* Proper `modifyObjectDynamically()` implementation
-* Multi-node safety for `UriCache` and `ExtItemCache`
-* Retry mechanism (if/where necessary)
-* Better OperationResult treatment/review (code review)
 
-Minor, tentative, questinable:
+=== Notes, non-issues
+
+Retry mechanism (if/where necessary) may not be necessary if tests don't show that.
+`SELECT ... FOR UPDATE` seems to do its work just fine.
+
+Minor, tentative, questinable, don't implement while it's in this list:
 
 * Dereferencing (`@`) for extension refs stored in JSONB.
 * Grouping is not supported and the semantics for SQL without ORM is unclear.
@@ -55,6 +47,57 @@ This is not used by midPoint itself and there are no tests for it.
 * Arbitrary ordering for iterative search - currently only one path is supported.
 Fixes for `NULL` values are needed - TODO in the code.
 Multi-path ordering throws - this can probably wait a bit.
+
+=== Closed TODOs
+
+* FullText filter (textInfo), including storage of the info
+* Modify object with reindex; implemented as full delete/add cycle, very reliable
+and potentially more efficient too.
+* Right-hand path support, e.g. `column = otherColumn`, including other comparison operations.
+Minimal needed support implemented, `..` not supported, but polystrings are.
+* Support for various get/search/modify options WIP
+** `RepoModifyOptions.useNoFetchExtensionValuesInsertion` and `useNoFetchExtensionValuesDeletion`
+may be obsolete and ignored by the new repository.
+** `GetOperationOptions.iterationMethod` is ignored by the new repository, don't implement.
+* JPEG out of full-object (kinda "index-only") - Done (Tony)
+* Index-only extension properties (`indexOnly=true`) - these are probably stored correctly and can
+be filtered on, but they are not added to the obtained object (`getObject`).
+** They should be included only when asked for specifically, e.g. for shadow attribute
+`ObjectSelector.path`=`c:attributes` and `GetOperationOptions.retrieve`=`INCLUDE`. - Done (Tony)
+* Support for various get/search/modify options
+* Support for
+** resolveNames - Done
+** raw - Done
+* Proper `modifyObjectDynamically()` implementation - Transactional support introduced
+* Audit service (original functionality without new iterative search)
+* Audit service - iterative search, single order supported, just like in main repo.
+* Multi-node safety for `UriCache` and `ExtItemCache`
+
+=== Modify Efficiency issues
+
+Modify efficiency for distributed full-object (`AccessCertificationCampaign` vs its case):
+
+* ADD modification for Case container of AccCertCampaign should not fetch other cases.
+Update of full object (but without cases), version, etc. works as usual.
+* DELETE modification for Case container of AccCertCampaign should not fetch any cases,
+only delete the case row (and update main full object).
+* REPLACE modification for `case` does not need to read any cases, just delete all the rows.
+* Modification going inside any Case should fetch only the needed case before applying the modification.
+
+This mechanism can be reused if full-object for assignments is split from object's full-object
+in the future (not sure about the correctness of the column name `fullObject`).
+
+Index-only attributes/extensions modify efficiency:
+
+* REPLACE modification does not require any fetch, it simply obliterates the previous value in the DB.
+* ADD/DELETE modification currently requires the fetch of the index-only property, which can be
+achieved by selective fetch of `ext->'id-of-index-only-property'`.
+Modification is then applied to prism object as usual.
+Value in the DB is overwritten by the new complete value for the property (like for REPLACE).
+** In the future, ideally, this would not need any fetch access (except for `reindex`) and issue
+fine-tuned SQL operations.
+This may also require more flexible storage options for extensions/attributes, e.g. promoting
+the index-only attribute to a separate array column or separate table even.
 
 == Adding object
 

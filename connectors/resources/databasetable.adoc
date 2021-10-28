@@ -109,7 +109,7 @@ E.g. this means copying the driver to `$TOMCAT_HOME/lib` directory if tomcat ser
 
 To avoid using JDBC connection properties such as host, port, username, password and database name, you can also use datasource.
 
-To wiki:Repository+Configuration#RepositoryConfiguration-Datasourceconfiguration[configure datasource in Tomcat], you can use the step 1 as when configuring midPoint repository (modification of server.xml and context.xml).
+To xref:/midpoint/reference/repository/generic/configuration/#data-source-configuration[configure datasource in Tomcat], you can use the step 1 as when configuring midPoint repository (modification of server.xml and context.xml).
 
 After Tomcat restart, change your resource configurationProperties (`jdbc/testds1` is used as an example datasource):
 
@@ -137,6 +137,62 @@ After Tomcat restart, change your resource configurationProperties (`jdbc/testds
 . . .
 ----
 
+=== Exception Handling Configuration
+
+Midpoint needs some of the exceptions produced by the connector to react to some of the situations which can emerge while executing operations. For example if we have some kind of conflict in a unique constraint, i.e. creating a user with duplicate unique ID, the connector has to translate this exception to a form understandable by midpoint. There are two features, each o which we can leverage in case of the DB table connector.
+
+The first one, 'alreadyExistMessages' where you are capable to specify the concrete message which is a part of an SQL exception describing a conflict in a unique constraint.
+
+The second one is an option to react to sqlState codes produced by the resource. These codes are used as an SQL standard in the communication of a success or an error. Most od the relational databases should support the sqlState codes, and hold a list of these codes in their documentation (e.g. postgresql, link:https://www.postgresql.org/docs/current/errcodes-appendix.html[See postgresql sqlState codes documentation.] ). The sqlState option is by default turned off and exception handling via "alreadyExistMessages" is used. If the sqlState exception handling is turned on, the "alreadyExistMessages" is not used even if the messages are already specified in the configuration.
+
+The 'SQLStateExceptionHandling' property is present in the databasetable connector version 1.4.8.1 and higher. An extended version of the feature, handling some of the most frequent exceptions is present from the databasetable connector version 1.4.9.0 and higher.
+
+The new connector versions contain multiple fields where you are capable of specifying the concrete sqlState codes for each type of the handled exceptions. The fields are mutivalued so you are capable of adding multiple sqlState codes for the specific exceptions. Please see the example configuration below, the configuration holds both the 'alreadyExistMessages' and 'SQLStateExceptionHandling' properties. The 'SQLStateExceptionHandling' property acts as a switch to activate the sqlState exception handling feature. Additionally there are the sqlState code fields, e.g. "SQLStateAlreadyExists". If an sqlState code is not present then the exception will be evaluated with an generic exception.
+
+
+[source,xml]
+----
+. . .
+	<connectorConfiguration>
+        <icfc:configurationProperties xmlns:icscdbtable="http://midpoint.evolveum.com/xml/ns/public/connector/icf-1/bundle/com.evolveum.polygon.connector-databasetable/org.identityconnectors.databasetable.DatabaseTableConnector">
+            <icscdbtable:host>localhost</icscdbtable:host>
+            <icscdbtable:port>5433</icscdbtable:port>
+            <icscdbtable:user>midpoint_tests</icscdbtable:user>
+            <icscdbtable:password>
+				<clearValue>secret</clearValue>
+            </icscdbtable:password>
+            <icscdbtable:database>midpoint_tests</icscdbtable:database>
+            <icscdbtable:table>accounts</icscdbtable:table>
+            <icscdbtable:keyColumn>ACCOUNTID</icscdbtable:keyColumn>
+            <icscdbtable:passwordColumn>PASSWORD</icscdbtable:passwordColumn>
+            <icscdbtable:jdbcDriver>org.postgresql.Driver</icscdbtable:jdbcDriver>
+            <icscdbtable:jdbcUrlTemplate>jdbc:postgresql://%h:%p/%d</icscdbtable:jdbcUrlTemplate>
+
+			<!--alreadyExistMessages example, if SQLStateExceptionHandling is active this handling is not in use-->
+            <icscdbtable:alreadyExistMessages>duplicate key value violates unique constraint, already exists</icscdbtable:alreadyExistMessages>
+
+			<!--SQLStateExceptionHandling error codes, they are ofthen a part of the documentation for each relational database-->
+            <icscdbtable:SQLStateAlreadyExists>23000</icscdbtable:SQLStateAlreadyExists>
+            <icscdbtable:SQLStateAlreadyExists>23505</icscdbtable:SQLStateAlreadyExists>
+            <icscdbtable:SQLStateConnectionFailed>08000</icscdbtable:SQLStateConnectionFailed>
+            <icscdbtable:SQLStateConnectionFailed>08003</icscdbtable:SQLStateConnectionFailed>
+            <icscdbtable:SQLStateConnectionFailed>08004</icscdbtable:SQLStateConnectionFailed>
+            <icscdbtable:SQLStateConnectionFailed>08007</icscdbtable:SQLStateConnectionFailed>
+            <icscdbtable:SQLStateConnectionFailed>08P01</icscdbtable:SQLStateConnectionFailed>
+            <icscdbtable:SQLStateInvalidAttributeValue>22000</icscdbtable:SQLStateInvalidAttributeValue>
+            <icscdbtable:SQLStateInvalidAttributeValue>22007</icscdbtable:SQLStateInvalidAttributeValue>
+            <icscdbtable:SQLStateInvalidAttributeValue>22008</icscdbtable:SQLStateInvalidAttributeValue>
+            <icscdbtable:SQLStateInvalidAttributeValue>22019</icscdbtable:SQLStateInvalidAttributeValue>
+            <icscdbtable:SQLStateInvalidAttributeValue>23502</icscdbtable:SQLStateInvalidAttributeValue>
+            <icscdbtable:SQLStateConfigurationException>0A000</icscdbtable:SQLStateConfigurationException>
+            <icscdbtable:SQLStateConfigurationException>3F000</icscdbtable:SQLStateConfigurationException>
+
+			<!--SQLStateExceptionHandling is by default deactivated, we need to set it to true-->
+            <icscdbtable:SQLStateExceptionHandling>true</icscdbtable:SQLStateExceptionHandling>
+        </icfc:configurationProperties>
+    </connectorConfiguration>
+. . .
+----
 
 === Resource Sample
 
