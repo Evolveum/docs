@@ -108,9 +108,9 @@ As a value the location for the file is provided.
 MP_PW=/opt/mp-home/keystorepw
 
 * *MP_CERT* +
-In case some certificate has to be added to certstore the content of the variable will be processed.
+In case a certificate has to be added to certstore the content of the variable will be processed.
 ** *MP_KEYSTORE* +
-This variable have to be set to know where the keystore is stored - where the certificate should be added.
+This variable has to be set in order to know where the keystore is stored - where the certificate should be added.
 +
 .example of the value to add the cert
 [source]
@@ -118,6 +118,9 @@ This variable have to be set to know where the keystore is stored - where the ce
 MP_CERT="-----BEGIN CERTIFICATE----- ... -----END CERTIFICATE-----"
 MP_KEYSTORE=/opt/mp-home/keystore.jceks
 ----
+
+[NOTE]
+Prerequisites for the _MP_CERT_ are _MP_KEYSTORE_ & _MP_PW_ or _MP_KEYSTORE_ & _MP_PW_DEF_ - it is necessary in order to locate and access / generation of the keystore.
 
 === container
 
@@ -141,9 +144,53 @@ command: [ "/opt/midpoint/bin/midpoint.sh", "container" ]
 The following docker-compose configuration file can be used to run a working environment with postgres DB backend including the native repository implementation.
 There is example with link:https://docs.evolveum.com/midpoint/reference/deployment/post-initial-import/[post-initial-object].
 
-Once the *MP_ENTRY_POINT* is used, it is pointing to the folder in the container's filesystem, which is handled as read only source for post-initial-objects.
-The objects are copied to proper midpoint's structure before starting the midpoint instance.
-This way the post-initial-objects can be re-use several times with the same behaviour all the time.
+*MP_ENTRY_POINT* option is pointing to the folder in the container's filesystem, which is handled as a read only source for (not only) post-initial-objects.
+The content is copied to proper midpoint's structure (/opt/midpoint/var) before starting the midpoint instance with keeping the same subfolder structure.
+This way the post-initial-objects can be re-used several times with the same behaviour all the time.
+It can be also used for any other files like csv or jar (e.g. connectors).
+
+During the processing of the *MP_ENTRY_POINT* it checks the existence of the file or file with extension .done (processed post-initial-object is renamed with suffix .done).
+Once the file in any form ("exact" name or with the .done suffix) exists, the file is skipped so any future changes on the copied version are kept without overwriting - only new files are copied.
+
+.example of the behaviour : MP_ENTRY_POINT=/opt/entry-point
+[source]
+----
+/opt/entry-point
++ icf-connectors
+| + connector-gitlab-rest-1.0.jar
+| - connector-ssh-1.0.jar
+|
++ post-initial-objects
+| + user.xml
+| - role.xml
+|
+- sources
+  - hr.csv
+
+/opt/midpoint/var
++ export
++ icf-connectors
+| - connector-ssh-1.0.jar
++ idm-legacy
++ import
++ lib
++ log
+| + midpoint.out
+| - midpoint.log
++ post-initial-objects
+| - user.xml.done
++ schema
+- tmp
+----
+
+* *icf-connectors* exists so no change based on the folder
+* *connector-gitlab-rest-1.0.jar* does not exist so it will by copied to */opt/midpoint/var/icf-connectors/connector gitlab-rest-1.0.jar* - xref:/connectors/connectors/com.evolveum.polygon.connector.gitlab.rest.GitlabRestConnector/[GitLab Connector]
+* *connector-ssh-1.0.jar* exists in the destination so no action will happen - xref:/connectors/connectors/com.evolveum.polygon.connector.ssh.SshConnector)[SSH Connector]
+* *post-initial-objects* exists so no change
+* *user.xml* in the destination there exists _user.xml.done_ so no action will happen
+* *role.xml* does not exist so it will be copied to */opt/midpoint/var/post-initial-objects/role.xml*
+* *sources* folder does not exist so it will be created - */opt/midpoint/var/sources*
+* *hr.csv* does not exist in the destination so it will be copied to */opt/midpoint/var/sources/hr.csv*
 
 [NOTE]
 ====
