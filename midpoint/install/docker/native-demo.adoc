@@ -1,0 +1,335 @@
+= Native repository demo
+:toc:
+:page-since: "4.4"
+
+Native repository implementation can only be operated on postgres DB system so it is not possible to "simply run" the docker image to test it. 
+Until the H2 DB backend will be available, you can run docker image directly but generic DB backend will be utilized.
+
+== Configuration prerequisites
+
+To this topic a dedicated xref:/midpoint/reference/repository/native-postgresql/usage/[docs page] is available.
+
+=== DB structure
+
+For the generic repository implementation the structure (the basic content) of DB could be automatically created if does not exist yet.
+This "feature" is not available with native repository implementation.
+As native repository implementation can only be operated with postgresql (an optimization focused on specific DB system is available). 
+There is a dependency, which can't be handled automatically anyway.
+
+In the distribution archive with midpoint (and also docker image) there is a doc folder available, which contain required SQL structure.
+To keep docker part independent from application, the structure is taken from these files so its maintaining is realized through the distribution of midpoint.
+
+NOTE: The files are located at */opt/midpoint/doc/config/sql/native-new* folder.
+
+There are more files located and the order is important - some files contain structure, which extends other existing structure.
+
+=== config.xml
+
+To connect with the database there is a need to set a type for repository and for audit too.
+Especially because of audit it is not possible to set just using *-D* parameter.
+
+The sample (and "core" part) of configuration is also available under doc folder.
+With this file the rest can be handled with *-D* parameter.
+
+NOTE: The sample config file is located at */opt/midpoint/doc/config/config-native.xml*.
+
+== Customization in midpoint.sh
+
+To make things easier there is a prepared "specialized" functionality focused on container environment.
+Relevant options are:
+
+* init-native
+* container
+
+=== init-native
+
+This section is focused on handling available files.
+What exactly will happen is controlled by the environment variables.
+All these options are available since v4.4devel-1921-g81d58591ac (link:https://github.com/Evolveum/midpoint/blob/81d58591ac597c10c43dbf5b62e43b1f57b191bc/dist/src/main/bin/midpoint.sh#L77-L88[github]).
+
+* *MP_INIT_DB* +
+The native "init" sql files will be copied from *doc* structure (distributed directly in docker image) to the destination provided as value for the variable.
+This option will work without change even if the list of init file will change in the future.
++
+.example of the value - destination directory is /opt/db-init
+[source]
+MP_INIT_DB=/opt/db-init
+
+* *MP_INIT_DB_CONCAT* +
+The native "init" sql files will be concatenated to one file in "known" working order.
+The location of the file is set by the value of the variable.
+The files are listed so in case of future change in the structure, the list has to be manually updated.
++
+.example of the value - target file is /opt/db-init/init.sql
+[source]
+MP_INIT_DB_CONCAT=/opt/db-init/init.sql
+
+* *MP_INIT_CFG* +
+Sample config.xml file required for native repository will be copied (and properly renamed) to the directory set by the value of the variable.
+With this file all the rest required variable can be set using *MP_SET_* prefixed environment variables
++
+.example of the value - target directory is /opt/mp-home (file will be /opt/mp-home/config.xml)
+[source]
+MP_INIT_CFG=/opt/mp-home
+
+* *MP_INIT_LOOP* +
+This variable will cause the infinitive loop at the end of the processing.
+The benefit may be in some container environments, when the end of processing may be understood as failure (e.g. the container would be restarted).
+Only "acceptable" value is 1.
+Any other value will have no impact.
++
+.example of the value - the container will never end (have to be forcedly terminated to end)
+[source]
+MP_INIT_LOOP=1
+
+* *MP_DB_PW* +
+The password for the database access has to be the same on the client and server side. 
+As far as the roles are split, the password has to be set in advance to be the same on both side of communication.
+The value is the path to the file, where the generated password should be saved.
++
+.example of the value - the generated password will be saved to /opt/db-pw/dbpassword
+[source]
+MP_DB_PW=/opt/db-pw/dbpassword
+
+* *MP_PW_DEF* +
+A default password for the keystore is "changeit".
+The value for this variable says, where the default password should be saved.
++
+.example of the value - the default password will be saved to /opt/mp-home/keystorepw
+[source]
+MP_PW_DEF=/opt/mp-home/keystorepw
+
+* *MP_PW* +
+In case you prefer to have your own generated password also for keystore, this option will interest you. 
+As a value the location for the file is provided.
++
+.example of the value - the generated password will be saved to /opt/mp-home/keystorepw
+[source]
+MP_PW=/opt/mp-home/keystorepw
+
+* *MP_CERT* +
+In case a certificate has to be added to certstore the content of the variable will be processed.
+** *MP_KEYSTORE* +
+This variable has to be set in order to know where the keystore is stored - where the certificate should be added.
++
+.example of the value to add the cert
+[source]
+----
+MP_CERT="-----BEGIN CERTIFICATE-----
+...
+-----END CERTIFICATE-----"
+MP_KEYSTORE=/opt/mp-home/keystore.jceks
+----
+
+[NOTE]
+Prerequisites for the _MP_CERT_ are _MP_KEYSTORE_ & _MP_PW_ or _MP_KEYSTORE_ & _MP_PW_DEF_ - it is necessary in order to locate and access / generation of the keystore.
+
+=== container
+
+In comparison to *start*, the midpoint application is run in foreground.
+The "normal" start is utilizing nohup and "send to background" (&) options.
+This behaviour is not acceptable as far as the container without extra setting would be handled as terminated (main PID would ends almost immediately).
+With keeping application in foreground the container is properly handled as running.
+
+Starting the application
+
+* bash syntax +
+[source,bash]
+/opt/midpoint/bin/midpoint.sh container
+
+* docker syntax +
+[source,docker]
+command: [ "/opt/midpoint/bin/midpoint.sh", "container" ]
+
+== Docker-compose yaml file
+
+The following docker-compose configuration file can be used to run a working environment with postgres DB backend including the native repository implementation.
+There is example with link:https://docs.evolveum.com/midpoint/reference/deployment/post-initial-import/[post-initial-object].
+
+*MP_ENTRY_POINT* option is pointing to the folder in the container's filesystem, which is handled as a read only source for (not only) post-initial-objects.
+The content is copied to proper midpoint's structure (/opt/midpoint/var) before starting the midpoint instance with keeping the same subfolder structure.
+It can be also used for any other files like csv or jar (e.g. connectors).
+
+During the processing of the *MP_ENTRY_POINT* it checks the existence of the file or file with extension .done (processed post-initial-object is renamed with suffix .done).
+Once the file in any form ("exact" name or with the .done suffix) exists, the file is skipped so any future changes on the copied version are kept without overwriting - only new files are copied.
+This way the post-initial-objects can be re-used several times with the same behaviour all the time.
+
+.example of the behaviour : MP_ENTRY_POINT=/opt/entry-point
+[source]
+----
+/opt/entry-point
++ icf-connectors
+| + connector-gitlab-rest-1.0.jar
+| - connector-ssh-1.0.jar
+|
++ post-initial-objects
+| + user.xml
+| - role.xml
+|
+- sources
+  - hr.csv
+
+/opt/midpoint/var
++ export
++ icf-connectors
+| - connector-ssh-1.0.jar
++ idm-legacy
++ import
++ lib
++ log
+| + midpoint.out
+| - midpoint.log
++ post-initial-objects
+| - user.xml.done
++ schema
+- tmp
+----
+
+* *icf-connectors* exists so no change based on the folder
+* *connector-gitlab-rest-1.0.jar* does not exist so it will by copied to */opt/midpoint/var/icf-connectors/connector gitlab-rest-1.0.jar* - xref:/connectors/connectors/com.evolveum.polygon.connector.gitlab.rest.GitlabRestConnector/[GitLab Connector]
+* *connector-ssh-1.0.jar* exists in the destination so no action will happen - xref:/connectors/connectors/com.evolveum.polygon.connector.ssh.SshConnector[SSH Connector]
+* *post-initial-objects* exists so no change
+* *user.xml* in the destination there exists _user.xml.done_ so no action will happen
+* *role.xml* does not exist so it will be copied to */opt/midpoint/var/post-initial-objects/role.xml*
+* *sources* folder does not exist so it will be created - */opt/midpoint/var/sources*
+* *hr.csv* does not exist in the destination so it will be copied to */opt/midpoint/var/sources/hr.csv*
+
+[NOTE]
+====
+In theory you can mount it directly to the midpoint's structure but the resulting behaviour will be, the most probably, a little bit different than expected.
+With the first run there can be two possible situations:
+
+* the mount point will be in "writable" mode +
+In that case the file will be renamed with adding suffix *._done* and respective next run (with new container) will be ignoring the files.
+
+* the mount point will be read-only mode +
+The midpoint start will fail and it will not be possible to rename the file, which is handled as critical error.
+====
+
+If *MP_ENTRY_POINT* feature is not needed the following lines can be removed:
+
+[source]
+     - MP_ENTRY_POINT=/opt/midpoint-dirs-docker-entrypoint
+
+[source]
+     - ./midpoint_server/container_files/mp-home:/opt/midpoint-dirs-docker-entrypoint/:ro
+
+In case the lines are kept in the example, the folder *./midpoint_server/container_files/mp-home* has to exist (or the path have to be changed to the existing one) otherwise docker-compose will fail to start.
+
+[TIP]
+====
+The MP_VER variable is used in the config file.
+In case the variable is not set the "latest" is used as default.
+For the specific version you can set this variable before (or during) the docker-compose command start.
+
+.example of run with default (latest) version
+[source,bash]
+docker-compose up
+
+.example of run with specific version
+[source,bash]
+MP_VER=4.4 docker-compose up
+====
+
+.example of "simple" environment with post-initial-objects & root CA cert used by Let's encrypt
+[source,docker-compose]
+----
+version: "3.3"
+
+services:
+  data_init:
+    image: evolveum/midpoint:${MP_VER:-latest}
+    command: [ "/opt/midpoint/bin/midpoint.sh", "init-native" ]
+    environment:
+     - MP_INIT_DB_CONCAT=/opt/db-init/init.sql
+     - MP_INIT_CFG=/opt/mp-home
+     - MP_DB_PW=/opt/db-pw/dbpassword
+     - MP_PW_DEF=/opt/mp-home/keystorepw
+     - MP_KEYSTORE=/opt/mp-home/keystore.jceks
+     - |
+       MP_CERT=-----BEGIN CERTIFICATE-----
+       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
+       -----END CERTIFICATE-----
+    volumes:
+     - db_init:/opt/db-init
+     - db_pw:/opt/db-pw
+     - midpoint_home:/opt/mp-home
+
+  midpoint_data:
+    image: postgres:13-alpine
+    depends_on:
+     - data_init
+    environment:
+     - POSTGRES_PASSWORD_FILE=/opt/db-pw/dbpassword
+     - POSTGRES_USER=midpoint
+     - POSTGRES_INITDB_ARGS=--lc-collate=en_US.utf8 --lc-ctype=en_US.utf8
+    ports:
+     - 5432:5432
+    networks:
+     - net
+    volumes:
+     - midpoint_data:/var/lib/postgresql/data
+     - db_init:/docker-entrypoint-initdb.d/
+     - db_pw:/opt/db-pw
+
+  midpoint_server:
+    image: evolveum/midpoint:${MP_VER:-latest}
+    depends_on:
+     - data_init
+     - midpoint_data
+    command: [ "/opt/midpoint/bin/midpoint.sh", "container" ]
+    ports:
+      - 8080:8080
+    environment:
+     - MP_SET_midpoint_repository_jdbcUsername=midpoint
+     - MP_SET_midpoint_repository_jdbcPassword_FILE=/opt/db-pw/dbpassword
+     - MP_SET_midpoint_repository_jdbcUrl=jdbc:postgresql://midpoint_data:5432/midpoint
+     - MP_SET_midpoint_keystore_keyStorePassword_FILE=/opt/midpoint/var/keystorepw
+     - MP_UNSET_midpoint_repository_hibernateHbm2ddl=1
+     - MP_NO_ENV_COMPAT=1
+     - MP_ENTRY_POINT=/opt/midpoint-dirs-docker-entrypoint
+    networks:
+     - net
+    volumes:
+     - midpoint_home:/opt/midpoint/var
+     - db_pw:/opt/db-pw
+     - ./midpoint_server/container_files/mp-home:/opt/midpoint-dirs-docker-entrypoint/:ro
+
+networks:
+  net:    
+    driver: bridge
+    
+volumes:
+  db_init:
+  db_pw:
+  midpoint_data:
+  midpoint_home:
+----
