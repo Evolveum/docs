@@ -1,10 +1,8 @@
-= Repository Implementation
+= Design and Implementation of the Native Repository
 :page-toc: top
-
-[NOTE]
-This page is part of MidScale project documentation and was freezed at the end of the project.
-See xref:/midpoint/reference/repository/native-postgresql/design-and-implementation.adoc[Design and Implementation]
-and xref:/midpoint/reference/repository/native-postgresql/db-maintenance.adoc[DB maintenance] for current pages.
+:page-nav-title: Design and Implementation
+:page-display-order: 99
+:page-since: "4.4"
 
 == Repository responsibilities
 
@@ -34,24 +32,8 @@ which has a foreign key to the common OID pool `m_object_oid` (this is necessary
 to object OID if multiple types are possible, FK to `m_object` does not work this way).
 But the `targetOid` is not a FK as it points to another object.
 
-== TODO
-
-=== Notes, non-issues
-
-Retry mechanism (if/where necessary) may not be necessary if tests don't show that.
-`SELECT ... FOR UPDATE` seems to do its work just fine.
-
-Minor, tentative, questinable, don't implement while it's in this list:
-
-* Dereferencing (`@`) for extension refs stored in JSONB.
-* Grouping is not supported and the semantics for SQL without ORM is unclear.
-This is not used by midPoint itself and there are no tests for it.
-* Arbitrary ordering for iterative search - currently only one path is supported.
-Fixes for `NULL` values are needed - TODO in the code.
-Multi-path ordering throws - this can probably wait a bit.
-
-=== Closed TODOs
-
+////
+TODO possible topics to cover
 * FullText filter (textInfo), including storage of the info
 * Modify object with reindex; implemented as full delete/add cycle, very reliable
 and potentially more efficient too.
@@ -73,8 +55,11 @@ be filtered on, but they are not added to the obtained object (`getObject`).
 * Audit service - iterative search, single order supported, just like in main repo.
 * Multi-node safety for `UriCache` and `ExtItemCache`
 * Query playground: `executeQueryDiagnostics()`
+////
 
-=== Modify Efficiency issues
+== Design notes
+
+=== Modify Efficiency concerns
 
 Modify efficiency for distributed full-object (`AccessCertificationCampaign` vs its case):
 
@@ -99,6 +84,94 @@ Value in the DB is overwritten by the new complete value for the property (like 
 fine-tuned SQL operations.
 This may also require more flexible storage options for extensions/attributes, e.g. promoting
 the index-only attribute to a separate array column or separate table even.
+
+=== Iterative search
+
+Iterative search is a solution for long-running operations modifying many objects.
+Doing all the work in a single transaction is not a good design for various reasons:
+
+* It does not perform well, even if done on objects read iteratively (to scale without running out of memory).
+Long transaction my lock objects and slow down other transactions, and/or cause inconsistencies and retries.
+Finally, if something goes wrong on 99% the whole work still needs to be done again.
+
+* It causes inconsistencies as reported in bug:MID-4414[].
+Long database reads (recompute, recon) can return data that are outdated.
+It seems that the databases using `READ_COMMITTED` isolation will return the data as they were at the beginning of the transaction, which is the beginning of the search.
+
+Possible solutions:
+
+* Search returning only OIDs - but this does not scale well.
+When the code gets to the last OID, the object can be changed and not matching the original search.
+
+* Splitting the single search to multiple searches in separate transactions.
+This makes the consistency problems less serious and also assures that the work progresses.
+
+* Due to complexity of possible work on the found objects any pure database-based solution is out of question.
+Sometimes we use the results for reporting, but sometimes we call modify object on each of them.
+
+* Optimistic locking (version check) - but if the object is modified much later this more and more likely requires operation restart.
+
+[NOTE]
+.Relativity and deltas
+In theory, xref:/midpoint/reference/concepts/relativity/[relativity of midPoint] means that modifications
+do not rely on locking that much, but the single modify operation still needs to be atomic.
+When multiple xref:/midpoint/devel/prism/concepts/deltas/[deltas] are applied to a single object,
+even if we don't know or care what order they are applied, they must all be applied.
+It is not acceptable when only the last delta is applied to the original object.
+This does not mean that order of deltas is not relevant, only that all deltas must be respected.
+If the order is critical, then something above the repository must assure that deltas are executed in specified order.
+
+In the end, the *iterative search* was introduced which loads objects using a filter, ideally in
+smaller batches, and uses provided handler to process each object.
+The handler may add it to report data or call possibly heavy-weighted modify operation on it.
+There are still many variables in this solution - how the transactions are organized, how the candidates
+(possibly millions) are iterated over (paginated), how the convergence is assured, etc.
+
+==== Current solution for iterative search
+
+The following solution is used for the Native repository:
+
+* Search uses paging based on strict OID ordering (on top of optionally provided business ordering).
+* Page is reasonably small (by default 100, can be configured) which makes the data resonably fresh.
+* Handling is called out of the reading transaction.
+This is good also for edge situation when the search uses last possible connection and then needs
+another one inside the handler.
+Of course this does not prevent handler from "needing" two connections and blocking because of it.
+* Even with handling running inside the search, even if cursor (live result set) was used, the data
+is still current only at the time of the execution, not during the cursor reading.
+There is no benefit from doing the work inside the transaction.
+* The problem with using some internal search for reading the whole page is that it requires more
+memory than executing the handler while reading the cursor.
+But with each page limited to small maximum size (100 by default) this is not an issue.
+* Another issue is that for complex selects the query execution can take prohibitively long to read
+just 100 objects.
+This can be prevented by avoiding complicated conditions and ordering and leaving just ordering
+by OID which is actually pretty fast, even if the table is scanned.
+Full table scan in the order of OID index can be perfectly fine if a lot of data matches
+the condition, in the opposite case usage of indexes is very likely.
+* Technically, cursor like reading is possible in new repository too, `SQLQuery#getResults()`
+returns normal JDBC `ResultSet`.
+To avoid blocking the connection and having long-running read-only transaction (should not be a big
+deal for read-only, but still) we still prefer the solution with handler running outside
+the search for each page when the connection is freed.
+
+==== Possible inconsistencies
+
+* When object is handled it may have been possibly changed by some other process since read by the search iteration.
+While problem in theory, in practice the object is mostly fresh "enough" to compute the deltas and apply them.
+Applying new delta using https://github.com/Evolveum/midpoint/blob/4445950a83505b5caea600bee7fa94966cce9c32/repo/repo-api/src/main/java/com/evolveum/midpoint/repo/api/RepositoryService.java#L261[modifyObject]
+does not destroy any non-conflicting deltas applied in the meantime.
+This repository call corresponds with `ModelService.executeChanges()` on the model level
+or with functions `midpoint.executeChanges()` or `midpoint.modifyObject()` for script expressions.
+
+* If the fresh object is absolutely needed, one may use https://github.com/Evolveum/midpoint/blob/4445950a83505b5caea600bee7fa94966cce9c32/repo/repo-api/src/main/java/com/evolveum/midpoint/repo/api/RepositoryService.java#L286[modifyObjectDynamically].
+This is new as of 4.4 and intended mostly for internal use - there is no direct alternative
+on the model level or a function available for script expressions.
+
+* There are inconsistencies between the iterations (pages) of the search.
+This is hardly a problem for iterative change executions, as we are concerned only with the consistency of each object.
+It can be problem for reports, however, but this must simply be accepted.
+If totally transactional reports are necessary, they must be preformed on SQL level and only the externalized data are available - this is beyond the topic of iterative search.
 
 == Developer notes
 
@@ -199,7 +272,7 @@ order again, of course!):
 addItemMapping(F_OPERATIONAL_STATE, enumMapper(q -> q.operationalState));
 ----
 +
-I mean, seriously, can it be any more auto-magical than this?
+I mean, seriously, can it be more auto-magical than this?
 It is possible to write test to this as well, but honestly, we don't bother when adding a new
 mapping for well-working type.
 Just be sure to use the right item name (`F_OPERATIONAL_STATE` imported statically from `NodeType`),
@@ -214,76 +287,16 @@ Hopefully, it's something utilizing `apply_change` and - for your sake - same ex
 To see the whole success story, check https://github.com/Evolveum/midpoint/commit/1a7c2e43c93d9b090b73c64a347b142c033c7d0a[this commit]
 (add-test was committed separately and linked previously).
 
-== Collation (ordering)
+=== Possible future improvements
 
-Depending on the chosen https://www.postgresql.org/docs/13/collation.html[collation] ordering
-of text fields can be case-insensitive or not.
-To see it quickly, one can use select like this:
+Retry mechanism (if/where necessary) may not be necessary if tests don't show that.
+`SELECT ... FOR UPDATE` seems to do its work just fine.
 
-[source,sql]
-----
-select * from (values ('a'), ('B'), ('Z'), ('x'), ('Č'),
-    ('@'), ('_'), ('%'), ('^'), ('5'), ('47'), ('持')) as t(text)
-  order by text -- collation "C"
-----
+Minor, tentative, questinable, don't implement while it's in this list:
 
-With additional `collation "x"` one can see various results for other collations.
-If `en_US.UTF-8` is used during database creation (recommended by midPoint docs) the ordering
-of the select above should be case-insensitive.
-Collation used by default for each database can be determined like so:
-
-[source,sql]
-----
-select datname, datcollate from pg_database;
--- returns among others: midpoint,en_US.UTF-8
-----
-
-Funny enough, this default collation name may not be a valid name for `COLLATION "collation-name"`
-clause but for `en_US.UTF-8` it seems to act the same as `collate "en_US.utf8"` (or `en_US`).
-The list of valid collation names can be obtained from `pg_collation` table:
-
-[source,sql]
-----
-select * from pg_collation;
-----
-
-As explained in the https://www.postgresql.org/docs/13/collation.html[collation documentation],
-there is a default collation (`collprovider = 'd'`), libc based collations (`d`) and ICU collations
-(`i`) if compiled with it (PG 13 on Ubuntu contains these too).
-
-[NOTE]
-ICU collations https://stackoverflow.com/q/61048789/658826[can't be used as database defaults].
-
-It is possible to create tables or single columns with non-default collation.
-To list columns with different collation one can use this select (with or without `table_schema`
-filter, select based on https://dba.stackexchange.com/a/29947/157622[this answer]):
-
-[source,sql]
-----
-select table_schema, table_name, column_name, collation_name
-  from information_schema.columns
-  where collation_name is not null and table_schema = 'public'
-order by table_schema, table_name, ordinal_position;
-----
-
-[NOTE]
-If query is used with custom `COLLATE` regularly the table should be indexed accordingly.
-
-[WARNING]
-====
-If case-sensitive locale is used when case-insensitive behavior is expected it may result in
-unexpected results.
-The old repository uses `VARCHAR` type for OIDs and bucket defining queries for extreme boundaries
-accidentally caught more than was intended.
-E.g. `oid > 'FF'` can also include all the OIDs starting with lower-case A through F, if interpreted
-case-sensitively - which it is with `collate "C"` for example (but not with `en_US` at least not
-for PG 12 or 13).
-See bug:MID-6468[] for possible problem manifestation.
-====
-
-=== Creating DB with other collation
-
-As described in the notes for https://www.postgresql.org/docs/13/sql-createdatabase.html[CREATE DATABASE]
-one may need to specify `template0` as a template for database creation with different collation.
-Adding collation support for other languages to the operating system and then adding it to PG
-is beyond this page, but is described in the https://www.postgresql.org/docs/13/collation.html[docs].
+* Dereferencing (`@`) for extension refs stored in JSONB.
+* Grouping is not supported and the semantics for SQL without ORM is unclear.
+This is not used by midPoint itself and there are no tests for it.
+* Arbitrary ordering for iterative search - currently only one path is supported.
+Fixes for `NULL` values are needed - TODO in the code.
+Multi-path ordering throws - this can probably wait a bit.
