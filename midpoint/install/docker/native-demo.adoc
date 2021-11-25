@@ -264,7 +264,8 @@ services:
         bash -c "
         chmod 777 /opt/db-pw/ ;
         touch /opt/db-pw/db_init_in_progress ;
-        echo -e '#!/bin/sh\necho DB structure init process has finished...\nrm -f /opt/db-pw/db_init_in_progress' > /opt/db-init/999-finish.sh ;
+	echo -e '#!/bin/sh\ntouch /opt/db-pw/db_init' >/opt/db-init/000-start.sh ;
+        echo -e '#!/bin/sh\necho DB structure init process has finished...\nrm -f /opt/db-pw/db_init_in_progress /opt/db-pw/db_init' > /opt/db-init/999-finish.sh ;
         /opt/midpoint/bin/midpoint.sh init-native
         "
     environment:
@@ -315,7 +316,18 @@ services:
     image: postgres:13-alpine
     command: >
         bash -c "
-        while [ ! -s /opt/db-pw/dbpassword -o -e /opt/db-pw/init_in_progress ] ; do sleep 1 ; done ;
+        while [ ! -s /opt/db-pw/dbpassword -o -e /opt/db-pw/init_in_progress ] ; do 
+         echo 'Waiting to the end of the init process...'; 
+         sleep 1; 
+        done ; 
+        { 
+         sleep 2 ; 
+         if [ ! -e /opt/db-pw/db_init -a -e /opt/db-pw/db_init_in_progress ] ; 
+          then echo 'DB init did not start...' ; 
+          rm -f /opt/db-pw/db_ini*; 
+          echo 'The lock files has been removed...'; 
+         fi ; 
+        } & 
         docker-entrypoint.sh postgres
         "
     user: "70:70"
