@@ -260,10 +260,16 @@ version: "3.3"
 services:
   data_init:
     image: evolveum/midpoint:${MP_VER:-latest}
-    command: [ "/opt/midpoint/bin/midpoint.sh", "init-native" ]
+    command: >
+        bash -c "
+        chmod 777 /opt/db-pw/ ;
+        echo -e '#!/bin/sh\ntouch /opt/db-pw/init_in_progress\necho DB structure init process has been started...' > /opt/db-init/000-start.sh;
+        echo -e '#!/bin/sh\necho DB structure init process has finished...\nrm -f /opt/db-pw/init_in_progress' > /opt/db-init/999-finish.sh ;
+        /opt/midpoint/bin/midpoint.sh init-native
+        "
     environment:
      - MP_CHECK=/opt/db-pw/init_in_progress
-     - MP_INIT_DB_CONCAT=/opt/db-init/init.sql
+     - MP_INIT_DB_CONCAT=/opt/db-init/010-init.sql
      - MP_INIT_CFG=/opt/mp-home
      - MP_DB_PW=/opt/db-pw/dbpassword
      - MP_PW_DEF=/opt/mp-home/keystorepw
@@ -307,7 +313,11 @@ services:
 
   midpoint_data:
     image: postgres:13-alpine
-    command: bash -c "while [ ! -s /opt/db-pw/dbpassword -o -e /opt/db-pw/init_in_progress ] ; do echo \"Wating for the end of init process...\" ; sleep 1 ; done ; docker-entrypoint.sh postgres "
+    command: >
+        bash -c "
+        while [ ! -s /opt/db-pw/dbpassword -o -e /opt/db-pw/init_in_progress ] ; do : ; done ;
+        docker-entrypoint.sh postgres
+        "
     user: "70:70"
     depends_on:
      - data_init
