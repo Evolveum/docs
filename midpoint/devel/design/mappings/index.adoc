@@ -1,321 +1,58 @@
 = Mapping Notes
 
-WARNING: This is outdated. But it may still be worth updating someday.
-
-[%autowidth]
-|===
-| Place | What | Method | Default source | User, Focus | Source | Iteration+Token | Configuration | Assignment path variables | Containing object,"thisObject" | Projection, shadow,account | Resource |  Other | Uses MappingEvaluator | Notes
-
-.2+| AssignmentEvaluator
-| condition
-| `evaluateMappingAsCondition`
-|
-| Y
-| Y
-| -
-| -
-| Y
-|
-|
-|
-|
-| Y
-|
-
-
-| focus mappings
-| `evaluateFocusMappings`
-|
-| Y
-|
-| Y
-| Y
-| Y
-|
-|
-|
-|
-| Y
-| uses LensUtil.createFocusMappingEvaluated mappings are stored into EvaluatedAssignment.
-
-
-| ObjectTemplateProcessor
-| focus mappings
-| `collectTripleFromMappings`
-|
-| Y
-|
-| Y
-| Y
-| -
-|
-|
-|
-|
-| Y
-| uses LensUtil.createFocusMapping
-
-
-| Construction
-| attributes, associations
-| `evaluateAttribute``evaluateAssociation`
-|
-| Y
-| Y
-| -
-|  Y
-| Y
-| Y
-|
-|  Y
-| associationTargetObjectClassDefinition
-| N/A
-| Evaluation is postponed.
-(To AssignmentProcessor.)
-
-
-| CredentialsProcessor
-| password mapping
-| `processProjectionPassword`
-| input (user password)
-| Y
-| -
-| -
-| Y
-| -
-| -
-| Y
-| Y
-| -
-| Y
-|
-
-
-.2+| InboundProcessor
-
-| attributes
-| `evaluateInboundMapping`
-| input (attribute value)
-| Y
-| -
-| -
-| -
-| -
-| -
-| Y (except projection)
-| Y
-| -
-| Y
-|
-
-
-| password, admin status, validFrom, validTo
-| `processSpecialPropertyInbound`
-| input (particular special property)
-| Y
-| -
-| -
-| -
-| -
-| -
-| Y (except projection)
-| Y
-| -
-| Y
-| uses MappingEvaluator.evaluateMappingSetProjection (quite sophisticated code)
-
-
-| OutboundProcessor
-| attributes, +
-associations
-| `processOutbound`
-| -
-| Y
-| -
-| Y
-| Y
-| -
-| -
-| Y (except shadow)
-| Y
-| associationTargetObjectClassDefinition,operation
-| Y
-|
-
-
-.2+| ActivationProcessor
-| existence
-| `evaluateExistenceMapping`
-| legal
-| Y
-|
-|
-|
-|
-|
-| Y (only shadow)
-| Y
-| assigned, focusExists
-| Y
-| uses MappingEvaluator.evaluateMappingSetProjection (quite sophisticated code)
-
-
-| administrative status, validFrom, validTo, lockout status
-| `evaluateActivationMapping`
-| input (various)
-| Y
-|
-|
-|
-|
-|
-|
-| Y
-| administrativeStatus, legal, assigned, focusExists
-| Y
-| uses MappingEvaluator.evaluateMappingSetProjection (quite sophisticated code)
-
-
-| TODO
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-
-
-|===
-
-
-
-
-== Processing of mapping output triplets
-
-[%autowidth]
-|===
-|  Place | What | Where consolidated to delta(s) | See | Notes
+Notes from Mapping review 2021/2022.
 
-.3+| AssignmentEvaluator, +
-AssignmentProcessor, +
-Construction
-| condition
-| N/A
-|
-|
+== Challenges
 
+* Complexity
 
-| focus mappings
-| After processing all assignments.
-| `ObjectTemplateProcessor.computeItemDeltas`
-|
+** Difficult to understand mappings
 
+*** Solution: better documentation? docs? Dedicated chapter in book?
 
-| attributes, associations from assignments
-| Later in ConsolidationProcessor/ReconciliationProcessor.
-Triples are stored in projCtx.*constructionDeltaSetTriple*.
-|
-|
+** Difficult to configure mappings
 
+*** Solution: more reasonable defaults? (e.g. default range)
 
-| ObjectTemplateProcessor
-| focus mappings
-| After processing a template (still within processTemplate method).
-| `ObjectTemplateProcessor.computeItemDeltas`
-|
+** Terminology
 
+*** Weak,normal,strong: better names?
 
-| CredentialsProcessor
-| password mapping
-| Just after evaluation.
-Very special code because of the nature of resource object passwords.
-| `CredentialsProcessor.processProjectionPassword`
-|
+** Apparent paradoxes
 
+*** Condition vs range
 
-.2+| InboundProcessor +
- +
+*** Null, non-null
 
-| attributes
-| Immediately after executing a single mapping (should be perhaps fixed).
-| `InboundProcessor.evaluateInboundMapping`
-|
+* Lightweight synchronization (recon)
 
+** Avoid reading data from resources when not needed (even for strong mappings)
 
-| password, admin status, validFrom, validTo
-| Immediately after executing a set of mappings for a given special attribute.
-| `MappingEvaluator.evaluateMappingSetProjection``InboundProcessor.processSpecialPropertyInbound`
-| Existing secondary deltas are removed, why? (line 667, 728)
+*** Solution: "incremental" (fully relativistic) mode?
 
+** Single-resource inbound sync (in multi-resource configurations, with multi-source configuration, overlapping mappings)
 
-| OutboundProcessor
-| attributes, associations
-| Later in ConsolidationProcessor/ReconciliationProcessor.
-Triples are stored in projCtx.*outboundConstruction*.
-|
-|
+*** Solution: metadata + smart range?
 
+*** Solution: caching source data in shadow?
 
-.2+| ActivationProcessor
-| existence
-| Immediately after mapping evaluation.
-| `MappingEvaluator.evaluateMappingSetProjection`
-|
+** Consideration: can we evaluate mappings only for one resource? E.g. only for HR? +
+Problem: Evaluate inbound mappings, store data in user, but the deltas are lost.
+If we would continue, we can use the deltas to relativistically propagate changes to outbound mappings, maybe even skipping reading current values for strong mappings (see above). +
+Similarly, evaluating only for one outbound resource can be problematic.
+Where do we get the deltas from?
 
+* Implementation
 
-| administrative status, validFrom, validTo, lockout status
-| Immediately after mapping evaluation.
-| `MappingEvaluator.evaluateMappingSetProjection`
-|
+** Code could be improved, made nicer and more consistent. TODO
 
+== Possible Optimizations
 
-| TODO
-|
-|
-|
-|
+* Skip reading current values if we have only strong mappings to single-valued attributes.
+Or maybe have "always overwrite" mode.
+May be faster than read-check-update.
 
+== Requirements
 
-|===
-
-
-
-Places where triplets are processed:
-
-. MappingEvaluator -> evaluateMappingSetProjection
-
-. InboundProcessor -> evaluateInboundMapping
-
-.  ObjectTemplateProcessor -> computeItemDeltas
-
-.  ConsolidationProcessor, ReconciliationProcessor (for accounts).
-
-TODO
-
-. AssignmentProcessor.collectFocusTripleFromMappings always returns null - why?
-
-
-== Where mappings are evaluated (red circles) and resulting triples processed (green ones)
-
-image::projector-triples.png[]
-
-
-
-
-
-
-
-
-
-
-
-
-
+* Roll-out new provenance metadata to production.
+We need to record mapping that produced value to have smart range expressions.
