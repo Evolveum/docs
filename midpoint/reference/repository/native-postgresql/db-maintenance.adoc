@@ -164,9 +164,22 @@ FROM (
 WHERE table_schema = 'public'
 ORDER BY total_bytes DESC;
 
+-- Sizes of audit tables (partitions summed up)
+select inhparent::regclass,
+    pg_size_pretty(sum(pg_total_relation_size(inhrelid))) total,
+    pg_size_pretty(sum(pg_relation_size(inhrelid))) internal,
+    pg_size_pretty(sum(pg_table_size(inhrelid) - pg_relation_size(inhrelid))) toast,
+    pg_size_pretty(sum(pg_indexes_size(inhrelid))) indexes
+from pg_inherits i
+where exists (select from pg_class c where c.oid = i.inhparent
+    and c.relname like 'ma_audit_%'
+    and c.relkind = 'p')
+group by inhparent
+order by sum(pg_total_relation_size(inhrelid)) desc;
+
 -- Display settings different from defaults
 SELECT name,source,setting FROM pg_settings
-WHERE source<>'default' AND source<>'override';
+WHERE source <> 'default' AND source <> 'override';
 
 -- Display all settings (equivalent to show all with more info)
 SELECT * FROM pg_settings;
@@ -227,7 +240,7 @@ SELECT
 FROM pg_class c
 INNER JOIN pg_buffercache b ON b.relfilenode = c.relfilenode
 INNER JOIN pg_database d ON (b.reldatabase = d.oid AND d.datname = current_database())
-GROUP BY c.oid,c.relname
+GROUP BY c.oid, c.relname
 ORDER BY count(*) DESC
 LIMIT 10;
 ----
