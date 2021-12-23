@@ -4,6 +4,17 @@
 * Jira task: bug:MID-7484[]
 * Existing issues for Notification component: https://jira.evolveum.com/issues/?jql=project%20%3D%20MID%20AND%20component%20%3D%20Notifications[search]
 
+== High-level design notes
+
+Currently, the *event* is the *notification* - is this good?
+What if events are separate from notifications and notification mechanism is only one of possible consumers of the events?
+
+There are other events, some perhaps too internal, but they could all be handled with the same
+top-level interface with possible specific event handler subclasses.
+Also, should be all event handlers synchronous?
+How would asynchronous play with our operation results?
+Perhaps the handlers should be fast and postpone longer actions later (e.g. sending an email).
+
 == Known current limitations
 
 * No in-app notifications.
@@ -16,26 +27,55 @@ This makes in-app notifications and retrying notifications impossible.
 
 * How to customize various templates?
 * How to represent changes, e.g. deltas, in them?
-* What states are necessary to support both GUI and various outbound transports?
+* What notification states are necessary to support both GUI and various outbound transports?
 * What types of notifications are needed for various use cases, e.g. confirmation notification, governance-related notifications, error related notifications...?
 What are their specifics?
 * Do we want some notification priorities?
 Should it be explicit or implicit, e.g. by notification type?
 * Do we want notification log?
 If notifications are persisted, should that be the log as well?
+* If persisted, should notification (current `Event`) be a container, an object or something else altogether?
+If containers, do they belong to someone (part of other object aggregate) or are they standalone (e.g. like audit records)?
 * May notification be confirmed somehow?
 E.g. marking them as _read_ would be possible for GUI, perhaps even for some chat-delivered notifications.
 Fire and forget is obviously easier, but even there we want to be sure that it was at least sent/written somehow.
 * How to support other types of transport?
 Can they be implemented with overlays?
 * Do we want to support multiple transports of the same type, e.g. two different mail servers?
+** Currently, multiple servers are supported, but only as a high-availability solution, trying one after another.
+These are not really different channels with the same transport type.
+* Should the template management be part of notification handler?
+How should the template be structured?
+Currenlty, it's a midPoint expression, but separate for subject and body - should it be somehow different?
+If defined separately, are they objects?
+* Where to manage binary resources, like pictures and attachments?
+Are these objects or parts of the template or referenced files?
+** Files have their own problems, how to distribute them, etc.
+** Also, we want to stay true to Prism structures, so even if standalone, they must be at least containers and identified.
+** But if identified, OID is better, so perhaps light-weight objects.
+But how to access the content efficiently, isn't current `getObject` still too heavy-weight?
+Do we want some light-weight get without full object, only reading OID + BLOB from a column?
+
+== Known gaps
+
+* Simple UI based notification administration, e.g. simple copy/paste of HTML template without the need to escape it.
+** Currently, this needs to be copied to the system configuration object XML.
+** Velocity is available as the simplest templating, especially compared to making the stuff in Groovy,
+altough Groovy multi-line strings are also possible.
+* Template override for different transport (channel) without the need to create new notification handler.
+* Template management with multi-language support.
+* Scoping template for org units, also different org units (or other criteria) can have different notification targets and channels.
+** This is currently possible with different handlers, what is the problem with that?
+Especially when different template and/or channel and/or recipient is to be used, it is already the bulk of the handler configuration.
+* Attachments like pictures are necessary too.
+* Quick global notification redirection, e.g. for test or debug purposes, preferably in UI.
+** E.g. using file debug only instead of the real transport.
 
 == Implementation notes
 
 * Why are transports registering themselves?
 What is the difference between `transportRegistry.registerTransport(NAME, this)` and `NotificationManagerImpl.registerTransport`
 (which eventually uses the first call) usages?
-* Why is `processEvent` version with `EventHandlerType` exposed on API, but used only in the `notifications-impl` module?
 * Element `handler` (under `notificationConfiguration`) is of type `EventHandlerType`, and so are many of the nested
 elements, e.g. `simpleUserNotifier`.
 ** Reportedly, there is a kind of "pipes and filters" pattern - but is it this nesting?
@@ -43,6 +83,58 @@ There is also a xref:/midpoint/reference/misc/notifications/#special-kinds-of-ha
 but that one is a sequence of handlers, not nested handlers.
 I guess, it doesn't make sense to nest stuff like `accountPasswordNotifier` inside each other?
 In any case, auto-complete in Studio is rather a mess inside the handlers.
+* What is `alsoSuccess` and how is it used?
+* Remove empty `NotificationFunctions`?
+
+=== NotificationManager method usage
+
+* `registerTransport` is used only in `DummyTransport` (`model-test`), everything else is registered
+in `notifications-impl` using `TransportRegistry#registerTransport`.
+* `processEvent` without event handler type is the only method used out of tests and notifications-impl itself:
+** Its only usage outside `notifications-impl` is in `NotifyExecutor` implementing `ActionExecutor.execute`, called only from `ScriptingExpressionEvaluator`.
+** Usages in `notifications-impl` module are in:
+*** `AccountOperationListener` implelementing `ResourceOperationListener` from `provisioning-api`
+*** `EventHelper` component further used by `CertificationListener` (implementing `AccessCertificationEventListener` from `certification-api`) and `WorkflowListenerImpl` (iplementing `WorkflowListener` from `workflow-api`)
+*** `NotificationHook` implementing `ChangeHook` from `model-api
+*** `NotificationTaskListener` implementing `TaskListener` from `task-api`
+* `processEvent` version with `EventHandlerType` is only used in the `notifications-impl` module
+and only by internal classes, also called from implementation of the first `processEvent` method.
+This is a questionable usage.
+* Both `disabled` methods are currently used for testing only:
+** `setDisabled` used only in tests in modules `model-intest`, `model-test`, `story` and `workflow-impl`
+** `isDisabled` used in `model-intest` and in `notifications-impl`
+
+Summary: Only first `processEvent` seems to be a core method, the rest is for testing only
+(`disabled`, but that's OK), underused (`registerTransport`) or perhaps should be hidden (second `processEvent`).
+
+=== Dependencies
+
+notification-api:
+
+* com.evolveum.commons:util
+* com.evolveum.prism:prism-api
+* com.evolveum.midpoint.infra:schema
+* com.evolveum.midpoint.model:model-api
+* com.evolveum.midpoint.provisioning:provisioning-api
+* com.evolveum.midpoint.repo:task-api
+
+notification-impl (witout test):
+
+* com.evolveum.commons:util
+* com.evolveum.prism:prism-api
+* com.evolveum.midpoint.infra:common
+* com.evolveum.midpoint.infra:schema
+* com.evolveum.midpoint.model:certification-api
+* com.evolveum.midpoint.model:model-api
+* com.evolveum.midpoint.model:model-common
+* com.evolveum.midpoint.model:model-impl - do we want this?
+* com.evolveum.midpoint.model:notifications-api
+* com.evolveum.midpoint.model:report-api
+* com.evolveum.midpoint.model:workflow-api
+* com.evolveum.midpoint.provisioning:provisioning-api
+* com.evolveum.midpoint.repo:repo-api
+* com.evolveum.midpoint.repo:repo-common
+* com.evolveum.midpoint.repo:task-api
 
 == Existing notification documentation
 
