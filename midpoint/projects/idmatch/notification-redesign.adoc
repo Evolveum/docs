@@ -6,7 +6,8 @@
 
 == High-level design notes
 
-Currently, the *event* is the *notification* - is this good?
+Currently, the *event* works only for *notification* mechanism - is this good?
+Event results in multiple messages (which is the actual notification).
 What if events are separate from notifications and notification mechanism is only one of possible consumers of the events?
 
 There are other events, some perhaps too internal, but they could all be handled with the same
@@ -23,6 +24,53 @@ This makes in-app notifications and retrying notifications impossible.
 * Few supported transports (email and sms?)
 * Missing easy to use templating with multi-language support.
 
+== DESIGN MEETING
+
+* Event - predefined types - do we need custom event types?
+** What is relation to notification hooks?
+
+* Persistent notifications? YES.
+** This also allows aggregation/digests.
+** When aggregated, should the new notification be created? (Probably yes, it still has lifecycle.)
+Also, can it replace previous notifications, or just somehow reference them.
+* Notification per recipient or for multiple recipients? NO.
+It's simpler to have notification per recipient (state/delivery management).
+* If so, as what structure? (data model)
+* Templates - now defined as bodyExpression (and other expressions) - how to structure it for various channels?
+** Probably also separate from notification mechanism - perhaps `MessageTemplate`.
+** Alternative - function library?
+** IMPL IDEA: Let's start with `messageExpression` that returns `Message` (optionally with addressing info).
+*** This replaces existing content expresions (body, subject) and optionally recipient expressions too.
+*** Currently, expressions are evaluated per transport and transport can be used inside (conditions).
+This is not necessarily the nicest solution, but flexible.
+Alternatively, we need to add expression inside referencing transport element.
+* Configuration redesign, e.g. for additional transports types or two transports of the same type.
+** Should transport configuration be primarily in Notification configuration?
+It may be useful/better to have it out of notifications and share it with reporting.
+* Configuration convenience, how much we can do on UI?
+* Attachments, currently file is referenced, requires OS/system administrator.
+* Push vs pull notifications (query) - this is relevant for UI notifications too.
+* Links from notifications (nonce?).
+** If nonce is used, each recipient must have unique nonce - that is unique notification?
+
+Notification vs message for final transport.
+----
+event -> (0..*) notifications -\
+                                ----> (1..*) message (transport, mail)
+                    report(s) -/
+----
+
+Notification:
+
+* recipient
+* state (read or not)
+* messages*
+** transport
+** deliveryState
+
+LATER:
+What is Notification in Prism world? Object or Container or what?
+
 == Open questions
 
 * How to customize various templates?
@@ -36,8 +84,8 @@ Should it be explicit or implicit, e.g. by notification type?
 If notifications are persisted, should that be the log as well?
 * If persisted, should notification (current `Event`) be a container, an object or something else altogether?
 If containers, do they belong to someone (part of other object aggregate) or are they standalone (e.g. like audit records)?
-Do they belong to the receiver of the notification?
-What to do when there are multiple receivers?
+Do they belong to the recipient of the notification?
+What to do when there are multiple recipients?
 * May notification be confirmed somehow?
 E.g. marking them as _read_ would be possible for GUI, perhaps even for some chat-delivered notifications.
 Fire and forget is obviously easier, but even there we want to be sure that it was at least sent/written somehow.
