@@ -1,0 +1,353 @@
+= Kubernetes environment
+:page-nav-title: Kubernetes
+:toc:
+
+[NOTE]
+----
+*DRAFT* 
+
+The page is still in draft and the content is changing (mainly new information is being added).
+The information may change as at this moment it is description of different tests with several requirements and/or reasons.
+----
+
+== What it is about
+
+This page (or subtree of the documentation) will describe environment related to the clouds.
+As there may be differencies in configuration per specific environment, we will focus here on kubernetes.
+The information is applicable for cloud environments in general but small configuration changes based on specific cloud environemnt might be required.
+
+=== Images
+
+As we are working in cloud environment the image is the most important part of the solution ( next to the configuration ).
+All used images are available on public link:https://hub.docker.com/[Docker hub]:
+
+ * link:https://hub.docker.com/r/evolveum/midpoint[Midpoint] +
+When we talk about the midpoint located in the cloud, the image of midpoint is a mandatory requirement.
+ * link:https://hub.docker.com/_/postgres[Postgres] +
+The documentation will be mainly focused on native repository, which has postgres DB as a requirement so we can mention this image here.
+
+The information related to the docker image mentioned in other parts of the documentation is also valid for our purposes.
+
+== Type of the objects
+
+=== Namespace
+
+To have objects logically groupped the namespace can be used.
+The namespace has an impact on generated FQDNs or even permissions in the cloud environmetn in case they are utilized.
+
+.example of the *mp-demo* namespace definition
+[source,kubernetes]
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mp-demo
+spec:
+  finalizers:
+    - kubernetes 
+
+=== Pods
+
+Pods are running instances of the images.
+We will not manage them directly as they will be a result of the settings in other objects (like statefulSets).
+
+=== ConfigMaps
+
+The common configuration can be stored in ConfigMaps which can be used in the environment to the definition of the environment variables in the pods or it can be mounted to filesystem.
+From the point of view of the pods they are read only objects, what is good in many scenarios.
+In case we would need R/W objects, the configmaps are not the right objects to be used (in that case volume may be the option).
+
+.example of the DB init script, which downloads SQL scripts from the git
+[source,kubernetes]
+----
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mp-db-sql-script-map
+  namespace: mp-demo
+data:
+  sql-script.sh: >
+    #!/bin/bash
+
+    set -e
+
+    cd
+
+    wget -q
+    https://raw.githubusercontent.com/Evolveum/midpoint/master/config/sql/native-new/postgres-new.sql 
+
+    # without this export psql will prompt for the password
+
+    export PGPASSWORD=password
+
+    psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" -f
+    postgres-new.sql 
+
+    wget -q
+    https://raw.githubusercontent.com/Evolveum/midpoint/master/config/sql/native-new/postgres-new-quartz.sql  
+
+    psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" -f
+    postgres-new-quartz.sql 
+
+    wget -q
+    https://raw.githubusercontent.com/Evolveum/midpoint/master/config/sql/native-new/postgres-new-audit.sql 
+
+    psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" -f
+    postgres-new-audit.sql 
+
+----
+
+.example of the configmap containing the config.xml file (other way to store multiline value)
+[source,kubernetes]
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: configxml-map
+  namespace: mp-demo
+data:
+  config.xml: "<?xml version=\"1.0\"?>\r\n<!--\r\n  ~ Copyright (C) 2010-2021 Evolveum and contributors\r\n  ~\r\n  ~ This work is dual-licensed under the Apache License 2.0\r\n  ~ and European Union Public License. See LICENSE file for details.\r\n  -->\r\n<configuration>\r\n    <midpoint>\r\n        <webApplication>\r\n            <importFolder>${midpoint.home}/import</importFolder>\r\n        </webApplication>\r\n        <repository>\r\n            <type>sqale</type>\r\n        </repository>\r\n        <audit>\r\n            <auditService>\r\n                <auditServiceFactoryClass>com.evolveum.midpoint.audit.impl.LoggerAuditServiceFactory</auditServiceFactoryClass>\r\n            </auditService>\r\n            <auditService>\r\n                <!-- Use this instead of com.evolveum.midpoint.repo.sql.SqlAuditServiceFactory -->\r\n                <auditServiceFactoryClass>com.evolveum.midpoint.repo.sqale.audit.SqaleAuditServiceFactory</auditServiceFactoryClass>\r\n            </auditService>\r\n        </audit>\r\n        <icf>\r\n            <scanClasspath>true</scanClasspath>\r\n            <scanDirectory>${midpoint.home}/icf-connectors</scanDirectory>\r\n        </icf>\r\n        <keystore>\r\n            <keyStorePath>${midpoint.home}/keystore.jceks</keyStorePath>\r\n            <keyStorePassword>changeit</keyStorePassword>\r\n            <encryptionKeyAlias>default</encryptionKeyAlias>\r\n        </keystore>\r\n    </midpoint>\r\n</configuration>\r\n"
+
+
+=== Secrets
+
+For some purposes we need to store the sensitive information like passwords for the environment.
+In this case ConfigMaps is not the best object to choose.
+The secret object type is used for this purpose.
+The content is base64 encoded value.
+The short values can be directly shown (decoded) in the tools like link:https://k8slens.dev/[Lens].
+In principle, I can provide examples just with placeholder instead of the real values.
+
+.example of the secret object containing x509 certificate
+[source,kubernetes]
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cert-lab-evolveum
+  namespace: mp-demo
+data:
+  ca.crt: >-
+    <base encoded ca cert>
+  tls.crt: >-
+    <base encoded cert>
+  tls.key: >-
+    <base encoded key> 
+type: kubernetes.io/tls
+
+.example of the secret object containing the passwords
+[source,kubernetes]
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mp-secret
+  namespace: mp-demo
+data:
+  keystore: <base64 encoded password>
+  keystore.jceks: >-
+    <base64 encoded jceks keystore file>
+  ldap-password: <base64 encoded pw>
+  password: <base64 encoded pw>
+type: Opaque
+
+=== Services
+
+As the pods are in principle dynamic objects, the IPs are changing each time the pods are recreated.
+To have "stable" point for interaction between the pods, the services are defined.
+The service looks for the pods based on the label.
+The service itself has assigned IP.
+The traffic is "forwarded" to the pods relevant to the service based on the label selector.
+
+.example for the db service
+[source,kubernetes]
+apiVersion: v1
+kind: Service
+metadata:
+  name: mp-db-service
+  namespace: mp-demo
+spec:
+  ports:
+    - protocol: TCP
+      port: 5432
+      targetPort: 5432
+  selector:
+    app: mp-db
+  type: ClusterIP
+  sessionAffinity: None
+
+.example for the midpoint service
+[source,kubernetes]
+apiVersion: v1
+kind: Service
+metadata:
+  name: mp-service
+  namespace: mp-demo
+spec:
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+  selector:
+    app: mp
+  type: ClusterIP
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800
+
+=== Ingress
+
+To be able to reach the services from outside on shared ports (80,443) there is ingress in place.
+It utilizes SNI, which is nowaday automatically used so there is not additional requirement.
+We are defining the rules for the conditional traffic forwards to the specific service and port.
+
+.example of the ingress object definition (assumption: *lab.evolveum.com* domain)
+[source,kubernetes]
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mp-ingress
+  namespace: mp-demo
+spec:
+  tls:
+    - hosts:
+        - mp-demo.lab.evolveum.com
+      secretName: cert-lab-evolveum
+  rules:
+    - host: mp-demo.lab.evolveum.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mp-service
+                port:
+                  number: 8080
+
+=== StatefulSets
+
+This is the glue for all.
+This object defines the setting for the future pods and handle the amount of replicas.
+In case some pod will fail, the StatefulSet definition will handle the situation and recreate the new one.
+
+.example of the pod for DB definition
+[source,kubernetes]
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mp-db
+  namespace: mp-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mp-db
+  template:
+    metadata:
+      labels:
+        app: mp-db
+    spec:
+      volumes:
+        - name: sql-script
+          configMap:
+            name: mp-db-sql-script-map
+            defaultMode: 420
+      containers:
+        - name: mp-db
+          image: 'postgres:13-alpine'
+          ports:
+            - name: db
+              containerPort: 5432
+              protocol: TCP
+          env:
+            - name: POSTGRES_INITDB_ARGS
+              value: '--lc-collate=en_US.utf8 --lc-ctype=en_US.utf8'
+            - name: POSTGRES_USER
+              value: midpoint
+            - name: PGDATA
+              value: /var/lib/postgresql/data/db-files/
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mp-secret
+                  key: password
+          volumeMounts:
+            - name: sql-script
+              mountPath: /docker-entrypoint-initdb.d
+          imagePullPolicy: IfNotPresent
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 10
+  serviceName: mp-db-service
+
+.example of the midpoint statefulset
+[source,kubernetes]
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mp
+  namespace: mp-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mp
+  template:
+    metadata:
+      labels:
+        app: mp
+    spec:
+      volumes:
+        - name: mp-secret
+          secret:
+            secretName: mp-secret
+            defaultMode: 420
+        - name: configxml
+          configMap:
+            name: configxml-map
+            defaultMode: 420
+      containers:
+        - name: mp
+          image: 'evolveum/midpoint:4.4-alpine'
+          ports:
+            - name: gui
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: MP_ENTRY_POINT
+              value: /opt/midpoint-dirs-docker-entrypoint
+	    - name: MP_SET_midpoint_repository_jdbcUsername
+	      value: midpoint
+            - name: MP_SET_midpoint_repository_jdbcPassword_FILE
+              value: /opt/midpoint/config-secrets/password
+            - name: MP_SET_midpoint_repository_jdbcUrl
+              value: jdbc:postgresql://mp-db-service.mp-demo.svc.cluster.local:5432/midpoint
+            - name: MP_SET_midpoint_keystore_keyStorePassword_FILE
+              value: /opt/midpoint/config-secrets/keystore
+            - name: MP_UNSET_midpoint_repository_hibernateHbm2ddl
+              value: 1
+            - name: MP_NO_ENV_COMPAT
+              value: 1
+            - name: MP_MEM_MAX
+              value: 4096m
+            - name: MP_MEM_INIT
+              value: 2048m
+            - name: TZ
+              value: UTC
+            - name: MP_JAVA_OPTS
+              value: >-
+                -Dmidpoint.nodeIdSource=hostname
+                -Dmidpoint.taskManager.clustered=true
+                -Dmidpoint.keystore.keyStorePath=/opt/midpoint/config-secrets/keystore.jceks
+          volumeMounts:
+            - name: mp-secret
+              mountPath: /opt/midpoint/config-secrets
+            - name: configxml
+              mountPath: /opt/midpoint/var/config.xml
+              subPath: config.xml
+          imagePullPolicy: IfNotPresent
+  serviceName: mp-service
+
+== References 
+
+* xref:/midpoint/install/docker/native-demo.adoc[Native repository demo]
+* xref:/midpoint/install/midpoint-sh.adoc[start script]
+
+
