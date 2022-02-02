@@ -246,7 +246,7 @@ CREATE INDEX m_user_ext_hired2_idx ON m_user ((ext ->> 'hired')) WHERE ext ? 'hi
 -- DROP INDEX m_user_ext_hired2_idx;
 -- set jit=on; -- JIT can sometimes be slower when planner guesses wrong
 
--- see also https://www.postgresql.org/docs/13/functions-json.html some stuff is only for JSONB
+-- see also https://www.postgresql.org/docs/current/functions-json.html some stuff is only for JSONB
 EXPLAIN (ANALYZE, VERBOSE, BUFFERS)
 -- select count(*)
 select oid, nameNorm, ext
