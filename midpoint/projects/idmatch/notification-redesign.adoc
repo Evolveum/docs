@@ -4,17 +4,29 @@
 * Jira task: bug:MID-7484[]
 * Existing issues for Notification component: https://jira.evolveum.com/issues/?jql=project%20%3D%20MID%20AND%20component%20%3D%20Notifications[search]
 
-== High-level design notes
+== Current plan
 
-Currently, the *event* works only for *notification* mechanism - is this good?
-Event results in multiple messages (which is the actual notification).
-What if events are separate from notifications and notification mechanism is only one of possible consumers of the events?
+Most recently identified gaps are convenience related, how to manage the notifications easily
+without messing with XML configuration directly.
+To help with this, the plan is:
 
-There are other events, some perhaps too internal, but they could all be handled with the same
-top-level interface with possible specific event handler subclasses.
-Also, should be all event handlers synchronous?
-How would asynchronous play with our operation results?
-Perhaps the handlers should be fast and postpone longer actions later (e.g. sending an email).
+* Implement persistent message template objects.
+The template serves as a replacement for content-related configuration in the notifier
+where it can be referenced by OID.
+* Transport configuration will be pulled out of notification support to a separate `<messageTransportConfiguration>`
+(after `<notificationConfiguration>` element).
+* Transport instance can be referenced by a unique `name` (unique among transports).
+* Notification configuration changes are minimal:
+** Elements `forked` and `chained` are planned for deprecation and later removal.
+Forked is implicit behavior and chained setups can be often written more dierectly.
+** Elements for transports are deprecated and replaced by separate configuration mentioned above.
+Mostly they can be moved to that section, but `<name>` element must be added for each.
+** New `messageTemplateRef` is added to notifier configuration.
+** Currently, the transports for a notifier are enabled by mentioning them with `transport` element.
+The meaning will be slightly changed, as the content will now reference the name, but this may require no change at all.
+** To override notifier specific setup for a particular transport, new `transportConfig` element will be added.
+This must use explicit `name` subelement and other elements are allowed, at least `messageTemplateRef` should.
+Do we want all content and addressing elements available there?
 
 == Known current limitations
 
@@ -29,7 +41,7 @@ This makes in-app notifications and retrying notifications impossible.
 * Event - predefined types - do we need custom event types?
 ** What is relation to notification hooks?
 
-* Persistent notifications? YES.
+* Persistent notifications? Yes, eventually.
 ** This also allows aggregation/digests.
 ** When aggregated, should the new notification be created? (Probably yes, it still has lifecycle.)
 Also, can it replace previous notifications, or just somehow reference them.
@@ -39,6 +51,7 @@ It's simpler to have notification per recipient (state/delivery management).
 * Templates - now defined as bodyExpression (and other expressions) - how to structure it for various channels?
 ** Probably also separate from notification mechanism - perhaps `MessageTemplate`.
 ** Alternative - function library?
+It would be awkward to create GUI for it.
 ** IMPL IDEA: Let's start with `messageExpression` that returns `Message` (optionally with addressing info).
 *** This replaces existing content expresions (body, subject) and optionally recipient expressions too.
 *** Currently, expressions are evaluated per transport and transport can be used inside (conditions).
@@ -77,11 +90,12 @@ Example below shows:
 
 * Transport configuration separated from notifications.
 * How transports are declared and referenced in notifications (by name).
+* Address can be resolved from recipient with `recipientAddressExpression`, or directly specified as value.
 * New `messageExpression` that is used before other expressions to create the `Message` object,
 function library is used to obtain the message here.
 * Recipient can be a User object or a list of addresses.
 * UI notification works only when User object is known.
-* Address can be resolved from recipient with `recipientAddressExpression`, or directly specified as value.
+Recipient can be implicit depending on the notifier type.
 
 .SystemConfiguration object
 [source,xml]
@@ -89,23 +103,82 @@ function library is used to obtain the message here.
 <systemConfiguration>
     ...
     <!-- Proposed notification configuration, not conforming to 4.4 schema -->
-    <notificationConfiguration>
-        <handler>
-            <passwordResetNotifier>
-                <!-- Enables sms transport for this handler, even though not mentioned in defaultNotificationTransports below. -->
-                <transport>
-                    <name>sms</name>
-                    <!-- true by default, just declaring it overrides the false from lower sections -->
-                    <enabled>true</enabled>
-                </transport>
+    <notificationConfiguration> <!-- this is Container, but order of handlers inside does not matter -->
+        <!-- Implementation notes for chained/forked -->
+        <handler> <!-- EventHandlerType, TODO currently not containerable, do we want Containerable for GUI? -->
+            <name>just for inf</name>
+            <description>
+                Describing the messy configuration below, what filters how, motivation, etc.
+                Especially the motivation and goals.
+            </description>
+            <!--
+            Top level filters in handler directly - they work, but the handler is consulted for all
+            events, e.g. operations on non-interesting objects (like SysConfig for notifiers below).
+            -->
+            <category>modelEvent</category>
+            <status>alsoSuccess</status>
+            <!--
+            TODO Unrealistic example of forked and chained elements (hardly used together).
+             This shows that each notifier is inside the separate forked/chained element.
+            -->
+            <forked> <!-- EventHandlerType -->
+                <passwordResetNotifier></passwordResetNotifier>
+            </forked>
+            <forked>
+                <userPasswordNotifier></userPasswordNotifier>
+            </forked>
+            <!-- TODO: In container we will need explicit <order> element. -->
+            <chained> <!-- EventHandlerType -->
+                <userPasswordNotifier></userPasswordNotifier>
+            </chained>
+            <chained>
+                <userRegistrationNotifier></userRegistrationNotifier>
+            </chained>
+
+            <!--
+            Unclear whether this is forked or chained, it is executed by AggregatedEventHandler#processEvent,
+            so it seems like chained, but AbstractGeneralNotifier#processEvent returns true (for common notifiers like those below). -->
+            <passwordResetNotifier> <!-- PasswordResetNotifierType extending from EventHandlerType -->
                 <!--
-                TODO: What does it mean for other transports? Are they still enabled as declared in defaults?
-                 Or mentioning any <transport> element disables the defaults lower?
-                 Woudn't explicit <disableDefaultTransports> (false by default) be better for this?
+                Even for simple notifiers the filters are processed by aggregatedEventHandler.processEvent
+                called from AbstractGeneralNotifier#processEvent.
                 -->
-                <disableDefaultTransports>true</disableDefaultTransports>
+                <filterExpression>...</filterExpression>
+                <!--
+                What if the filters are only on <handler> element? This seems to be cleaner, but also means
+                that these filters are consulted for all events - while concrete notifier uses "quick check" first.
+                Also, many filters (e.g. operation) has more semantic meaning inside the notifier.
+                -->
             </passwordResetNotifier>
+            <!-- more concrete handlers -->
+            <userPasswordNotifier>
+                <!-- What does this mean? Should not we disallow nesting? -->
+                <passwordResetNotifier></passwordResetNotifier>
+            </userPasswordNotifier>
         </handler>
+        <!-- Probably a bug - delete also sends the notification: -->
+        <handler>
+            <description>filter on handler directly works fine</description>
+            <chained>
+                <operation>add</operation>
+                <simpleUserNotifier>
+                    <recipientExpression>
+                        <value>first@evolveum.com</value>
+                    </recipientExpression>
+                    <transport>mail</transport>
+                </simpleUserNotifier>
+            </chained>
+            <chained>
+                <simpleUserNotifier>
+                    <operation>delete</operation>
+                    <recipientExpression>
+                        <value>second@evolveum.com</value>
+                    </recipientExpression>
+                    <transport>mail</transport>
+                </simpleUserNotifier>
+            </chained>
+        </handler>
+
         <handler>
             <!-- Handler using messageExpression to call function library, returns Message -->
             <simpleUserNotifier>
@@ -124,7 +197,8 @@ function library is used to obtain the message here.
                         </parameter>
                     </function>
                 </messageExpression>
-                <transport>
+                <!-- This implies <transport>bar</transport> -->
+                <transportConfig>
                     <name>bar</name>
                     <!-- Using different message function for bar transport. -->
                     <messageExpression>
@@ -134,7 +208,8 @@ function library is used to obtain the message here.
                             <!-- params, etc. -->
                         </function>
                     </messageExpression>
-                </transport>
+                    <!-- Things like logToFile overrides are probably overkill here. -->
+                </transportConfig>
             </simpleUserNotifier>
         </handler>
         <handler>
@@ -151,36 +226,32 @@ function library is used to obtain the message here.
             Multiple recipients means multiple notifications - but would they have the same text?
             -->
             <simpleWorkflowNotifier>
-                <!-- Previously "expressionFilter", but everything else is *Expression as well. -->
+                <!--
+                Currenlty "expressionFilter", but everything else is *Expression as well.
+                NOT changing this right now, unless supporting both (but only one of them used at the same time).
+                -->
                 <filterExpression>
                     <script>
                         <code>event.requesteeIsUser()</code>
                     </script>
                 </filterExpression>
-                <!-- Is there a good default for this? -->
+                <!-- Is there a good default for this? Can this return UserType as well? -->
                 <recipientExpression>
                     <script>
                         <code>requestee</code>
                     </script>
                 </recipientExpression>
 
-                <!--
-                OVERRIDE EXAMPLE:
-                Is it good/useful to be able to override here the default address extractor
-                used in the transport? -->
+                <!-- Template by reference -->
+                <messageTemplateRef .../>
+
+                <!-- Probably overkill, just return the address directly in recipientExpression.
+                Here the recipient is the requestee from above. Confusing?
                 <recipientAddressExpression>
-                    <!-- Here it's recipient, which is the requestee from above. Confusing? -->
                     <script><code>basic.getExtensionPropertyValue(recipient, 'otherEmail')</code></script>
                 </recipientAddressExpression>
-                <!-- You can skip this, if you want all defaultNotificationTransports (below) to be used.-->
-                <transport>
-                    <name>mail</name>
-                    <!-- More specific possiblity to override recipientAddressExpression here? -->
-                </transport>
-                <transport>
-                    <name>bar</name>
-                    <enabled>false</enabled> <!-- true by default, of course -->
-                </transport>
+                -->
+                <transport>mail</transport>
             </simpleWorkflowNotifier>
         </handler>
         <!--
@@ -251,6 +322,40 @@ function library is used to obtain the message here.
         </sms>
     </messageTransportConfiguration>
 </systemConfiguration>
+----
+
+Example of typically used `chained` from `midpoint` tests (there is no forked/chained in our samples):
+
+[source,xml]
+----
+<handler>
+    <chained>
+        <operation>delete</operation>
+    </chained>
+    <chained>
+        <simpleUserNotifier>
+            <recipientExpression>
+                <value>recipient@evolveum.com</value>
+            </recipientExpression>
+            <transport>dummy:simpleUserNotifier-DELETE</transport>
+        </simpleUserNotifier>
+    </chained>
+</handler>
+----
+
+But this can be expressed by inlining the filter into the notifier itself:
+
+[source,xml]
+----
+<handler>
+    <simpleUserNotifier>
+        <operation>delete</operation>
+        <recipientExpression>
+            <value>recipient@evolveum.com</value>
+        </recipientExpression>
+        <transport>dummy:simpleUserNotifier-DELETE</transport>
+    </simpleUserNotifier>
+</handler>
 ----
 
 == Open questions
@@ -403,3 +508,15 @@ xref:/midpoint/reference/misc/bulk/actions/[in experimental version for 4.2]
 * xref:/midpoint/devel/testing/test-scenarios/#notifications[Test Scenarios] for notifications (are they up to date?)
 
 Change notifications mentioned in the provisioning context are mostly irrelevant to these Notifications.
+
+== High-level design notes for the future
+
+Currently, the *event* works only for *notification* mechanism - is this good?
+Event results in multiple messages (which is the actual notification).
+What if events are separate from notifications and notification mechanism is only one of possible consumers of the events?
+
+There are other events, some perhaps too internal, but they could all be handled with the same
+top-level interface with possible specific event handler subclasses.
+Also, should be all event handlers synchronous?
+How would asynchronous play with our operation results?
+Perhaps the handlers should be fast and postpone longer actions later (e.g. sending an email).
