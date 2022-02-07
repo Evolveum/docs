@@ -1,13 +1,13 @@
 = Kubernetes environment
 :page-nav-title: Kubernetes
 :toc:
+:toclevels: 4
 
 [NOTE]
 ----
 *DRAFT* 
 
 The page is still in draft and the content is changing (mainly new information is being added).
-The information may change as at this moment it is description of different tests with several requirements and/or reasons.
 ----
 
 == What it is about
@@ -21,19 +21,596 @@ The information is applicable for cloud environments in general but small config
 As we are working in cloud environment the image is the most important part of the solution ( next to the configuration ).
 All used images are available on public link:https://hub.docker.com/[Docker hub]:
 
- * link:https://hub.docker.com/r/evolveum/midpoint[Midpoint] +
+* link:https://hub.docker.com/r/evolveum/midpoint[Midpoint] +
 When we talk about the midpoint located in the cloud, the image of midpoint is a mandatory requirement.
- * link:https://hub.docker.com/_/postgres[Postgres] +
+* link:https://hub.docker.com/_/postgres[Postgres] +
 The documentation will be mainly focused on native repository, which has postgres DB as a requirement so we can mention this image here.
 
 The information related to the docker image mentioned in other parts of the documentation is also valid for our purposes.
 
-== Type of the objects
+== Type of instance
+
+There can be identify several "type" of the instances / deployments.
+Depends on the complexity (e.g. single node vs. clustered nodes) or configuration (e.g. native vs. Generic repository).
+
+[NOTE]
+To make the objects lgically grouped we are using <<Namespace>> mp-demo.
+Namespace object type is mentioned <<Namespace,later>> in the document.
+
+=== Single node - by the repository
+
+Since Midpoint 4.4 there are two definition for the repository (where the data for the midpoint application are stored).
+
+- xref:/midpoint/reference/repository/generic/[Generic] (deprecated since 4.4)
+- xref:/midpoint/reference/repository/native-postgresql/[Native]
+
+==== Generic
+
+[NOTE]
+Even the generic repository is deprecated it is so far still available and in some "lab" usecases may be useful.
+
+The performance is lower in comparison with Native repository but the structure is created automatically once the connection to the databse is ready or H2 DB file is created.
+
+This option is mentioned here to have complete information at one place but we are not recommend this for the production environment or (serious) test environment.
+
+===== Quick start - H2
+
+This example will start midpoint with default environment variables.
+This is "kubernetes alternative" to run docker image directly with xref:/midpoint/install/docker/[docker].
+
+.Example to "just run" with defaults
+[source,kubernetes]
+apiVersion: v1
+kind: Pod
+metadata:
+  name: mp-h2-demo
+  namespace: mp-demo
+  labels:
+    app: mp-h2-demo
+spec:
+  containers:
+    - name: mp-h2-demo
+      image: 'evolveum/midpoint:4.4-alpine'
+      ports:
+        - name: gui
+          containerPort: 8080
+          protocol: TCP
+      imagePullPolicy: IfNotPresent
+  restartPolicy: Always
+
+The result will be midpoint running on Generic repository located in H2 DB file.
+We are not handling config.xml file so the default one will be used.
+There will be no shared secrects as it is not needed (e.g. needed in case of connection to the database).
+The keystore will be generated with the start of the system so in principle (without extra steps) it is not possible to run it with more nodes (clustered).
+From Midpoint point of view I would label this option as "hello world" - it is just up and running.
+
+Before we will add next "layer" to the configuration I would re-declare it as statefulset (object which "control" pods).
+
+.StatefulSet form  for "just run" with defaults
+[source,kubernetes]
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mp-h2-demo
+  namespace: mp-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mp-h2-demo
+  template:
+    metadata:
+      labels:
+        app: mp-h2-demo
+    spec:
+      containers:
+        - name: mp-h2-demo
+          image: 'evolveum/midpoint:4.4-alpine'
+          ports:
+            - name: gui
+              containerPort: 8080
+              protocol: TCP
+          imagePullPolicy: IfNotPresent
+  serviceName: mp-h2-demo
+
+Even we can see "replicas: 1" it is practically fixed value.
+Don't try to increase this number (start cluster) as in this configuration it will not work.
+Cluster configuration will be shown later in the document.
+
+It could be also noted that in this configuration the service is available only internally in the Kubernetes environment.
+Teoretically it can be routed but in principle IPs will be dynamic and it will change with every pod re-create.
+In case you would like to make it "reachable" (the same IP, the same FQDN) please think about using <<Services>> and <<Ingress>> (of course with proper names and selectors).
+
+===== Quick start - postgresql
+
+Now we will add complexity in form of postgresql "store" for the midpoint objects.
+So far we are still using deprecated generic repository to understand it and get it up and running in step-by-step approach.
+The benefit now is auto-create of the database structure - we don't need to handle explicit db init.
+
+We will need postgresql instance.
+It make sense to use persistent volume for data store.
+
+[CAUTION]
+Without defining persistent store the data is located on the "shared" volume which is used by node itself.
+In case of bigger amount of data and not so big storage for the node itself (e.g. local kubernetes cluster) the free space exhausting may occur.
+
+At this moment we will define the postgresql without persistent volume to keep configuration in necessary minimum for easier understanding.
+
+It has been already mentioned that IP adresses are dynamic.
+Now we will create two pods - one for the midpoint and one for the postgresql.
+To be able to predict interconnection we will define service for the database.
+The connection will be realized via FQDN for the service.
+The proper "linking" will be handle by the *selector* pointing to propper label.
+
+.postresql db definition
+[source,kubernetes]
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mp-demo-db
+  namespace: mp-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mp-demo-db
+  template:
+    metadata:
+      labels:
+        app: mp-demo-db
+    spec:
+      containers:
+        - name: mp-demo-db
+          image: 'postgres:13-alpine'
+          ports:
+            - name: db
+              containerPort: 5432
+              protocol: TCP
+          env:
+            - name: POSTGRES_INITDB_ARGS
+              value: '--lc-collate=en_US.utf8 --lc-ctype=en_US.utf8'
+            - name: POSTGRES_USER
+              value: midpoint
+            - name: POSTGRES_PASSWORD
+              value: SuperSecretPassword007
+          imagePullPolicy: IfNotPresent
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 10
+  serviceName: mp-demo-db
+
+[NOTE]
+You can see necessary init value for the authentication: +
+*PGUSER:* midpoint +
+*PGPASSWD:* SuperSecretPassword007 +
+Feel free to change it but keep it consistent with following midpoint definition.
+Otherwise the connection will not be established.
+
+.service definition for the db ("meeting point" for the communication between midpoint and db)
+[source,kubernetes]
+apiVersion: v1
+kind: Service
+metadata:
+  name: mp-demo-db
+  namespace: mp-demo
+spec:
+  ports:
+    - protocol: TCP
+      port: 5432
+      targetPort: 5432
+  selector:
+    app: mp-demo-db
+  type: ClusterIP
+  sessionAffinity: None
+
+[NOTE]
+The name is important for the FQDN construction.
+In this documentation we will use default kubernetes domain - FQDN will be *<service_name>.<namespace>.svc.cluster.local*.
+This domain may differ based on the environment setting.
+
+.modpoint with repository located in the postgresql
+[source,kubernetes]
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mp-pg-demo
+  namespace: mp-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mp-pg-demo
+  template:
+    metadata:
+      labels:
+        app: mp-pg-demo
+    spec:
+      containers:
+        - name: mp-pg-demo
+          image: 'evolveum/midpoint:4.4-alpine'
+          ports:
+            - name: gui
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: MP_SET_midpoint_repository_database
+              value: postgresql
+            - name: MP_SET_midpoint_repository_jdbcUsername
+              value: midpoint
+            - name: MP_SET_midpoint_repository_jdbcPassword
+              value: SuperSecretPassword007
+            - name: MP_SET_midpoint_repository_jdbcUrl
+              value: jdbc:postgresql://mp-demo-db.mp-demo.svc.cluster.local:5432/midpoint
+          imagePullPolicy: IfNotPresent
+  serviceName: mp-pg-demo
+
+As far as we are using generic repository we can use "default" config.xml file.
+All the changes can be overwritten during the start.
+This is realized by the *MP_SET_** values which are handled by the xref:midpoint/install/midpoint-sh/[start script].
+The name and content for the variables are related to the xref:midpoint/reference/repository/configuration/[repository configuration].
+
+==== Native
+
+xref:/midpoint/reference/repository/native-postgresql/[Native] repository came with midpoint 4.4.
+For the purpose of deployment there is few specifics:
+
+* DB related:
+** it can be operated only on postgresql (postgresql's features has been utilizied during the design)
+** the structure of the DB has to be initiated explicitly - midpoint expects already existing structure
+* midpoint related:
+** config.xml file has to be used
+
+Postgresql should not be an issue as we will used official postgresql image.
+The tricky part will be related to the second point - init the db structure.
+Good for us is that all we need is already packed in the midpoint image.
+
+===== The DB init
+
+We will need just use what we have.
+To realize it we will need to utilize init container in the kubernetes.
+It is container (may be even more but in paralel not in sequence) which is run before main container.
+The image for init container and container may differ.
+To reach the requirement we will need "shared" volume between the conatiners in the pod.
+It can be persistent volume but for now we will use emptyDir volume.
+For serious deployment (even for the test) the persistent volime is good idea.
+We will use midpoint image as init container and postgres image for "regular" container.
+
+[source,kubernetes]
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mp-demo-db
+  namespace: mp-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mp-demo-db
+  template:
+    metadata:
+      labels:
+        app: mp-demo-db
+    spec:
+      volumes:
+	- name: init-db
+	  emptyDir: {}
+      initContainers:
+        - name: mp-db-init
+          image: 'evolveum/midpoint:4.4-alpine'
+          command: ["/bin/bash","/opt/midpoint/bin/midpoint.sh","init-native"]
+          env:
+            - name: MP_INIT_DB_CONCAT
+              value: /opt/db-init/010-init.sql
+          volumeMounts:
+            - name: init-db
+              mountPath: /opt/db-init
+          imagePullPolicy: IfNotPresent
+      containers:
+        - name: mp-demo-db
+          image: 'postgres:13-alpine'
+          ports:
+            - name: db
+              containerPort: 5432
+              protocol: TCP
+          env:
+            - name: POSTGRES_INITDB_ARGS
+              value: '--lc-collate=en_US.utf8 --lc-ctype=en_US.utf8'
+            - name: POSTGRES_USER
+              value: midpoint
+            - name: POSTGRES_PASSWORD
+              value: SuperSecretPassword007
+          volumeMounts:
+            - name: init-db
+              mountPath: /docker-entrypoint-initdb.d/
+          imagePullPolicy: IfNotPresent
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 10
+  serviceName: mp-demo-db-service
+
+[NOTE]
+The preparation of init-db volume will happen with all the restarts of the DB's pod.
+The init process of the DB will be done only once - only in case the db data is not found.
+The image version (tag) have to be the same for init container of the DB and for the midpoint itself.
+This way the initialized structure will correspond with the version of midpoint you are deploying.
+
+It is possible to utilize *Secret* objects to store the password instead of keeping it in the configuration of the *StatefulSets* directly.
+
+Once utilizing *Secrets* you can choice between more approaches.
+
+* _mount the value as a file to pod's filesystem_ +
+The mounting of the value as a file is the same like in case of config map.
+The example is shown further in the document.
+* pointing to the value
+
+To point the value you can replace the definition:
+
+.password stored directly in the object definition
+[source,kubernetes]
+...
+          env:
+            - name: POSTGRES_PASSWORD
+              value: SuperSecretPassword007
+...
+
+with the following definition:
+
+.password linked to the secret object from the object definition
+[source,kubernetes]
+...
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mp-demo
+                  key: password
+...
+
+[NOTE]
+This example expect to have the secret object with the name *mp-demo* in the same namespace as object where it is used (*mp-demo*).
+The value which will be used is content of the key *password* located in the secret object.
+
+===== DB Service definition
+
+We will need to have the service definition so we can target the DB in midpoint configuration.
+Without the service we are not able to predict "meeting point" in case of IP.
+In some specific cases we can predict FQDN of the pod but using Service for this purpose is more than good idea.
+It is even recommended approach - search for kubernetes related resources for more information if needed.
+
+.service definition for the db ("meeting point" for the communication between midpoint and db)
+[source,kubernetes]
+apiVersion: v1
+kind: Service
+metadata:
+  name: mp-demo-db
+  namespace: mp-demo
+spec:
+  ports:
+    - protocol: TCP
+      port: 5432
+      targetPort: 5432
+  selector:
+    app: mp-demo-db
+  type: ClusterIP
+  sessionAffinity: None
+
+===== Midpoint
+
+To start midpoint with the native repository the "custom" config.xml file has to be used.
+There is audit related configuration which differs from "default" config.xml and it can't be overwritten by the MP_SET_* variables.
+The sample config.xml for native repository is also delivered with midpoint image.
+With this sample config.xml we have all we need to be able to set all the rest values using MP_SET_* variables.
+
+We will use init container the similar way like in case of DB init.
+In this case both init container and container will use the same image.
+
+For this documentation purpose we will use the "emptyDir" definition for the volume.
+This volume will be used for /opt/midpoint/var folder.
+Based on your deployment specifics you may think about proper volume type. 
+
+.modpoint with native repository located in the postgresql
+[source,kubernetes]
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mp-pg-demo
+  namespace: mp-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mp-pg-demo
+  template:
+    metadata:
+      labels:
+        app: mp-pg-demo
+    spec:
+      volumes:
+        - name: mp-home
+          emptyDir: {}
+      initContainers:
+        - name: mp-config-init
+          image: 'evolveum/midpoint:4.4-alpine'
+          command: ["/bin/bash","/opt/midpoint/bin/midpoint.sh","init-native"]
+          env:
+            - name: MP_INIT_CFG
+              value: /opt/mp-home
+          volumeMounts:
+            - name: mp-home
+              mountPath: /opt/mp-home
+          imagePullPolicy: IfNotPresent
+      containers:
+        - name: mp-pg-demo
+          image: 'evolveum/midpoint:4.4-alpine'
+          ports:
+            - name: gui
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: MP_SET_midpoint_repository_database
+              value: postgresql
+            - name: MP_SET_midpoint_repository_jdbcUsername
+              value: midpoint
+            - name: MP_SET_midpoint_repository_jdbcPassword
+              value: SuperSecretPassword007
+            - name: MP_SET_midpoint_repository_jdbcUrl
+              value: jdbc:postgresql://mp-demo-db.mp-demo.svc.cluster.local:5432/midpoint
+            - name: MP_UNSET_midpoint_repository_hibernateHbm2ddl
+              value: "1"
+            - name: MP_NO_ENV_COMPAT
+              value: "1"
+          volumeMounts:
+            - name: mp-home
+              mountPath: /opt/midpoint/var
+          imagePullPolicy: IfNotPresent
+  serviceName: mp-pg-demo
+
+
+Once you pass the passwords (e.g. for keystore or database) as MP_SET_* parameter it is visible in "About" as text under "JVM properties".
+The more secure option may be use password_FILE instead of password value.
+
+The handling the secret and configMap objects are very similar.
+To save some sample config iteration we can direclty show also the post-initial-import.
+For this purpose xref:/midpoint/install/midpoint-sh/[Star script] offer entry point feature.
+To use it the parameter *MP_ENTRY_POINT* can be set.
+In the following example there are 2 XML files defined in mp-demo-poi configMap.
+
+.modpoint with DB auth password in the file
+[source,kubernetes]
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mp-pg-demo
+  namespace: mp-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mp-pg-demo
+  template:
+    metadata:
+      labels:
+        app: mp-pg-demo
+    spec:
+      volumes:
+        - name: mp-home
+          emptyDir: {}
+        - name: db-pass
+          secret:
+            secretName: mp-demo
+            defaultMode: 420
+        - name: mp-poi
+          configMap:
+            name: mp-demo-poi
+            defaultMode: 420
+      initContainers:
+        - name: mp-config-init
+          image: 'evolveum/midpoint:4.4-alpine'
+          command: ["/bin/bash","/opt/midpoint/bin/midpoint.sh","init-native"]
+          env:
+            - name: MP_INIT_CFG
+              value: /opt/mp-home
+          volumeMounts:
+            - name: mp-home
+              mountPath: /opt/mp-home
+          imagePullPolicy: IfNotPresent
+      containers:
+        - name: mp-pg-demo
+          image: 'evolveum/midpoint:4.4-alpine'
+          ports:
+            - name: gui
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: MP_ENTRY_POINT
+              value: /opt/midpoint-dirs-docker-entrypoint
+            - name: MP_SET_midpoint_repository_database
+              value: postgresql
+            - name: MP_SET_midpoint_repository_jdbcUsername
+              value: midpoint
+            - name: MP_SET_midpoint_repository_jdbcPassword_FILE
+              value: /opt/midpoint/config-secrets/password
+            - name: MP_SET_midpoint_repository_jdbcUrl
+              value: jdbc:postgresql://mp-demo-db.mp-demo.svc.cluster.local:5432/midpoint
+            - name: MP_UNSET_midpoint_repository_hibernateHbm2ddl
+              value: "1"
+            - name: MP_NO_ENV_COMPAT
+              value: "1"
+          volumeMounts:
+            - name: mp-home
+              mountPath: /opt/midpoint/var
+            - name: db-pass
+              mountPath: /opt/midpoint/config-secrets
+            - name: mp-poi
+              mountPath: /opt/midpoint-dirs-docker-entrypoint/post-initial-objects
+          imagePullPolicy: IfNotPresent
+  serviceName: mp-pg-demo
+
+[CAUTION]
+In the example the midpoint deployment is not using persistent volumes.
+Once only midpoint is restarted (DB is kept running) the new midpoint pod is regenerating keystore.
+The result is that the midpoint lost the keys to decrypt encrypted values in DB and it is not possible even to login as administrator.
+In case it is just testing environment you have to recreate both DB and midpoint or utilize persistent volume.
+Alternative approach is handled in "requirements" to run clustered midpoint - keystore.
+
+=== Cluster - 1+ node(s)
+
+There are few things which has to be handled to be able to operate midpoint in cluster - more cooperating nodes.
+
+* taskManager
+* keystore
+
+==== Task Manager
+
+Midpoint's task manager has to be run clustered.
+This setting has to be added to all nodes.
+
+[source,kubernetes]
+...
+          env:
+            - name: MP_SET_midpoint_taskManager_clustered
+              value: true
+...
+
+==== keystore
+
+Keystore is generated with the start in case it is not available.
+The result is that each node would generate "own" key in the keystore and the object will be readable only by the node which has created it.
+To address this "issue" we have to prepare the keystore to be available to each node once it is starting.
+
+* share the file
+
+** network share +
+Kubernetes natively offer mount NFS store as volume to pod.
+We can share the space and first node will generate it.
+All other node or even this node after restat / recreate will use the file so the key for decription will be available.
+Using persistent volume for NFS server is good idea.
++
+The issue may happen once two pods would starts in parallel and both would want to generate it.
+
+** volume share +
+Not all the drivers offer concurent write access to the volume.
+This option not necessary have to be available in general.
+
+* pre-generate the file into secret object and share it with all the pods as mounted volume +
+For the testing purpose this approach offer sharing the keystore even between the whole env deployment.
++
+.generate new keystore (AES_128)
+[source,bash]
+keytool -genseckey -alias default -keystore keystore.jceks -storetype jceks -keyalg AES -keysize 128
+
+To Be Continue ...
+
+[IMPORTANT]
+This part of documentation is not complete.
+It will be finished soon.
+
+Once all the "cluster requirements" is met you can increase amount of replicas in statefulset definition for midpoint.
+
+== Type of the used objects
 
 === Namespace
 
 To have objects logically groupped the namespace can be used.
-The namespace has an impact on generated FQDNs or even permissions in the cloud environmetn in case they are utilized.
+The namespace has an impact on generated FQDNs or even permissions in the cloud environment in case they are utilized.
 
 .example of the *mp-demo* namespace definition
 [source,kubernetes]
@@ -56,56 +633,24 @@ The common configuration can be stored in ConfigMaps which can be used in the en
 From the point of view of the pods they are read only objects, what is good in many scenarios.
 In case we would need R/W objects, the configmaps are not the right objects to be used (in that case volume may be the option).
 
-.example of the DB init script, which downloads SQL scripts from the git
-[source,kubernetes]
-----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: mp-db-sql-script-map
-  namespace: mp-demo
-data:
-  sql-script.sh: >
-    #!/bin/bash
-
-    set -e
-
-    cd
-
-    wget -q
-    https://raw.githubusercontent.com/Evolveum/midpoint/master/config/sql/native-new/postgres-new.sql 
-
-    # without this export psql will prompt for the password
-
-    export PGPASSWORD=password
-
-    psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" -f
-    postgres-new.sql 
-
-    wget -q
-    https://raw.githubusercontent.com/Evolveum/midpoint/master/config/sql/native-new/postgres-new-quartz.sql  
-
-    psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" -f
-    postgres-new-quartz.sql 
-
-    wget -q
-    https://raw.githubusercontent.com/Evolveum/midpoint/master/config/sql/native-new/postgres-new-audit.sql 
-
-    psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" -f
-    postgres-new-audit.sql 
-
-----
-
-.example of the configmap containing the config.xml file (other way to store multiline value)
+.example of the post-initial-objects - new user
 [source,kubernetes]
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: configxml-map
+  name: mp-demo-poi
   namespace: mp-demo
 data:
-  config.xml: "<?xml version=\"1.0\"?>\r\n<!--\r\n  ~ Copyright (C) 2010-2021 Evolveum and contributors\r\n  ~\r\n  ~ This work is dual-licensed under the Apache License 2.0\r\n  ~ and European Union Public License. See LICENSE file for details.\r\n  -->\r\n<configuration>\r\n    <midpoint>\r\n        <webApplication>\r\n            <importFolder>${midpoint.home}/import</importFolder>\r\n        </webApplication>\r\n        <repository>\r\n            <type>sqale</type>\r\n        </repository>\r\n        <audit>\r\n            <auditService>\r\n                <auditServiceFactoryClass>com.evolveum.midpoint.audit.impl.LoggerAuditServiceFactory</auditServiceFactoryClass>\r\n            </auditService>\r\n            <auditService>\r\n                <!-- Use this instead of com.evolveum.midpoint.repo.sql.SqlAuditServiceFactory -->\r\n                <auditServiceFactoryClass>com.evolveum.midpoint.repo.sqale.audit.SqaleAuditServiceFactory</auditServiceFactoryClass>\r\n            </auditService>\r\n        </audit>\r\n        <icf>\r\n            <scanClasspath>true</scanClasspath>\r\n            <scanDirectory>${midpoint.home}/icf-connectors</scanDirectory>\r\n        </icf>\r\n        <keystore>\r\n            <keyStorePath>${midpoint.home}/keystore.jceks</keyStorePath>\r\n            <keyStorePassword>changeit</keyStorePassword>\r\n            <encryptionKeyAlias>default</encryptionKeyAlias>\r\n        </keystore>\r\n    </midpoint>\r\n</configuration>\r\n"
-
+  test-user.xml: >
+    <?xml version="1.0" encoding="UTF-8"?>
+    <user>
+      <name>test</name>
+    </user>
+  test2-user.xml: >
+    <?xml version="1.0" encoding="UTF-8"?>
+    <user>
+      <name>test2</name>
+    </user>
 
 === Secrets
 
@@ -137,15 +682,16 @@ type: kubernetes.io/tls
 apiVersion: v1
 kind: Secret
 metadata:
-  name: mp-secret
+  name: mp-demo
   namespace: mp-demo
 data:
-  keystore: <base64 encoded password>
-  keystore.jceks: >-
-    <base64 encoded jceks keystore file>
-  ldap-password: <base64 encoded pw>
-  password: <base64 encoded pw>
+  password: U3VwZXJTZWNyZXRQYXNzd29yZDAwNw==
 type: Opaque
+
+[NOTE]
+In the secret object the values are provided as base64 encoded content.
+For our example we have following values: +
+SuperSecretPassword007 => U3VwZXJTZWNyZXRQYXNzd29yZDAwNw==
 
 === Services
 
@@ -155,37 +701,26 @@ The service looks for the pods based on the label.
 The service itself has assigned IP.
 The traffic is "forwarded" to the pods relevant to the service based on the label selector.
 
-.example for the db service
-[source,kubernetes]
-apiVersion: v1
-kind: Service
-metadata:
-  name: mp-db-service
-  namespace: mp-demo
-spec:
-  ports:
-    - protocol: TCP
-      port: 5432
-      targetPort: 5432
-  selector:
-    app: mp-db
-  type: ClusterIP
-  sessionAffinity: None
+One example has been already provided related to the deployment with postgresql DB.
+Other example may be for the midpoint itself.
+Here is example ready for the cluster environment.
+The difference is in Session Affinity setting.
 
-.example for the midpoint service
+.example for the midpoint service (cluster ready)
 [source,kubernetes]
 apiVersion: v1
 kind: Service
 metadata:
-  name: mp-service
+  name: mp-pg-demo
   namespace: mp-demo
 spec:
   ports:
-    - protocol: TCP
+    - name: gui
+      protocol: TCP
       port: 8080
       targetPort: 8080
   selector:
-    app: mp
+    app: mp-pg-demo
   type: ClusterIP
   sessionAffinity: ClientIP
   sessionAffinityConfig:
@@ -203,22 +738,22 @@ We are defining the rules for the conditional traffic forwards to the specific s
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: mp-ingress
+  name: mp-pg-demo
   namespace: mp-demo
 spec:
   tls:
     - hosts:
-        - mp-demo.lab.evolveum.com
+        - mp-pg-demo.lab.evolveum.com
       secretName: cert-lab-evolveum
   rules:
-    - host: mp-demo.lab.evolveum.com
+    - host: mp-pg-demo.lab.evolveum.com
       http:
         paths:
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: mp-service
+                name: mp-pg-demo
                 port:
                   number: 8080
 
@@ -227,123 +762,6 @@ spec:
 This is the glue for all.
 This object defines the setting for the future pods and handle the amount of replicas.
 In case some pod will fail, the StatefulSet definition will handle the situation and recreate the new one.
-
-.example of the pod for DB definition
-[source,kubernetes]
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: mp-db
-  namespace: mp-demo
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: mp-db
-  template:
-    metadata:
-      labels:
-        app: mp-db
-    spec:
-      volumes:
-        - name: sql-script
-          configMap:
-            name: mp-db-sql-script-map
-            defaultMode: 420
-      containers:
-        - name: mp-db
-          image: 'postgres:13-alpine'
-          ports:
-            - name: db
-              containerPort: 5432
-              protocol: TCP
-          env:
-            - name: POSTGRES_INITDB_ARGS
-              value: '--lc-collate=en_US.utf8 --lc-ctype=en_US.utf8'
-            - name: POSTGRES_USER
-              value: midpoint
-            - name: PGDATA
-              value: /var/lib/postgresql/data/db-files/
-            - name: POSTGRES_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: mp-secret
-                  key: password
-          volumeMounts:
-            - name: sql-script
-              mountPath: /docker-entrypoint-initdb.d
-          imagePullPolicy: IfNotPresent
-      restartPolicy: Always
-      terminationGracePeriodSeconds: 10
-  serviceName: mp-db-service
-
-.example of the midpoint statefulset
-[source,kubernetes]
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: mp
-  namespace: mp-demo
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: mp
-  template:
-    metadata:
-      labels:
-        app: mp
-    spec:
-      volumes:
-        - name: mp-secret
-          secret:
-            secretName: mp-secret
-            defaultMode: 420
-        - name: configxml
-          configMap:
-            name: configxml-map
-            defaultMode: 420
-      containers:
-        - name: mp
-          image: 'evolveum/midpoint:4.4-alpine'
-          ports:
-            - name: gui
-              containerPort: 8080
-              protocol: TCP
-          env:
-            - name: MP_ENTRY_POINT
-              value: /opt/midpoint-dirs-docker-entrypoint
-	    - name: MP_SET_midpoint_repository_jdbcUsername
-	      value: midpoint
-            - name: MP_SET_midpoint_repository_jdbcPassword_FILE
-              value: /opt/midpoint/config-secrets/password
-            - name: MP_SET_midpoint_repository_jdbcUrl
-              value: jdbc:postgresql://mp-db-service.mp-demo.svc.cluster.local:5432/midpoint
-            - name: MP_SET_midpoint_keystore_keyStorePassword_FILE
-              value: /opt/midpoint/config-secrets/keystore
-            - name: MP_UNSET_midpoint_repository_hibernateHbm2ddl
-              value: 1
-            - name: MP_NO_ENV_COMPAT
-              value: 1
-            - name: MP_MEM_MAX
-              value: 4096m
-            - name: MP_MEM_INIT
-              value: 2048m
-            - name: TZ
-              value: UTC
-            - name: MP_JAVA_OPTS
-              value: >-
-                -Dmidpoint.nodeIdSource=hostname
-                -Dmidpoint.taskManager.clustered=true
-                -Dmidpoint.keystore.keyStorePath=/opt/midpoint/config-secrets/keystore.jceks
-          volumeMounts:
-            - name: mp-secret
-              mountPath: /opt/midpoint/config-secrets
-            - name: configxml
-              mountPath: /opt/midpoint/var/config.xml
-              subPath: config.xml
-          imagePullPolicy: IfNotPresent
-  serviceName: mp-service
 
 == References 
 
