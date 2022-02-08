@@ -558,6 +558,32 @@ There are few things which has to be handled to be able to operate midpoint in c
 * taskManager
 * keystore
 
+Once all the "cluster requirements" is met you can increase amount of replicas in statefulset definition for midpoint.
+
+[NOTE]
+In case of statefulset the suffix of the pod is increasing order.
+First created pod has suffix *-0*.
+In case you increase the amount of replicas the pod are added "to the end" of the list *-1*, *-2*, *-3*, etc.
+In case you are decreasing the amount of replicas the latest one is removed.
+It is not possible to remove the pod "in the middle" of the list.
+This may be important in case of utilizing persistent volumes for the pods.
+
+Midpoint pods can be operated even without persistent volumes as the important objects are stored in the repository and shared between the nodes.
+The areas which may need specific handling:
+
+* logs +
+to not lost the records after removing / re-creating the pod
+
+* connectors +
+It can be distributed using shared object (configMap, R/O shared volume between the pods, etc.)
+
+* exports / reports +
+In some situation the output can be stored in the filesystem.
+In that case we probably prefer to keep the files even after re-creating the pod.
+
+The list is example and it is not have to be complete.
+The desing of the deployment may contain other specific objects to handle.
+
 ==== Task Manager
 
 Midpoint's task manager has to be run clustered.
@@ -592,18 +618,47 @@ This option not necessary have to be available in general.
 
 * pre-generate the file into secret object and share it with all the pods as mounted volume +
 For the testing purpose this approach offer sharing the keystore even between the whole env deployment.
-+
+
+===== NFS mount
+
+To mount volume you can use syntax like this example:
+
+.example for NFS volume
+[source]
+...
+    spec:
+      volumes:
+        - name: nfs-volume
+          nfs:
+            server: test-nfs.mp-demo.svc.cluster.local
+            path: /
+...
+
+[NOTE]
+FQDN resolution is done by kubelet at the moment of starting the pod.
+In case the the node is not able to resolve the FQDN (e.g. it is using "external" DNS server) the mounting may fail.
+If you face this issue please change the DNS server in the node's */etc/resolv.conf* or use cluster IP of the service object instead of FQDN.
+
+Once the volume for pod is ready it can be used in container definition in volumeMounts section.
+
+===== keystore generating
+
+In case you prefer to manualy generate keystore the keytool could be used.
+Midpoint is expecting jceks format of the keystore.
+
 .generate new keystore (AES_128)
 [source,bash]
 keytool -genseckey -alias default -keystore keystore.jceks -storetype jceks -keyalg AES -keysize 128
 
-To Be Continue ...
+After running of this file you are asked to provide password for the keystore.
+This password is the password which is provided to midpoint by using keyStorePassword or keyStorePassword_FILE parameter.
+The default is *changeit*.
 
-[IMPORTANT]
-This part of documentation is not complete.
-It will be finished soon.
+You can use _storepass_ to set the password for storage as parameter.
 
-Once all the "cluster requirements" is met you can increase amount of replicas in statefulset definition for midpoint.
+.example of generating with the storepass option
+[source,bash]
+keytool -genseckey -alias default -keystore keystore.jceks -storetype jceks -keyalg AES -keysize 128 -storepass changeit
 
 == Type of the used objects
 
@@ -651,6 +706,20 @@ data:
     <user>
       <name>test2</name>
     </user>
+
+Ther configMap can be create in several ways.
+
+* *kubectl apply -f file.yaml* +
+This way the content goes also to annotation field in the creating object.
+This may sometime cause the issue as the size of the value for the field is limited.
+For the common small objects is doesn't cause the issue.
+The namespace can be defined as parameter *-n mp-demo* or in the content of the yaml file.
+
+* *kubectl create configmap -n mp-demo --from-file=.* +
+This way the annotation field is not created.
+If you provide directory as a value of _from-file_ the all the files in the directroty became the keys of configMap and the contents of the files become the value of the keys.
+In case you provide just a single file only one key is created in the configMap. +
+The content of the kubernetes object is generated so the namespace have to be defined as parameter of the kubectl command.
 
 === Secrets
 
@@ -727,6 +796,13 @@ spec:
     clientIP:
       timeoutSeconds: 10800
 
+[NOTE]
+SessionAffinity is necessary for the midpoint as the session is not shared between the nodes of the cluster.
+In case there is just one node the missing of the affinity setting is not critical.
+Once there are more than 1 node the missing of the affinity setting cause loop of the login process. +
+The reason is that after sending login information the session is created with one node but the next communication is handled by other node - the default is round-robin distribution of the communication.
+This other node doesn't know anything about just created session on previous node so the redirect to login page occur.
+
 === Ingress
 
 To be able to reach the services from outside on shared ports (80,443) there is ingress in place.
@@ -762,6 +838,39 @@ spec:
 This is the glue for all.
 This object defines the setting for the future pods and handle the amount of replicas.
 In case some pod will fail, the StatefulSet definition will handle the situation and recreate the new one.
+
+== Tips
+
+=== custom path in URL
+
+Default path in URL is /midpoint.
+It is possible to change the path using *application.properties* file in midpoint.home location.
+
+.midpoint.home/application.properties
+[source]
+server.servlet.context-path=/xyz
+
+This will change the URL to /xyz instead of /midpoint.
+
+To set up we can use init container which is already used in case od native repository.
+Instead of directly run the *midpoint.sh* file we can run "script" containing set ip the necessary value next to midpoint.sh execution.
+
+.Original code for init container for midpoint pod
+[source,kubernetes]
+...
+          image: 'evolveum/midpoint:4.4-alpine'
+          command: ["/bin/bash","/opt/midpoint/bin/midpoint.sh","init-native"]
+          env:
+...
+
+.Customized code covering also change of the path in URL
+[source,kubernetes]
+...
+          image: 'evolveum/midpoint:4.4-alpine'
+          command: ["/bin/bash","-c"]
+          args: ["/opt/midpoint/bin/midpoint.sh init-native; echo 'server.servlet.context-path=/xyz' >/opt/mp-home/application.properties"]
+          env:
+...
 
 == References 
 
