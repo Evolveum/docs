@@ -1,0 +1,220 @@
+= Advance examples
+:page-nav-title: Advance examples
+:toc:
+:toclevels: 4
+
+[NOTE]
+The yaml samples are available also on the link:https://github.com/Evolveum/midpoint-kubernetes/tree/master/advance_example[github].
+There are available also commands how to use the files with *kubectl* in readme.adoc file.
+
+[WARNING]
+We will handle advance configuration of the environment.
+The goal is to show how it can be realized in the kubernetes environments.
+The prerequisite for the scenario is only default objects imported during the first system start.
+The objects are stored in the repository after the changes are applied.
+Once the system is set up and running we should not re-apply the changes if we don't explicitly want to do that.
+In some situation adding another the same labeled block of the setting may lead to conflict with schema and failure of the system.
+
+== What is it about
+
+We will focus here on the post-initial-objects as a way to run environment with already pre-configured setting.
+The information here are extension to the "base" environment as is described on upper xref:midpoint/install/kubernetes/index.adoc[docs page].
+
+=== Cheat sheet
+
+For the base operation the small "cheat sheat" may be useful.
+
+.create / modify the object using the yaml file
+[source,bash]
+kubectl apply -f configmap-poi.yaml
+
+.destroy the pods ("power off" midpoint environment)
+[source,bash]
+kubectl scale -n mp-demo --replicas=0 statefulset/mp-pg-demo statefulset/mp-demo-db
+
+.get the list of pods and statefulsets in the mp-demo namespace
+[source,bash]
+kubectl get -n mp-demo pods 
+kubectl get -n mp-demo statefulsets
+
+.create the pods ("power on" midpoint environment)
+[source,bash]
+kubectl scale -n mp-demo --replicas=1 statefulset/mp-pg-demo statefulset/mp-demo-db
+
+.show the log from midpoint container mp-pg-demo in the pod mp-pg-demo-0 ( "follow" the new records of the log)
+[source,bash]
+kubectl logs -n mp-demo -f mp-pg-demo-0 -c mp-pg-demo
+
+.Run sheel in the midpoint container
+[source,bash]
+kubectl exec -ti -n mp-demo mp-pg-demo-0 -c mp-pg-demo -- /bin/bash
+
+== Customization
+
+=== Deployment information @ System configuration
+
+We can start with deployment information.
+This configuration can change the color of the header line located on the top of the page.
+Other visible change can be added label of the environment into the header etc.
+
+In the GUI it can be set in *System > Deplyment Information* menu.
+
+For this example we can focus on the fileds *Name*, *Header color*, *System name* in the *Deployment information* panel.
+The result is stored in the repository in the *System Configuration* object.
+
+.System configuration's related content
+[source]
+<systemConfiguration
+  xmlns="http://midpoint.evolveum.com/xml/ns/public/common/common-3"
+  xmlns:c="http://midpoint.evolveum.com/xml/ns/public/common/common-3"
+  xmlns:icfs="http://midpoint.evolveum.com/xml/ns/public/connector/icf-1/resource-schema-3"
+  xmlns:org="http://midpoint.evolveum.com/xml/ns/public/common/org-3"
+  xmlns:q="http://prism.evolveum.com/xml/ns/public/query-3"
+  xmlns:ri="http://midpoint.evolveum.com/xml/ns/public/resource/instance-3"
+  xmlns:t="http://prism.evolveum.com/xml/ns/public/types-3"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  oid="00000000-0000-0000-0000-000000000001">
+    <name>SystemConfiguration</name>
+...
+    <deploymentInformation>
+        <name>K8s demo </name>
+        <headerColor>green</headerColor>
+        <systemName>K8s</systemName>
+    </deploymentInformation>
+</systemConfiguration>
+
+We can use complete system configuration object for Post-initial-object.
+The benefit is that once we will manually set up the environment we can simply download the object.
+The cons of this approach is that we will "freeze" the configuration and in case of future changes (e.g. configuration for the new feature) we will have to update the object.
+
+Alternatively we can handle the system configuration like any other object in the midpoint.
+At this moment we can logically atomize the configuration to the blocks.
+All the blocks can be handled by the deltas ( description of the changes ).
+The benefit of this approach is that we can describe only necessary changes in the configuration and all the rest we can keep without touch -  the default.
+
+We need to find the object we would like to change - *SystemConfiguration*.
+As there is only one SystemConfiguration object as default we can search for "any" object of the *SystemConfigurationType* type.
+In the next step we will have to address the "block" we would like to modify - the path to apply the delta on ( *deploymentInformation* ).
+Then we will provide the values to add.
+
+.Post-initial-object to add the deployment information to System configuration
+[source]
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ~ Copyright (c) 2022 Evolveum
+  ~
+  ~ Licensed under the Apache License, Version 2.0 (the "License");
+  ~ you may not use this file except in compliance with the License.
+  ~ You may obtain a copy of the License at
+  ~
+  ~     http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS,
+  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~ See the License for the specific language governing permissions and
+  ~ limitations under the License.
+  -->
+<s:search xmlns:s="http://midpoint.evolveum.com/xml/ns/public/model/scripting-3"
+          xmlns:c="http://midpoint.evolveum.com/xml/ns/public/common/common-3"
+          xmlns:org="http://midpoint.evolveum.com/xml/ns/public/common/org-3"
+          xmlns:t="http://prism.evolveum.com/xml/ns/public/types-3">
+    <s:options>
+        <option>
+            <options>
+                <raw>true</raw>
+            </options>
+        </option>
+    </s:options>
+    <s:type>c:SystemConfigurationType</s:type>
+    <s:action>
+        <s:type>modify</s:type>
+        <s:parameter>
+            <s:name>delta</s:name>
+            <c:value>
+                <s:itemDelta>
+                    <t:modificationType>add</t:modificationType>
+                    <t:path>deploymentInformation</t:path>
+                    <t:value>
+                        <name>K8s demo </name>
+                        <headerColor>green</headerColor>
+                        <systemName>K8s</systemName>
+                    </t:value>
+                </s:itemDelta>
+            </c:value>
+        </s:parameter>
+    </s:action>
+</s:search>
+
+We can save the content to the file with any name but with .xml extension.
+The file names set the order of the files to process.
+In general there may be dependency on other files so the order may be important.
+To be able to control the order the names should be named with the prefix - 3 digit prefix is used for initial objects.
+In this example we can see the name *111-sysconf-deployment.xml*.
+
+.Log record after processing the post-initial-object with System Configuration delta definition
+[source]
+[] [main] INFO (com.evolveum.midpoint.init.PostInitialDataImport): Executed a script in 111-sysconf-deployment.xml as part of post-initial import. Output is:
+Modified systemConfiguration:00000000-0000-0000-0000-000000000001(SystemConfiguration)
+
+It is easiest way to prevent re-processing of the post-initial-objects with the new pod is to change the mount point in the statefulset definition..
+This way we can kept all the definition in the setting but during the processing the objects will not be found on the place where it is expected to be.
+
+.Changing mount point for Post-init-objects to prevent their re-apply with new pod
+[source]
+kubectl scale -n mp-demo --replicas=0 statefulset/mp-pg-demo
+sed "s|/opt/midpoint-dirs-docker-entrypoint/post-initial-objects|/opt/midpoint-dirs-docker-entrypoints/post-initial-objects|" statefulset-pg-native_cm-sec.yaml | kubectl apply -f -
+kubectl scale -n mp-demo --replicas=1 statefulset/mp-pg-demo
+
+[TIP]
+The scaling related steps are optional as the changes on the statefulset definition will cause recreating of the pods.
+
+[NOTE]
+So far we are still working without persistent volumes (or other "perstistent object").
+Once the pod with midpoint is recreated the keystore is newly generated and the midpoint instance is not able to correctly process the objects from the repository.
+
+=== Secret object with keystore object
+
+To be able to restart / recreate the pods with the mipoint we should share the keystore.
+Until the keystore is kept the "newly started" midpoint will not be able to reach the database objects.
+One of the option is to utilize the secret object.
+
+To create the secret object we will need to create the keystore on the filesystem.
+
+[source]
+keytool -genseckey -alias default -keystore keystore.jceks -storetype jceks -keyalg AES -keysize 128 -storepass changeit -keypass midpoint
+
+Once the file will exists we can use it to create the secret object in the kubernetes environment.
+
+.Create the secert object from the file
+[source]
+kubectl create secret generic -n mp-demo mp-demo-keystore --from-file keystore.jceks --from-literal=keystore=changeit
+
+Once the secret is created it cannot be changed.
+In case we will need to update it the command to delete the object may be useful.
+
+.Delete the secret object
+[source]
+kubectl delete secret -n mp-demo mp-demo-keystore
+
+==== Clustered nodes
+
+Once you have coverted keystore it is possible to run midpoint in cluster.
+To have it ready 2 environment variables have to be set
+
+.Environment variable to check for presence
+[source]
+...
+          env:
+            - name: MP_SET_midpoint_nodeIdSource
+              value: hostname
+            - name: MP_SET_midpoint_taskManager_clustered
+              value: "true"
+...
+
+Once this is set we are ready to scale our midpoint cluster.
+
+.to run 3 node midpoint cluster
+[source]
+kubectl scale -n mp-demo --replicas=3 statefulset/mp-pg-demo
+
