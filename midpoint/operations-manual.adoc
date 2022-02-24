@@ -1,0 +1,2426 @@
+= Operations manual
+//:source-highlighter: highlightjs
+//:source-highlighter: pygments
+:experimental:
+:sectnums:
+//:toc:
+:page-toc: top
+
+== Introduction
+
+This is the root page of a set of documents containing documentation and procedures some of which might prove essential while deploying and operating the Midpoint IDM.
+
+[NOTE]
+.Note for authors 
+====
+
+. try to avoid linking other documentation pages. Try to include the content if possible (AsciiDoc `include` directive)
+. do not cover procedures which may break other things
+
+//*TODO*: Ask Igor if we still want to avoid linking to other documentation...: *##consider## including instead of linking: Upgrade*. We cannot include (using asciidoc) part of other documents; such documents would need to be split into several smaller parts and then included on both places.
+
+//*TODO*: consider experimental functional tracing..?
+
+
+//*TODO https://docs.evolveum.com/midpoint/reference/diag/creating-a-bug-report/*
+
+====
+
+== Contributing
+
+Contributions to this document are welcome!
+
+This document is stored in link:https://github.com/Evolveum/docs[GitHub]. There are multiple ways of contributing changes:
+
+. you can edit it directly there (if you have permissions)
+. you can create a pull request according to this link:https://docs.github.com/en/pull-requests/collaborating-with-pull-requests[pull request documentation]
+. you can contact us if you want to contribute.
+
+Thank you!
+
+[#common_errors]
+== Common Errors
+
+When midPoint is not working as expected (or not at all), usually there will be an indication of problem displayed in the `midpoint.log` file which is located in MidPoint "Home directory".
+
+[TIP]
+====
+MidPoint "Home directory", commonly referred as `midpoint.home` or `$midpoint.home` is by default the `var/` subdirectory of the directory where midPoint is installed and running from.
+
+When midPoint is started, it is used as a JVM option `-Dmidpoint.home=/opt/midpoint/var` for the midPoint process, e.g.:
+
+[source,bash,subs=+quotes]
+----
+midpoint@midpoint:~ $ *ps -ef | grep midpoint*
+midpoint  2612     1 99 09:42 ?        00:00:04 /usr/bin/java -Xmx4096m *-Dmidpoint.home=/opt/midpoint/var* -jar /opt/midpoint/lib/midpoint.war
+----
+
+In the previous example, midPoint "Home directory" (`midpoint.home`) is `/opt/midpoint/var`.
+
+====
+
+Although it may be tempting to simply restart midPoint if it misbehaves, we encourage you to check the `midpoint.log` file for any anomalies, exceptions and errors first.
+Without proper diagnostic, restarting midPoint will not help to actually prevent the problem from occurring again.
+
+The most common errors, the diagnostic steps to confirm them, their reasons and possible remediations are documented in this chapter.
+
+=== midPoint GUI is displayed, but login does not work
+
+*Symptoms:*
+
+* midPoint is working, GUI can be displayed
+
+* page `http[s]://<midpoint_host>/midpoint/actuator/health` is available and returns: `{"status":"UP"}`
+
+* midPoint process is running
+
+* after administrator login attempt, the following message is displayed: "*Currently we are unable to process your request. Kindly try again later.*"
+
+Please check if the `midpoint.log` file contains any errors or exceptions.
+Search for encryption/keystore-related errors.
+For example the following error indicates that the key used to protect password of user you are trying to log in as, does not exist in the keystore:
+
+.midpoint.log file:
+[source]
+----
+2022-02-16 16:40:57,292 [] [http-nio-8080-exec-9] ERROR (com.evolveum.midpoint.model.impl.security.AuthenticationEvaluatorImpl): Error dealing with credentials of user "administrator" credentials: No key mapped to key digest /IRZpSn3WpsebAEhhmk8PoMQnJo= could be found in the keystore. Keys digests must be recomputed during initialization
+----
+
+Please check if you can log in with the same user using different midPoint node.
+If yes, the problem is local to the specific node and is probably caused by keystore problem on that specific node.
+
+Open midPoint's `config.xml` file and check which key is configured in the following part of the configuration:
+
+.config.xml file fragment:
+[source,xml,highlight='5']
+----
+. . .
+       <keystore>
+            <keyStorePath>${midpoint.home}/keystore.jceks</keyStorePath>
+            <keyStorePassword>changeit</keyStorePassword>
+            <encryptionKeyAlias>default</encryptionKeyAlias> <!--1-->
+       </keystore>
+. . .
+----
+<1> the name of the encryption key is `default`
+
+Check if the key used as default encryption key by midPoint is stored in `keystore.jceks` in midPoint.home directory by running `keytool` command.
+The error below indicates the references key (`default`) does not exist in midPoint's `keystore.jceks` file.
+
+[source,bash,subs="+quotes"]
+----
+midpoint@midpoint:~ $ *keytool -keystore /opt/midpoint/var/keystore.jceks -storetype jceks -storepass changeit -list -alias default*
+
+keytool error: java.lang.Exception: Alias <default> does not exist
+----
+
+If you are using any certificates for secure connection to the target systems, you can also check if you can see the certificates in the `keystore.jceks` file.
+If the file has been replaced by a newly generated one, no target system certificates will be in the keystore, and only one key named "default" will be present.
+Also, the `keystore.jceks` file creation timestamp may help.
+
+If you have midPoint cluster, you can compare the `keystore.jceks` files between all nodes - they should be kept the same anyway.
+As a solution, as you may use `keystore.jceks` from working midPoint node.
+
+*Reason*:
+
+* you have removed `keystore.jceks` file (midPoint creates a new one upon restart, with completely different default encryption key), which breaks the authentication of users using the password encrypted by the missing key
+
+* you have removed encryption key which is in use (e.g. `default`) as stated by `keytool` error message (see above), which breaks the authentication of users using the password encrypted by the missing key
+
+*Resolution*:
+
+. fix `keystore.jceks` file by restoring it from backup or another midPoint node (if you are using cluster and login works in another midPoint node)
+. restart midPoint using the steps from <<running_monitoring_and_alerting>> chapter
+. check if midPoint is running and working correctly including login
+
+
+=== midPoint GUI is not accessible at all, because the process is not started at all
+
+*Symptoms:*
+
+* midPoint is not working (GUI cannot be displayed)
+
+* page `http[s]://<midpoint_host>/midpoint/actuator/health` is not available
+
+* midPoint process is not running
+
+*Reason*:
+
+* you have not started midPoint yet, or the startup script is missing
+
+*Resolution:*
+
+* use the steps from <<running_monitoring_and_alerting>> chapter to check if midPoint runs and start it if necessary.
+
+
+=== midPoint is not starting because config.xml is unreadable
+
+*Symptoms*:
+
+* midPoint is not working (GUI cannot be displayed)
+
+* page `http[s]://<midpoint_host>/midpoint/actuator/health` is not available
+
+* midPoint process is not running
+
+* `midpoint.log` contains the error during startup after this message:
+`INFO (com.evolveum.midpoint.init.StartupConfiguration): Loading midPoint configuration from file /opt/midpoint/var/config.xml`
+
+.midpoint.log file:
+[source]
+----
+2022-02-17 10:50:30,586 [] [main] INFO (com.evolveum.midpoint.init.StartupConfiguration): Loading midPoint configuration from file /opt/midpoint/var/config.xml
+2022-02-17 10:50:30,796 [] [main] ERROR (com.evolveum.midpoint.init.StartupConfiguration): Unable to read configuration file [/opt/midpoint/var/config.xml]: Unable to load the configuration from the URL file:/opt/midpoint/var/config.xml
+. . .
+2022-02-17 10:50:30,921 [] [main] ERROR (org.springframework.boot.SpringApplication): Application run failed
+. . .
+Caused by: java.io.FileNotFoundException: /opt/midpoint/var/config.xml (Permission denied)
+----
+
+*Reason*:
+
+* you misconfigured your `config.xml` file permissions and/or ownership (file must be readable for user executing the midPoint process)
+
+*Resolution*:
+
+. fix `config.xml` file permissions/ownership to make it readable for the user used to run midPoint, but unreadable for everyone else
+. restart midPoint using the steps from <<running_monitoring_and_alerting>> chapter
+. check if midPoint is running and working correctly
+
+
+=== midPoint is not starting because the `midpoint.home` directory has no write permissions
+
+*Symptoms*:
+
+* midPoint is not working (GUI cannot be displayed)
+
+* page `http[s]://<midpoint_host>/midpoint/actuator/health` is not available
+
+* midPoint process is not running
+
+* `midpoint.log` does not exist because `midpoint.home` directory does not exist
+
+* system log (e.g. `/var/log/syslog` or `journalctl`) contains the following errors:
+`feb 17 10:54:44 mid-101 java[3759]: ERROR in ch.qos.logback.core.rolling.RollingFileAppender[MIDPOINT_LOG] - Failed to create parent directories for [/opt/midpoint/var/log/midpoint.log`
+
+*Reason*:
+
+* you misconfigured your `midpoint.home` JVM property: it points to non-writable or non-existent directory (If the `config.xml` cannot be found, midPoint tries to create a default one with embedded H2 database, along with the parent directory. The directory must be writable for user executing the midPoint process)
+* you misconfigured the permissions for `midpoint.home` directory or its parent
+
+*Resolution*:
+
+. fix `midpoint.home` JVM property value and/or the directory permissions/ownership
+
+. restart midPoint using the steps from <<running_monitoring_and_alerting>> chapter
+
+. check if midPoint is running and working correctly
+
+
+=== midPoint is not starting because config.xml is damaged (e.g. truncated)
+
+*Symptoms*:
+
+* midPoint is not working (GUI cannot be displayed)
+
+* page `http[s]://<midpoint_host>/midpoint/actuator/health` is not available
+
+* midPoint process is not running
+
+* `midpoint.log` contains the error during startup after this message:
+`2022-02-17 11:02:23,861 [] [main] INFO (com.evolveum.midpoint.init.StartupConfiguration): Loading midPoint configuration from file /opt/midpoint/var/config.xml`
+
+.midpoint.log file:
+[source]
+----
+2022-02-17 11:02:23,861 [] [main] INFO (com.evolveum.midpoint.init.StartupConfiguration): Loading midPoint configuration from file /opt/midpoint/var/config.xml
+2022-02-17 11:02:24,072 [] [main] ERROR (com.evolveum.midpoint.init.StartupConfiguration): Unable to read configuration file [/opt/midpoint/var/config.xml]: Error parsing file:/opt/midpoint/var/config.xml
+. . .
+Caused by: org.xml.sax.SAXParseException: XML document structures must start and end within the same entity.
+	at org.apache.xerces.parsers.DOMParser.parse(Unknown Source)
+	at org.apache.xerces.jaxp.DocumentBuilderImpl.parse(Unknown Source)
+	at org.apache.commons.configuration2.XMLConfiguration.load(XMLConfiguration.java:1026)
+	... 69 common frames omitted
+----
+
+*Reason*:
+
+* you misconfigured your `config.xml` file
+
+* the `config.xml` file has been only partially copied from other system, or file system is damaged, or there was no disk space during saving the file
+
+*Resolution*:
+
+. fix `config.xml` file
+. restart midPoint using the steps from <<running_monitoring_and_alerting>> chapter
+. check if midPoint is running and working correctly
+
+=== midPoint is not starting because schema extension is damaged
+
+*Symptoms*:
+
+* midPoint is not working (GUI cannot be displayed)
+
+* page `http[s]://<midpoint_host>/midpoint/actuator/health` is not available
+
+* midPoint process is not running
+
+* `midpoint.log` contains the error during startup after this message:
+`2022-02-17 11:05:14,339 [] [main] INFO (com.evolveum.midpoint.init.ConfigurablePrismContextFactory): Loading extension schemas from folder '/opt/midpoint/var/schema'.`
+
+.midpoint.log file:
+[source]
+----
+2022-02-17 11:05:14,339 [] [main] INFO (com.evolveum.midpoint.init.ConfigurablePrismContextFactory): Loading extension schemas from folder '/opt/midpoint/var/schema'.
+2022-02-17 11:05:14,350 [] [main] WARN (org.springframework.boot.web.servlet.context.AnnotationConfigServletWebServerApplicationContext): Exception encountered during context initialization - cancelling refresh attempt: org.springframework.context.ApplicationContextException: Unable to start web server; nested exception is org.springframework.beans.factory.UnsatisfiedDependencyException: Error creating bean with name 'com.evolveum.midpoint.web.boot.EmbeddedTomcatAutoConfiguration$EmbeddedTomcat': Unsatisfied dependency expressed through field 'systemObjectCache'; nested exception is org.springframework.beans.factory.UnsatisfiedDependencyException: Error creating bean with name 'systemObjectCache': Unsatisfied dependency expressed through field 'cacheRepositoryService'; nested exception is org.springframework.beans.factory.UnsatisfiedDependencyException: Error creating bean with name 'cacheRepositoryService': Unsatisfied dependency expressed through field 'repositoryService'; nested exception is org.springframework.beans.factory.UnsatisfiedDependencyException: Error creating bean with name 'repositoryService' defined in class path resource [com/evolveum/midpoint/repo/sqale/SqaleRepositoryBeanConfig.class]: Unsatisfied dependency expressed through method 'repositoryService' parameter 0; nested exception is org.springframework.beans.factory.UnsatisfiedDependencyException: Error creating bean with name 'sqlRepoContext' defined in class path resource [com/evolveum/midpoint/repo/sqale/SqaleRepositoryBeanConfig.class]: Unsatisfied dependency expressed through method 'sqlRepoContext' parameter 1; nested exception is org.springframework.beans.factory.UnsatisfiedDependencyException: Error creating bean with name 'schemaService': Unsatisfied dependency expressed through field 'prismContext'; nested exception is org.springframework.beans.factory.BeanCreationException: Error creating bean with name 'prismContext' defined in class path resource [ctx-configuration.xml]: Bean instantiation via factory method failed; nested exception is org.springframework.beans.BeanInstantiationException: Failed to instantiate [com.evolveum.midpoint.prism.PrismContext]: Factory method 'createInitializedPrismContext' threw exception; nested exception is com.evolveum.midpoint.util.exception.SchemaException: Error parsing XML document The element type "xsd:element" must be terminated by the matching end-tag "</xsd:element>".
+. . .
+Caused by: org.xml.sax.SAXParseException: The element type "xsd:element" must be terminated by the matching end-tag "</xsd:element>".
+	at org.apache.xerces.parsers.DOMParser.parse(Unknown Source)
+	at org.apache.xerces.jaxp.DocumentBuilderImpl.parse(Unknown Source)
+	at java.xml/javax.xml.parsers.DocumentBuilder.parse(DocumentBuilder.java:122)
+	at com.evolveum.midpoint.util.DOMUtil.parse(DOMUtil.java:271)
+	... 137 common frames omitted
+----
+
+*Reason*:
+
+* you misconfigured your schema extension file(s)
+
+* the schema extension file(s) has/have been only partially copied from other system, or file system is damaged, or there was no disk space during saving the file(s)
+
+*Resolution*:
+
+. fix the schema extension file(s)
+. restart midPoint using the steps from <<running_monitoring_and_alerting>> chapter
+. check if midPoint is running and working correctly
+
+=== midPoint is not starting because repository not reachable (invalid credentials)
+
+*Symptoms*:
+
+* midPoint is not working (GUI cannot be displayed)
+
+* page `http[s]://<midpoint_host>/midpoint/actuator/health` is not available
+
+* midPoint process may be running
+
+* `midpoint.log` contains the error during startup after this message:
+`2022-02-17 11:08:25,394 [] [main] INFO (com.evolveum.midpoint.repo.sqlbase.DataSourceFactory): Constructing default datasource with connection pooling; JDBC URL: jdbc:postgresql://localhost/midpoint?ApplicationName=mp-repo`
+
+.midpoint.log file:
+[source]
+----
+2022-02-17 11:08:25,391 [] [main] INFO (com.evolveum.midpoint.repo.sqlbase.DataSourceFactory): Loading datasource.
+2022-02-17 11:08:25,394 [] [main] INFO (com.evolveum.midpoint.repo.sqlbase.DataSourceFactory): Constructing default datasource with connection pooling; JDBC URL: jdbc:postgresql://localhost/midpoint?ApplicationName=mp-repo
+ Using driver: org.postgresql.Driver
+2022-02-17 11:08:26,773 [] [main] ERROR (com.zaxxer.hikari.pool.HikariPool): HikariPool-1 - Exception during pool initialization.
+org.postgresql.util.PSQLException: FATAL: password authentication failed for user "midpoint"
+. . .
+Caused by: org.postgresql.util.PSQLException: FATAL: password authentication failed for user "midpoint"
+	at org.postgresql.core.v3.ConnectionFactoryImpl.doAuthentication(ConnectionFactoryImpl.java:613)
+	at org.postgresql.core.v3.ConnectionFactoryImpl.tryConnect(ConnectionFactoryImpl.java:161)
+	at org.postgresql.core.v3.ConnectionFactoryImpl.openConnectionImpl(ConnectionFactoryImpl.java:213)
+	at org.postgresql.core.ConnectionFactory.openConnection(ConnectionFactory.java:51)
+	at org.postgresql.jdbc.PgConnection.<init>(PgConnection.java:223)
+	at org.postgresql.Driver.makeConnection(Driver.java:465)
+	at org.postgresql.Driver.connect(Driver.java:264)
+	at com.zaxxer.hikari.util.DriverDataSource.getConnection(DriverDataSource.java:138)
+	at com.zaxxer.hikari.pool.PoolBase.newConnection(PoolBase.java:364)
+	at com.zaxxer.hikari.pool.PoolBase.newPoolEntry(PoolBase.java:206)
+	at com.zaxxer.hikari.pool.HikariPool.createPoolEntry(HikariPool.java:476)
+	at com.zaxxer.hikari.pool.HikariPool.checkFailFast(HikariPool.java:561)
+	... 122 common frames omitted
+----
+
+*Reason*:
+
+* you misconfigured your JDBC configuration for midPoint repository
+
+* midPoint repository configuration has changed (username, password)
+
+*Resolution*:
+
+. fix `config.xml` file
+. restart midPoint using the steps from <<running_monitoring_and_alerting>> chapter
+. check if midPoint is running and working correctly
+
+
+=== midPoint is not starting because repository not reachable (invalid JDBC connection string)
+
+*Symptoms*:
+
+* midPoint is not working (GUI cannot be displayed)
+
+* page `http[s]://<midpoint_host>/midpoint/actuator/health` is not available
+
+* Java process for midPoint may be running
+
+* `midpoint.log` contains the error during startup after this message: `2022-02-17 11:11:41,602 [] [main] INFO (com.evolveum.midpoint.repo.sqlbase.DataSourceFactory): Constructing default datasource with connection pooling; JDBC URL: jdbc:postgresql://localhost:55432/midpoint?ApplicationName=mp-repo`
+
+.midpoint.log file:
+[source]
+----
+2022-02-17 11:11:41,598 [] [main] INFO (com.evolveum.midpoint.repo.sqlbase.DataSourceFactory): Loading datasource.
+2022-02-17 11:11:41,602 [] [main] INFO (com.evolveum.midpoint.repo.sqlbase.DataSourceFactory): Constructing default datasource with connection pooling; JDBC URL: jdbc:postgresql://localhost:55432/midpoint?ApplicationName=mp-repo
+ Using driver: org.postgresql.Driver
+2022-02-17 11:11:42,723 [] [main] ERROR (com.zaxxer.hikari.pool.HikariPool): HikariPool-1 - Exception during pool initialization.
+org.postgresql.util.PSQLException: Connection to localhost:55432 refused. Check that the hostname and port are correct and that the postmaster is accepting TCP/IP connections.
+. . .
+Caused by: org.postgresql.util.PSQLException: Connection to localhost:55432 refused. Check that the hostname and port are correct and that the postmaster is accepting TCP/IP connections.
+	at org.postgresql.core.v3.ConnectionFactoryImpl.openConnectionImpl(ConnectionFactoryImpl.java:303)
+	at org.postgresql.core.ConnectionFactory.openConnection(ConnectionFactory.java:51)
+	at org.postgresql.jdbc.PgConnection.<init>(PgConnection.java:223)
+	at org.postgresql.Driver.makeConnection(Driver.java:465)
+	at org.postgresql.Driver.connect(Driver.java:264)
+	at com.zaxxer.hikari.util.DriverDataSource.getConnection(DriverDataSource.java:138)
+	at com.zaxxer.hikari.pool.PoolBase.newConnection(PoolBase.java:364)
+	at com.zaxxer.hikari.pool.PoolBase.newPoolEntry(PoolBase.java:206)
+	at com.zaxxer.hikari.pool.HikariPool.createPoolEntry(HikariPool.java:476)
+	at com.zaxxer.hikari.pool.HikariPool.checkFailFast(HikariPool.java:561)
+	... 122 common frames omitted
+Caused by: java.net.ConnectException: Connection refused
+	at java.base/sun.nio.ch.Net.pollConnect(Native Method)
+	at java.base/sun.nio.ch.Net.pollConnectNow(Net.java:672)
+	at java.base/sun.nio.ch.NioSocketImpl.timedFinishConnect(NioSocketImpl.java:542)
+	at java.base/sun.nio.ch.NioSocketImpl.connect(NioSocketImpl.java:597)
+	at java.base/java.net.SocksSocketImpl.connect(SocksSocketImpl.java:327)
+	at java.base/java.net.Socket.connect(Socket.java:633)
+	at org.postgresql.core.PGStream.createSocket(PGStream.java:231)
+	at org.postgresql.core.PGStream.<init>(PGStream.java:95)
+	at org.postgresql.core.v3.ConnectionFactoryImpl.tryConnect(ConnectionFactoryImpl.java:98)
+	at org.postgresql.core.v3.ConnectionFactoryImpl.openConnectionImpl(ConnectionFactoryImpl.java:213)
+	... 131 common frames omitted
+----
+
+*Reason*:
+
+* you misconfigured your JDBC configuration for midPoint repository
+
+* midPoint repository configuration has changed (IP, port etc.)
+
+* there is a firewall blocking connection to midPoint repository
+
+* midPoint repository is not online or the database is damaged
+
+*Resolution*:
+
+. fix `config.xml` file
+. restart midPoint using the steps from <<running_monitoring_and_alerting>> chapter
+. check if midPoint is running and working correctly
+
+=== midPoint is not starting because there is not enough memory
+
+*Symptoms*:
+
+* midPoint is not working (GUI cannot be displayed)
+
+* midPoint process for midPoint is not running
+
+* page `http[s]://<midpoint_host>/midpoint/actuator/health` is not available
+
+* `midpoint.log` contains the error during operation: `java.lang.OutOfMemoryError: Java heap space`
+
+.midpoint.log file:
+[source]
+----
+2022-02-17 11:22:56,203 [] [main] INFO (com.evolveum.midpoint.init.StartupConfiguration): Loading midPoint configuration from file /opt/midpoint/var/config.xml
+. . .
+Caused by: java.lang.OutOfMemoryError: Java heap space
+----
+
+*Reason*:
+
+* too low value for `-Xmx` JVM parameter
+
+*Resolution*:
+
+. set correct `-Xmx` JVM parameter value (we also recommend setting the same value for `-Xms` JVM parameter).
+The recommended minimum for midPoint is 4 GB for production use.
+Do not exceed the physical memory size of your machine.
+. restart midPoint using the steps from <<running_monitoring_and_alerting>> chapter after the issue is resolved
+. check if midPoint is running and working correctly
+
+
+=== midPoint GUI freezes / is not responding, because database is unreachable
+
+*Symptoms*:
+
+* midPoint is not working (GUI appears to be frozen because of time out)
+
+* page `http[s]://<midpoint_host>/midpoint/actuator/health` is not available (appears to be frozen because of time out) and eventually returns empty string
+
+* midPoint process is running
+
+* `midpoint.log` contains JDBC-related error messages, such as:
+
+.midpoint.log file
+[source]
+----
+2022-02-17 12:21:50,587 [] [midPointScheduler_QuartzSchedulerThread] WARN (com.zaxxer.hikari.pool.PoolBase): HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@48294966 (This connection has been closed.). Possibly consider using a shorter maxLifetime value.
+2022-02-17 12:21:50,633 [] [http-nio-8080-exec-3] WARN (com.zaxxer.hikari.pool.PoolBase): HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@3faadeba (This connection has been closed.). Possibly consider using a shorter maxLifetime value.
+2022-02-17 12:21:54,381 [] [ClusterManagerThread] WARN (com.zaxxer.hikari.pool.PoolBase): HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@550fc008 (This connection has been closed.). Possibly consider using a shorter maxLifetime value.
+2022-02-17 12:21:58,291 [] [QuartzScheduler_midPointScheduler-DefaultNode_MisfireHandler] WARN (com.zaxxer.hikari.pool.PoolBase): HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@196b7b50 (This connection has been closed.). Possibly consider using a shorter maxLifetime value.
+2022-02-17 12:22:00,600 [] [midPointScheduler_QuartzSchedulerThread] WARN (com.zaxxer.hikari.pool.PoolBase): HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@26c2d9a5 (This connection has been closed.). Possibly consider using a shorter maxLifetime value.
+2022-02-17 12:22:00,640 [] [http-nio-8080-exec-3] WARN (com.zaxxer.hikari.pool.PoolBase): HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@30198568 (This connection has been closed.). Possibly consider using a shorter maxLifetime value.
+. . .
+Caused by: java.sql.SQLTransientConnectionException: HikariPool-1 - Connection is not available, request timed out after 30000ms.
+	at com.zaxxer.hikari.pool.HikariPool.createTimeoutException(HikariPool.java:696)
+	at com.zaxxer.hikari.pool.HikariPool.getConnection(HikariPool.java:197)
+	at com.zaxxer.hikari.pool.HikariPool.getConnection(HikariPool.java:162)
+	at com.zaxxer.hikari.HikariDataSource.getConnection(HikariDataSource.java:100)
+	at com.evolveum.midpoint.repo.sqlbase.SqlRepoContext.newJdbcSession(SqlRepoContext.java:129)
+	... 5 common frames omitted
+Caused by: org.postgresql.util.PSQLException: Connection to localhost:5432 refused. Check that the hostname and port are correct and that the postmaster is accepting TCP/IP connections.
+	at org.postgresql.core.v3.ConnectionFactoryImpl.openConnectionImpl(ConnectionFactoryImpl.java:303)
+	at org.postgresql.core.ConnectionFactory.openConnection(ConnectionFactory.java:51)
+	at org.postgresql.jdbc.PgConnection.<init>(PgConnection.java:223)
+	at org.postgresql.Driver.makeConnection(Driver.java:465)
+	at org.postgresql.Driver.connect(Driver.java:264)
+	at com.zaxxer.hikari.util.DriverDataSource.getConnection(DriverDataSource.java:138)
+	at com.zaxxer.hikari.pool.PoolBase.newConnection(PoolBase.java:364)
+	at com.zaxxer.hikari.pool.PoolBase.newPoolEntry(PoolBase.java:206)
+	at com.zaxxer.hikari.pool.HikariPool.createPoolEntry(HikariPool.java:476)
+	at com.zaxxer.hikari.pool.HikariPool.access$100(HikariPool.java:71)
+	at com.zaxxer.hikari.pool.HikariPool$PoolEntryCreator.call(HikariPool.java:726)
+	at com.zaxxer.hikari.pool.HikariPool$PoolEntryCreator.call(HikariPool.java:712)
+	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:264)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base/java.lang.Thread.run(Thread.java:833)
+Caused by: java.net.ConnectException: Connection refused
+	at java.base/sun.nio.ch.Net.pollConnect(Native Method)
+	at java.base/sun.nio.ch.Net.pollConnectNow(Net.java:672)
+	at java.base/sun.nio.ch.NioSocketImpl.timedFinishConnect(NioSocketImpl.java:549)
+	at java.base/sun.nio.ch.NioSocketImpl.connect(NioSocketImpl.java:597)
+	at java.base/java.net.SocksSocketImpl.connect(SocksSocketImpl.java:327)
+	at java.base/java.net.Socket.connect(Socket.java:633)
+	at org.postgresql.core.PGStream.createSocket(PGStream.java:231)
+	at org.postgresql.core.PGStream.<init>(PGStream.java:95)
+	at org.postgresql.core.v3.ConnectionFactoryImpl.tryConnect(ConnectionFactoryImpl.java:98)
+	at org.postgresql.core.v3.ConnectionFactoryImpl.openConnectionImpl(ConnectionFactoryImpl.java:213)
+	... 15 common frames omitted
+----
+
+Additional JDBC-related error messages may appear after some time:
+
+.midpoint.log file
+[source]
+----
+2022-02-17 12:23:54,420 [TASK_MANAGER] [ClusterManagerThread] ERROR (com.evolveum.midpoint.task.quartzimpl.cluster.ClusterManager): Unexpected exception while checking cluster configuration; continuing execution..
+com.evolveum.midpoint.util.exception.SystemException: Cannot create JDBC connection
+	at com.evolveum.midpoint.repo.sqlbase.SqlRepoContext.newJdbcSession(SqlRepoContext.java:131)
+	at com.evolveum.midpoint.repo.sqale.SqaleRepositoryService.executeGetObject(SqaleRepositoryService.java:179)
+	at com.evolveum.midpoint.repo.sqale.SqaleRepositoryService.getObject(SqaleRepositoryService.java:156)
+	at com.evolveum.midpoint.task.quartzimpl.cluster.NodeRegistrar.verifyNodeObject(NodeRegistrar.java:447)
+	at com.evolveum.midpoint.task.quartzimpl.cluster.ClusterManager.checkClusterConfiguration(ClusterManager.java:88)
+	at com.evolveum.midpoint.task.quartzimpl.cluster.ClusterManager$ClusterManagerThread.run(ClusterManager.java:177)
+Caused by: java.sql.SQLTransientConnectionException: HikariPool-1 - Connection is not available, request timed out after 30030ms.
+	at com.zaxxer.hikari.pool.HikariPool.createTimeoutException(HikariPool.java:696)
+	at com.zaxxer.hikari.pool.HikariPool.getConnection(HikariPool.java:197)
+	at com.zaxxer.hikari.pool.HikariPool.getConnection(HikariPool.java:162)
+	at com.zaxxer.hikari.HikariDataSource.getConnection(HikariDataSource.java:100)
+	at com.evolveum.midpoint.repo.sqlbase.SqlRepoContext.newJdbcSession(SqlRepoContext.java:129)
+	... 5 common frames omitted
+Caused by: org.postgresql.util.PSQLException: Connection to localhost:5432 refused. Check that the hostname and port are correct and that the postmaster is accepting TCP/IP connections.
+----
+
+*Reason*:
+
+* midPoint repository configuration has changed (IP, port etc.)
+
+* there is a firewall blocking connection to midPoint repository
+
+* midPoint repository is not online or the database is damaged
+
+*Resolution*:
+
+. test the communication between midPoint server and its database repository
+. fix `config.xml` file if the database repository location or configuration has been changed
+. fix the database problem and/or networking issues such as firewall if the database repository configuration was not changed
+. restart midPoint using the steps from <<running_monitoring_and_alerting>> chapter after the issue is resolved
+. check if midPoint is running and working correctly
+
+[NOTE]
+====
+Shutting down midPoint when the database connection is timing out might take more time as usual.
+====
+
+
+=== midPoint GUI stopped working during operation because there is not enough memory to complete the operation
+
+*Symptoms*:
+
+* midPoint is not working (GUI appears to be frozen)
+
+* page `http[s]://<midpoint_host>/midpoint/actuator/health` is available and returns: `{"status":"UP"}`
+
+* midPoint process is running
+
+* `midpoint.log` contains the error during operation: `java.lang.OutOfMemoryError: Java heap space`
+
+*Reason*:
+
+* too low value for `-Xmx` JVM parameter
+
+*Resolution*:
+
+. set correct `-Xmx` JVM parameter value (we also recommend setting the same value for `-Xms` JVM parameter)
+The recommended minimum for midPoint is 4 GB for production use.
+Do not exceed the physical memory size of your machine.
+. restart midPoint using the steps from <<running_monitoring_and_alerting>> chapter
+. check if midPoint is running and working correctly
+
+
+=== midPoint GUI works, but no messages are appended to midpoint.log
+
+*Symptoms:*
+
+* midPoint is working, GUI can be displayed
+
+* page `http[s]://<midpoint_host>/midpoint/actuator/health` is available and returns: `{"status":"UP"}`
+
+* midPoint process is running
+
+* no messages are logged to `midpoint.log` file, not even during (re)start
+
+*Reason:*
+
+* there might not be free space on filesystem where log is stored
+
+* check the free space on the filesystem hosting the `midpoint.log` file
+
+*Resolution*:
+
+. free some disk space on the filesystem hosting your midPoint logs
+
+. increase size of the filesystem/disk hosting your midPoint logs
+
+. change the logging configuration to use different filesystem for midPoint logs
+
+. restart midPoint using the steps from <<running_monitoring_and_alerting>> chapter after the issue is resolved
+
+. check if midPoint is running and working properly and the logging works again
+
+
+=== midPoint GUI works, but cannot create new objects or update existing objects in database repository
+
+*Symptoms*:
+
+* midPoint is working, GUI can be displayed
+
+* page `http[s]://<midpoint_host>/midpoint/actuator/health` is available and returns: `{"status":"UP"}`
+
+* midPoint process is running
+
+* go to menu:Nodes[All nodes] and check the column *Last check-in time* for your node(s) - it may constantly increase in time
+
+* "*No space left on device*" error may be logged in `midpoint.log`, for example:
+
+.midpoint.log file
+[source]
+----
+Caused by: org.postgresql.util.PSQLException: ERROR: could not extend file "base/294069/294301": No space left on device
+  Hint: Check free disk space.
+----
+
+*Reason*:
+
+* midPoint database repository disk space is too low or disk is full
+
+* midPoint cannot record any cluster-related information, data change or audit log changes
+
+*Resolution*:
+
+. free some disk space on the filesystem hosting your midPoint repository.
+You may want to stop midPoint before.
+
+. increase size of the filesystem/disk hosting your midPoint repository.
+You may want to stop midPoint before.
+
+. restart midPoint using the steps from <<running_monitoring_and_alerting>> chapter after the issue is resolved
+
+. check if midPoint is running and working properly
+
+
+=== midPoint GUI works, but attempts to run reports end with "Couldn't write" error
+
+*Symptoms*:
+
+* midPoint is working
+
+* page `http[s]://<midpoint_host>/midpoint/actuator/health` is available and returns: `{"status":"UP"}`
+
+* midPoint process is running
+
+* running reports fails with error similar to *Couldn't write aggregated report to /opt/midpoint/var/export/Users in MidPoint-EXPORT 17-02-2022 12-38-15.261.csv*
+
+* the report task has been suspended
+
+* the following error is logged to `midpoint.log`:
+
+.midpoint.log file
+[source]
+----
+com.evolveum.midpoint.util.exception.SystemException: Couldn't write aggregated report to /opt/midpoint/var/export/Users in MidPoint-EXPORT 17-02-2022 12-38-15.261.csv
+	at com.evolveum.midpoint.report.impl.activity.SaveReportFileSupport.writeToReportFile(SaveReportFileSupport.java:184)
+	at com.evolveum.midpoint.report.impl.activity.SaveReportFileSupport.storeExportedReport(SaveReportFileSupport.java:101)
+	at com.evolveum.midpoint.report.impl.activity.SaveReportFileSupport.saveReportFile(SaveReportFileSupport.java:91)
+	at com.evolveum.midpoint.report.impl.activity.ExportActivitySupport.saveReportFile(ExportActivitySupport.java:67)
+	at com.evolveum.midpoint.report.impl.activity.ClassicCollectionReportExportActivityRun.afterRun(ClassicCollectionReportExportActivityRun.java:143)
+. . .
+Caused by: java.io.FileNotFoundException: /opt/midpoint/var/export/Users in MidPoint-EXPORT 17-02-2022 12-38-15.261.csv (Permission denied)
+	at java.base/java.io.FileOutputStream.open0(Native Method)
+	at java.base/java.io.FileOutputStream.open(FileOutputStream.java:293)
+	at java.base/java.io.FileOutputStream.<init>(FileOutputStream.java:235)
+	at org.apache.commons.io.FileUtils.openOutputStream(FileUtils.java:2450)
+	at org.apache.commons.io.FileUtils.writeByteArrayToFile(FileUtils.java:3323)
+	at org.apache.commons.io.FileUtils.writeByteArrayToFile(FileUtils.java:3287)
+	at org.apache.commons.io.FileUtils.writeByteArrayToFile(FileUtils.java:3270)
+	at com.evolveum.midpoint.report.impl.activity.SaveReportFileSupport.writeToReportFile(SaveReportFileSupport.java:180)
+	... 20 common frames omitted
+2022-02-17 12:38:15,429 [] [midPointScheduler_Worker-5] INFO (com.evolveum.midpoint.task.quartzimpl.tasks.SuspendAndDeleteHelper): Suspending task Task(id:1645097894227-0-1, name:Task 1645097894227-0-1, oid:d7525c08-0fce-465c-9272-9f950afbcbf9); do not stop tasks.
+----
+
+*Reason*:
+
+* the report output file cannot be created because of incorrect permissions in `export` directory
+
+*Resolution*:
+
+. check permissions in `midpoint.home/export` directory using the following command (Linux).
+In the following example, the directory is owned by user "root" and not writable for `midpoint` user:
++
+[source,bash,subs="+quotes"]
+----
+midpoint@midpoint:~ $ *ls -lad /opt/midpoint/export*
+
+drwxr-xr-x 2 root root 4096 Sep 11 13:24 /opt/midpoint/export
+----
+
+. fix the ownership/permissions in `midpoint.home/export` directory
+. re-run the report task or re-create the report.
+You don't need to restart midPoint; just re-run the task or run another report.
+
+TIP: The subdirectories of `midpoint.home` are normally created by midPoint with correct permissions/ownership when it is started for the first time.
+
+=== midPoint GUI works, but cannot read, add, modify or delete accounts on resource
+
+*Symptoms*:
+
+* midPoint is working, GUI can be displayed
+
+* page `http[s]://<midpoint_host>/midpoint/actuator/health` is available and returns: `{"status":"UP"}`
+
+* midPoint process is running
+
+* attempt to expand (read) account data in "Projections" panel freezes for a moment, then displays the message similar to:
+** *Error communication with the connector ConnectorInstanceIcfImpl(connector:94b0cb27-a7ef-45fc-94c6-f0406237e2d9(ConnId com.evolveum.polygon.connector.ldap.LdapConnector v3.3)): Connection failed: org.identityconnectors.framework.common.exceptions.ConnectionFailedException(Unable to connect to LDAP server openldap:389: MSG_04177_CONNECTION_TIMEOUT (10000))->org.apache.directory.ldap.client.api.exception.LdapConnectionTimeOutException(MSG_04177_CONNECTION_TIMEOUT (10000))*
+
+* only attributes stored in midPoint are returned (typically account identifiers such as `login` or `Distinguished Name`)
+
+* `midpoint.log` file contains the errors similar to:
++
+.midpoint.log file
+[source]
+----
+2022-02-17 12:52:35,871 [] [http-nio-8080-exec-9] ERROR (com.evolveum.polygon.connector.ldap.OperationLog): method: null msg:ldap://openldap/ Search ERR org.apache.directory.ldap.client.api.exception.LdapConnectionTimeOutException: ERR_04170_TIMEOUT_OCCURED TimeOut occurred
+2022-02-17 12:52:46,015 [] [http-nio-8080-exec-9] WARN (com.evolveum.midpoint.provisioning.ucf.impl.connid.ConnIdUtil): Got ConnId exception (might be handled by upper layers later) org.identityconnectors.framework.common.exceptions.ConnectionFailedException in connector:94b0cb27-a7ef-45fc-94c6-f0406237e2d9(ConnId com.evolveum.polygon.connector.ldap.LdapConnector v3.3): ConnectorSpec(resource:d0811790-1d80-11e4-86b2-3c970e467874(OpenLDAP), name=null, oid=94b0cb27-a7ef-45fc-94c6-f0406237e2d9) while getting object identified by ConnId UID '8368375a-1c4d-103c-8c59-3f663bb21f8a': Unable to connect to LDAP server openldap:389: MSG_04177_CONNECTION_TIMEOUT (10000), reason: Unable to connect to LDAP server openldap:389: MSG_04177_CONNECTION_TIMEOUT (10000) (class org.identityconnectors.framework.common.exceptions.ConnectionFailedException)
+2022-02-17 12:52:46,028 [PROVISIONING] [http-nio-8080-exec-9] INFO (com.evolveum.midpoint.provisioning.impl.ResourceOperationalStateManager): Availability status changed from UP to DOWN for resource:d0811790-1d80-11e4-86b2-3c970e467874(OpenLDAP) because getting shadow:1743eab5-ad59-4d7b-b8cc-b7a0a5cfdfeb(uid=X000005,ou=people,dc=example,dc=com) ended with communication problem, Connection failed: org.identityconnectors.framework.common.exceptions.ConnectionFailedException(Unable to connect to LDAP server openldap:389: MSG_04177_CONNECTION_TIMEOUT (10000))->org.apache.directory.ldap.client.api.exception.LdapConnectionTimeOutException(MSG_04177_CONNECTION_TIMEOUT (10000))
+----
+
+* subsequently, the resource with the error is marked as "down" in the resource list
+
+*Reason*:
+
+* `midPoint` cannot communicate with the resource - possibly firewall/network problem
+
+*Resolution*:
+
+. try to connect to the resource/port using telnet from midPoint machine
+
+. check the network connections and firewall(s) between midPoint and resource and configure it properly
+
+. go to menu:Resources[All resources] and test connection for the resource
+
+. edit the user with account on the fixed resource and expand the account attributes.
+Pending changes (if any) should be automatically applied.
+
+[NOTE]
+====
+Think about running Shadow refresh task or Reconciliation task for the failed resource after you fix the connection problem.
+====
+
+
+=== Failed synchronization task remediation
+
+If midPoint is executing synchronization tasks in background, it is also checking the results of synchronization of individual objects.
+If there is a problem, the synchronization task will follow one of the following scenarios:
+
+* *configuration exception*: task will suspend itself.
+An example may be that administrator has misconfigured the resource which is being synchronized
+
+* *non-permanent error*: task will not suspend itself, it will continue its execution.
+The object with error will be probably not synchronized correctly, but the other objects will continue to be synchronized.
+The error will be visible in the task "Result" or "Errors" panel
+If the issue is connection-related, midPoint may continue to poll the resource again.
+
+* *permanent error*: task will suspend itself.
+
+In all cases, synchronization errors will be visible in `midpoint.log` file.
+Also a notification can be configured which will send an email/SMS if task is suspended because of an error.
+
+If the task has been suspended because of synchronization problem, use the following steps:
+
+* Search for exceptions in `midpoint.log`. Usually the exception will include also stack trace, which will be quite "visible" in the log file. Try to understand the problem from the error message near the exception.
+
+* Fix the server communication problem, resource configuration problem or problem with specific user data.
+
+* If the problem has been resolved, you can resume the task again.
+Based on the task type, task can either continue (LiveSync) or restart (Reconciliation).
+
+
+=== Removing old reports as a prevention of full disk
+
+If midPoint reports are created and executed, there are two kinds of output data for each report:
+
+* the repository object of `ReportData` type referencing (among others) the actual report output (file on disk)
+
+* the report output (file on disk)
+
+The report outputs or the corresponding files can be deleted manually from midPoint, but the *Cleanup task* can be configured to do so automatically.
+
+[TIP]
+====
+If you are using multiple nodes in midPoint cluster, the reports output files will be stored on the machine running report.
+In order to access the reports from any machine, you need to create a shared directory/filesystem which will be accessible from all midPoint nodes as `$midpoint.home/export` directory.
+
+Otherwise the reports will be downloadable only on the machine where they were created.
+====
+
+midPoint `Cleanup task` can be configured to automatically delete old report outputs.
+This can be configured in `System configuration` object using the following steps:
+
+* go to menu:Configuration[Repository objects].
+
+* select `System configuration` in the combo list.
+
+* Click `SystemConfiguration` object.
+
+* Scroll down and search the `<cleanupPolicy>` section and update it with a new `<outputReports>` part:
++
+[source,xml,highlight='9-11']
+----
+. . .
+<cleanupPolicy>
+      <auditRecords>
+         <maxAge>P3M</maxAge>
+      </auditRecords>
+      <closedTasks>
+         <maxAge>P1M</maxAge>
+      </closedTasks>
+      <outputReports>
+         <maxAge>P2M</maxAge><!--1-->
+      </outputReports>
+   </cleanupPolicy>
+. . .
+----
+<1> the report outputs will be automatically deleted after 2 months
+
+* save the `System configuration` object by clicking btn:[Save]
+
+TIP: Instead of modification of `SystemConfiguration` via midPoint, you can also upload it using MidPoint Studio. You can also use midPoint GUI to configure the cleanup policy - please refer to <<cleanup_policy>>.
+
+== Security and Access Control
+
+The vast majority of data stored in midPoint is stored in the database repository.
+The access to the data from midPoint can be limited using the concept of authorizations.
+The raw access to the data from outside of midPoint must be limited by the database and network configuration.
+In addition, the sensitive data in the database (such as passwords) are either encrypted or hashed and the encryption key is not stored in the database.
+
+=== Authorizations for Operations
+
+MidPoint roles can be used to provide and limit access control over data in midPoint.
+There are two types of authorizations:
+
+* *entry point authorizations*: webservice or GUI authorizations allow access specific interface at all (e.g. web service) or specific pages in midPoint GUI.
+
+* *model authorizations*: triplets or subject, operation and object allow or deny access to specific objects or operations for various subjects.
+
+The default access security policy is to deny all requests unless explicitly permitted.
+
+There are two builtin basic security roles pre-configured using the authorizations:
+
+* *Superuser*: users assigned to this role have all permissions in midPoint
+
+* *End user*: users assigned to this role have basic self-service capabilities to log in to midPoint, view their profiles, change passwords etc.
+They have no access control over other objects, just their accounts in midPoint and target systems.
+
+The roles can be customized if needed and any number of different roles can be created to support delegated administration.
+
+There is also a small number of files stored on disk, not in the database repository which should be also be protected.
+
+
+=== Files on disk (midpoint.home)
+
+The files on disk in the `midpoint.home` directory should be protected using the operation system file access control.
+The files should be readable and writable only by the technical user which runs the application server with midPoint:
+
+* `config.xml`: this file contains the database username and password.
+
+* `keystore.jceks`: this file contains the encryption keys for sensitive information such as passwords in midPoint
+
+== System Configuration
+
+The main midPoint configuration is placed in the following places:
+
+* On disk: `midpoint.home/config.xml` file
+
+* In DB repository: `System configuration` object
+
+The `config.xml` file is used to set up database repository connection, as documented in link:https://docs.evolveum.com/midpoint/reference/repository/configuration/[Repository Configuration].
+
+The following chapter describes additional configuration parameters in `config.xml` file.
+Any change in the file requires midPoint restart.
+
+[NOTE]
+====
+Make sure you keep the files in `midpoint.home` directory content synchronized between all midPoint instances.
+====
+
+
+=== Clustering (High Availability) support
+
+To create midPoint cluster, you need multiple midPoint nodes using the same database repository.
+
+Install midPoint as usual on all cluster nodes.
+You need to install the same midPoint version
+
+We assume that you have already started midPoint at least once.
+
+The following steps allow the cluster to be built and operated.
+
+NOTE: Make sure time is synchronized on all midPoint nodes!
+
+TIP: Start with turning on the cluster support on one of the nodes, then continue with the second node etc. You must restart midPoint if you change `config.xml` file. Keep watching `midpoint.log` file in all cluster nodes.
+
+==== Enabling clustered option
+
+Setup the following in the `config.xml` file in *all midPoint nodes*:
+
+.config.xml file:
+[source,xml,highlight='8']
+----
+<configuration>
+    . . .
+    <midpoint>
+        <repository>
+        . . .
+        </repository>
+        <taskManager>
+            <clustered>true</clustered> <!--1-->
+        </taskManager>
+    </midpoint>
+</configuration>
+----
+<1> enabling `clustered` option for this node
+
+==== Node identifiers
+
+Setup unique node identifiers for *all midPoint nodes* using *either*:
+
+* use a command-line parameter `-Dmidpoint.nodeId` for midPoint process with a unique value, e.g.: `-Dmidpoint.nodeId=node01`
+* use the `<nodeId>` element in `config.xml`, e.g.:
++
+[source,xml,highlight='8,10']
+----
+<configuration>
+    . . .
+    <midpoint>
+        <repository>
+        . . .
+        </repository>
+        <taskManager>
+            <clustered>true</clustered> <!--1-->
+        </taskManager>
+        <nodeId>node01</nodeId> <!--2-->
+    </midpoint>
+</configuration>
+----
+<1> enabling `clustered` option for this node
+<2> setting `nodeId` explicitly for this node
+* use a command-line parameter `-Dmidpoint.nodeIdSource=hostname` or `-Dmidpoint.nodeIdSource=random` to allow midPoint to generate the `nodeId` automatically based on server's hostname or a random string, respectively
+* use the `<nodeIdSource>` element in `config.xml`, e.g.:
++
+[source,xml,highlight='8,10']
+----
+<configuration>
+    . . .
+    <midpoint>
+        <repository>
+        . . .
+        </repository>
+        <taskManager>
+            <clustered>true</clustered> <!--1-->
+        </taskManager>
+        <nodeIdSource>hostname</nodeIdSource> <!--2-->
+    </midpoint>
+</configuration>
+----
+<1> enabling `clustered` option for this node
+<2> setting `nodeIdSource` to `hostname` explicitly for this node
+
+TIP: Using `<nodeIdSource>hostname</nodeIdSource>` seems to be more flexible approach if you are running midPoint on several cluster nodes with different hostnames as you can use a single `config.xml` file on a shared disk for all cluster nodes.
+
+==== Cluster URL Override
+
+In some cases you need to configure the cluster URL so that midPoint nodes can see each other. This is used to detect which nodes are working and which are down.
+
+The algorithm of cluster URL configuration is the following (in order of evaluation):
+
+. if midPoint `<node>` object (in repository) contains `<urlOverride>` property, it is used
+. `-Dmidpoint.url` command-line property or `<url>` property from `config.xml` is used
+. if `SystemConfiguration` object contains the `<infrastructure><intraClusterHttpUrlPattern>. . .</intraClusterHttpUrlPattern></infrastructure>` property, it is used. The property can use the following macros:
+* `$host` for host name (obtained dynamically from OS or overridden via `-Dmidpoint.hostname` or `<hostname>` property from  `config.xml` file)
+* `$port`  for HTTP port (obtained dynamically from Tomcat JMX objects or overridden via `-Dmidpoint.httpPort` command-line property)
+* `$path` for midPoint URL path (obtained dynamically from the servlet container)
+. cluster URL is derived from the Tomcat JMX objects: protocol scheme, host name, port, and servlet path, as `scheme://host:port/path`.
+
+[TIP]
+====
+You might need to override the cluster URL if your nodes cannot communicate with each other on the standard JMX ports because of the firewall restrictions.
+
+Imagine the following example:
+
+* you are running two midPoint nodes on two hosts, both using ports 8080
+* both midPoint nodes are not directly accessible, they are behind Apache Http servers configured as reverse proxy servers, both using ports 80. Both Apache Http servers can be behind a load balancer.
+* firewall blocks the communication on midPoint nodes, ports 8080 (they cannot communicate with each other using ports 8080)
+* firewall allows the communication between midPoint nodes, ports 80
+* cluster URL would be derived as `http://$host:$port/midpoint`, but `$port` would stand for `8080`, as this is the Tomcat JMX address
+* you would need to override the cluster URL to: `http://$host:80/midpoint` (port `80` instead of `8080`) using the above mentioned mechanisms. For a concrete example, you could either use:
+** the configuration in `SystemConfiguration` object (shared for all nodes):
++
+[source,xml,subs="+quotes"]
+----
+<systemConfiguration>
+. . .
+    <infrastructure>
+        <intraClusterHttpUrlPattern>*http://$host:80/midpoint*</intraClusterHttpUrlPattern>
+    </infrastructure>
+</systemConfiguration>
+----
+** or you can configure your `config.xml` (`<url>`) or `-Dmidpoint.url` for all nodes (the values will be different for all nodes).
+====
+
+==== Checking Cluster Communication
+
+Start all midPoint nodes and go to menu:Nodes[All nodes].
+
+You should see that all nodes can see each other and there are no communication problems (*Status message* column).
+
+TIP: When troubleshooting these mechanisms you can set logging for `com.evolveum.midpoint.task.quartzimpl.cluster.NodeRegistrar` (or the whole task manager module) to `DEBUG`.
+
+
+=== Directory with custom connectors
+
+The directory which can be used to contain custom ConnId connectors is configured in the following section of `config.xml` file:
+
+.config.xml file: Custom ConnId Connectors Directory
+[source,xml]
+----
+    <icf>
+      <scanClasspath>true</scanClasspath>
+      <scanDirectory>${midpoint.home}/icf-connectors</scanDirectory>
+    </icf>
+----
+
+There is usually no need to change the default location.
+
+
+=== Keystore configuration
+
+The keystore file contains midPoint encryption key used to encrypt and decrypt sensitive information.
+The key is generated automatically upon first midPoint start.
+The default cipher size is AES\_128.
+
+The keystore file and default encryption key name (alias) are configured in the following section of `config.xml` file:
+
+.config.xml: Keystore Parameters
+[source,xml]
+----
+    <keystore>
+      <keyStorePath>${midpoint.home}/keystore.jceks</keyStorePath>
+      <keyStorePassword>changeit</keyStorePassword>
+      <encryptionKeyAlias>default</encryptionKeyAlias>
+    </keystore>
+----
+
+The encryption key can be changed to use different cipher size.
+
+[NOTE]
+====
+There can be multiple keys in the keystore, even if only one is used for data *encryption*. To *decrypt* data encrypted previously, the old keys must be kept in the keystore.
+All encrypted data contains information about the key that was used for encryption and the same key will be used for decryption.
+
+As a rule of thumb, do not remove old keys from the keystore unless they are no more in use.
+====
+
+
+==== Adding new encryption key
+
+Stop midPoint (all instances) before creating and using new encryption key.
+
+You can use `keytool` to generate the new key with the name `strong`.
+Please replace keystore path and key parameters as required:
+
+[source,bash,subs="+quotes"]
+----
+midpoint@midpoint:~ $ *keytool -genseckey -alias strong -keystore /opt/midpoint/var/keystore.jceks -storetype jceks -storepass changeit -keyalg AES -keysize 256 -keypass midpoint*
+----
+
+
+The previous command creates a new key with AES_256 cipher named `strong`.
+The key is stored in the keystore, but midPoint will not use it unless you configure it.
+
+Update `config.xml` file with the new key information:
+
+.config.xml: Keystore Parameters
+[source,xml,highlight='4,5']
+----
+    <keystore>
+      <keyStorePath>${midpoint.home}/keystore.jceks</keyStorePath>
+      <keyStorePassword>changeit</keyStorePassword>
+      <encryptionKeyAlias>strong</encryptionKeyAlias>
+      <xmlCipher>http://www.w3.org/2001/04/xmlenc#aes256-cbc</xmlCipher>
+    </keystore>
+----
+
+If you are using midPoint cluster, you must use the same encryption key in all instances.
+In simple cases you can simply copy the `keystore.jceks` file and `config.xml` to other instances.
+
+Start midPoint (all instances) after changing the encryption key.
+You should be able to login as usual.
+From now, all newly encrypted data (such as changed passwords) will use the new encryption key (`strong`).
+
+
+==== Adding target system certificates
+
+The same keystore can be used also to contain certificates for remote systems accessed by the connectors.
+To do this, the following option must be configured for JVM running midPoint e.g. in systemd service file (replace `/opt/midpoint/var` with your `midpoint.home` location):
+
+[source]
+----
+-Djavax.net.ssl.trustStore=/opt/midpoint/var/keystore.jceks -Djavax.net.ssl.trustStoreType=jceks
+----
+
+The following chapter describes "System configuration" object parameters.
+
+
+=== Changing Security policy
+
+If you need to change the global security policy which will be used for midPoint Users, please follow these steps.
+
+* go to menu:System[System]
+* Click btn:[Edit] in *Global security policy* field.
+* Select appropriate value from the list of all security policies in the midPoint repository.
++
+[NOTE]
+====
+Please be sure to select correct security policy.
+The policy must already exist in the midPoint repository.
+Changing the global security policy influences all User objects from now on.
+
+====
+
+* Save the selection by clicking btn:[Save] button
+
+
+=== Changing Object templates
+
+If you need to change object template which will be used for midPoint objects (e.g. Users), please follow these steps:
+
+* go to menu:System[Object policy]
+* Click btn:[Edit] in *Object template reference* column for appropriate object policy (e.g. for User objects, the (readonly) row in the Object policies field will end with UserType.
+* A new popup window appears.
+* Select appropriate value from the list of all Object Policies in the midPoint repository.
+
+[NOTE]
+====
+Please be sure to select correct object template.
+The template must already exist in the midPoint repository.
+Changing the object template influences the creation and modification of all objects of selected object type (e.g. Users) from now on.
+====
+
+* Save the selection by clicking btn:[Save] button
+
+[#cleanup_policy]
+=== Cleanup Policy
+
+Midpoint has an automatized way how to remove old audit and closed task data from the repository.This is done via a recurring cleanup task which is executed periodically by default every 24 hours.By default, this task removes all audit records older than 3 months and task records older than 1 month.
+
+To change the default configuration please do the following:
+
+* go to menu:System[Cleanup Policy]
+* expand the corresponding containers
+* set the *Cleanup interval* for the corresponding policies
+* save the configuration by clicking btn:[Save] button
+
+=== Notifications Configuration
+
+The notifications are used to deliver messages based on various events in midPoint. E-mail, SMS and redirection to file(s) are supported.
+
+The basic configuration for e-mail notifications is available from midPoint GUI. Configuration of other transports or the behaviour is currently possible only using XML configuration.
+
+Access the Notifications page by going to menu:System[Notifications].
+
+You can update the *Mail configuration* or the *Mail servers*
+
+
+To add a new mail server for e-mail based notifications, click the btn:[+] button in the *Mail Servers*. Fill in the required settings based on your e-mail server configuration. You can have multiple SMTP servers which will be used for sending e-mails (round-robin).
+
+Existing mail server configuration can be modified by selecting the appropriate mail server.
+
+Save the changes by clicking on btn:[Save] button.
+
+If you wish to use your existing notifications configuration, but avoid sending any real e-mails, you can redirect the notifications to the file configured in *Redirect to file* field.
+
+
+=== Logging
+
+MidPoint is using logback for logging. You can configure the following for logging:
+
+* what is being logged (loggers)
+
+* how much is being logged - verbosity (log level)
+
+* where is the information logged (appenders)
+
+You can configure multiple loggers with different log levels and store the information in separate appenders (usually the files). The default configuration is set to disable debugging information.
+
+The values for this parameters might be quite custom for each deployment while the verbosity of loggers which are set up and the number logged operation should be considered.
+
+Access the Logging page by going to menu:System[Logging].
+
+The modifications can be done in the *Appenders* section of the window. Click an existing appender name you wish to update:
+
+* Pattern: the message format. E.g.: `%date [%X{subsystem}] [%thread] %level \(%logger\): %msg%n`
+
+* *File name*: where the file will be stored. E.g. `${midpoint.home}/log/midpoint.log`
+
+* *File pattern*: how the rotated logs file name will be constructed. E.g. `${midpoint.home}/log/midpoint-%d{yyyy-MM-dd}.%i.log`
+** in order to compress rotated logs, the *File pattern* should end with `.gz` extension, e.g. `${midpoint.home}/log/midpoint-%d{yyyy-MM-dd}.%i.log.gz`
+
+* *Max history*: how many _days_ of log history should be kept
+
+* *Max file size*: how big the log file can be before  rotation occurs. E.g.: `100MB`
+
+* *Append*: check to append the information to the file; otherwise the fill be truncated
+
+TIP: String `${midpoint.home}` represents the "midPoint Home" directory.
+
+If necessary, you can create a new appender by clicking btn:[+] while selecting *File appender*:
+
+
+* *Pattern*: the message format (you can copy the value from `MIDPOINT_LOG`). E.g.: `%date [%X{subsystem}] [%thread] %level \(%logger\): %msg%n`
+
+* *Name*: name of the appender. E.g. `MIDPOINT_PROV_LOG`
+
+* *File name*: where the file will be stored. You can copy the value from `MIDPOINT_LOG`, but change the file name! E.g. `${midpoint.home}/log/midpoint-prov.log`
+
+* *File pattern*: how the rotated logs file name will be constructed.You can copy the value from `MIDPOINT_LOG`, but change the file name!E.g. `${midpoint.home}/log/midpoint-prov-%d{yyyy-MM-dd}.%i.log`
+** in order to compress rotated logs, the *File pattern* should end with `.gz` extension, e.g. `${midpoint.home}/log/midpoint-prov-%d{yyyy-MM-dd}.%i.log.gz`
+
+
+
+* *Max history*: how many days of log history should be kept
+
+* *Max file size*: how big the log file can be before rotation occurs.E.g.: `100MB`
+
+* *Append*: check to append the information to the file; otherwise the fill be truncated
+
+Click btn:[Done] button, then click btn:[Save] button.
+
+The new appender will be used only if some of the loggers will be configured to use it.
+
+
+[#_syslog_logging]
+=== Syslog Logging
+
+MidPoint is using logback for logging.By default is configured to log to `midpoint.log` file.You can also configure logging to the Syslog server.
+
+The following steps assume `rsyslogd` installation.
+
+Create a new file `/etc/rsyslog.d/99-midpoint.conf` on your syslog server with the following contents:
+
+./etc/rsyslogd.d/99-midpoint.conf file:
+[source,bash]
+----
+local3.*			/var/log/midpoint.log
+----
+
+Check and configure remote logging in `/etc/rsyslog.conf` file:
+
+./etc/rsyslog.conf file
+[source]
+----
+# provides UDP syslog reception
+module(load="imudp")
+input(type="imudp" port="514")
+----
+
+[NOTE]
+====
+You may need to adjust your firewall rules between midPoint server(s) and syslog server.
+
+====
+
+Restart rsyslogd:
+
+[source,bash,subs="+quotes"]
+----
+midpoint@midpoint:~ $ *sudo systemctl restart rsyslog.service*
+----
+
+Test rsyslogd configuration with the command:
+
+[source,bash,subs="+quotes"]
+----
+midpoint@midpoint:~ $ *logger -p local3.info Syslog check with midpoint configuration*
+----
+
+File `/var/log/midpoint.log` should be created and contain the message.
+
+* go to menu:Repository objects[All objects]
+* edit `System configuration` object
+* append a new appender configuration for `SYSLOG_LOG`:
++
+[source,xml]
+----
+<appender xsi:type="c:SyslogAppenderConfigurationType" name="SYSLOG_LOG" <!--1-->
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+    <syslogHost>syslog.example.com</syslogHost> <!--2-->
+    <facility>LOCAL3</facility> <!--3-->
+    <suffixPattern>[%X{subsystem}] [%thread] %level \(%logger\): %msg</suffixPattern>
+</appender>
+----
+<1> this appender is named `SYSLOG_LOG`
+<2> remote syslog server location (you may want to use `localhost`). Port `514` is assumed.
+<3> syslog facility
+* save `System configuration` object
+
+* go to menu:System[Logging]
+* set the *Root appender* (or any other appenders) to `SYSLOG_LOG
+* click btn:[Save] button
+
+[TIP]
+====
+You may also want to overwrite the existing appender configuration (default: `MIDPOINT_LOG`) in the `System configuration` object. In such case, the XML code above needs to contain: `name="MIDPOINT_LOG"` and you need to replace the existing appender for `MIDPOINT_LOG` in `System configuration` instead of adding a new.
+====
+
+[NOTE]
+====
+You may need to configure log rotation for the log file in your operating system.
+====
+
+To test the logging, you may want to test connection to some resource (e.g. LDAP) which will force some messages to be printed.
+
+Go to Syslog server and check the messages in `/var/log/midpoint.log`
+
+If you see the messages, logging to Syslog server is properly configured.
+
+[#running_monitoring_and_alerting]
+== Running, Monitoring and Alerting
+
+
+=== Starting and Stopping midPoint
+
+midPoint is a web application using its own embedded Tomcat server (stand-alone deployment).
+This means you do not need to install any other server to run midPoint.
+
+[NOTE]
+====
+Explicit deployment of war file to web container is deprecated. Apache Tomcat 9.0 (9.0.48) is supported.
+
+Apache Tomcat 8.0.x and 8.5.x are no longer supported. Support for explicit deployment to newer Tomcat versions is not planned. Please migrate to the default stand-alone deployment model as soon as possible.
+
+This document assumes the usage of embedded Tomcat server only.
+====
+
+==== Using embedded Tomcat (Linux)
+
+The following steps assume the midPoint installation in `/opt/midpoint` directory, owned (both directory and its content) as (previously created) user `midpoint`. The systemd service will be started as user `midpoint` and will listen on default TCP 8080 port.
+
+.midpoint.service file example:
+[source,bash]
+----
+[Unit]
+Description=MidPoint Standalone Service
+###Requires=postgresql.service
+###After=postgresql.service
+[Service]
+User=midpoint
+WorkingDirectory=/opt/midpoint
+ExecStart=/usr/bin/java \
+  -Xmx4096m \
+  -Dmidpoint.home=/opt/midpoint/var \
+  -jar /opt/midpoint/lib/midpoint.war
+SuccessExitStatus=143
+###TimeoutStopSec=120s
+[Install]WantedBy=multi-user.target
+----
+
+The systemd service file can be generated by using the following command:
+
+[source,bash,subs="+quotes"]
+----
+midpoint@midpoint:~ $ */opt/midpoint/bin/midpoint.sh generate*
+----
+
+The service file is generated on the standard output. You need to copy/paste it to a systemd service file as instructed by the script output.
+
+To customize JVM parameters, you can use the following environmental variables before calling `midpoint.sh generate`:
+
+MP_USER=username::
+Run midPoint as user username
+MP_MEM_MAX=value::
+Value for Xmx JVM parameter
+MP_MEM_INIT=value::
+Value for Xms JVM parameter
+MP_SET_SpecialVariable=value::
+Value for SpecialVariable will be set to value
+MP_SET_java_xxx_yyy_zzz=value::
+Value for java.xxx.yyy.zzz will be set to value
+
+A more complete example of calling `midpoint.sh generate` to create a proper systemd service file:
+
+[source,bash,subs="+quotes"]
+----
+midpoint@midpoint:~ $ *MP_USER=mpuser MP_MEM_INIT=16g MP_MEM_MAX=16g /opt/midpoint/bin/midpoint.sh generate*
+----
+
+This would generate the systemd service file containing:
+
+[source,bash,subs="+quotes"]
+----
+
+. . .
+[Service]
+User=*mpuser*
+ExecStart="java" -Djava.util.logging.manager=org.apache.juli.ClassLoaderLogManager *-Xmx16g* *-Xms16g* -Dpython.cachedir="/opt/midpoint-4.4.1/var/tmp" -Djavax.net.ssl.trustStore="/opt/midpoint-4.4.1/var/keystore.jceks" -Djavax.net.ssl.trustStoreType=jceks -Dmidpoint.home="/opt/midpoint-4.4.1/var" -jar "/opt/midpoint-4.4.1/lib/midpoint.war"
+. . .
+----
+
+[TIP]
+====
+Systemd allows you to specify service dependencies.
+For example to specify that midPoint requires PostgreSQL database running as systemd service on the same host, just uncomment the lines `Requires` and `After`. Systemd will start PostgreSQL before midPoint, and when PostgreSQL goes down, it will also automatically shutdown midPoint.
+====
+
+After creating or updating systemd service file for midPoint, you need to execute the following:
+
+[source,bash,subs="+quotes"]
+----
+midpoint@midpoint:~ $ *sudo systemctl daemon-reload*
+midpoint@midpoint:~ $ *sudo systemctl enable midpoint*
+----
+
+To start midPoint using systemd service:
+
+[source,bash,subs="+quotes"]
+----
+midpoint@midpoint:~ $ *sudo systemctl start midpoint*
+----
+
+To stop midPoint running as a systemd service:
+
+[source,bash,subs="+quotes"]
+----
+midpoint@midpoint:~ $ *sudo systemctl stop midpoint*
+----
+
+To restart midPoint running as a systemd service:
+
+[source,bash,subs="+quotes"]
+----
+midpoint@midpoint:~ $ *sudo systemctl restart midpoint*
+----
+
+
+To disable automatic midPoint startup/shutdown, use the following command:
+
+[source,bash,subs="+quotes"]
+----
+midpoint@midpoint:~ $ *sudo systemctl disable midpoint*
+----
+
+////
+// This section is deprecated and talks about unsupported Tomcat 8
+==== Using external Tomcat
+
+midPoint is started and stopped whenever Tomcat server is started or stopped. On Linux servers, the usual startup scripts can be used to start/stop midPoint manually or automatically using the operating system means,  whenever the server starts or shuts down.
+
+To start midPoint on Linux server with Tomcat manually, use one of the commands (depending on your distribution):
+
+[source,bash]
+----
+sudo service tomcat8 start
+sudo systemctl start tomcat8
+sudo /etc/init.d/tomcat8 start
+----
+
+To start midPoint on Windows server with Tomcat installed as service manually, start the service through Services by selecting Start the service link or Start service button for Tomcat service.
+
+If midPoint has been successfully started, the `midpoint.log` file should contain the following messages:
+
+.midpoint.log file:
+[source]
+----
+2018-11-06 09:48:43,698 [] [localhost-startStop-1] INFO (org.springframework.web.context.ContextLoader): Root WebApplicationContext: initialization completed in 24997 ms
+2018-11-06 09:48:43,808 [] [localhost-startStop-1] INFO (ro.isdc.wro.http.WroFilter): wro4j version: 1.8.0
+2018-11-06 09:48:43,808 [] [localhost-startStop-1] INFO (ro.isdc.wro.http.WroFilter): wro4j configuration: ro.isdc.wro.config.jmx.WroConfiguration@78ec40c9[
+  cacheUpdatePeriod=0
+  modelUpdatePeriod=0
+  resourceWatcherUpdatePeriod=0
+  resourceWatcherAsync=false
+  gzipEnabled=true
+  debug=true
+  ignoreMissingResources=true
+  cacheGzippedContent=false
+  jmxEnabled=true
+  wroManagerClassName=ro.isdc.wro.manager.factory.ConfigurableWroManagerFactory
+  encoding=UTF-8
+  mbeanName=<null>
+  header=<null>
+  connectionTimeout=2000
+  parallelPreprocessing=false
+  ignoreEmptyGroup=true
+  ignoreFailingProcessor=false
+  minimizeEnabled=true
+]
+2018-11-06 09:48:43,858 [] [localhost-startStop-1] INFO (org.apache.wicket.util.file.WebXmlFile): web.xml: url mapping found for filter with name wicket: [/*]
+2018-11-06 09:48:43,951 [] [localhost-startStop-1] INFO (org.apache.wicket.Application): [wicket] init: DevUtils DebugBar Initializer
+2018-11-06 09:48:43,951 [] [localhost-startStop-1] INFO (org.apache.wicket.Application): [wicket] init: Wicket core library initializer
+2018-11-06 09:48:43,954 [] [localhost-startStop-1] INFO (org.apache.wicket.RequestListenerInterface): registered listener interface [RequestListenerInterface name=IBehaviorListener, method=public abstract void org.apache.wicket.behavior.IBehaviorListener.onRequest()]
+2018-11-06 09:48:43,954 [] [localhost-startStop-1] INFO (org.apache.wicket.RequestListenerInterface): registered listener interface [RequestListenerInterface name=IFormSubmitListener, method=public abstract void org.apache.wicket.markup.html.form.IFormSubmitListener.onFormSubmitted()]
+2018-11-06 09:48:43,954 [] [localhost-startStop-1] INFO (org.apache.wicket.RequestListenerInterface): registered listener interface [RequestListenerInterface name=ILinkListener, method=public abstract void org.apache.wicket.markup.html.link.ILinkListener.onLinkClicked()]
+2018-11-06 09:48:43,955 [] [localhost-startStop-1] INFO (org.apache.wicket.RequestListenerInterface): registered listener interface [RequestListenerInterface name=IOnChangeListener, method=public abstract void org.apache.wicket.markup.html.form.IOnChangeListener.onSelectionChanged()]
+2018-11-06 09:48:43,955 [] [localhost-startStop-1] INFO (org.apache.wicket.RequestListenerInterface): registered listener interface [RequestListenerInterface name=IResourceListener, method=public abstract void org.apache.wicket.IResourceListener.onResourceRequested()]
+2018-11-06 09:48:43,955 [] [localhost-startStop-1] INFO (org.apache.wicket.Application): [wicket] init: Wicket extensions initializer
+2018-11-06 09:48:44,707 [] [localhost-startStop-1] INFO (org.apache.wicket.protocol.http.WebApplication): [wicket] Started Wicket version 7.6.0 in DEPLOYMENT mode
+----
+
+
+
+[NOTE]
+====
+If the database repository is running on the same machine as midPoint, make sure that Tomcat is started *after* the database repository for midPoint has been started.
+Otherwise midPoint will be unable to start.
+This can be configured using dependencies between the services.
+====
+
+To stop midPoint on Linux server with Tomcat manually, use one of the commands (depending on your distribution):
+
+[source,bash]
+----
+sudo service tomcat8 stop
+sudo systemctl stop tomcat8
+sudo /etc/init.d/tomcat8 stop
+----
+
+To stop midPoint on Windows server with Tomcat installed as service manually, stop the service through Services by selecting Stop the service link or Stop service button for Tomcat service.
+
+If midPoint has been successfully stopped, the  `midpoint.log` file should contain the following messages:
+
+.midpoint.log file:
+[source]
+----
+2018-11-06 10:51:52,311 [] [localhost-startStop-2] INFO (org.apache.wicket.Application): [wicket] destroy: DevUtils DebugBar Initializer
+2018-11-06 10:51:52,311 [] [localhost-startStop-2] INFO (org.apache.wicket.Application): [wicket] destroy: Wicket core library initializer
+2018-11-06 10:51:52,311 [] [localhost-startStop-2] INFO (org.apache.wicket.Application): [wicket] destroy: Wicket extensions initializer
+2018-11-06 10:51:52,371 [] [localhost-startStop-2] INFO (org.springframework.web.context.support.XmlWebApplicationContext): Closing Root WebApplicationContext: startup date [Tue nov 06 09:48:18 CEST 2018]; root of context hierarchy
+2018-11-06 10:51:52,404 [] [localhost-startStop-2] INFO (com.evolveum.midpoint.provisioning.ucf.impl.connid.ConnectorFactoryConnIdImpl): Shutting down ConnId framework
+2018-11-06 10:51:52,408 [] [localhost-startStop-2] INFO (com.evolveum.midpoint.task.quartzimpl.TaskManagerQuartzImpl): Task Manager shutdown starting
+2018-11-06 10:51:52,408 [] [localhost-startStop-2] INFO (com.evolveum.midpoint.task.quartzimpl.execution.LocalNodeManager): Putting Quartz scheduler into standby mode
+2018-11-06 10:51:52,408 [] [localhost-startStop-2] INFO (org.quartz.core.QuartzScheduler): Scheduler midPointScheduler_$_DefaultNode paused.
+2018-11-06 10:51:52,408 [] [localhost-startStop-2] INFO (com.evolveum.midpoint.task.quartzimpl.execution.ExecutionManager): Stopping all tasks on local node
+2018-11-06 10:51:52,408 [] [localhost-startStop-2] INFO (com.evolveum.midpoint.task.quartzimpl.execution.LocalNodeManager): Shutting down Quartz scheduler
+2018-11-06 10:51:52,408 [] [localhost-startStop-2] INFO (org.quartz.core.QuartzScheduler): Scheduler midPointScheduler_$_DefaultNode shutting down.
+2018-11-06 10:51:52,408 [] [localhost-startStop-2] INFO (org.quartz.core.QuartzScheduler): Scheduler midPointScheduler_$_DefaultNode paused.
+2018-11-06 10:51:52,891 [] [localhost-startStop-2] INFO (org.quartz.core.QuartzScheduler): Scheduler unregistered from name 'quartz:type=QuartzScheduler,name=midPointScheduler,instance=DefaultNode' in the local MBeanServer.
+2018-11-06 10:51:52,892 [] [localhost-startStop-2] INFO (org.quartz.core.QuartzScheduler): Scheduler midPointScheduler_$_DefaultNode shutdown complete.
+2018-11-06 10:51:52,893 [] [localhost-startStop-2] INFO (com.evolveum.midpoint.task.quartzimpl.execution.LocalNodeManager): Quartz scheduler was shut down
+2018-11-06 10:51:52,894 [] [ClusterManagerThread] INFO (com.evolveum.midpoint.task.quartzimpl.cluster.ClusterManager): ClusterManager thread stopping.
+2018-11-06 10:51:52,946 [] [localhost-startStop-2] INFO (com.evolveum.midpoint.task.quartzimpl.TaskManagerQuartzImpl): Task Manager shutdown finished
+2018-11-06 10:51:52,961 [] [localhost-startStop-2] INFO (com.evolveum.midpoint.repo.sql.SqlRepositoryFactory): Repository is not running in embedded mode, shutdown complete.
+----
+
+
+[NOTE]
+====
+If the database repository is running on the same machine as midPoint, make sure that Tomcat is stopped *before* the database repository for midPoint is stopped.
+Otherwise midPoint may not be able to shutdown correctly.
+This can be configured using dependencies between the services.
+====
+
+////
+=== Changing the midPoint Embedded Tomcat Configuration
+
+
+If you need to change default HTTP listener port, you can do it in `application.yml` file in your `$midpoint.home` directory. Create the file if it does not exist.
+
+For example, to update the default HTTP port to 8088:
+
+.application.yml file in midpoint.home directory:
+[source,bash]
+----
+server.port=8088
+----
+
+After any change in `application.yml` you need to restart midPoint by stopping and starting the service using the commands specified above.
+
+[NOTE]
+====
+We do not recommend running midPoint listening on privileged ports ( 1024, e.g. 80).
+This would require midPoint running as root.
+Instead we recommend to create a reverse proxy before midPoint, e.g. using Apache HTTP Server.
+====
+
+////
+If you need to change Java used by midPoint or the JVM parameters, you need to change `JAVA_HOME` environmental variable or `JAVA_OPTS`, respectively. Use `bin/setenv.sh` script located in the midPoint directory: 
+
+.bin/setenv.sh file:
+[source,bash]
+----
+export JAVA_HOME=/opt/java
+export JAVA_OPTS="$JAVA_OPTS -Xmx4096m"
+----
+
+After this change you need to restart midPoint by stopping and starting the service using the commands specified above.
+
+
+==== Using external Tomcat
+// This section is deprecated and talks about unsupported Tomcat 8
+
+
+If you need to change default HTTP listener port, you can do it in server.xml file. The file location depends on the operating system. For Ubuntu 16.04 the file is located at `/etc/tomcat8/server.xml`.
+
+Update the following section by replacing 8080 with your required port number:
+
+[source,xml]
+----
+    <Connector port="8080" protocol="HTTP/1.1"
+               connectionTimeout="20000"
+               URIEncoding="UTF-8"
+               redirectPort="8443" maxPostSize="-1" />
+----
+
+ After this change you need to restart Tomcat by stopping and starting the service using the commands specified above.
+
+[NOTE]
+====
+We do not recommend running Tomcat listening on privileged ports ( 1024, e.g. 80).
+This would require Tomcat running as root.
+Instead we recommend to create a reverse proxy before Tomcat, e.g. using Apache HTTP Server.
+====
+
+If you need to change Java used by Tomcat (and midPoint) or the JVM parameters, you need to change JAVA_HOME environmental variable or JAVA_OPTS, respectively. For Ubuntu 16.04 you can change the `/etc/default/tomcat8` file by uncommenting and changing the variables:
+
+./etc/default/tomcat8
+[source,bash]
+----
+# The home directory of the Java development kit (JDK). You need at least
+# JDK version 7. If JAVA_HOME is not set, some common directories for
+# OpenJDK and the Oracle JDK are tried.
+JAVA_HOME=/opt/java
+# You may pass JVM startup parameters to Java here. If unset, the default
+# options will be: -Djava.awt.headless=true -Xmx128m -XX:+UseConcMarkSweepGC
+#
+# Use "-XX:+UseConcMarkSweepGC" to enable the CMS garbage collector (improved
+# response time). If you use that option and you run Tomcat on a machine with
+# exactly one CPU chip that contains one or two cores, you should also add
+# the "-XX:+CMSIncrementalMode" option.
+JAVA_OPTS="-Dmidpoint.home=/var/opt/midpoint -Djava.awt.headless=true -Xmx1500m -XX:+UseConcMarkSweepGC"
+----
+
+After this change you need to restart Tomcat by stopping and starting the service using the commands specified above.
+
+////
+=== Monitoring midPoint Status
+
+To check if midPoint process is running, use the following steps:
+
+
+==== Using embedded Tomcat (Linux)
+
+You can check midPoint process status by using the following command:
+
+[source,bash,subs="+quotes"]
+----
+midpoint@midpoint:~ $ *systemctl status midpoint*
+● midpoint.service - MidPoint Standalone Service
+   Loaded: loaded (/etc/systemd/system/midpoint.service; enabled; vendor preset: enabled)
+   Active: active (running) since Thu 2022-02-17 12:47:43 CET; 4h 45min ago
+ Main PID: 2058 (java)
+    Tasks: 65 (limit: 4656)
+   CGroup: /system.slice/midpoint.service
+           └─2058 /usr/bin/java -Xmx4096m -Dmidpoint.home=/opt/midpoint/var -jar /opt/midpoint/lib/midpoint.war
+
+feb 17 12:47:43 mid-101 systemd[1]: Started MidPoint Standalone Service.
+feb 17 12:47:44 mid-101 java[2058]: midPoint home: /opt/midpoint/var
+feb 17 12:47:44 mid-101 java[2058]: Using loader path: WEB-INF/classes,WEB-INF/lib,WEB-INF/lib-provided,/opt/midpoint/var/lib
+feb 17 12:47:46 mid-101 java[2058]: ClassPath: /opt/midpoint/lib/midpoint.war
+feb 17 12:47:53 mid-101 java[2058]: midpoint.home = /opt/midpoint/var
+feb 17 12:47:53 mid-101 java[2058]: Loading midPoint configuration from file /opt/midpoint/var/config.xml
+----
+
+Use `curl` to check if midPoint health actuator returns the following:
+
+[source,bash,subs="+quotes"]
+----
+midpoint@midpoint:~ $ *curl http://<midpoint_host>/midpoint/actuator/health*
+
+{"status":"UP"}
+----
+
+To check on which port midPoint is listening, you need the midPoint PID first:
+
+[source,bash,subs="+quotes"]
+----
+midpoint@midpoint:~ $ *sudo systemctl status midpoint | grep PID*
+ Main PID: 2058 (java)
+----
+
+or:
+
+[source,bash,subs="+quotes"]
+----
+midpoint@midpoint:~ $ *ps -ef |grep midpoint | grep java*
+midpoint  2058     1 13 12:47 ?        00:39:48 /usr/bin/java -Xmx3072m -Dmidpoint.home=/opt/midpoint/var -jar /opt/midpoint/lib/midpoint.war
+midpoint  8371  2933  0 17:38 pts/1    00:00:00 grep --color=auto java
+----
+
+In both examples above, the PID is 2058.
+
+To check on which ports PID 2058 listens, you can use netstat command:
+
+[source,bash,subs="+quotes"]
+----
+midpoint@midpoint:~ $ *sudo netstat -pevln |grep 2058*
+tcp6       0      0 :::8080                 :::*                    LISTEN      1000       24243      2058/java
+netstat: no support for `AF IPX' on this system.
+netstat: no support for `AF AX25' on this system.
+netstat: no support for `AF X25' on this system.
+netstat: no support for `AF NETROM' on this system.
+----
+
+In the examples above the java process 2058 listens on TCP6 port 8080 (the standard port when using embedded Tomcat).
+
+////
+==== Using external Tomcat
+
+You can do this by using one of the commands (depending on your distribution):
+
+[source,bash]
+----
+$ sudo service tomcat8 status
+
+● tomcat8.service - LSB: Start Tomcat.
+   Loaded: loaded (/etc/init.d/tomcat8; bad; vendor preset: enabled)
+  Drop-In: /etc/systemd/system/tomcat8.service.d
+           └─local.conf
+   Active: active (running) since St 2018-11-06 09:48:13 CEST; 17min ago
+     Docs: man:systemd-sysv-generator(8)
+  Process: 1181 ExecStart=/etc/init.d/tomcat8 start (code=exited, status=0/SUCCESS)
+    Tasks: 37
+   Memory: 843.0M
+      CPU: 1min 23.329s
+   CGroup: /system.slice/tomcat8.service
+           └─1273 /usr/lib/jvm/default-java/bin/java -Djava.util.logging.config.file=/var/lib/tomcat8/conf/logging.properties -Djava
+nov 06 09:48:08 mp-training systemd[1]: Starting LSB: Start Tomcat....
+nov 06 09:48:08 mp-training tomcat8[1181]:  * Starting Tomcat servlet engine tomcat8
+nov 06 09:48:13 mp-training tomcat8[1181]:    ...done.
+nov 06 09:48:13 mp-training systemd[1]: Started LSB: Start Tomcat..
+nov 06 09:50:49 mp-training systemd[1]: Started LSB: Start Tomcat..
+nov 06 09:51:04 mp-training systemd[1]: Started LSB: Start Tomcat..
+----
+
+
+[source,bash]
+----
+$ sudo systemctl status tomcat8
+
+● tomcat8.service - LSB: Start Tomcat.
+   Loaded: loaded (/etc/init.d/tomcat8; bad; vendor preset: enabled)
+  Drop-In: /etc/systemd/system/tomcat8.service.d
+           └─local.conf
+   Active: active (running) since St 2018-11-06 09:48:13 CEST; 17min ago
+     Docs: man:systemd-sysv-generator(8)
+  Process: 1181 ExecStart=/etc/init.d/tomcat8 start (code=exited, status=0/SUCCESS)
+    Tasks: 37
+   Memory: 843.0M
+      CPU: 1min 23.329s
+   CGroup: /system.slice/tomcat8.service
+           └─1273 /usr/lib/jvm/default-java/bin/java -Djava.util.logging.config.file=/var/lib/tomcat8/conf/logging.properties -Djava
+nov 06 09:48:08 mp-training systemd[1]: Starting LSB: Start Tomcat....
+nov 06 09:48:08 mp-training tomcat8[1181]:  * Starting Tomcat servlet engine tomcat8
+nov 06 09:48:13 mp-training tomcat8[1181]:    ...done.
+nov 06 09:48:13 mp-training systemd[1]: Started LSB: Start Tomcat..
+nov 06 09:50:49 mp-training systemd[1]: Started LSB: Start Tomcat..
+nov 06 09:51:04 mp-training systemd[1]: Started LSB: Start Tomcat..
+----
+
+You can do this by checking the Status column for Tomcat in Services. The service runs if the status is Started.
+
+Use your web browser and open the http[s]://midpoint_host/midpoint/status.html page. This is a static page displaying the text Alive if the application server is running.
+
+First you need to know the process number (PID) of Tomcat. That can be achieved either by using startup script or simple ps command:
+
+[source,bash]
+----
+$ sudo systemctl status tomcat8
+
+● tomcat8.service - LSB: Start Tomcat.
+   Loaded: loaded (/etc/init.d/tomcat8; bad; vendor preset: enabled)
+  Drop-In: /etc/systemd/system/tomcat8.service.d
+           └─local.conf
+   Active: active (running) since St 2018-11-06 09:48:13 CEST; 17min ago
+     Docs: man:systemd-sysv-generator(8)
+  Process: 1181 ExecStart=/etc/init.d/tomcat8 start (code=exited, status=0/SUCCESS)
+    Tasks: 37
+   Memory: 843.0M
+      CPU: 1min 23.329s
+   CGroup: /system.slice/tomcat8.service
+           └─1273 /usr/lib/jvm/default-java/bin/java -Djava.util.logging.config.file=/var/lib/tomcat8/conf/logging.properties -Djava
+. . .
+
+$ ps -ef |grep java
+tomcat8   1273     1  3 09:48 ?        00:01:41 /usr/lib/jvm/default-java/bin/java -Djava.util.logging.config.file=/var/lib/tomcat8/conf/logging.properties -Djava.util.logging.manager=org.apache.juli.ClassLoaderLogManager -Dmidpoint.home=/var/opt/midpoint -Djava.awt.headless=true -Xmx1500m -XX:+UseConcMarkSweepGC -Djava.endorsed.dirs=/usr/share/tomcat8/endorsed -classpath /usr/share/tomcat8/bin/bootstrap.jar:/usr/share/tomcat8/bin/tomcat-juli.jar -Dcatalina.base=/var/lib/tomcat8 -Dcatalina.home=/usr/share/tomcat8 -Djava.io.tmpdir=/tmp/tomcat8-tomcat8-tmp org.apache.catalina.startup.Bootstrap start
+
+$ pgrep -u tomcat8
+1273
+----
+
+In all examples above, the PID is 1273.
+
+To check on which ports PID 1273 listens, you can use netstat command:
+
+[source,bash]
+----
+$ sudo netstat -pevln |grep 1273
+
+netstat: no support for `AF IPX' on this system.
+netstat: no support for `AF AX25' on this system.
+netstat: no support for `AF X25' on this system.
+netstat: no support for `AF NETROM' on this system.
+tcp6       0      0 :::8080                 :::*                    LISTEN      112        16472       1273/java       
+tcp6       0      0 127.0.0.1:8005          :::*                    LISTEN      112        16810       1273/java
+----
+
+Similar result can be achived also with netstat command only when grepping java process:
+
+[source,bash]
+----
+$ sudo netstat -pevln | grep java
+
+netstat: no support for `AF IPX' on this system.
+netstat: no support for `AF AX25' on this system.
+netstat: no support for `AF X25' on this system.
+netstat: no support for `AF NETROM' on this system.
+tcp6       0      0 :::8080                 :::*                    LISTEN      112        16472       1273/java       
+tcp6       0      0 127.0.0.1:8005          :::*                    LISTEN      112        16810       1273/java 
+----
+
+In the examples above the java process 1273 listens on TCP6 port 8080 (the standard Tomcat configuration).
+
+////
+
+=== Checking midPoint status programatically using REST
+
+midPoint is providing access to its objects using REST API, which can be used for remote monitoring using monitoring tools. The following setup will prepare authorization for a technical user `monitoring` - if this user can log in to midPoint, we assume midPoint runs.
+
+NOTE: Your requirements may be different.
+
+. Import the following role to midPoint:
++
+.Example authorization role:
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<role xmlns="http://midpoint.evolveum.com/xml/ns/public/common/common-3"
+      oid="e8145095-0d5d-481e-9e9e-ae9bb2269c0b">
+   <name>monitoring_role</name>
+   <description>Access role for monitoring access</description>
+   <activation>
+      <effectiveStatus>enabled</effectiveStatus>
+   </activation>
+   <displayName>monitoring_role</displayName>
+   <authorization>
+      <name>monitoring-monitor-self-read</name>
+      <action>http://midpoint.evolveum.com/xml/ns/public/security/authorization-model-3#read</action>
+      <object>
+         <special>self</special>
+      </object>
+   </authorization>
+   <authorization>
+      <name>monitoring-monitor-rest</name>
+      <action>http://midpoint.evolveum.com/xml/ns/public/security/authorization-rest-3#all</action>
+   </authorization>
+</role>
+----
+
+. Create user `monitoring` in midPoint:
++
+Either create `monitoring` user and assign `monitoring_role`, or import the following user object:
++
+.Example technical user for monitoring
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<user xmlns="http://midpoint.evolveum.com/xml/ns/public/common/common-3"
+      xmlns:c="http://midpoint.evolveum.com/xml/ns/public/common/common-3"
+      oid="f8b2885d-14ec-40f0-b628-ff7398b6d94e">
+   <name>monitoring</name>
+   <assignment id="2">
+      <targetRef oid="e8145095-0d5d-481e-9e9e-ae9bb2269c0b"
+                 type="c:RoleType"/>
+   </assignment>
+   <activation>
+      <administrativeStatus>enabled</administrativeStatus>
+      <effectiveStatus>enabled</effectiveStatus>
+   </activation>
+   <roleMembershipRef oid="e8145095-0d5d-481e-9e9e-ae9bb2269c0b"
+                      type="c:RoleType"/>
+   <fullName>Monitoring User</fullName>
+   <givenName>Monitoring</givenName>
+   <familyName>User</familyName>
+   <credentials>
+      <password>
+         <value>
+         <clearValue>checkme123!</clearValue>
+         </value>
+      </password>
+   </credentials>
+</user>
+----
+
+The user password from previous example is `checkme123!`. This user has assigned the `monitoring_role` role and is able to log in and get its own object.
+
+In the following examples we assume midPoint accessible at http://localhost:8080/midpoint. Please adapt the URL as appropriate for your environment.
+
+TIP: `curl -I ... ` will fetch only headers. Replace `-I` with `-v -X GET` to receive the whole object including headers.
+
+[source,bash,subs="+quotes"]
+----
+midpoint@midpoint:~ $ *curl --user 'monitoring:checkme123!' -I http://localhost:8080/midpoint/ws/rest/users/f8b2885d-14ec-40f0-b628-ff7398b6d94e*
+
+HTTP/1.1 200 
+X-Served-By: DefaultNode
+X-Content-Type-Options: nosniff
+X-XSS-Protection: 1; mode=block
+Cache-Control: no-cache, no-store, max-age=0, must-revalidate
+Pragma: no-cache
+Expires: 0
+X-Frame-Options: SAMEORIGIN
+Content-Type: application/xml
+Transfer-Encoding: chunked
+Date: Thu, 17 Feb 2022 16:59:26 GMT
+----
+
+From the output above (*HTTP/1.1 200*) you can see that your monitoring user is able to log in and read its own object, which means, midPoint is running.
+
+If midPoint would have been stopped, the result would be the following:
+
+[source,bash,subs="+quotes"]
+----
+midpoint@midpoint:~ $ *curl --user 'monitoring:checkme123!' -I http://localhost:8080/midpoint/ws/rest/users/f8b2885d-14ec-40f0-b628-ff7398b6d94e*
+
+curl: (7) Failed to connect to localhost port 8080: Connection refused
+----
+
+If the user `monitoring` has incorrect privileges (`monitoring_role` role not assigned), the result would be *HTTP/1.1 403*:
+
+[source,bash,subs="+quotes"]
+----
+midpoint@midpoint:~ $ *curl --user 'monitoring:checkme123!' -I http://localhost:8080/midpoint/ws/rest/users/f8b2885d-14ec-40f0-b628-ff7398b6d94e*
+
+HTTP/1.1 403
+X-Served-By: DefaultNode
+X-Content-Type-Options: nosniff
+X-XSS-Protection: 1; mode=block
+Cache-Control: no-cache, no-store
+Pragma: no-cache
+Expires: Thu, 01 Jan 1970 00:00:00 GMT
+X-Frame-Options: SAMEORIGIN
+Set-Cookie: JSESSIONID=0EBD08D73DEE4051D7F6A53FE4A06E14; Path=/midpoint; HttpOnly
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy-Report-Only: require-corp
+Date: Thu, 17 Feb 2022 17:05:29 GMT
+Content-Type: text/html;charset=UTF-8
+Transfer-Encoding: chunked
+----
+
+If the user `monitoring` has incorrect privileges (`monitoring_role` role not assigned), or you have specified invalid login/password, the result would be *HTTP/1.1 401*:
+
+[source,bash,subs="+quotes"]
+----
+midpoint@midpoint:~ $ *curl --user 'monitoring:badPassword' -I http://localhost:8080/midpoint/ws/rest/users/f8b2885d-14ec-40f0-b628-ff7398b6d94e*
+
+HTTP/1.1 401
+X-Served-By: DefaultNode
+WWW-Authenticate: Basic realm="midpoint"
+X-Content-Type-Options: nosniff
+X-XSS-Protection: 1; mode=block
+Cache-Control: no-cache, no-store, max-age=0, must-revalidate
+Pragma: no-cache
+Expires: 0
+X-Frame-Options: SAMEORIGIN
+Content-Length: 0
+Date: Thu, 17 Feb 2022 17:03:36 GMT
+----
+
+[#troubleshooting]
+== Troubleshooting
+
+When you believe your midPoint installation is misbehaving or not working at all, the first place to look for problems is the log file `midpoint.log`.Please refer to <<common_errors>> chapter.
+
+If the problem cannot be fixed with the help of the <<common_errors>> chapter, you may need to increase the logging.
+
+=== Error Messages
+
+MidPoint will print error messages using the following mechanisms:
+
+midPoint log file, located either in:
+
+* (stand-alone midPoint with Embedded Tomcat) `/opt/midpoint/var/log/midpoint.log` if your midPoint is installed in `/opt/midpoint`
+
+* system log (if configured in midPoint logging configuration) 
+
+* GUI expandable error messages (only for operations initiated in GUI)
+
+The best place for searching for error messages is the midPoint log (or system log if configured).
+
+The first place to diagnose GUI-initiated operations is the expandable error message window displayed in case of errors.
+
+
+=== Increase the logging
+
+To configure logging, go to menu:System[Logging].
+
+The log levels supported by midPoint components, sorted by _severity_ are: *TRACE < DEBUG < INFO < WARN < ERROR* There is also a special log level: *OFF* to switch off logging completely.
+
+The log levels can be specified for whole midPoint, different midPoint components or specific packages/classes.
+
+The logging configuration in midPoint specifies, which messages will be logged and which will be filtered out.
+The message will be logged if its severity is higher than or equal the setting in midPoint logging configuration.
+I.e. if you set the log level to `TRACE`, all logging messages with severity higher than or equal to `TRACE` (that is: `TRACE`, `DEBUG`, `INFO`, `WARN` and `ERROR`) will be logged.
+
+If you set the log level to `INFO`, only messages with severity `INFO`, `WARN` or `ERROR` will be logged.
+
+Setting the log level to `OFF` will disable logging for the component completely.
+
+The rule of thumb for log levels is: *do not use TRACE unless it's required by Evolveum*. If debugging problems, you can use `DEBUG` log level.
+For normal operation, use either `INFO` (the default) or `WARN`.
+
+After you increase the log level(s), try to replicate the problem.
+If you believe the problem is caused by midPoint, you can report the issue.
+
+
+=== Search Error Message in the log file
+
+When searching for symptoms in the logfiles (e.g. `midpoint.log`), the following hints may be helpful.
+
+. whenever possible, try to have direct access to midPoint log files, using a shell, so that you can use shell tools for better searching/filtering the log files
+. if running a single-node midpoint: be sure to check the correct log file (`midpoint.log` by default, unless you are using different appenders or you are <<_syslog_logging,logging to Syslog>>)
+. if running cluster: be sure to check the logs for the correct node. You should be able to see the date/time of the event along with the node identifier in the audit log or in the task details
+
+==== Searching by severity
+
+The log messages contain the message severity by default. This means you can search by substring such as: *ERROR*
+
+.Example: searching by word ERROR:
+[source,subs="+quotes"]
+----
+2022-02-21 10:14:59,871 [] [main] *ERROR* (org.springframework.boot.SpringApplication): Application run failed
+org.springframework.context.ApplicationContextException: Unable to start web server; nested exception
+. . .
+----
+
+==== Searching by Exception
+
+In case of errors, the error will be logged as Java exception. This means you can search by word *Exception*.
+
+.Example: searching by word Exception:
+[source,subs="+quotes"]
+----
+2022-02-21 10:14:59,871 [] [main] *ERROR* (org.springframework.boot.SpringApplication): Application run failed
+*org.springframework.context.ApplicationContextException*: Unable to start web server; nested exception is org.springframework.beans.factory.UnsatisfiedDependencyException: Error creating bean with name 'com.evolveum.midpoint.web.boot.EmbeddedTomcatAutoConfiguration$EmbeddedTomcat': Unsatisfied dependency expressed through field 'systemObjectCache'; nested exception is org.springframework.beans.factory.UnsatisfiedDependencyException: Error creating bean with name 'systemObjectCache': Unsatisfied dependency expressed through field 'cacheRepositoryService'; nested exception is org.springframework.beans.factory.UnsatisfiedDependencyException: Error creating bean with name 'cacheRepositoryService': Unsatisfied dependency expressed through field 'repositoryService'; nested exception is org.springframework.beans.factory.UnsatisfiedDependencyException: Error creating bean with name 'repositoryService': Unsatisfied dependency expressed through field 'systemConfigurationChangeDispatcher'; nested exception is org.springframework.beans.factory.UnsatisfiedDependencyException: Error creating bean with name 'systemConfigurationChangeDispatcher': Unsatisfied dependency expressed through field 'auditService'; nested exception is org.springframework.beans.factory.UnsatisfiedDependencyException: Error creating bean with name 'auditService': Unsatisfied dependency expressed through field 'taskManager'; nested exception is org.springframework.beans.factory.BeanCreationException: Error creating bean with name 'taskManager': *Invocation of init method failed; nested exception is com.evolveum.midpoint.util.exception.SystemException*: *com.evolveum.midpoint.task.api.TaskManagerConfigurationException: Node ID must be set when running in clustered mode*
+        at org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext.onRefresh(ServletWebServerApplicationContext.java:163)
+        at org.springframework.context.support.AbstractApplicationContext.refresh(AbstractApplicationContext.java:577)
+        at org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext.refresh(ServletWebServerApplicationContext.java:145)
+        at org.springframework.boot.SpringApplication.refresh(SpringApplication.java:754)
+        at org.springframework.boot.SpringApplication.refreshContext(SpringApplication.java:434)
+        at org.springframework.boot.SpringApplication.run(SpringApplication.java:338)
+        at org.springframework.boot.builder.SpringApplicationBuilder.run(SpringApplicationBuilder.java:144)
+        at com.evolveum.midpoint.web.boot.MidPointSpringApplication.main(MidPointSpringApplication.java:115)
+        at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+        at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+        at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+        at java.base/java.lang.reflect.Method.invoke(Method.java:568)
+        at org.springframework.boot.loader.MainMethodRunner.run(MainMethodRunner.java:49)
+        at org.springframework.boot.loader.Launcher.launch(Launcher.java:108)
+        at org.springframework.boot.loader.Launcher.launch(Launcher.java:58)
+        at org.springframework.boot.loader.PropertiesLauncher.main(PropertiesLauncher.java:467)
+        at com.evolveum.midpoint.tools.layout.MidPointWarLauncher.main(MidPointWarLauncher.java:52)
+. . .
+*Caused by: com.evolveum.midpoint.util.exception.SystemException: com.evolveum.midpoint.task.api.TaskManagerConfigurationException: Node ID must be set when running in clustered mode*
+        at com.evolveum.midpoint.task.quartzimpl.UpAndDown.init(UpAndDown.java:92)
+        at com.evolveum.midpoint.task.quartzimpl.TaskManagerQuartzImpl.init(TaskManagerQuartzImpl.java:169)
+        at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+        at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+        at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+        at java.base/java.lang.reflect.Method.invoke(Method.java:568)
+        at org.springframework.beans.factory.annotation.InitDestroyAnnotationBeanPostProcessor$LifecycleElement.invoke(InitDestroyAnnotationBeanPostProcessor.java:389)
+        at org.springframework.beans.factory.annotation.InitDestroyAnnotationBeanPostProcessor$LifecycleMetadata.invokeInitMethods(InitDestroyAnnotationBeanPostProcessor.java:333)
+        at org.springframework.beans.factory.annotation.InitDestroyAnnotationBeanPostProcessor.postProcessBeforeInitialization(InitDestroyAnnotationBeanPostProcessor.java:157)
+        ... 120 common frames omitted
+*Caused by: com.evolveum.midpoint.task.api.TaskManagerConfigurationException: Node ID must be set when running in clustered mode*
+        at com.evolveum.midpoint.task.quartzimpl.NodeIdComputer.determineNodeId(NodeIdComputer.java:88)
+        at com.evolveum.midpoint.task.quartzimpl.TaskManagerConfiguration.setBasicInformation(TaskManagerConfiguration.java:322)
+        at com.evolveum.midpoint.task.quartzimpl.UpAndDown.initInternal(UpAndDown.java:102)
+        at com.evolveum.midpoint.task.quartzimpl.UpAndDown.init(UpAndDown.java:90)
+        ... 128 common frames omitted
+. . .
+----
+
+TIP: When searching for exceptions, be sure to also check the *Caused by:* message. The last *Caused by* message should contain the error message text in all cases even if the exception messages above in the log are less understandable. Please include the *Caused by* exception in your log reports if reporting issues as described in <<how-to-create-jira-issue>>.
+
+== Maintenance
+
+
+=== Backup Requirements
+
+The basic backup requirement is the fact that you would like the system up and running as easily as possible and as soon as possible.
+This is mostly influenced by the backup frequency.
+
+Most of midPoint data is stored in the database repository, so there must be enough place to back up the database according to the backup frequency.
+The factors that influence the database (and backup) size are:
+
+* the number of users and their accounts (or organizations, roles and entitlements) managed by midPoint
+
+* the frequency of user (or organization or role) lifecycle changes which influences the audit log size
+
+* the frequency of purging the audit log records
+
+The rest of the data is file-based (within `midpoint.home` directory) and the size is usually minimal, also the data is seldom changed.
+
+
+=== Backup Procedures
+
+==== midpoint.home Backup
+
+*Location*: each midPoint node, but we recommend keeping the files synchronized between nodes.
+
+*Frequency*: do a backup each time you modify data in the `midpoint.home` directory, such as:
+
+* *schema extension* modification (XSD file(s) in `midpoint.home/schema` directory)
+
+* *custom connector* modification (JAR file(s) in `midpoint.home/icf-connectors` directory)
+
+* *keystore* modification (`midpoint.home/keystore.jceks` file)
+
+* *cluster authentication* files (`jmxremote.access` and `jmxremote.password` files)
+
+* *exported data* from reports (files in `midpoint.home/export` directory)
+
+* *main system configuration*: database repository location/connection string, encryption key usage etc. (`midpoint.home/config.xml` file)
+
+==== Pre-Upgrade Repository Backup
+
+*Location*: any midPoint node
+
+*Frequency*: we recommend doing this kind of backup before midPoint upgrade.
+
+Use the RDBMS tools to make a consistent backup of midPoint repository database.
+Store the backup on safe place (outside the midPoint and RDBMS server(s) and on different disks than the database is located).
+
+==== Regular Repository Backup
+
+*Location*: any midPoint node
+
+*Frequency*: daily, weekly or whatever is your policy for data backup
+
+Use the RDBMS tools to make a consistent backup of midPoint repository database.
+Store the backup on safe place (outside the midPoint and RDBMS server(s) and on different disks than the database is located).
+
+
+=== Restore Procedures
+
+To fully restore your midPoint environment after a complete system crash with data loss, use the following steps.
+
+* If the midPoint server has been damaged, you need to create a new one or restore it from backup including midPoint installation.
+
+* If midPoint is up and running, you can continue with the next step.
+
+* If you reinstalled midPoint, you need to restore `midpoint.home` directory from backup to have the same configuration as before system crash.
+
+* If the `midpoint.home` directory contains correct files, you can continue with the next step.
+
+* If you modified midPoint's configuration for external authentication or customized LESS / CSS, you may need to restore that configuration in expanded midPoint web application.
+
+* If the files are correct, you may continue with the next step.
+
+* If the database repository was damaged during the system crash, you need to first re-create a new empty midPoint database using the midPoint documentation or even better, your own database creation scripts saved from the original installation.
+
+* If the database is OK, you may continue with the next step.
+
+* If the database repository was damaged during the system crash and you have re-created a new empty database, you have to restore the database repository content from the last available backup.
+Use the RDBMS tools to reimport your backup of midPoint repository database.
+
+* If the database content is OK, you may continue with the next step.
+
+* Start midPoint and check that the database has been restored.
+
+* To fully recover from midPoint outage due to a system crash, you need to resynchronize midPoint with your resources.
+
+* If midPoint outage was long enough to miss the synchronization changes from the authoritative source(s):
+
+** stop the LiveSync task(s) if you are using them
+
+** we recommend running a reconciliation with source systems to fetch all missed changes
+
+** delete the synchronization token in your LiveSync task(s) if you are using them - to force the tasks detect data from now
+
+** start/resume the LiveSync task(s) if you are using them
+
+* If midPoint outage was long enough to force IT personnel to create or modify accounts on your target systems without midPoint:
+
+** configure and run reconciliation task for each resource to detect newly added accounts
+
+** create corresponding users in midPoint for all such accounts and link them
+
+[#upgrades]
+=== Upgrades
+
+midPoint upgrade usually consists of the following tasks:
+
+* pre-upgrade preparation nad planning (reading release notes, preparing reconfiguration for deprecated/removed features or different behaviour)
+
+* upgrading database schema
+
+* upgrading web application
+
+* post-upgrade tasks (automatic and manual)
+
+The upgrade steps generally differ in complexity based on the upgrade level:
+
+* upgrading to next maintenance/patch release (e.g. from 3.9 to 3.9.1) usually does not require any database schema changes, there will be no database schema upgrade script and the upgradability is trivial
+
+* upgrading to supported minor version (e.g. from 3.8 to 3.9) usually requires database schema changes using vendor-prepared scripts and the upgradability is easy
+
+* upgrading to supported major version (e.g. from 2.2 to 3.0) usually required database schema changes using vendor-prepared scripts and _may_ require some additional work
+
+When skipping releases (e.g. from 3.7 to 3.9.1) you have to follow the upgrade path, i.e. to upgrade from 3.7 to 3.7.1, then to 3.8, then to 3.8.1, then to 3.9 and finally, to 3.9.1. You don't need to redeploy midPoint each time - it's OK to deploy just the target version, but you have to modify the database schema by running the database schema upgrade scripts in proper sequence and also follow release notes for _all_ releases.
+
+*The release notes may contain additional or different steps required to do a successful upgrade. Such notes always take precedence over this generic approach documented here.*
+
+If you are skipping releases, be sure to read all release notes for all midPoint releases that you will skip in addition to the target midPoint release.
+
+MidPoint upgrade will require you to stop provisioning (in case of the cluster, _all_ nodes).
+You should inform all midPoint users and/or plan the upgrade accordingly.
+As stated above, we really recommend to actually test and upgrade you other environments before going to the production.
+
+Backup the database repository (using RDBMS tools) and consider exporting midPoint data as XML objects.
+The export may be used to compare the objects before and after the upgrade procedure.
+
+Backup your `midpoint.home` directory.
+
+Backup your original midPoint (WAR file).
+This might be especially handy to have backup of all built-in connectors bundled with the original version.
+
+The DB schema upgrade scripts are located in `config/sql/native-new/` directory (Native PostgreSQL repository) in the midPoint distribution archives (including Activity and Quartz updates).
+
+The scripts will upgrade from one specific original release to one specific target release, so if you are skipping midPoint releases, you need to collect all required scripts i.e. from 3.7 to 3.7.1, then from 3.7.1 to 3.8, then from 3.8 to 3.9.
+
+You should prepare this in advance.
+
+Before upgrading, you have to shutdown all midPoint instances.
+
+Run the database schema upgrade script / all database upgrade scripts in the correct sequence.
+There should be no errors during this operation.
+If you encounter any errors, please ensure you are running correct scripts (for your database) in correct order.
+
+Install the new midPoint distribution archive, but do not remove/overwrite the original `midpoint.home` directory.
+
+Start one of the nodes first.
+Check if you can still login to midPoint (e.g. as administrator user).
+
+When midPoint is starting, it will import all initial objects from `/opt/midpoint/lib/midpoint.war/WEB-INF/classes/initial-objects`, but only if such objects have not existed in the repository before.
+All new configuration will be automatically imported.
+But there are usually also changes in some of the already existing objects.
+You have to review those changes manually and choose either to keep whatever you already have in repository, or reimport the object from `/opt/midpoint/lib/midpoint.war/WEB-INF/classes/initial-objects` or merge them.
+The list of changes in initial objects is part of the Release notes.
+
+A typical example of such change between versions is `End user` role, which is usually updated with new self-service authorizations.
+Also `System Configuration` object usually contains new configuration.
+
+If you are using bundled connectors (LDAP, CSV, Database Table), usually each midPoint upgrade bundles new versions of these connectors.
+As a result, your existing resources using these connectors will not work until you change the connector reference in your resources.
+You can do it by either using Resource Wizard, or you can re-upload your resources from your project directory and specify the correct version in connectorRef search filter.
+After this you can remove old Connector objects from the repository.
+
+Be sure to check also all other resources.
+
+Occasionally you will need to update midPoint objects after upgrade, e.g. reinitialize resource capabilities, reindex database, modify authorization uris etc.,
+or modify midPoint configuration if the behaviour has changed between the versions.
+If you change midPoint configuration, be sure to save the changes also in your project directory.
+
+Occasionally you will need to migrate your environment from using old connector to the new one (legacy LDAP connector to Polygon LDAP; legacy CSV connector to Polygon CSV etc).
+Please read the release notes correctly and apply any required procedures.
+
+Alternatively, if you cannot upgrade your environment at this time, you can temporarily keep the original built-in connectors (remember you should have backed them up before upgrade) by putting them to `midpoint.home/icf-connectors` directory.
+Please note that the original versions of the connectors may not be supported anymore.
+
+//If, after the upgrade, you need to re-apply the LESS customizations, modify the `midpoint.home/less/*.less` files or follow link:https://docs.evolveum.com/midpoint/reference/admin-gui/deployment-information/[Deployment Information] for simple customizations.
+
+//LESS customizations have to be applied on all midPoint instances and it requires midPoint restart (except when using link:https://docs.evolveum.com/midpoint/reference/admin-gui/deployment-information/[Deployment Information Type]).
+
+After you finish the upgrade procedure, start the remaining midPoint instances and test the behaviour in the upgraded midPoint.
+Test all scenarios if possible.
+
+Don't forget to test the REST webservice (if you are using it).
+
+If your testing on single node is successful, you can start the other nodes of the cluster.
+
+If your testing is successful in e.g. development environment, repeat the previous steps for testing and then for production environment.
+Be sure to follow any notes you have made while following the procedures.
+
+=== Patching
+
+midPoint patching usually consist of the following tasks:
+
+* troubleshooting your issue
+
+* submitting a Bug Report (https://jira.evolveum.com), if it was not already reported earlier. See <<how-to-create-jira-issue,how to create JIRA issue>>.
+
+* contact Evolveum for planning resolution of the issue
+
+* upgrading midPoint
+
+* testing the resolution
+
+
+
+[TIP]
+====
+Patches are upgrades between official maintenance releases (e.g. from 3.9 to 3.9.1) or to support branch (e.g from 3.9.1 to 3.9.2-SNAPSHOT). Patching usually does not involve any database changes (make sure you read the appropriate Release notes and/or git commit messages).
+The release notes are available only for official releases (e.g. 3.9 or 3.9.1), not for snapshots.
+====
+
+[NOTE]
+====
+In case that you need not only the patch to the next maintenance version or support branch, but upgrade to newer minor or major version, please see <<upgrades>> section first.
+====
+
+
+Please see <<troubleshooting>> section for details.
+
+. Log in to midPoint, go to Configuration, *About* and see *Basic* section (Version, Git describe)
+
+. Open https://jira.evolveum.com/, try to find issue with same or similar symptoms, read details and comments.
+
+. If you have identified your issue in JIRA, check the issue details, namely verify its status and Fix Version/s.
+
+* If Status is not Closed or Resolved, contact Evolveum.
+
+* If Status is Closed or Resolved and Fix version (e.g 3.9.1) is the same maintenance release as you have (e.g. 3.9), refer to <<upgrades>> section.
+
+* If Status is Closed or Resolved and your version is older than the Fix version, contact Evolveum in order to check possibility of having the same patch in your maintenance version.
+
+. Create new issue in JIRA as described in <<how-to-create-jira-issue>>
+
+When resolution is done (see e-mail notification or JIRA), wait one day and ##download new support build from here: *TODO add link, bug:MID-7675[]*
+
+[TIP]
+====
+If you need the patch for older versions, you can download the source code from GitHub for the appropriate branch from link:https://github.com/Evolveum/midpoint/branches/active[https://github.com/Evolveum/midpoint/branches/active] and build it locally.
+====
+
+
+[NOTE]
+====
+In some cases, Evolveum team can send special instructions what you need to do more than described in next steps.
+====
+
+* Verify the fixed version of midPoint in your test environment and make sure all other key use cases are not broken.
+
+* Backup database repository, midpoint.home, midpoint.war.
+
+* Shut down all midPoint instances.
+
+* Upgrade midPoint web application.
+
+* Start one midPoint instance.
+
+* Test upgraded midPoint instance.
+
+* Start all other instances.
+
+* Repeat tests.
+
+[TIP]
+====
+For detailed information about these sub-steps.
+please see chapter <<upgrades>>.
+
+====
+
+Use previous sub-steps also in production and other environments where you need to deploy the patch.
+
+
+=== Log purging and log rotation
+
+MidPoint is using logback for log rotation. Log purging and log rotation can be customized quite easily by using the GUI.  For each appender you can configure:
+
+* the maximum time period for which the log files are archived until deleted automatically (E.g. 10 days)
+
+* the file size after which the log files are rotated (E.g. 100MB)
+
+[TIP]
+====
+The defaults for log history are 10 days (not 10 files) and log rotation occurs daily / at 100MB file size - whichever comes first.
+
+Please note that the time-based log rotation occurs only when the first log entry should be written after the time period has elapsed.
+I.e. daily log rotation will happen only when midPoint tries to log first entry after midnight (which may be at 00:05 or 07:09).
+In addition, if midPoint is down at that time, log rotation will occur when midPoint starts (so the startup can be a little slower). 
+
+When log rotation occurs, there is no explicit message notifying you of the rotation printed to the original log file at the moment. (Tracked as bug:MID-1191[])
+====
+
+The values for this parameters might be quite custom for each deployment while the verbosity of loggers which are set up and the number logged operation should be considered.
+
+//Make sure that the logger name (`MIDPOINT_LOG`) matches the definition in the `rootLoggerAppender`.
+
+[#how-to-create-jira-issue]
+=== How to Create JIRA Issue
+
+The following steps document the process of new JIRA issue creation.
+
+. Open https://jira.evolveum.com/, Log in or Sign up if you have no registration before.
+
+. Click btn:[Create] button
+
+. Fill the following fields:
+
+* *Summary*: describe the problem in short
+* *Affects Version/s*: specify on which version(s) the problem appears
+* *Subscription*: please indicate if you have a subscription
+* *Component/s*: please indicate if you know which component might be responsible for the behaviour. Leave empty if you have no idea.
+* *Backport Version*: please indicate if you want to indicate the fix should be backported to your version, otherwise it will be fixed only in `master` branch
+* *Git Revision*: please specify the git revision if using unreleased midPoint version
+* *Environment*: please indicate your environment such as: Java version, operating system name and version, memory, number of nodes in case of cluster, JVM variables (anonymized if needed) etc.
+* *Description*: description of the problem including the steps to reproduce it and error messages, stack trace etc (anonymized if needed) etc.
+* *Attachment*: attach files if needed, e.g. log file(s), screenshots etc. Please be sure to anonymize the content if needed!
+* click btn:[Create] button.
+
+TIP: Good bug report contains the information about the operation you tried, input values, a relevant part of your midPoint configuration or special settings, error messages and/or stack trace of the exception.
+
+Contact Evolveum for planning resolution of the issue on link:mailto:info@evolveum.com[info@evolveum.com] or by Contact form, please send JIRA ID and also your subscription ID (if you have one).
