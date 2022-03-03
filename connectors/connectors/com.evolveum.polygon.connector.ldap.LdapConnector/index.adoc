@@ -504,6 +504,77 @@ The easiest practical way to get rid of the messages is to set levels for partic
 Setting Directory API loggers to these levels should still be safe.
 In case of any major problem the connector itself should log appropriate error message.
 
+=== Fail-over [[failover]]
+
+Since version 3.4 of the connector, LDAP connector has a support for fail-over functionality.
+Several LDAP servers can be configured in LDAP connector.
+The connector will fail over to a secondary server(s) in case that the primary server fails.
+This can be configured using the `servers` configuration property:
+
+[source,xml]
+----
+    <connectorConfiguration>
+        <configurationProperties>
+            <host>primary.ldap.example.com</host>
+            <baseContext>dc=evolveum,dc=com</baseContext>
+            <servers>host=secondary.ldap.example.com</servers>
+            ...
+        </configurationProperties>
+    </connectorConfiguration>
+----
+
+The _main_ LDAP server configured using the usual configuration properties (`host`, `port` and similar) is considered a _primary_ server.
+Secondary servers can be configured using `servers` configuration property.
+The example above is a configuration of two LDAP servers:
+
+* Server `primary.ldap.example.com` as a _primary_ LDAP server for base context `dc=evolveum,dc=com`.
+
+* Server `secondary.ldap.example.com` as a _secondary_ LDAP server.
+Base context, port, bind DN and password, connection security settings and all other connection details are "inherited" from primary server definition.
+
+There are several requirements, assumptions and limitations to this functionality:
+
+* All LDAP servers (primary and secondary) are expected to be homogeneous and replicated in a *multi-master* (mirror) way.
+I.e. the servers should have exactly the same configuration and the same data.
+The connector will try to execute the same operations on the servers, regardless of whether it is primary or secondary.
+Therefore schema, indexes, optional features (supported controls and extensions, such as VLV), access control and data must be the same on all servers.
+Deployments with partial replication, read-only replicas or any other non-homogeneous configurations are not supported.
+
+* This feature is designed for *fail-over*, not load balancing.
+The connector will try to access the primary server if it is available.
+The communication will be switched to secondary server only in case primary server is not available.
+The connector will switch back to primary server as soon as possible (with short _switch-back interval_, to avoid too many failed connection attempt to primary).
+Which means that most of the load is still placed on primary server.
+Even if the connector switches to secondary server, it will remain focused on a single secondary server as long as it work, not using other secondary servers.
+The reason for this "sticky" behavior is to reduce data consistency risks.
+
+* The connector no longer support LDAP referrals.
+All LDAP referrals are ignored, regardless of the (legacy) referral configuration in the connector.
+Fail-over functionality is supposed to replace the need for referrals, that never really provided any practical solution anyway.
+
+* The fail-over functionality is designed for use with LDAPv3 standard-compliant (to applicable degree) servers.
+It is not designed for use with non-standard LDAP servers, such as Active Directory, eDirectory and similar servers.
+
+* There is a theoretical possibility to define servers for LDAP base contexts that are different than the base context of the main server, thus supporting a _hierarchy_ of LDAP servers (also known as _delegation_ or _distributed directory_).
+However, this functionality is considered *experimental*, it is not officially supported.
+Only configuration that use the same base context for all servers is officially supported.
+
+* The main server (the one configured with `host`, `port` and similar properties) is always considered to be primary.
+In theory, other servers defined in the `servers` property can be marked as primary.
+However, this configuration is not supported.
+There must be exactly one primary server for each base context.
+
+LDAP replication functionality is quite common in LDAP server implementations.
+The fail-over functionality of LDAP connector takes advantage of this functionality.
+However, LDAP servers generally implement only weak consistency guarantees for replicated directory topologies, which is somehow given by the design of LDAP protocol and directory data structures.
+Weak consistency has its significant advantages, yet it has also disadvantages.
+When it comes to operation of LDAP connector, perhaps the most problematic is a read-after-write scenario.
+The connector may write data to primary server, then the primary server goes down, connector fails over to the secondary server, which means that subsequent read gets outdated data from a secondary server.
+As the fail-over happens transparently in the connector, the application (midPoint) is not aware that fail-over took place, it has no idea that the data may be out of date.
+This may cause temporary fluctuations, where old data may be presented as current data for a limited period of time.
+However, both LDAP servers and midPoint are built for _eventual consistency_, converging data values _eventually_.
+However, data consistency has to be kept in mind, and proper method should be employed both at the LDAP side (e.g. replication failure recovery) and midPoint side (e.g. regular reconciliation) to make the entire system _eventually consistent_.
+
 == Resource Examples
 
 * xref:/connectors/resources/ldap/openldap/[OpenLDAP]
