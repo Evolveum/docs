@@ -1,0 +1,465 @@
+= Methodology: First Steps With MidPoint
+:page-toc: top
+
+WARNING: Work in progress
+
+== Introduction
+
+This is a description of simplified midPoint deployment methodology, guiding quick deployment of simple midPoint configurations.
+
+// TODO: more
+
+// TODO: describe audience
+
+// TODO: describe environment: company size, complexity, etc.
+
+== Big Picture
+
+We propose to proceed in following steps:
+
+. *Kick-off*: Start the project.
+Set goals.
+Identify crucial data sources and targets.
+Make a plan.
+
+. *Assessment*: Set up midPoint.
+Load data from the source.
+Compare the data with the target.
+Assess data quality.
+Decide next steps.
+
+. *Automation*: Automate management of identities (to a reasonable degree).
+Speed up on-boarding processes.
+Make off-boarding process more reliable, improving security.
+Keep data up to date.
+
+These three steps start up a *program*, a never-ending process to maintain and expand the solution.
+The progress of the program may be as fast or as slow as you need.
+It is an endless iteration of several on-demand activities, executed as needed:
+
+* Connect new systems.
+Add more systems to your solution, much like you did in the _assessment_ step before.
+This is increasing _breadth_ (scope) of your solution.
+
+* Increase automation.
+Add automated data mappings, processes and basic policies.
+Your processes will run faster, more reliably, with less manual steps.
+This is increasing _depth_ of your solution.
+
+* Clean up the data.
+Your data were created and maintained manually.
+They often do really match exactly between systems, the data are often out of date, there are inaccuracies and errors.
+Manual processes can often tolerate quite a high degree of data disorganization.
+However, increased automation heavily relies on accurate data.
+There is a constant need to monitor and improved data quality, correct errors, resolve inaccuracies and inconsistencies.
+This is increasing _quality_ of your solution.
+
+TODO: iteration, convergence.
+
+Where does it lead? -> IGA (Set up roles and policies, manage applications, entitlements, organizational structure, etc.) ... once the solution is mature enough
+
+== Initial Steps
+
+=== Step 1: Kick-Off
+
+// TODO
+
+Kick-off meeting.
+Identify data source, which will be probably HR.
+Meet with HR, discuss the data they have.
+You will probably get CSV export or database table/view.
+Look at data structures and samples.
+Discuss how they can be useful.
+
+Learn and explore.
+Do some read-up on identity management.
+Watch videos.
+Download midPoint and have some fun.
+
+Goal: Assess your resources, capabilities and goals.
+Decide whether the project is feasible.
+Make a rough plan.
+
+=== Step 2: Assessment
+
+You have some kind of HR data now.
+In theory, you should use the HR data to create and manage accounts in target system, such as your Active Directory.
+However, in practice, this is not entirely straightforward.
+
+Firstly, it is almost certain that there are errors and inaccuracies in the HR data.
+The data were maintained manually for a long time, with no way for automatic validation.
+Mistakes in the data might be buried deep, surviving undetected for decades.
+Having nothing to compare the data with, there is no telling how good or bad the data are.
+
+Secondly, the data in your target systems (especially Active Directory) certainly leave a lot to be desired.
+These were managed manually for years, with no automatic way to make sure they are correct.
+There will be account belonging to people that left your organizations years ago.
+There will be accounts using maiden names of women that are married now.
+There will be strange accounts and identifiers that originated ages ago when your organization was still small and system administration was fun.
+There may be all kinds of weirdness and historical baggage frozen in time because nobody remembers what it does and everybody is scared to touch it.
+
+Taking HR data and simply forcing them to Active Directory will never work.
+We need much smarter approach.
+
+// TODO: bridge to the following text
+
+This is what you have to do:
+
+. *Connect HR* data source to midPoint.
+Set up your HR identity resource in midPoint, using CSV or DatabaseTable connector.
+Deal with just the very basic data items for now:
+* Names (given name, family name)
+* Employee number, student number or similar identifier
+* Status (active, former employee, alumni, etc.)
+Ignore other fields for now.
+We will get back to them later.
+
+. *Import users* to midPoint, using HR data.
+Select appropriate algorithm for username.
+You surely have some username convention (such as `jsmith`) in place.
+Then import the HR data, creating user objects in midPoint.
+As we are working with simple data for now, the import should go well.
+
+. *Connect Active Directory*.
+Set up your Active Directory (or perhaps LDAP) identity resource in midPoint.
+Set up mappings for the small data set that you have (given name, username and so on).
+Set the mappings in _comparison_ (TODO!) mode.
+We do not want to change any data yet.
+
+. *Correlate AD accounts* with midPoint users.
+If you have employee numbers stored in the AD, then use that for correlation.
+If you do not, use generated midPoint usernames as correlation identifier.
+Run the _reconciliation_ task on AD resource (TODO!).
+Then have a look at the results (TODO!).
++
+If you maintained your identifier assignment conventions reasonably well, most identities should correlate well.
+Of course, there will be problems of `John Smith` and `Josh Smith` with their `jsmith` and `jsmith42` accounts.
+Let's leave that for later.
+For now just focus on correlating the bulk of users.
+If you get 80-90% users to correlate well, you are done here.
++
+Of course, you are doing this for the first time.
+Chances are that you have not got all your configuration exactly right at the first try.
+If you need to make configuration adjustments, just make them and re-run the reconciliation task.
+In case of deeper problem, it is still OK to scrap your AD resource and do it again (go back to step 3).
+Maybe you need to grab more data from HR feed (e.g. you have not mapped employee number to midPoint, did you?).
+In that case you still can purge all identity data from midPoint, adjust HR configuration and import everything again (go back to step 2).
+
+. *Clean up* the data (lightly).
+Now it is the time to take care of the Smiths, Johnsons and Browns.
+Have a look at all the `jsmith`, `smithj` and `jsmith2` accounts.
+Try to figure out which account belongs to which user and correlate them manually.
+If you did the last step well, there should be just a handful of them.
+
+TODO: what is left: orphaned accounts, system accounts, data inconsistencies, etc.
+
+Goal: TODO
+
+==== How to connect HR to midPoint
+
+* Select the source (HR) system: either CSV or DatabaseTable (for this kind of customers we need to avoid custom connectors or ScriptedSQL which requires coding as well)
+* Agree on contents that is possible to export from source (HR) systems. Think of:
+** Identifier (e.g. `employeeNumber`)
+** E-mail (if it is already there - ideal for identity matching)
+** *MAYBE IN LATER ITERATIONS* Basic entitlements/access rights (if it is there)
+** Content
+*** Full state of all active + inactive employees?
+*** Full state, but only active employees?
+*** *MAYBE IN LATER ITERATIONS* Agree on reactions (e.g. what to do if employee is removed from source export?)
+* Let HR people export data to CSV file or DB table/view
+* Choose *naming convention for midPoint users*. Think of:
+** How the naming convention can help when correlating with target systems?
+*** Ideally: the naming convention used in organization, e.g. in *AD*
+*** People coming from HR maybe have AD account, but maybe not. If the naming convention is `jsmith`, we can create `jsmith` (for John Smith) and `jsmith2` (for Jack Smith) in midPoint, while in *AD* there can be `jsmith` (Joachim Smith) and `jsmith2` (John Smith) completely other (or mixed) users
+** Is there any requirement for naming convention from the company? E.g. "it must be `jsmith` convention" or "it must be based on `employeeNumber` attribute" etc.
+** *Initial naming convention in midPoint can use `employeeNumber` value - as a placeholder, ##temporary##* and we can reimport later to change the naming convention
+*** Keep `employeeNumber` also in separate User attribute so we can rename users when reimporting if needed
+** *Rado's idea (##NEW FEATURE REQUIRED##): initial naming convention - empty login name, which would require DB changes... ##temporarily## we will users without `name`*
+** *Rado's idea: we can have `extension/candidateUserName` (non-unique!!!) filled by midPoint mapping*. All "J. Smiths" will have `jsmith` there. For many users this will match the target system convention directly
+*** Users with the same `extension/candidateUserName` will most probably require manual correlation with target systems
+* What about passwords?
+** *For initial load it does not make sense, and maybe we do not need to have passwords in midPoint at all. AD password is set somehow even before midpoint*
+** Generate random and how to distribute them?
+** Using external authentication? Using AD
+* *##NEW FEATURE REQUIRED##: midPoint Resource Wizard with drag&drop schema+schema handling (<<new-resource-wizard,mentioned above>>)*
+** Prepare some basic mappings for basic attributes for source (HR)
+*** `name`: select either attribute from HR (asIs) or select a function from functional library, e.g. `Generate unique login based on jsmith` (with iterations) or *##NEW FEATURE REQUIRED##* no login at all
+*** `givenName`
+*** `familyName`
+*** ...
+*** `extension/candidateUserName`: select either attribute from HR (asIs) or select a function from functional library, e.g. `Generate value using jsmith convention` (no iterations, may not be unique)
+* *REPEAT UNTIL OK:*
+** Import people data from HR to midpoint: check if we can import all of them (missing mandatory identifiers etc.)
+** Fix inbound mappings if needed (probably only few iterations needed)
+* *NOW WE HAVE MIDPOINT FILLED WITH SOURCE DATA (maybe with temporary `name` attribute as stated above*
+** If correlation expression is still the same, there is no need for explicit repository cleanup between/after iterations - we can import / reconcile as many times as we want
+** But we should have some way of cleanup - maybe "Delete all identities" functionality we already have, *##NEW FEATURE REQUIRED##* just put it somewhere more "visible"
+
+=== Step 3: Automation
+
+TODO
+
+. *On-boarding automation* (provisioning).
+TODO
+Create new accouts for users.
+Leave existing accounts "as is".
+If your data are good, you may roll-out automatic account updates as well.
+This is the right time to suspend your legacy on-boarding/provisionig process (e.g. scripts or manual processes).
+
+
+. *Off-boarding automation* (de-provisioning).
+TODO
+
+=== Things to be resolved later
+
+* *TODO* what about any automatically assigned roles?
+** This might be related to the source system as well - for conditions
+** This requires role model to exist - at least application roles
+* *TODO* what about role requesting and approvals?
+** Even if this is done outside midPoint initially, or via manual / ticket
+requests, the roles are represented by group membership or something similar
+in the target systems
+** MidPoint should not conflict with the roles/groups assigned by other means
+** More specifically, midPoint should tolerate them
+* *TODO* multiple account intents
+
+
+== Current Situation
+
+
+Summary of what is happening before they go for a solution like midPoint, what are they typical activities, what are the struggles.
+
+Automatic scripts, on-demand executed scripts or manual intervention is used to support provisioning.
+The processes are usually managed using tickets (or e-mails, in worst case).
+Automation is partial, because is usually limited to the accounts and not to users (account owners).
+Scripts are usually used "as is", they can be created by people no longer working in the company.
+In that case, script modification/improvements can be costly.
+Scripts can be executed in an automatic way = scheduled, if there is some connection to HR system.
+On-demand executed scripts rely on decisions tracked in ticketing system.
+
+Reaction to security incidents (e.g. bad leaver) can take long time (ticket)
+or may require non-systematic solution (urgent phone call and later ticket - for evidence).
+
+Account rename may be painful: some systems do not support rename at all, other require change of many attributes (e.g. AD: `sn`, `cn`, `dn`, `userPrincipalName`, `sAMAccountName`, `mail` / `proxyAddresses` including previous e-mail value as an alias...)
+
+For leavers, some accounts are immediately deleted, some are disabled and/or moved within the directory tree and deferred actions need to be executed (allowing user's manager to access the mailbox, delayed delete, ...)
+
+TODO yet more
+
+=== Typical analysis process
+
+The typical analysis is very limited in scope. It is mostly scratching the surface.
+
+They are thinking about HR records as clean identities. Mostly thinking about people first, last names and how they are identified (not correlated).
+Some are identifying by employee numbers. When connecting (correlating) records, even when employee number is entered into systems, there are typos or forgotten.
+Sometimes they are identifying by first and last names or by loginname at best.
+
+They are thinking about target system accounts, usually not as accounts owned by some users.
+The accounts are managed by administrators of that resource or support teams,
+their management is often isolated from the other provisioning teams.
+There might be long unused (orphaned) accounts mixed with service and testing accounts.
+Some scenarios are resolved "when they happen", e.g. what to do if account
+name is already taken.
+
+
+
+=== Obstacles (Problem Definition)
+
+Why midPoint in its current state does not satisfy target customers?
+
+Overall (high-level) obstacles:
+
+* *High entry barrier*. Customer engineers have to learn too much. They won't. They do not have time/resources/skills for that.
++
+High entry barrier makes midPoint *expensive* to deploy and operate, as _skilled_ people need to find a lot of time to dedicate midPoint.
+This ruins the business case for midPoint deployment, i.e. midPoint total cost of ownership (*TCO*) is too high.
++
+*Questions:* Can partners help? Can the customer afford assistance of partner? Is that enough? E.g. will partner _operate_ the system after deployment?
+
+* *Missing methodology*. We do not have clear, simple and consistent set of instruction to deploy and use midPoint.
+MidPoint is a chameleon, adapting to many situations.
+This is confusing the engineers, they do not know _what_ to do, _where_ to start.
+
+* *Old world vs new world*.
+MidPoint is designed for _old world_ (servers, on-premise, integration, customization, scripting).
+Yet, there is a brave _new world_ (cloud, services, plug-and-play drag-and-drop do-it-all as a service).
+Some midPoint concepts fit well in the new world (e.g. git/devops/JSON), others do not (complexity, _need_ for customization).
+
+* *Abstract thinking*:
+MidPoint _requires_ abstract thinking.
+Understanding to many abstract concepts (focus, shadow, abstract roles, assignments/inducements, policy rules) is essential to use midPoint efficiently.
+However, this is too much to be handles by most engineers.
+IT is much more complex than 10 years ago, engineers do not have time to understand each system intimately.
+The result is that vast majority engineers that work with midPoint will not have sufficient understanding of the underlying concepts.
+How to make them efficient even with such limited understanding?
+
+Technological (low-level) obstacles:
+
+* *Terminology*: MidPoint has its own vocabulary (shadow, focus, projection, ...), which is not common in IT field.
+MidPoint has to have its own vocabulary, otherwise we could not develop/maintain it.
+However, this is an obstacle for engineers.
+MidPoint is meant to be used by _humans_ (engineers), presentation and usability is important.
+How to align midPoint _development_ needs with the _usage_ needs?
+
+* *Configuration vs Data*: part of the things that we store in midPoint are configuration (e.g. system config), which should be managed by devops configuration management.
+Other part are data (e.g. users, accounts) that should NOT be managed by version control.
+However, there is a big *gray zone*: roles, policy rules, object templates, mappings. It is not clear how to manage the _policies_.
+
+* *Managing multiple environments*: customers usually need to deploy midPoint in multiple environments (e.g. `DEV`, `TEST`, `ACC`, `PROD`).
+This basically means there are multiple midPoint deployments as midPoint in `DEV` is usually responsible for managing identities in `DEV` environment.
+Management of configuration and data and their transfer/transformation between environments may be required.
+E.g. (subset of) identity data from `PROD` should be transferred to `ACC` (after some anonymization) on a regular basis.
+
+* *Complexity of schema*: There are too many configuration options and possibilities, many of them poorly documented.
+It is difficult to figure out which option to use when.
+It is difficult to find that some functionality/feature even exists at all.
+
+* *Data representation (XML/JSON)*: Engineers are not used to write XML any more.
+JSON is better, but it is still a problem (see the "schema" problem above).
+Engineers should be able to do all the common tasks in GUI, without need for XML/JSON.
+
+* *Hard to troubleshoot*: Error messages are often incomprehensible for average engineer and require deep understanding of midPoint (ability to analyze stack traces) or extremely large body of experiences from previous troubleshooting attempts (many times hours of trial-and-errors).
+Typical example: using q:equal (instead of q:ref) when comparing references leads to cryptic ClassCastException or something like that.
+And there are zillions of similar cases.
+
+
+== Solution Ideas
+
+Unstructured notes. Move to other parts/documents as necessary.
+
+* *Allow direct access to database* (PostgreSQL only, read-only, with upgradeability disclaimers).
+This may help to address unforeseen use-cases, with technology/toolset that the engineers already know (SQL).
+The risk to upgradeability is relatively low, as we have to keep DB data model (mostly) backwards-compatible anyway.
+
+* *Improved default configuration*: pre-configure midPoint for the usual use-cases.
+How exactly?
+Better _samples_? Pre-configured _profiles_?
+** Resource mappings-related: we can prepare function libraries (see also below) with most-common code usable for mappings. Admin will simply select one of the functions.
+
+* *Improved user experience*: How exactly? For who? Engineers? End users? How skilled? What use-cases?
+
+* *Improved documentation*: how exactly? What documentation? For who? Which format? text? video?
+
+* *"Complexity spectrum" approach*: +
+Simple and common tasks should be very easy to do (few click in GUI). +
+Medium-complexity and less-common tasks should still be relatively easy (still GUI, but may be more click and complex forms/flows, even writing one-liner expression, but still in GUI). +
+Complex and uncommon tasks may need deeper expertise/experience (e.g. editing JSON/XML). +
+Exotic tasks should still be possible, but may require programming (e.g. complex scripts, plugins, Maven overlay, etc.). +
+This approach was there since the beginning of midPoint, it is one of the design principles.
+Yet, it may not be well documented, and it might have been neglected sometime.
+
+* *From scientific to engineering approach*:
++
+[source]
+----
+Mapping definition
+[x] Use reasonable defaults
+----
++
+[source]
+----
+MidPoint attribute mappings will be by default:
+(*) Tolerant
+        Other values of single-value attributes are permitted
+        Other values of multi-value attributes are permitted
+( ) Enforcing
+        Other values of single-value attributes are not permitted (midPoint overwrites such values)
+        Other values of multi-value attributes are not permitted (midPoint removes such values)
+
+MidPoint group membership mappings will be by default:
+(*) Tolerant
+        Group membership managed by other means is permitted and tolerated
+( ) Enforcing
+        Group membership managed by other means is not permitted (midPoint removes such values)
+----
+
+* *Complete automation* vs *Human task automation*:
+Do we want midPoint to do everything automatically (read from HR, process policies, create accounts).
+Or do we want midPoint to manage people that do it manually (review HR data, approve requests, create tickets for admins to create accounts)?
+We probably want both, but to what degree? What we will be recommending? (methodology)
+
+[#new-resource-wizard]
+=== New resource wizard step by step usage
+
+* Assumption: for resources such as `AD`, there will be predefined configuration for some basic attributes/mappings, such as:
+** `dn` using "dynamic" suffix definition - e.g. using `basic.getResourceIcfConfigurationPropertyValue(resource, 'baseSuffix')`
+** `cn`
+** `sn`
+** `givenName`
+** `userPrincipalName` using "dynamic" suffix definition derived from `baseSuffix`. Example:
+*** if `baseSuffix` is `cn=Users,dc=example,dc=com`, `userPrincipalName` will be ending with `@example.com`
+*** *TODO implementation detail: how to derive this reliably*
+** `administrativeStatus`
+* Assumption: there will be a *##NEW FEATURE REQUIRED##* functional library object defined in midPoint repository (may be even in default initial objects, or a combination of one from initial object and another one(s) custom) - and multiple may be referenced from resource
+** the functional library will contain simple functions whose names will be
+displayed instead of XML code, usable for most of the attribute mappings, such as:
+*** copy value
+*** normalize
+*** lowercase
+*** uppercase
+*** DN, with `cn=GivenName FamilyName`
+*** DN, with `cn=FamilyName\, GivenName`
+*** ... other, to be added by the administrator if defaults are not enough ...
+** in all cases, when selecting a function for mapping, midPoint should show the administrator description of the function, and example. Perhaps even example based on real user data? (Some selected user)
+* Resource configuration step: enter connection defaults. As few as really
+required, such as:
+** Hostname/IP/URL
+** Service account username
+** Service account password
+** Base suffix (may be auto-detected?)
+* Schema step (containing both schema and schema handling): showing arrows between midPoint and resource attributes (mapping
+direction) and mapping summary for each arrow
+** If the predefined schema handling is not OK, administrator can customize by:
+*** drag&drop midPoint attribute to account attribute (left to right) = outbound
+*** drag&drop account attribute to midPoint attribute (right to left) = inbound
+** Clicking the arrows can be used to update the default mappings by
+selecting from the mappings present in functional library
+** *##NEW FEATURE REQUIRED##* global definition for mapping strength to be inherited by the mappings instead of defaulting to `normal`?
+*** we would need this to be either `normal` or *##NEW FEATURE REQUIRED## new value e.g. `preview`* so that we can use `preview` first, then switch to `normal` and who wants `strong` can do that here
+* Correlation / confirmation / identity matching step
+** preconfigured, e.g. `userPrincipalName` equals midPoint
+`extension/candidateUserName` or `employeeNumber` equals `employeeNumber`
+** possibly preconfigured for "reverse identity matching" by selecting which
+attribute mappings should match the existing resource values (e.g. `cn`, `sn`
+and `givenName`)
+** mapping "guessing" based on correlation:
+*** midPoint will compare e.g. 50 users and 50 accounts to see if the correlation expression matches
+*** mappings for simple cases can be derived from these matches
+*** midPoint can make sure the mappings are OK as configured (that they provide the same values as there are on resource already)
+* Reporting of correlation/matching (read-only)
+** start iterations for the resource re-configuration now
+** based on the results of the correlation/matching, we need to distinguish
+*data quality issues* vs *bad correlation expression*
+*** e.g. 5% users not matched: policy is OK, let's do manual correlation
+*** e.g. 80% users not matched: probably invalid correlation expression, do
+not do any manual correlation yet
+** the report/output needs to clearly state the following:
+*** which account...
+*** ... seems to have owner and which one...
+*** ... and *why*! (what part of correlation matched, what's the probability)
+*** and also which accounts do not have owner in midPoint...
+*** ... and what would *happen to them* (e.g. they would be deleted)
+
+Basically we can either "guess" correlation if we specify which user owns
+which account, or we specify correlation and midPoint can "guess" the
+mappings. (At least to some extent.)  Maybe we can have a combination, if
+administrator selected one user and one account that is owned by the user,
+midPoint can suggest correlation expression. Then midPoint can check more
+accounts, try to correlate with users and guess the mappings for simple
+cases...
+
+
+When the resource accounts can be matched, we need to run simulation report to know: *what would be changed when the system is connected* (because of mappings).
+The report needs to show the following:
+
+* for matched/linked accounts: show what would happen, which changes would midPoint do
+** *##NEW FEATURE REQUIRED##*: present delta in some more compact and user-friendly way. Maybe on two levels: show there will be changes and of how many attributes and then you can go to details for that particular situation
+* for unlinked accounts: show what would happen to these accounts
+* for unmatched accounts: show what would happen to these accounts
+* for deleted accounts: show what would happen to these accounts
+
+In general, admin must have confidence what *would happen*.
+
+Then, real reconciliation can be executed followed by running the report again.
+
+
