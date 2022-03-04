@@ -10,6 +10,9 @@ This page is extending the information valid for xref:/midpoint/install/kubernet
 
 In case you need working sample you can go directly to the part related to <<_nfs>>  (it is recommended deployment option to fulfill several requirements).
 
+[NOTE]
+The full configuration is available in link:https://github.com/Evolveum/midpoint-kubernetes/blob/main/advanced-examples/statefulset-pg-native_cm-sec.yaml[statefulset-pg-native_cm-sec.yaml] on github.
+
 == Cluster of midpoint nodes
 
 There are few things which has to be handled to be able to operate midpoint in cluster - more cooperating nodes.
@@ -41,7 +44,7 @@ It can be distributed using shared object (configMap, R/O shared volume between 
 In some situation the output can be stored in the filesystem.
 In that case we probably prefer to keep the files even after re-creating the pod.
 
-The list is example and it is not have to be complete.
+The list is an example and it does not have to be complete.
 The design of the deployment may contain other specific objects to handle.
 
 === Task Manager
@@ -56,7 +59,7 @@ This setting has to be added to all nodes.
               value: true
 ...
 
-=== nodeID
+=== Node ID
 
 Node as cluster member has to have the unique ID.
 To be able to run the node there have to be set the way how to generate / set the ID.
@@ -70,15 +73,15 @@ To do that we need to set one additional environment variable.
               value: hostname
 ...
 
-=== keystore
+=== Keystore
 
 Keystore is generated with the start in case it is not available.
 The result is that each node would generate "own" key in the keystore and the object will be readable only by the node which has created it.
 To address this "issue" we have to prepare the keystore to be available to each node once it is starting.
 
-* share the file
+* Share the file
 
-** network share +
+** Network Share +
 Kubernetes natively offer mount NFS store as volume to pod.
 We can share the space and first node will generate it.
 All other node or even this node after restart / recreate will use the file so the key for description will be available.
@@ -86,14 +89,14 @@ Using persistent volume for NFS server is good idea.
 +
 The issue may happen once two pods would start in parallel and both would want to generate it.
 
-** volume share +
+** Volume Share +
 Not all the drivers offer concurrent write access to the volume.
 This option not necessary have to be available in general.
 
-* pre-generate the file into secret object and share it with all the pods as mounted volume +
+* Pre-generate the file into secret object and share it with all the pods as mounted volume +
 For the testing purpose this approach offer sharing the keystore even between the whole env deployment.
 
-==== NFS mount
+==== NFS Mount
 
 <<NFS>> has dedicated part of this document.
 
@@ -110,7 +113,7 @@ To mount volume you can use syntax like this example:
             path: /exports/poi
 ...
 
-Once the shared NFS volume is utilized we doesn't need to handle manual generating of the keystore as the first starting midpoint node will generate it.
+Once the shared NFS volume is utilized we don't need to handle manual generating of the keystore as the first starting midpoint node will generate it.
 All other midpoint nodes will just use it as far they will see the file in the location.
 
 [NOTE]
@@ -122,11 +125,11 @@ You can generate the keystore even with NFS utilizing in case you prefer e.g. ot
 
 To create the secret object we will need to create the keystore on the filesystem.
 
-.generate the keystore
+.Generate the keystore
 [source,bash]
 keytool -genseckey -alias default -keystore keystore.jceks -storetype jceks -keyalg AES -keysize 128 -storepass changeit -keypass midpoint
 
-Once the file will exist we can use it to create the secret object in the kubernetes environment.
+Once the file exists we can use it to create the secret object in the kubernetes environment.
 
 .Create the secret object from the file
 [source,bash]
@@ -161,13 +164,10 @@ Once the secret is created we have to modify the stateful set for the midpoint.
               mountPath: /opt/midpoint/mount-keystore
 ...
 
-[NOTE]
-The full configuration is available in link:https://github.com/Evolveum/midpoint-kubernetes/blob/main/advanced-example/statefulset-pg-native_cm-sec.yaml[statefulset-pg-native_cm-sec.yaml] on github.
-
 [#_nfs]
 == NFS
 
-NFS volume is natively supported with the kubernetes (it is described e.g. in kuberenetes documentation related to the link:https://kubernetes.io/docs/concepts/storage/volumes/#nfs[volumes]).
+NFS volume is natively supported with the kubernetes (it is described e.g. in Kubernetes documentation related to the link:https://kubernetes.io/docs/concepts/storage/volumes/#nfs[volumes]).
 
 To have it working there are few thing which should be checked on kubernetes node:
 
@@ -180,7 +180,7 @@ In case we want to use "internal" cluster FQDN it has to be resolvable for the k
 by default the names are resolvable in the cluster but node's resolver may use "external" DNS server where the cluster FQDNs are not known.
 The solution is point OS's resolver to the cluster "internal" IP as the node can communicate with any cluster "internal" IPs.
 
-.example of the change on debian based distribution (e.g. IP of DNS is 10.96.0.10)
+.Example of the change on debian based distribution (e.g. IP of DNS is 10.96.0.10)
 [source,bash]
 cat << EOF >>/etc/systemd/resolved.conf
 #[Resolve]
@@ -191,7 +191,7 @@ systemctl restart systemd-resolved
 
 === server
 
-.statefulset definition for server
+.Statefulset definition for server
 [source,kubernetes]
 apiVersion: apps/v1
 kind: StatefulSet
@@ -261,12 +261,12 @@ spec:
 There has been used the same image as in kubernetes documentation.
 Feel free to use any other image containing nfs server tool you are familiar with.
 
-There is used initContainer to create subfolder for poi (Post-Initial-Objects) for the next example with mounting just POI to midpoint home.
+There is used initContainer to create subfolder for poi (Post-Initial-Objects) for the next example with mounting just POI to midPoint home.
 The mount would fail in case the directory is not available.
-In case you prefer to have all midpoint home directory on NFS the initContainer is not needed.
+In case you prefer to have all midPoint home directory on NFS the initContainer is not needed.
 ====
 
-.service definition for the server
+.Service definition for the server
 [source,kubernetes]
 apiVersion: v1
 kind: Service
@@ -284,9 +284,9 @@ spec:
   selector:
     app: mp-demo-nfs
 
-=== midpoint with NFS volume
+=== midPoint with NFS volume
 
-.statefulset definition
+.Statefulset definition
 [source,kubernetes]
 apiVersion: apps/v1
 kind: StatefulSet
@@ -370,11 +370,11 @@ The pod will not start (it will wait in state *PodInitializing*) until the NFS w
 
 Once everything is ready we can scale up ( even starting is scaling : 0 => 1 ) the number of replicas.
 
-.to run 2 nodes midpoint cluster
+.To run 2 nodes midpoint cluster
 [source,bash]
 kubectl scale -n mp-demo --replicas=2 statefulset/mp-pg-demo
 
-.to reduce to just 1 node in midpoint cluster
+.To reduce to just 1 node in midpoint cluster
 [source,bash]
 kubectl scale -n mp-demo --replicas=1 statefulset/mp-pg-demo
 

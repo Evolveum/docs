@@ -5,11 +5,11 @@
 
 == What is it about
 
-This page will cover use cases when just one midpoint node is use.
+This page will cover use cases when just one midpoint node is used.
 There will not be handled specifics related to cluster deployment.
 For Cluster deployment see xref:/midpoint/install/kubernetes/cluster.adoc[Midpoint cluster].
 
-== deployments by the repository
+== Deployments by the repository
 
 Since Midpoint 4.4 there are two definition for the repository (where the data for the midpoint application are stored).
 
@@ -40,9 +40,9 @@ The performance is lower in comparison with Native repository but the structure 
 
 This option is mentioned here to have complete information at one place, but we are not recommend this for the production environment or (serious) test environment.
 
-==== Quick start - H2
+==== Quick start with H2
 
-This example will start midpoint with default environment variables.
+This example will start midPoint with default environment variables.
 This is "kubernetes alternative" to run docker image directly with xref:/midpoint/install/docker/[docker].
 
 .Example to "just run" with defaults
@@ -100,15 +100,17 @@ spec:
           imagePullPolicy: IfNotPresent
   serviceName: mp-h2-demo
 
+[NOTE]
 Even we can see "replicas: 1" it is practically fixed value.
 Don't try to increase this number (start cluster) as in this configuration it will not work.
 Cluster configuration will be shown later in the document.
 
+[NOTE]
 It could be also noted that in this configuration the service is available only internally in the Kubernetes environment.
 Theoretically it can be routed but in principle IPs will be dynamic and it will change with every pod re-create.
 In case you would like to make it "reachable" (the same IP, the same FQDN) please think about using Services and Ingress (of course with proper names and selectors).
 
-==== Quick start - postgresql
+==== Quick start with PostgreSQL
 
 Now we will add complexity in form of postgresql "store" for the midpoint objects.
 So far we are still using deprecated generic repository to understand it and get it up and running in step-by-step approach.
@@ -129,7 +131,7 @@ To be able to predict interconnection we will define service for the database.
 The connection will be realized via FQDN for the service.
 The proper "linking" will be handled by the *selector* pointing to the proper label.
 
-.postresql db definition
+.PostreSQL DB definition
 [source,kubernetes]
 apiVersion: apps/v1
 kind: StatefulSet
@@ -172,7 +174,7 @@ You can see necessary init value for the authentication: +
 Feel free to change it but keep it consistent with following midpoint definition.
 Otherwise, the connection will not be established.
 
-.service definition for the db ("meeting point" for the communication between midpoint and db)
+.service definition for the DB ("meeting point" for the communication between midpoint and db)
 [source,kubernetes]
 apiVersion: v1
 kind: Service
@@ -194,7 +196,7 @@ The name is important for the FQDN construction.
 In this documentation we will use default kubernetes domain - FQDN will be *<service_name>.<namespace>.svc.cluster.local*.
 This domain may differ based on the environment setting.
 
-.modpoint with repository located in the postgresql
+.midPoint with repository located in the PostgreSQL
 [source,kubernetes]
 apiVersion: apps/v1
 kind: StatefulSet
@@ -241,20 +243,20 @@ xref:/midpoint/reference/repository/native-postgresql/[Native] repository came w
 For the purpose of deployment there is few specifics:
 
 * DB related:
-** it can be operated only on postgresql (postgresql's features has been utilized during the design)
+** it can be operated only on PostgreSQL (PostgreSQL's features has been utilized during the design)
 ** the structure of the DB has to be initiated explicitly - midpoint expects already existing structure
-* midpoint related:
+* midPoint related:
 ** config.xml file has to be used
 
-Postgresql should not be an issue as we will use official postgresql image.
+PostgreSQL should not be an issue as we will use official PostgreSQL image.
 The tricky part will be related to the second point - init the db structure.
 Good for us is that all we need is already packed in the midpoint image.
 
 ==== The DB init
 
-We will need just use what we have.
-To realize it we will need to utilize init container in the kubernetes.
-It is container (may be even more but in parallel not in sequence) which is run before main container.
+We will use what we already have.
+To make it happen it we will need to utilize init container in the kubernetes.
+It is container (maybe even more but in parallel not in sequence) which is run before main container.
 The image for init container and container may differ.
 To reach the requirement we will need "shared" volume between the containers in the pod.
 It can be persistent volume but for now we will use emptyDir volume.
@@ -319,7 +321,7 @@ The init process of the DB will be done only once - only in case the db data is 
 The image version (tag) have to be the same for init container of the DB and for the midpoint itself.
 This way the initialized structure will correspond with the version of midpoint you are deploying.
 
-===== secret object
+===== Secret Objects
 
 [#_secret]
 It is possible to utilize *Secret* objects to store the password instead of keeping it in the configuration of the *StatefulSets* directly.
@@ -333,7 +335,7 @@ The example is shown further in the document.
 
 To point the value you can replace the definition:
 
-.password stored directly in the object definition
+.Password stored directly in the object definition
 [source,kubernetes]
 ...
           env:
@@ -343,7 +345,7 @@ To point the value you can replace the definition:
 
 with the following definition:
 
-.password linked to the secret object from the object definition
+.Password linked to the secret object from the object definition
 [source,kubernetes]
 ...
           env:
@@ -358,7 +360,7 @@ with the following definition:
 This example expect to have the secret object with the name *mp-demo* in the same namespace as object where it is used (*mp-demo*).
 The value which will be used is content of the key *password* located in the secret object.
 
-.example of the secret object containing the passwords
+.Example of the secret object containing the passwords
 [source,kubernetes]
 apiVersion: v1
 kind: Secret
@@ -374,7 +376,7 @@ In the secret object the values are provided as base64 encoded content.
 For our example we have the following values: +
 SuperSecretPassword007 => U3VwZXJTZWNyZXRQYXNzd29yZDAwNw==
 
-.command to generate the secret with password
+.Command to generate the secret with password
 [source,bash]
 kubectl create secret generic -n mp-demo mp-demo --from-literal=password=SuperSecretPassword007
 
@@ -457,7 +459,7 @@ spec:
 ====
 There is optional storageClassName definition where the default storage class is used if the definition is missing.
 
-This way yeach replica will have own *persistentVolumeClaim* containing suffix like the pod (-0, -1, -2, etc.).
+This way each replica will have own *persistentVolumeClaim* containing suffix like the pod (-0, -1, -2, etc.).
 ====
 
 [source]
@@ -472,12 +474,12 @@ volumeClaimTemplates:
 
 ==== DB Service definition
 
-We will need to have the service definition, so we can target the DB in midpoint configuration.
+We will need to have the service definition, so we can target the DB in midPoint configuration.
 Without the service we are not able to predict "meeting point" in case of IP.
 In some specific cases we can predict FQDN of the pod but using Service for this purpose is more than good idea.
 It is even recommended approach - search for kubernetes related resources for more information if needed.
 
-.service definition for the db ("meeting point" for the communication between midpoint and db)
+.Service definition for the db ("meeting point" for the communication between midpoint and db)
 [source,kubernetes]
 apiVersion: v1
 kind: Service
@@ -508,7 +510,7 @@ For this documentation purpose we will use the "emptyDir" definition for the vol
 This volume will be used for /opt/midpoint/var folder.
 Based on your deployment specifics you may think about proper volume type.
 
-.modpoint with native repository located in the postgresql
+.midPoint with native repository located in the postgresql
 [source,kubernetes]
 apiVersion: apps/v1
 kind: StatefulSet
@@ -575,7 +577,7 @@ For this purpose xref:/midpoint/install/midpoint-sh/[Start script] offer entry p
 To use it the parameter *MP_ENTRY_POINT* can be set.
 In the following example there are 2 XML files with user definition in mp-demo-poi configMap.
 
-.example of the post-initial-objects - new users
+.Example of the post-initial-objects - new users
 [source,kubernetes]
 apiVersion: v1
 kind: ConfigMap
@@ -594,7 +596,7 @@ data:
       <name>test2</name>
     </user>
 
-.modpoint with DB auth password in the file
+.midPoint with DB auth password in the file
 [source,kubernetes]
 apiVersion: apps/v1
 kind: StatefulSet
@@ -665,7 +667,7 @@ spec:
           imagePullPolicy: IfNotPresent
   serviceName: mp-pg-demo
 
-===== persistent storage
+===== Persistent Storage
 
 In the example so far the midpoint deployment is not using persistent volumes.
 
@@ -679,7 +681,7 @@ Other "lost" thing may be exports, logs and post-initial-objects (better say the
 
 To prevent this situation the midpoint home directory or its subtree can be located on persistent storage.
 
-.modpoint with persistent volume for post-initial-objets (subtree of home on PV)
+.midPoint with persistent volume for post-initial-objets (subtree of home on PV)
 [source,kubernetes]
 apiVersion: apps/v1
 kind: StatefulSet
