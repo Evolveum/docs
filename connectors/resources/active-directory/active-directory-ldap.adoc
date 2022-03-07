@@ -116,17 +116,14 @@ However the underlying LDAP library may complain about the schema issues.
 It is usually safe to ignore these warnings.
 
 
-== Notes
+== Recommendation and Notes
 
-[TIP]
-====
-Note: to avoid clear-text password visible in the repository, please refer to xref:/midpoint/reference/resources/resource-configuration/string-to-protectedstring-connector-configuration/[String to ProtectedString Connector Configuration].
-====
+=== Passwords
 
+To avoid clear-text password visible in the repository, please refer to xref:/midpoint/reference/resources/resource-configuration/string-to-protectedstring-connector-configuration/[String to ProtectedString Connector Configuration].
 
-[NOTE]
-.Full Active Directory Schema
-====
+=== Full Active Directory Schema
+
 Active Directory has huge schema.
 The schema when encoded in XSD has several megabytes.
 This might take several hundreds of megabytes of memory when processed.
@@ -145,13 +142,9 @@ The impact of AD schema can be limited by reducing the number of object classes 
 
 See also bug:MID-2716[]
 
-====
+=== Explicit Referential Integrity
 
-
-[NOTE]
-.Explicit Referential Inrtegrity
-====
-We recommend to turn off explicitReferentialIntegrity for associations with groups.
+We recommend turning off explicitReferentialIntegrity for associations with groups.
 Active Directory will maintain the group membership after account rename automatically.
 
 Example:
@@ -174,9 +167,39 @@ Example:
 ...
 ----
 
-====
+=== National Characters
 
+Although LDAP protocol and data structures are designed to be safe for use with national characters,
+Active Directory obviously leaves a large room for improvement in this area.
+For example, although LDAP specification states that DNs using different national characters should be considered different identifiers, Active Directory might consider them to be the same (see bug:MID-7355[]).
 
+Therefore, we *strongly recommend* to avoid use of national characters in Active Directory, especially in the identifiers (`dn` and hence also `cn`).
+MidPoint xref:/midpoint/reference/concepts/polystring/[polystring] functionality is designed especially for this purpose.
+Following mapping may help create identifier without national characters:
+
+[source,xml]
+----
+<attribute>
+    <ref>ri:dn</ref>
+    <outbound>
+        <source>
+            <path>givenName</path>
+        </source>
+        <source>
+            <path>familyName</path>
+        </source>
+        <expression>
+            <script>
+                <code>
+                    'CN=' + basic.concatName(familyName.getNorm(), givenName.getNorm()) + iterationToken + ',OU=Users,DC=example,DC=com'
+                </code>
+            </script>
+        </expression>
+    </outbound>
+</attribute>
+----
+
+An equivalent mapping would be probably needed for `cn` attribute as well.
 
 == See Also
 
