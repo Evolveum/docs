@@ -11,7 +11,7 @@ This page is extending the information valid for xref:/midpoint/install/kubernet
 In case you need working sample you can go directly to the part related to <<_nfs>>  (it is recommended deployment option to fulfill several requirements).
 
 [NOTE]
-The full configuration is available in link:https://github.com/Evolveum/midpoint-kubernetes/blob/main/advanced-examples/statefulset-pg-native_cm-sec.yaml[statefulset-pg-native_cm-sec.yaml] on github.
+The full configuration is available in link:https://github.com/Evolveum/midpoint-kubernetes/blob/main/advanced-examples/statefulset-pg-native_cm-sec.yaml[statefulset-pg-native_cm-sec-nfs.yaml] on github.
 
 == Cluster of midpoint nodes
 
@@ -191,7 +191,7 @@ systemctl restart systemd-resolved
 
 === server
 
-.Statefulset definition for server
+.Statefulset definition for server | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/advanced-examples/statefulset-nfs.yaml[github]
 [source,kubernetes]
 apiVersion: apps/v1
 kind: StatefulSet
@@ -214,7 +214,7 @@ spec:
           command: ["/bin/bash","-c"]
           args:
             - mkdir -p /exports/poi ;
-              echo "post-initial-objects folder has been created..."
+              echo "post-initial-objects directory has been created..."
           volumeMounts:
           - mountPath: /exports
             name: mp-demo-nfs-store
@@ -256,17 +256,22 @@ spec:
         storageClassName: csi-rbd-hdd
         volumeMode: Filesystem
 
+[WARNING]
+The size 256 MB is used in the example.
+This size have to be set based on the usage of the NFS share.
+In case you will be using shared storage also for xref:/midpoint/install/kubernetes/advanced-examples.adoc#_export[export directory] the requirements for the space may be higher.
+
 [NOTE]
 ====
 There has been used the same image as in kubernetes documentation.
 Feel free to use any other image containing nfs server tool you are familiar with.
 
-There is used initContainer to create subfolder for poi (Post-Initial-Objects) for the next example with mounting just POI to midPoint home.
+There is used initContainer to create subdirectory for poi (Post-Initial-Objects) for the next example with mounting just POI to midPoint home.
 The mount would fail in case the directory is not available.
 In case you prefer to have all midPoint home directory on NFS the initContainer is not needed.
 ====
 
-.Service definition for the server
+.Service definition for the server | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/advanced-examples/service-nfs.yaml[github]
 [source,kubernetes]
 apiVersion: v1
 kind: Service
@@ -286,7 +291,7 @@ spec:
 
 === midPoint with NFS volume
 
-.Statefulset definition
+.Statefulset definition | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/advanced-examples/statefulset-pg-native_cm-sec-nfs.yaml[github]
 [source,kubernetes]
 apiVersion: apps/v1
 kind: StatefulSet
@@ -381,12 +386,53 @@ kubectl scale -n mp-demo --replicas=1 statefulset/mp-pg-demo
 New pods are added with increasing suffix ( -0, -1, -2, etc.).
 With scale down the pods are removed in reverse order - the first is terminated the highest suffix.
 You cannot terminate pod with the suffix "in the middle of the list".
-In that case it is identified as failed pod and it is re-created by the statefulset definition.
+In that case it is identified as failed pod, it is re-created by the statefulset definition.
 
-In case you doesn't use persistent volume all the data related to the jus terminated pods are lost.
+In case you don't use persistent volume all the data related to the jus terminated pods are lost.
 If you use persistent volumes the data is kept.
 With scale up the persistent volume will be attached if it exists (previously it has been created) otherwise it will be newly created.
 
 [WARNING]
 There are some data which may be important like logs from the node, exported (generated) content (e.g. reports).
 If you don't need it is ok but if so, please, think about utilizing <<_nfs>> storage at least partially for the needed content if not for the whole midpoint home directory.
+
+=== Session affinity
+
+With the clustered instance of midpoint the session handling have to be covered.
+Even the midpoint nodes are operating in cluster the session is created against specific node.
+Kubernetes is using round-robin distribution by default.
+
+It means than you would create session against one node but next query will go (the most probably) to the different one.
+This node has no idea about session on the "other" node, so it would forward you to the login form.
+This is not definitely the behavior we would expect.
+
+With the following setting we are able to make sessions by the client IP.
+
+==== service
+
+On the service object we can set directly the affinity:
+
+[source]
+...
+spec:
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800
+...
+
+
+==== ingress
+
+Ingress object cooperate with the service but mainly for the list of backend(s).
+The session handling would be set also on this level.
+
+.example relevant for nginx ingress
+[source]
+...
+metadata:
+  annotations:
+    nginx.ingress.kubernetes.io/session-cookie-expires: '172800'
+    nginx.ingress.kubernetes.io/session-cookie-max-age: '172800'
+    nginx.ingress.kubernetes.io/session-cookie-name: mp-demo
+...
+

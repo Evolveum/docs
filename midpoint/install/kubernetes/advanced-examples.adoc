@@ -104,7 +104,8 @@ Once you want to do the changes you have three options in general:
 This is not so interesting in the context of this documentation but for sure it is valid option.
 
 * *whole object update* +
-The object can be stored out of the running system (e.g. in the git) and it can be directly uploaded.
+The object can be stored out of the running system (e.g. in the git).
+It can be directly uploaded.
 The Post-initial-objects concept can be used +
 
 [NOTE]
@@ -167,7 +168,7 @@ As there is only one SystemConfiguration object as default we can search for "an
 In the next step we will have to address the "block" we would like to modify - the path to apply the delta on ( *deploymentInformation* ).
 Then we will provide the values to add.
 
-.Post-initial-object to add the deployment information to System configuration
+.Post-initial-object to add the deployment information to System configuration | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/advanced-examples/deployment.xml[github]
 [source]
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
@@ -243,6 +244,7 @@ With any of these approach the information about processing (*.done*) will be ke
 Default security policy contain only information about the credentials.
 What may be interesting with the deployment is xref:/midpoint/reference/security/authentication/flexible-authentication/configuration.adoc[Flexible authentication].
 
+.configmap with flexible authentication | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/advanced-examples/configmap-poi-120.yaml[github]
 [source]
 apiVersion: v1
 kind: ConfigMap
@@ -362,7 +364,7 @@ For sample change of the configuration we can try to change the context - last p
 It is possible to change the path using *application.yaml* file in midpoint.home location.
 Default path in URL is /midpoint.
 
-.${midpoint.home}/application.yaml
+.${midpoint.home}/application.yaml | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/advanced-examples/application.yaml[github]
 [source,yaml]
 server:
   servlet:
@@ -418,7 +420,7 @@ There are assigned role and member Org.
 Task definition to recompute all directly assigned members to the Org with any relation - member, manager, approver, owner.
 This example task utilizing xref:/midpoint/reference/tasks/activities/index.adoc[activities].
 
-.Example of the post-initial-objects
+.Example of the post-initial-objects | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/advanced-examples/configmap-poi-role_user_org_task.yaml[github]
 [source,kubernetes]
 apiVersion: v1
 kind: ConfigMap
@@ -573,9 +575,9 @@ Only differences would be preparing also directory for the connectors.
           command: ["/bin/bash","-c"]
           args:
             - mkdir -p /exports/poi ;
-              echo "post-initial-objects folder has been created..."
+              echo "post-initial-objects directory has been created..."
             - mkdir -p /exports/icf-connectors ;
-              echo "connectors folder has been created..."
+              echo "connectors directory has been created..."
 ...
 
 .midPoint statefulset definition related to the connectors' NFS storage
@@ -595,3 +597,214 @@ Only differences would be preparing also directory for the connectors.
 The content has to be delivered to the NFS share.
 It can be done independently on midpoint or using configMap described in the previous section.
 Entrypoint checking existence of the files by the name so once the file exists in the destination the entrypoint file is skipped.
+
+[#_export]
+=== Export - directory in midpoint home
+
+[NOTE]
+NFS server is described in xref:/midpoint/install/kubernetes/cluster.adoc#_nfs[Cluster deployment].
+Only differences would be preparing also directory for the export.
+
+There is subdirectory export in midpoint home directory where the exported content are stored (e.g. reports).
+The system know which midpoint node created the content.
+In case other node needs / is requested for the content it firstly try if it is not locally available.
+If the content is not available there is communication with the "originating" node to get the content.
+Sharing the export directory between the nodes prevent loosing data in case it is only on one specific node - e.g. scaling or re-creating the pod.
+
+.Make directory for the export on NFS server
+[source]
+...
+      initContainers:
+        - name: init-structure
+          image: 'k8s.gcr.io/volume-nfs'
+          command: ["/bin/bash","-c"]
+          args:
+            - mkdir -p /exports/poi ;
+              echo "post-initial-objects directory has been created..."
+            - mkdir -p /exports/export ;
+              echo "export directory has been created..."
+...
+
+.midPoint statefulset definition related to the export's NFS storage
+[source]
+...
+      volumes:
+        - name: nfs-export
+          nfs:
+            server: mp-demo-nfs.mp-demo.svc.cluster.local
+            path: /exports/export
+...
+          volumeMounts:
+            - name: nfs-export
+              mountPath: /opt/midpoint/var/export
+...
+
+=== Sample resource
+
+There may be needed to use also resources as source and / or target.
+The example we can use LDAP resource as defined in the link:https://github.com/Evolveum/midpoint-samples/tree/master/samples/book/2[midpoint-samples] on github.
+
+.basic structure for the LDAP expected by the midpoint in the example | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/advanced-examples/configmap-ldap-init.yaml[github]
+[source,kubernetes]
+----
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mp-demo-ldap-init
+  namespace: mp-demo
+data:
+  acl.ldif: |
+    dn:  olcDatabase={1}{{ LDAP_BACKEND }},cn=config
+    changetype: modify
+    replace: olcAccess
+    olcAccess: {0}to dn="cn=admin,{{ LDAP_BASE_DN }}"
+      by anonymous auth
+      by self write
+      by * none
+    olcAccess: {1}to attrs=userPassword,shadowLastChange
+      by dn="cn=idm,ou=Administrators,{{ LDAP_BASE_DN }}" write
+      by dn="cn=admin,{{ LDAP_BASE_DN }}" write
+      by anonymous auth
+      by self write
+      by * none
+    olcAccess: {2}to dn.base=""
+      by * read
+    olcAccess: {3}to dn.subtree="ou=people,{{ LDAP_BASE_DN }}"
+      by dn="cn=idm,ou=Administrators,{{ LDAP_BASE_DN }}" write
+    olcAccess: {4}to dn.subtree="ou=groups,{{ LDAP_BASE_DN }}"
+      by dn="cn=idm,ou=Administrators,{{ LDAP_BASE_DN }}" write
+    olcAccess: {5}to *
+      by dn="cn=admin,{{ LDAP_BASE_DN }}" write
+      by dn="cn=idm,ou=Administrators,{{ LDAP_BASE_DN }}" read
+      by self read
+      by * none
+  baseEntry.ldif: |+
+    dn: ou=groups,{{ LDAP_BASE_DN }}
+    objectClass: top
+    objectClass: organizationalUnit
+    ou: groups
+
+    dn: ou=people,{{ LDAP_BASE_DN }}
+    objectClass: top
+    objectClass: organizationalUnit
+    ou: people
+
+    dn: ou=administrators,{{ LDAP_BASE_DN }}
+    objectClass: top
+    objectClass: organizationalUnit
+    ou: administrators
+
+    dn: cn=idm,ou=Administrators,dc=example,dc=com
+    objectclass: top
+    objectclass: person
+    cn: idm
+    sn: IDM Administrator
+    description: Special LDAP acccount used by the IDM
+      to access the LDAP data.
+    userPassword: {SSHA}R5KF3K4X2FX5gkWKuDxm4M6gZyO0QgNF
+
+  ppolicy.ldif: |
+    #load password policy module
+    dn: cn=module{0},cn=config
+    changetype: modify
+    add: olcModuleLoad
+    olcModuleLoad: {2}ppolicy
+
+    #configure password policy module
+    dn: olcOverlay=ppolicy,olcDatabase={1}{{ LDAP_BACKEND }},cn=config
+    changetype: add
+    objectClass: olcPPolicyConfig
+    objectClass: olcOverlayConfig
+    olcOverlay: ppolicy
+    olcPPolicyDefault: cn=default,ou=pwpolicies,{{ LDAP_BASE_DN }}
+    olcPPolicyHashCleartext: TRUE
+    olcPPolicyUseLockout: TRUE
+  sssvlv.ldif: |
+    #load sssvlv module
+    dn: cn=module{0},cn=config
+    changetype: modify
+    add: olcModuleLoad
+    olcModuleLoad: {3}sssvlv
+
+    #configure sssvlv module
+    dn: olcOverlay=sssvlv,olcDatabase={1}{{ LDAP_BACKEND }},cn=config
+    changetype: add
+    objectClass: olcSssVlvConfig
+    objectClass: olcOverlayConfig
+    olcOverlay: sssvlv
+----
+
+.Service definition for the server | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/advanced-examples/service-ldap.yaml[github]
+[source,kubernetes]
+apiVersion: v1
+kind: Service
+metadata:
+  name: mp-demo-ldap
+  namespace: mp-demo
+spec:
+  ports:
+    - name: ldap
+      port: 389
+  selector:
+    app: mp-demo-nfs
+  type: NodePort
+
+.statefulset for the LDAP | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/advanced-examples/statefulset-ldap.yaml[github]
+[source,kubernetes]
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mp-demo-ldap
+  namespace: mp-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mp-demo-ldap
+  template:
+    metadata:
+      labels:
+        app: mp-demo-ldap
+    spec:
+      volumes:
+        - name: ldap-init
+          configMap:
+            name: mp-demo-ldap-init
+            defaultMode: 420
+      containers:
+        - name: mp-demo-ldap
+          image: 'osixia/openldap:stable'
+          command: ["/container/tool/run", "--copy-service"]
+          ports:
+            - name: ldap
+              containerPort: 389
+              protocol: TCP
+          env:
+            - name: "LDAP_DOMAIN"
+              value: "example.com"
+            - name: "LDAP_ADMIN_PASSWORD"
+              value: "sercret"
+            - name: "LDAP_TLS"
+              value: "false"
+          volumeMounts:
+          - mountPath: /container/service/slapd/assets/config/bootstrap/ldif/custom
+            name: ldap-init
+          - mountPath: /var/lib/ldap
+            name: mp-demo-ldap-store
+          imagePullPolicy: IfNotPresent
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 10
+  serviceName: mp-demo-ldap
+  volumeClaimTemplates:
+    - kind: PersistentVolumeClaim
+      apiVersion: v1
+      metadata:
+        name: mp-demo-ldap-store
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 64Mi
+        storageClassName: csi-rbd-hdd
+        volumeMode: Filesystem

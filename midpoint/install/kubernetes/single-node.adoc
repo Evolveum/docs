@@ -20,7 +20,8 @@ Since Midpoint 4.4 there are two definition for the repository (where the data f
 ====
 To make the objects logically grouped we are using Namespace mp-demo.
 
-.example of the *mp-demo* namespace definition
+[#_namespace]
+.example of the *mp-demo* namespace definition | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/base-environment/namespace-mp-demo.yaml[github]
 [source,kubernetes]
 apiVersion: v1
 kind: Namespace
@@ -45,7 +46,8 @@ This option is mentioned here to have complete information at one place, but we 
 This example will start midPoint with default environment variables.
 This is "kubernetes alternative" to run docker image directly with xref:/midpoint/install/docker/[docker].
 
-.Example to "just run" with defaults
+[#_pod]
+.Example to "just run" with defaults | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/base-environment/pod-h2.yaml[github]
 [source,kubernetes]
 apiVersion: v1
 kind: Pod
@@ -57,7 +59,7 @@ metadata:
 spec:
   containers:
     - name: mp-h2-demo
-      image: 'evolveum/midpoint:4.4-alpine'
+      image: 'evolveum/midpoint:4.4.1-alpine'
       ports:
         - name: gui
           containerPort: 8080
@@ -73,7 +75,7 @@ From Midpoint point of view I would label this option as "hello world" - it is j
 
 Before we will add next "layer" to the configuration I would re-declare it as statefulset (object which "control" pods).
 
-.StatefulSet form  for "just run" with defaults
+.StatefulSet form  for "just run" with defaults | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/base-environment/statefulset-h2.yaml[github]
 [source,kubernetes]
 apiVersion: apps/v1
 kind: StatefulSet
@@ -92,7 +94,7 @@ spec:
     spec:
       containers:
         - name: mp-h2-demo
-          image: 'evolveum/midpoint:4.4-alpine'
+          image: 'evolveum/midpoint:4.4.1-alpine'
           ports:
             - name: gui
               containerPort: 8080
@@ -131,7 +133,7 @@ To be able to predict interconnection we will define service for the database.
 The connection will be realized via FQDN for the service.
 The proper "linking" will be handled by the *selector* pointing to the proper label.
 
-.PostreSQL DB definition
+.PostreSQL DB definition | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/base-environment/statefulset-db-w_o-init.yaml[github]
 [source,kubernetes]
 apiVersion: apps/v1
 kind: StatefulSet
@@ -174,7 +176,7 @@ You can see necessary init value for the authentication: +
 Feel free to change it but keep it consistent with following midpoint definition.
 Otherwise, the connection will not be established.
 
-.service definition for the DB ("meeting point" for the communication between midpoint and db)
+.service definition for the DB ("meeting point" for the communication between midpoint and db) | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/base-environment/service-db.yaml[github]
 [source,kubernetes]
 apiVersion: v1
 kind: Service
@@ -196,7 +198,7 @@ The name is important for the FQDN construction.
 In this documentation we will use default kubernetes domain - FQDN will be *<service_name>.<namespace>.svc.cluster.local*.
 This domain may differ based on the environment setting.
 
-.midPoint with repository located in the PostgreSQL
+.midPoint with repository located in the PostgreSQL | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/base-environment/statefulset-pg-generic.yaml[github]
 [source,kubernetes]
 apiVersion: apps/v1
 kind: StatefulSet
@@ -215,7 +217,7 @@ spec:
     spec:
       containers:
         - name: mp-pg-demo
-          image: 'evolveum/midpoint:4.4-alpine'
+          image: 'evolveum/midpoint:4.4.1-alpine'
           ports:
             - name: gui
               containerPort: 8080
@@ -263,6 +265,7 @@ It can be persistent volume but for now we will use emptyDir volume.
 For serious deployment (even for the test) the persistent volume is good idea.
 We will use midpoint image as init container and postgres image for "regular" container.
 
+.native repository located in the PostgreSQL | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/base-environment/statefulset-db-pg-native.yaml[github]
 [source,kubernetes]
 apiVersion: apps/v1
 kind: StatefulSet
@@ -280,11 +283,11 @@ spec:
         app: mp-demo-db
     spec:
       volumes:
-	- name: init-db
-	  emptyDir: {}
+        - name: init-db
+          emptyDir: {}
       initContainers:
         - name: mp-db-init
-          image: 'evolveum/midpoint:4.4-alpine'
+          image: 'evolveum/midpoint:4.4.1-alpine'
           command: ["/bin/bash","/opt/midpoint/bin/midpoint.sh","init-native"]
           env:
             - name: MP_INIT_DB_CONCAT
@@ -360,7 +363,7 @@ with the following definition:
 This example expect to have the secret object with the name *mp-demo* in the same namespace as object where it is used (*mp-demo*).
 The value which will be used is content of the key *password* located in the secret object.
 
-.Example of the secret object containing the passwords
+.Example of the secret object containing the passwords | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/base-environment/secret-pw.yaml[github]
 [source,kubernetes]
 apiVersion: v1
 kind: Secret
@@ -380,13 +383,12 @@ SuperSecretPassword007 => U3VwZXJTZWNyZXRQYXNzd29yZDAwNw==
 [source,bash]
 kubectl create secret generic -n mp-demo mp-demo --from-literal=password=SuperSecretPassword007
 
-
 ===== Persistent storage
 
 Once you want to use the environment over the restart / pods re-creation the persistent storage is needed.
 The easiest way how to handle it is using *volumeClaimTemplates* in the statefulset definition.
 
-.sample statefulset definition
+.sample statefulset definition - db with persistent volume | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/base-environment/statefulset-db-pg-native-pv.yaml[github]
 [source,kubernetes]
 apiVersion: apps/v1
 kind: StatefulSet
@@ -404,11 +406,11 @@ spec:
         app: mp-demo-db
     spec:
       volumes:
-	- name: init-db
-	  emptyDir: {}
+        - name: init-db
+          emptyDir: {}
       initContainers:
         - name: mp-db-init
-          image: 'evolveum/midpoint:4.4-alpine'
+          image: 'evolveum/midpoint:4.4.1-alpine'
           command: ["/bin/bash","/opt/midpoint/bin/midpoint.sh","init-native"]
           env:
             - name: MP_INIT_DB_CONCAT
@@ -438,6 +440,7 @@ spec:
               mountPath: /docker-entrypoint-initdb.d/
             - name: mp-demo-pg-storage
               mountPath: /var/lib/postgresql/data
+          imagePullPolicy: IfNotPresent
       restartPolicy: Always
       terminationGracePeriodSeconds: 10
   serviceName: mp-demo-db-service
@@ -479,7 +482,7 @@ Without the service we are not able to predict "meeting point" in case of IP.
 In some specific cases we can predict FQDN of the pod but using Service for this purpose is more than good idea.
 It is even recommended approach - search for kubernetes related resources for more information if needed.
 
-.Service definition for the db ("meeting point" for the communication between midpoint and db)
+.Service definition for the db ("meeting point" for the communication between midpoint and db) | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/base-environment/service-db.yaml[github]
 [source,kubernetes]
 apiVersion: v1
 kind: Service
@@ -507,10 +510,10 @@ We will use init container the similar way like in case of DB init.
 In this case both init container and container will use the same image.
 
 For this documentation purpose we will use the "emptyDir" definition for the volume.
-This volume will be used for /opt/midpoint/var folder.
+This volume will be used for /opt/midpoint/var directory.
 Based on your deployment specifics you may think about proper volume type.
 
-.midPoint with native repository located in the postgresql
+.midPoint with native repository located in the postgresql | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/base-environment/statefulset-pg-native.yaml[github]
 [source,kubernetes]
 apiVersion: apps/v1
 kind: StatefulSet
@@ -532,7 +535,7 @@ spec:
           emptyDir: {}
       initContainers:
         - name: mp-config-init
-          image: 'evolveum/midpoint:4.4-alpine'
+          image: 'evolveum/midpoint:4.4.1-alpine'
           command: ["/bin/bash","/opt/midpoint/bin/midpoint.sh","init-native"]
           env:
             - name: MP_INIT_CFG
@@ -543,7 +546,7 @@ spec:
           imagePullPolicy: IfNotPresent
       containers:
         - name: mp-pg-demo
-          image: 'evolveum/midpoint:4.4-alpine'
+          image: 'evolveum/midpoint:4.4.1-alpine'
           ports:
             - name: gui
               containerPort: 8080
@@ -577,7 +580,7 @@ For this purpose xref:/midpoint/install/midpoint-sh/[Start script] offer entry p
 To use it the parameter *MP_ENTRY_POINT* can be set.
 In the following example there are 2 XML files with user definition in mp-demo-poi configMap.
 
-.Example of the post-initial-objects - new users
+.Example of the post-initial-objects - new users| link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/base-environment/configmap-poi.yaml[github]
 [source,kubernetes]
 apiVersion: v1
 kind: ConfigMap
@@ -596,7 +599,7 @@ data:
       <name>test2</name>
     </user>
 
-.midPoint with DB auth password in the file
+.midPoint with DB auth password in the file | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/base-environment/statefulset-pg-native_cm-sec.yaml[github]
 [source,kubernetes]
 apiVersion: apps/v1
 kind: StatefulSet
@@ -626,7 +629,7 @@ spec:
             defaultMode: 420
       initContainers:
         - name: mp-config-init
-          image: 'evolveum/midpoint:4.4-alpine'
+          image: 'evolveum/midpoint:4.4.1-alpine'
           command: ["/bin/bash","/opt/midpoint/bin/midpoint.sh","init-native"]
           env:
             - name: MP_INIT_CFG
@@ -637,7 +640,7 @@ spec:
           imagePullPolicy: IfNotPresent
       containers:
         - name: mp-pg-demo
-          image: 'evolveum/midpoint:4.4-alpine'
+          image: 'evolveum/midpoint:4.4.1-alpine'
           ports:
             - name: gui
               containerPort: 8080
@@ -681,7 +684,7 @@ Other "lost" thing may be exports, logs and post-initial-objects (better say the
 
 To prevent this situation the midpoint home directory or its subtree can be located on persistent storage.
 
-.midPoint with persistent volume for post-initial-objets (subtree of home on PV)
+.midPoint with persistent volume for post-initial-objets (subtree of home on PV) | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/base-environment/statefulset-pg-native_cm-sec-pv.yaml[github]
 [source,kubernetes]
 apiVersion: apps/v1
 kind: StatefulSet
@@ -711,7 +714,7 @@ spec:
             defaultMode: 420
       initContainers:
         - name: mp-config-init
-          image: 'evolveum/midpoint:4.4-alpine'
+          image: 'evolveum/midpoint:4.4.1-alpine'
           command: ["/bin/bash","/opt/midpoint/bin/midpoint.sh","init-native"]
           env:
             - name: MP_INIT_CFG
@@ -722,7 +725,7 @@ spec:
           imagePullPolicy: IfNotPresent
       containers:
         - name: mp-pg-demo
-          image: 'evolveum/midpoint:4.4-alpine'
+          image: 'evolveum/midpoint:4.4.1-alpine'
           ports:
             - name: gui
               containerPort: 8080
@@ -768,8 +771,17 @@ spec:
         volumeMode: Filesystem
 
 [NOTE]
-----
+====
 There is optional storageClassName definition where the default storage class is used if the definition is missing.
 
 This way yeach replica will have own *persistentVolumeClaim* containing suffix like the pod (-0, -1, -2, etc.).
-----
+====
+
+[TIP]
+====
+To make the midpoint environment available we will need to utilize few more objects.
+
+* xref:xref:/midpoint/install/kubernetes/single-node.adoc#_service[service] for midpoint pods
+* xref:/midpoint/install/kubernetes/single-node.adoc#_cert[secret] with certificate
+* xref:xref:/midpoint/install/kubernetes/single-node.adoc#_ingress[ingress] definition ( reverse proxy - 80 / 443 )
+====
