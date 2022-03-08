@@ -1,0 +1,438 @@
+= Cluster deployment
+:page-nav-title: Midpoint cluster
+:toc:
+:toclevels: 4
+
+== What is it about
+
+This page will cover use cases when more midpoint nodes in the cluster configuration is use.
+This page is extending the information valid for xref:/midpoint/install/kubernetes/single-node.adoc[single node] deployment.
+
+In case you need working sample you can go directly to the part related to <<_nfs>>  (it is recommended deployment option to fulfill several requirements).
+
+[NOTE]
+The full configuration is available in link:https://github.com/Evolveum/midpoint-kubernetes/blob/main/advanced-examples/statefulset-pg-native_cm-sec-nfs.yaml[statefulset-pg-native_cm-sec-nfs.yaml] on github.
+
+== Cluster of midpoint nodes
+
+There are few things which has to be handled to be able to operate midpoint in cluster - more cooperating nodes.
+
+* taskManager
+* nodeID
+* keystore
+
+Once all the "cluster requirements" is met you can increase amount of replicas in statefulset definition for midpoint.
+
+[NOTE]
+In case of statefulset the suffix of the pod is increasing order.
+First created pod has suffix *-0*.
+In case you increase the amount of replicas the pod are added "to the end" of the list *-1*, *-2*, *-3*, etc.
+In case you are decreasing the amount of replicas the latest one is removed.
+It is not possible to remove the pod "in the middle" of the list.
+This may be important in case of utilizing persistent volumes for the pods.
+
+Midpoint pods can be operated even without persistent volumes as the important objects are stored in the repository and shared between the nodes.
+The areas which may need specific handling:
+
+* logs +
+to not lost the records after removing / re-creating the pod
+
+* connectors +
+It can be distributed using shared object (configMap, R/O shared volume between the pods, etc.)
+
+* exports / reports +
+In some situation the output can be stored in the filesystem.
+In that case we probably prefer to keep the files even after re-creating the pod.
+
+The list is an example and it does not have to be complete.
+The design of the deployment may contain other specific objects to handle.
+
+=== Task Manager
+
+Midpoint's task manager has to be run clustered.
+This setting has to be added to all nodes.
+
+[source,kubernetes]
+...
+          env:
+            - name: MP_SET_midpoint_taskManager_clustered
+              value: true
+...
+
+=== Node ID
+
+Node as cluster member has to have the unique ID.
+To be able to run the node there have to be set the way how to generate / set the ID.
+As the pods name are unique (generated) we can use hostname for this purpose.
+To do that we need to set one additional environment variable.
+
+[source,kubernetes]
+...
+          env:
+            - name: MP_SET_midpoint_nodeIdSource
+              value: hostname
+...
+
+=== Keystore
+
+Keystore is generated with the start in case it is not available.
+The result is that each node would generate "own" key in the keystore and the object will be readable only by the node which has created it.
+To address this "issue" we have to prepare the keystore to be available to each node once it is starting.
+
+* Share the file
+
+** Network Share +
+Kubernetes natively offer mount NFS store as volume to pod.
+We can share the space and first node will generate it.
+All other node or even this node after restart / recreate will use the file so the key for description will be available.
+Using persistent volume for NFS server is good idea.
++
+The issue may happen once two pods would start in parallel and both would want to generate it.
+
+** Volume Share +
+Not all the drivers offer concurrent write access to the volume.
+This option not necessary have to be available in general.
+
+* Pre-generate the file into secret object and share it with all the pods as mounted volume +
+For the testing purpose this approach offer sharing the keystore even between the whole env deployment.
+
+==== NFS Mount
+
+<<NFS>> has dedicated part of this document.
+
+To mount volume you can use syntax like this example:
+
+.Example for NFS volume
+[source]
+...
+    spec:
+      volumes:
+        - name: nfs-poi
+          nfs:
+            server: mp-demo-nfs.mp-demo.svc.cluster.local
+            path: /exports/poi
+...
+
+Once the shared NFS volume is utilized we don't need to handle manual generating of the keystore as the first starting midpoint node will generate it.
+All other midpoint nodes will just use it as far they will see the file in the location.
+
+[NOTE]
+====
+You can generate the keystore even with NFS utilizing in case you prefer e.g. other than default key size.
+====
+
+==== Secret object with keystore object
+
+To create the secret object we will need to create the keystore on the filesystem.
+
+.Generate the keystore
+[source,bash]
+keytool -genseckey -alias default -keystore keystore.jceks -storetype jceks -keyalg AES -keysize 128 -storepass changeit -keypass midpoint
+
+Once the file exists we can use it to create the secret object in the kubernetes environment.
+
+.Create the secret object from the file
+[source,bash]
+kubectl create secret generic -n mp-demo mp-demo-keystore --from-file=keystore.jceks --from-literal=keystore=changeit
+
+Once the secret is created it cannot be changed.
+In case we will need to update it the command to delete the object may be useful.
+
+.Delete the secret object
+[source,bash]
+kubectl delete secret -n mp-demo mp-demo-keystore
+
+Once the secret is created we have to modify the stateful set for the midpoint.
+
+.Environment variable to check for presence
+[source,kubernetes]
+...
+      volumes:
+        - name: keystore
+          secret:
+            secretName: mp-demo-keystore
+            defaultMode: 420
+...
+          env:
+            - name: MP_SET_midpoint_keystore_keyStorePath
+              value: /opt/midpoint/mount-keystore/keystore.jceks
+            - name: MP_SET_midpoint_keystore_keyStorePassword_FILE
+              value: /opt/midpoint/mount-keystore/keystore
+...
+          volumeMounts:
+            - name: keystore
+              mountPath: /opt/midpoint/mount-keystore
+...
+
+[#_nfs]
+== NFS
+
+NFS volume is natively supported with the kubernetes (it is described e.g. in Kubernetes documentation related to the link:https://kubernetes.io/docs/concepts/storage/volumes/#nfs[Volumes]).
+
+To have it working there are few thing which should be checked on kubernetes node:
+
+* *NFS tools* available on the operating system +
+Kubernetes call system tool to mount the NFS volume.
+The required package name may differ based on the used distribution - on the debian based distribution (including ubuntu) the name of the package is *nfs-common*.
+
+* DNS resolving +
+In case we want to use "internal" cluster FQDN it has to be resolvable for the kubernetes' node OS.
+by default the names are resolvable in the cluster but node's resolver may use "external" DNS server where the cluster FQDNs are not known.
+The solution is point OS's resolver to the cluster "internal" IP as the node can communicate with any cluster "internal" IPs.
+
+.Example of the change on debian based distribution (e.g. IP of DNS is 10.96.0.10)
+[source,bash]
+cat << EOF >>/etc/systemd/resolved.conf
+#[Resolve]
+DNS=10.96.0.10
+Domains=~cluster.local
+EOF
+systemctl restart systemd-resolved
+
+=== Server
+
+.Statefulset definition for server | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/advanced-examples/statefulset-nfs.yaml[Github]
+[source,kubernetes]
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mp-demo-nfs
+  namespace: mp-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mp-demo-nfs
+  template:
+    metadata:
+      labels:
+        app: mp-demo-nfs
+    spec:
+      initContainers:
+        - name: init-structure
+          image: 'k8s.gcr.io/volume-nfs'
+          command: ["/bin/bash","-c"]
+          args:
+            - mkdir -p /exports/poi ;
+              echo "post-initial-objects directory has been created..."
+          volumeMounts:
+          - mountPath: /exports
+            name: mp-demo-nfs-store
+          imagePullPolicy: IfNotPresent
+      containers:
+        - name: mp-demo-nfs
+          image: 'k8s.gcr.io/volume-nfs'
+          command: ["/bin/bash", "/usr/local/bin/run_nfs.sh", "/exports"]
+          ports:
+            - name: nfs
+              containerPort: 2048
+              protocol: TCP
+            - name: mountd
+              containerPort: 20048
+              protocol: TCP
+            - name: rpvbind
+              containerPort: 111
+              protocol: TCP
+          securityContext:
+            privileged: true
+          volumeMounts:
+          - mountPath: /exports
+            name: mp-demo-nfs-store
+          imagePullPolicy: IfNotPresent
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 10
+  serviceName: mp-demo-nfs
+  volumeClaimTemplates:
+    - kind: PersistentVolumeClaim
+      apiVersion: v1
+      metadata:
+        name: mp-demo-nfs-store
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 256Mi
+        storageClassName: csi-rbd-hdd
+        volumeMode: Filesystem
+
+[WARNING]
+The size 256 MB is used in the example.
+This size have to be set based on the usage of the NFS share.
+In case you will be using shared storage also for xref:/midpoint/install/kubernetes/advanced-examples.adoc#_export[Export directory] the requirements for the space may be higher.
+
+[NOTE]
+====
+There has been used the same image as in kubernetes documentation.
+Feel free to use any other image containing nfs server tool you are familiar with.
+
+There is used initContainer to create subdirectory for poi (Post-Initial-Objects) for the next example with mounting just POI to midPoint home.
+The mount would fail in case the directory is not available.
+In case you prefer to have all midPoint home directory on NFS the initContainer is not needed.
+====
+
+.Service definition for the server | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/advanced-examples/service-nfs.yaml[Github]
+[source,kubernetes]
+apiVersion: v1
+kind: Service
+metadata:
+  name: mp-demo-nfs
+  namespace: mp-demo
+spec:
+  ports:
+    - name: nfs
+      port: 2049
+    - name: mountd
+      port: 20048
+    - name: rpcbind
+      port: 111
+  selector:
+    app: mp-demo-nfs
+
+=== midPoint with NFS volume
+
+.Statefulset definition | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/advanced-examples/statefulset-pg-native_cm-sec-nfs.yaml[Github]
+[source,kubernetes]
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mp-pg-demo
+  namespace: mp-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mp-pg-demo
+  template:
+    metadata:
+      labels:
+        app: mp-pg-demo
+    spec:
+      volumes:
+        - name: mp-home
+          emptyDir: {}
+        - name: db-pass
+          secret:
+            secretName: mp-demo
+            defaultMode: 420
+        - name: mp-poi
+          configMap:
+            name: mp-demo-poi
+            defaultMode: 420
+        - name: nfs-poi
+          nfs:
+            server: mp-demo-nfs.mp-demo.svc.cluster.local
+            path: /exports/poi
+      initContainers:
+        - name: mp-config-init
+          image: 'evolveum/midpoint:4.4-alpine'
+          command: ["/bin/bash","/opt/midpoint/bin/midpoint.sh","init-native"]
+          env:
+            - name: MP_INIT_CFG
+              value: /opt/mp-home
+          volumeMounts:
+            - name: mp-home
+              mountPath: /opt/mp-home
+          imagePullPolicy: IfNotPresent
+      containers:
+        - name: mp-pg-demo
+          image: 'evolveum/midpoint:4.4-alpine'
+          ports:
+            - name: gui
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: MP_ENTRY_POINT
+              value: /opt/midpoint-dirs-docker-entrypoint
+            - name: MP_SET_midpoint_repository_database
+              value: postgresql
+            - name: MP_SET_midpoint_repository_jdbcUsername
+              value: midpoint
+            - name: MP_SET_midpoint_repository_jdbcPassword_FILE
+              value: /opt/midpoint/config-secrets/password
+            - name: MP_SET_midpoint_repository_jdbcUrl
+              value: jdbc:postgresql://mp-demo-db.mp-demo.svc.cluster.local:5432/midpoint
+            - name: MP_UNSET_midpoint_repository_hibernateHbm2ddl
+              value: "1"
+            - name: MP_NO_ENV_COMPAT
+              value: "1"
+          volumeMounts:
+            - name: mp-home
+              mountPath: /opt/midpoint/var
+            - name: db-pass
+              mountPath: /opt/midpoint/config-secrets
+            - name: mp-poi
+              mountPath: /opt/midpoint-dirs-docker-entrypoint/post-initial-objects
+            - name: nfs-poi
+              mountPath: /opt/midpoint/var/post-initial-objects
+          imagePullPolicy: IfNotPresent
+  serviceName: mp-pg-demo
+
+[WARNING]
+The pod will not start (it will wait in state *PodInitializing*) until the NFS will be available. It can be unavailable as NFS server is not up yet or the FQDN can't be resolved. The reason can be find out in the pod's information.
+
+== Scaling
+
+Once everything is ready we can scale up ( even starting is scaling : 0 => 1 ) the number of replicas.
+
+.To run 2 nodes midpoint cluster
+[source,bash]
+kubectl scale -n mp-demo --replicas=2 statefulset/mp-pg-demo
+
+.To reduce to just 1 node in midpoint cluster
+[source,bash]
+kubectl scale -n mp-demo --replicas=1 statefulset/mp-pg-demo
+
+New pods are added with increasing suffix ( -0, -1, -2, etc.).
+With scale down the pods are removed in reverse order - the first is terminated the highest suffix.
+You cannot terminate pod with the suffix "in the middle of the list".
+In that case it is identified as failed pod, it is re-created by the statefulset definition.
+
+In case you don't use persistent volume all the data related to the jus terminated pods are lost.
+If you use persistent volumes the data is kept.
+With scale up the persistent volume will be attached if it exists (previously it has been created) otherwise it will be newly created.
+
+[WARNING]
+There are some data which may be important like logs from the node, exported (generated) content (e.g. reports).
+If you don't need it is ok but if so, please, think about utilizing <<_nfs>> storage at least partially for the needed content if not for the whole midpoint home directory.
+
+=== Session affinity
+
+With the clustered instance of midpoint the session handling have to be covered.
+Even the midpoint nodes are operating in cluster the session is created against specific node.
+Kubernetes is using round-robin distribution by default.
+
+It means than you would create session against one node but next query will go (the most probably) to the different one.
+This node has no idea about session on the "other" node, so it would forward you to the login form.
+This is not definitely the behavior we would expect.
+
+With the following setting we are able to make sessions by the client IP.
+
+==== Service
+
+On the service object we can set directly the affinity:
+
+[source]
+...
+spec:
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800
+...
+
+
+==== Ingress
+
+Ingress object cooperate with the service but mainly for the list of backend(s).
+The session handling would be set also on this level.
+
+.Example relevant for nginx ingress
+[source]
+...
+metadata:
+  annotations:
+    nginx.ingress.kubernetes.io/session-cookie-expires: '172800'
+    nginx.ingress.kubernetes.io/session-cookie-max-age: '172800'
+    nginx.ingress.kubernetes.io/session-cookie-name: mp-demo
+...
+

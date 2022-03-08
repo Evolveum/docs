@@ -1,0 +1,810 @@
+= Advanced examples
+:page-nav-title: Advance examples
+:toc:
+:toclevels: 4
+
+== What is it about
+
+We will focus here on the post-initial-objects as a way to run environment with already pre-configured setting.
+The information here are extension to the "base" environment as is described on xref:/midpoint/install/kubernetes/index.adoc[Docs page].
+
+[NOTE]
+The yaml samples are available also on the link:https://github.com/Evolveum/midpoint-kubernetes/tree/master/advanced-examples[Github].
+There are available also commands how to use the files with *kubectl* in readme.adoc file.
+
+[WARNING]
+====
+We will handle advanced configuration of the environment.
+The goal is to show how it can be realized in the Kubernetes environments.
+The prerequisite for the scenario is only default objects imported during the first system start.
+The objects are stored in the repository after the changes are applied.
+Once the system is set up and running we should not re-apply the changes if we don't explicitly want to do that.
+In some situation adding another the same labeled block of the setting may lead to conflict with schema and failure of the system.
+
+The post-initial-objects are renamed with suffix *.done* once processed.
+As we are using configmaps this rename is done on local copy of the data.
+It allow us re-process the object with the new environment build based on the same configuration.
+On the other side it is bypassing native behavior to prevent unwanted re-processing on the existing environment.
+We have to handle this aspect manually.
+====
+
+=== Cheat sheet
+
+For the base operation the small "cheat sheet" may be useful.
+
+.Create / modify the object using the yaml file
+[source,bash]
+kubectl apply -f configmap-poi.yaml
+
+.Destroy the pods ("power off" midpoint environment)
+[source,bash]
+kubectl scale -n mp-demo --replicas=0 statefulset/mp-pg-demo statefulset/mp-demo-db
+
+.Get the list of pods and statefulsets in the mp-demo namespace
+[source,bash]
+kubectl get -n mp-demo pods
+kubectl get -n mp-demo statefulsets
+
+.Create the pods ("power on" midpoint environment)
+[source,bash]
+kubectl scale -n mp-demo --replicas=1 statefulset/mp-pg-demo statefulset/mp-demo-db
+
+.Show the log from midpoint container mp-pg-demo in the pod mp-pg-demo-0 ( "follow" the new records of the log)
+[source,bash]
+kubectl logs -n mp-demo -f mp-pg-demo-0 -c mp-pg-demo
+
+.Run shell in the midpoint container
+[source,bash]
+kubectl exec -ti -n mp-demo mp-pg-demo-0 -c mp-pg-demo -- /bin/bash
+
+.Create configMap from files in current working directory
+[source,bash]
+kubectl create configmap -n mp-demo mp-demo-poi --from-file=.
+
+.Create secret with file content and one entered key content
+[source,bash]
+kubectl create secret generic -n mp-demo mp-demo-secret --from-literal=user=midpoint --from-file=secret.pw --from-file=ssh-public=~/.ssh/id_rsa.pub
+
+[NOTE]
+====
+This will create secret with 3 keys.
+
+* *user* with value *midpoint*.
+* *secret.pw* with the base64 encoded file content.
+* *ssh-public* with the base64 encoded content of the file *~/.ssh/id_rsa.pub*.
+====
+
+== Customization
+
+Customization can be done on midPoint objects located in the repository or object located outside the midPoint on filesystem.
+
+Once we think about objects located in the filesystem it may be config.xml or connectors.
+Once the connectors can be loaded without restart of the midPoint the config.xml have to be changed before the midPoint is started.
+
+For the midpoint objects located in the repository there are default objects available in initial objects with the archive with midPoint distribution.
+These objects are automatically imported in case of empty repository.
+Next to these objects there exists default values / behaviour which is used in case it is not overwritten by the configuration.
+In other words some changes are done by editing existing objects / blocks of configuration and other are set up by creating new objects or whole blocks in the existing one.
+
+=== config.xml
+
+As has been already mentioned any changes in this file have to be done before the midpoint is started.
+The most of the changes can be done using environment variables *MP_SET_** (it is transformed to -D JVM properties - for more information see xref:/midpoint/install/midpoint-sh.adoc[Start script] docs page).
+If there exists any changes you need to do directly in config.xml file it has to be done in initContainer like in case of "default" config.xml file for the native repository.
+
+=== Repository object - System configuration
+
+System configuration is one of the objects available with the initial import.
+The exact structure may differ between the version.
+With the maintenance xref:/midpoint/release/[release] ( e.g. 4.4 => 4.4.1 ) it should not happen that some configuration would not work.
+
+Once you want to do the changes you have three options in general:
+
+* *manual update* (e.g. in GUI) +
+This is not so interesting in the context of this documentation but for sure it is valid option.
+
+* *whole object update* +
+The object can be stored out of the running system (e.g. in the git).
+It can be directly uploaded.
+The Post-initial-objects concept can be used +
+
+[NOTE]
+With new version it is necessary to test the configuration and update if needed.
+Anyway in case of changes there is the higher probability of changes in case of whole object than in some specific block.
+
+* *Partial update of the object* +
+With this approach we can target just some part of the configuration.
+The benefit may be that in case of more independent changes we can handle the changes separately even it target the same midpoint object.
+Also with changes between the version we are starting with current default and there is the chance that the configuration / syntax changes doesn't affect the part we are changing - the rest is kept from the default.
+
+In case of whole object we can even export the object (using GUI or REST API) and afterwards upload whole object as needed.
+We can think about removing operational information which may not be important in case of archiving of the configuration.
+In this context the xref:/midpoint/tools/studio/[Midpoint studio] may be very useful tool.
+
+From point of view of advanced examples in kubernetes the option of the partial update is the most interesting option.
+Let check this option in subchapter.
+
+==== Deployment information (partial update)
+
+To show this approach we can choose *deployment information* as target of the changes.
+This setting is part of the *system configuration* object.
+
+In the GUI (up to midpoint 4.4) it can be set in *System > Deployment Information* menu.
+
+For this example we can focus on the fields *Name*, *Header color*, *System name* in the *Deployment information* panel.
+The result is stored in the repository in the *System Configuration* object.
+
+.System configuration's related content
+[source]
+<systemConfiguration
+  xmlns="http://midpoint.evolveum.com/xml/ns/public/common/common-3"
+  xmlns:c="http://midpoint.evolveum.com/xml/ns/public/common/common-3"
+  xmlns:icfs="http://midpoint.evolveum.com/xml/ns/public/connector/icf-1/resource-schema-3"
+  xmlns:org="http://midpoint.evolveum.com/xml/ns/public/common/org-3"
+  xmlns:q="http://prism.evolveum.com/xml/ns/public/query-3"
+  xmlns:ri="http://midpoint.evolveum.com/xml/ns/public/resource/instance-3"
+  xmlns:t="http://prism.evolveum.com/xml/ns/public/types-3"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  oid="00000000-0000-0000-0000-000000000001">
+    <name>SystemConfiguration</name>
+...
+    <deploymentInformation>
+        <name>K8s demo </name>
+        <headerColor>green</headerColor>
+        <systemName>K8s</systemName>
+    </deploymentInformation>
+</systemConfiguration>
+
+We can logically atomize the configuration to the blocks.
+All the blocks can be handled by the deltas - description of the changes.
+The benefit of this approach is that we can describe only necessary changes in the configuration and all the rest we can keep without touch - the default.
+Independent blocks can be handled by the more than one file.
+
+We will process this changes with focus on post-initial-objects.
+It mean we are configuring fresh system which has been initialized by the default init objects.
+
+We need to find the object we would like to change - *SystemConfiguration*.
+As there is only one SystemConfiguration object as default we can search for "any" object of the *SystemConfigurationType* type.
+In the next step we will have to address the "block" we would like to modify - the path to apply the delta on ( *deploymentInformation* ).
+Then we will provide the values to add.
+
+.Post-initial-object to add the deployment information to System configuration | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/advanced-examples/deployment.xml[Github]
+[source]
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ~ Copyright (c) 2022 Evolveum
+  ~
+  ~ Licensed under the Apache License, Version 2.0 (the "License");
+  ~ you may not use this file except in compliance with the License.
+  ~ You may obtain a copy of the License at
+  ~
+  ~     http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS,
+  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~ See the License for the specific language governing permissions and
+  ~ limitations under the License.
+  -->
+<s:search xmlns:s="http://midpoint.evolveum.com/xml/ns/public/model/scripting-3"
+          xmlns:c="http://midpoint.evolveum.com/xml/ns/public/common/common-3"
+          xmlns:org="http://midpoint.evolveum.com/xml/ns/public/common/org-3"
+          xmlns:t="http://prism.evolveum.com/xml/ns/public/types-3">
+    <s:options>
+        <option>
+            <options>
+                <raw>true</raw>
+            </options>
+        </option>
+    </s:options>
+    <s:type>c:SystemConfigurationType</s:type>
+    <s:action>
+        <s:type>modify</s:type>
+        <s:parameter>
+            <s:name>delta</s:name>
+            <c:value>
+                <s:itemDelta>
+                    <t:modificationType>add</t:modificationType>
+                    <t:path>deploymentInformation</t:path>
+                    <t:value>
+                        <name>K8s demo </name>
+                        <headerColor>green</headerColor>
+                        <systemName>K8s</systemName>
+                    </t:value>
+                </s:itemDelta>
+            </c:value>
+        </s:parameter>
+    </s:action>
+</s:search>
+
+[NOTE]
+The file is available as one key of the configmap - link:https://github.com/Evolveum/midpoint-kubernetes/blob/main/advanced-examples/configmap-poi.yaml#L8-L54[111-sysconf-deployment.xml @ configmap-poi.yaml] on github.
+
+We can save the content to the file with any name but with .xml extension.
+The file names set the order of the files to process.
+In general there may be dependency on other files so the order may be important.
+To be able to control the order the names should be named with the prefix - 3 digit prefix is used for initial objects.
+In this example we can see the name *111-sysconf-deployment.xml*.
+
+.Log record after processing the post-initial-object with System Configuration delta definition
+[source]
+[] [main] INFO (com.evolveum.midpoint.init.PostInitialDataImport): Executed a script in 111-sysconf-deployment.xml as part of post-initial import. Output is:
+Modified systemConfiguration:00000000-0000-0000-0000-000000000001(SystemConfiguration)
+
+Natively once the midpoint process the file it appends suffix *.done* to the file.
+In this documentation we are demonstrating configMaps to handle post-initial-objects.
+Without any persistent storage with the newly created pod it looks like it is not processed.
+
+In the single node deployment it can be handled simply with Persistent volume mounted to the location of midpoint home ( /opt/midpoint/var ) or at least directory for post-initial-objects ( /opt/midpoint/var/post-initial-objects ).
+In the cluster deployment the best option how to address this is use xref:/midpoint/install/kubernetes/cluster.adoc#_nfs[NFS] for the just mentioned locations.
+With any of these approach the information about processing (*.done*) will be kept over the restart / new pod creation.
+
+=== Flexible authentication @ Security policy
+
+Default security policy contain only information about the credentials.
+What may be interesting with the deployment is xref:/midpoint/reference/security/authentication/flexible-authentication/configuration.adoc[Flexible authentication].
+
+.configmap with flexible authentication | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/advanced-examples/configmap-poi-120.yaml[Github]
+[source]
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mp-demo-poi
+  namespace: mp-demo
+data:
+  120-flexible-auth.xml: |-
+    <s:search xmlns="http://midpoint.evolveum.com/xml/ns/public/common/common-3"
+              xmlns:icfs="http://midpoint.evolveum.com/xml/ns/public/connector/icf-1/resource-schema-3"
+              xmlns:q="http://prism.evolveum.com/xml/ns/public/query-3"
+              xmlns:ri="http://midpoint.evolveum.com/xml/ns/public/resource/instance-3"
+              xmlns:s="http://midpoint.evolveum.com/xml/ns/public/model/scripting-3"
+              xmlns:c="http://midpoint.evolveum.com/xml/ns/public/common/common-3"
+              xmlns:org="http://midpoint.evolveum.com/xml/ns/public/common/org-3"
+              xmlns:t="http://prism.evolveum.com/xml/ns/public/types-3">
+        <s:options>
+            <option>
+                <options>
+                    <raw>true</raw>
+                </options>
+            </option>
+        </s:options>
+        <s:type>c:SecurityPolicyType</s:type>
+        <s:action>
+            <s:type>modify</s:type>
+            <s:parameter>
+                <s:name>delta</s:name>
+                <c:value>
+                    <s:itemDelta>
+                        <t:modificationType>add</t:modificationType>
+                        <t:path>authentication</t:path>
+                        <t:value>
+                            <modules>
+                                <loginForm>
+                                    <name>internalLoginForm</name>
+                                    <description>Internal username/password authentication, default user password, login form</description>
+                                </loginForm>
+                                <httpBasic>
+                                    <name>internalBasic</name>
+                                    <description>Internal username/password authentication, using HTTP basic auth</description>
+                                </httpBasic>
+                            </modules>
+                            <sequence>
+                                <name>admin-gui-emergency</name>
+                                <description>Special GUI authentication sequence that is using just the internal user password.</description>
+                                <channel>
+                                    <channelId>http://midpoint.evolveum.com/xml/ns/public/common/channels-3#user</channelId>
+                                    <default>false</default>
+                                    <urlSuffix>emergency</urlSuffix>
+                                </channel>
+                                <requireAssignmentTarget oid="00000000-0000-0000-0000-000000000004" relation="org:default" type="c:RoleType">
+                                </requireAssignmentTarget>
+                                <module>
+                                    <name>internalLoginForm</name>
+                                    <order>30</order>
+                                    <necessity>sufficient</necessity>
+                                </module>
+                            </sequence>
+                            <sequence>
+                                <name>admin-gui-default</name>
+                                <description>Default GUI authentication sequence</description>
+                                <channel>
+                                    <channelId>http://midpoint.evolveum.com/xml/ns/public/common/channels-3#user</channelId>
+                                    <default>true</default>
+                                    <urlSuffix>default</urlSuffix>
+                                </channel>
+                                <module>
+                                    <name>internalLoginForm</name>
+                                    <order>30</order>
+                                    <necessity>sufficient</necessity>
+                                </module>
+                            </sequence>
+                            <sequence>
+                                <name>rest</name>
+                                <description>Authentication sequence for REST service.</description>
+                                <channel>
+                                    <channelId>http://midpoint.evolveum.com/xml/ns/public/common/channels-3#rest</channelId>
+                                    <default>true</default>
+                                    <urlSuffix>rest-default</urlSuffix>
+                                </channel>
+                                <module>
+                                    <name>internalBasic</name>
+                                    <order>10</order>
+                                    <necessity>sufficient</necessity>
+                                </module>
+                            </sequence>
+                            <sequence>
+                                <name>actuator</name>
+                                <description>Authentication sequence for actuator.</description>
+                                <channel>
+                                    <channelId>http://midpoint.evolveum.com/xml/ns/public/common/channels-3#actuator</channelId>
+                                    <default>true</default>
+                                    <urlSuffix>actuator-default</urlSuffix>
+                                </channel>
+                                <module>
+                                    <name>internalBasic</name>
+                                    <order>10</order>
+                                    <necessity>sufficient</necessity>
+                                </module>
+                            </sequence>
+                            <ignoredLocalPath>/actuator</ignoredLocalPath>
+                            <ignoredLocalPath>/actuator/health</ignoredLocalPath>
+                        </t:value>
+                    </s:itemDelta>
+                </c:value>
+            </s:parameter>
+        </s:action>
+    </s:search>
+
+=== Custom path in URL - application.yaml
+
+With the embedded tomcat there are several options what can be changes or set.
+The information related to the xref:/midpoint/devel/guides/environment/embedded-tomcat.adoc[midPoint with embedded Tomcat] can be found in separate docs page.
+
+For sample change of the configuration we can try to change the context - last part of the "path" in URL.
+It is possible to change the path using *application.yaml* file in midpoint.home location.
+Default path in URL is /midpoint.
+
+.${midpoint.home}/application.yaml | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/advanced-examples/application.yaml[Github]
+[source,yaml]
+server:
+  servlet:
+    context-path: /xyz
+
+This will change the URL to /xyz instead of /midpoint.
+
+To set it up we can use init container which is already used in case od native repository.
+We can utilize midPoint image which containing /bin/bash and have to be available anyway on the system.
+Instead of directly run the *midpoint.sh* file we can run "script" containing set ip the necessary value next to midpoint.sh execution.
+
+.Original code for init container for midpoint pod
+[source,kubernetes]
+...
+          image: 'evolveum/midpoint:4.4-alpine'
+          command: ["/bin/bash","/opt/midpoint/bin/midpoint.sh","init-native"]
+          env:
+...
+
+.Customized code covering also change of the path in URL
+[source,kubernetes]
+...
+          image: 'evolveum/midpoint:4.4-alpine'
+          command: ["/bin/bash","-c"]
+          args: ["/opt/midpoint/bin/midpoint.sh init-native; echo -e 'server:\n  servlet:\n    context-path: /xyz' >/opt/mp-home/application.yaml"]
+          env:
+...
+
+=== Create midPoint objects
+
+To create midpoint objects we need to define it in the files which will be uploaded.
+One of the option is to upload it as post-initial-objects.
+The information is mentioned on the xref:/midpoint/install/kubernetes/single-node.adoc#_poi[Single node instance] docs page.
+Now we will make focus for few examples for post-initial-object definition.
+
+* 201-test-role.xml +
+Test role containing only "known" oid and the name.
+No special functionality is set on the role - it is just for assignment example.
+
+* 301-test-org-root.xml +
+Root Org containing only "known" oid and the name.
+It is designed to show org structure (root & member).
+
+* 302-test-org-member.xml +
+Org containing only "known" oid and the name.
+There is also assigned Root Org object - the member relation.
+
+* 401-test-user.xml +
+Test user without known oid.
+There are assigned role and member Org.
+
+* 501-test-task-recompute-org-members.xml +
+Task definition to recompute all directly assigned members to the Org with any relation - member, manager, approver, owner.
+This example task utilizing xref:/midpoint/reference/tasks/activities/index.adoc[Activities].
+
+.Example of the post-initial-objects | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/advanced-examples/configmap-poi-role_user_org_task.yaml[Github]
+[source,kubernetes]
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mp-demo-poi
+  namespace: mp-demo
+data:
+  201-test-role.xml: |-
+    <?xml version="1.0" encoding="UTF-8"?>
+    <role xmlns="http://midpoint.evolveum.com/xml/ns/public/common/common-3" oid="00000000-cafe-0001-0000-000000000001">
+      <name>test Role</name>
+    </role>
+  301-test-org-root.xml: |-
+    <?xml version="1.0" encoding="UTF-8"?>
+    <org xmlns="http://midpoint.evolveum.com/xml/ns/public/common/common-3" oid="00000000-cafe-0002-0000-000000000001">
+      <name>test Root Org</name>
+    </org>
+  302-test-org-member.xml: |-
+    <?xml version="1.0" encoding="UTF-8"?>
+    <org xmlns="http://midpoint.evolveum.com/xml/ns/public/common/common-3" xmlns:org="http://midpoint.evolveum.com/xml/ns/public/common/org-3" oid="00000000-cafe-0002-0000-000000000002">
+      <name>test member Org</name>
+      <assignment id="1">
+        <targetRef oid="00000000-cafe-0002-0000-000000000001" relation="org:default" type="OrgType" />
+      </assignment>
+    </org>
+  401-test-user.xml: |-
+    <?xml version="1.0" encoding="UTF-8"?>
+    <user xmlns="http://midpoint.evolveum.com/xml/ns/public/common/common-3" xmlns:org="http://midpoint.evolveum.com/xml/ns/public/common/org-3">
+      <name>test user</name>
+      <assignment>
+        <targetRef oid="00000000-cafe-0001-0000-000000000001" relation="org:default" type="RoleType" />
+      </assignment>
+      <assignment>
+        <targetRef oid="00000000-cafe-0002-0000-000000000002" relation="org:default" type="OrgType" />
+      </assignment>
+    </user>
+  501-test-recompute-members.xml: |-
+    <task xmlns="http://midpoint.evolveum.com/xml/ns/public/common/common-3" xmlns:c="http://midpoint.evolveum.com/xml/ns/public/common/common-3" xmlns:org="http://midpoint.evolveum.com/xml/ns/public/common/org-3" xmlns:q="http://prism.evolveum.com/xml/ns/public/query-3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" oid="00000000-cafe-0003-0000-000000000001">
+        <name>Recompute all direct members of Organization test member Org</name>
+        <assignment>
+            <targetRef oid="00000000-0000-0000-0000-000000000502" relation="org:default" type="c:ArchetypeType" />
+        </assignment>
+        <taskIdentifier>1646357194695-0-1</taskIdentifier>
+        <ownerRef oid="00000000-0000-0000-0000-000000000002" relation="org:default" type="c:UserType" />
+        <channel>http://midpoint.evolveum.com/xml/ns/public/common/channels-3#user</channel>
+        <executionState>runnable</executionState>
+        <binding>loose</binding>
+        <schedule>
+            <misfireAction>executeImmediately</misfireAction>
+        </schedule>
+        <threadStopAction>restart</threadStopAction>
+        <activity>
+            <work>
+                <recomputation>
+                    <objects>
+                        <type>c:AssignmentHolderType</type>
+                        <query>
+                            <q:filter>
+                                <q:type>
+                                    <q:type>c:UserType</q:type>
+                                    <q:filter>
+                                        <q:exists>
+                                            <q:path>c:assignment</q:path>
+                                            <q:filter>
+                                                <q:ref>
+                                                    <q:path>c:targetRef</q:path>
+                                                    <q:value oid="00000000-cafe-0002-0000-000000000002" relation="org:default" type="c:OrgType" xsi:type="c:ObjectReferenceType"/>
+                                                    <q:value oid="00000000-cafe-0002-0000-000000000002" relation="org:manager" type="c:OrgType" xsi:type="c:ObjectReferenceType"/>
+                                                    <q:value oid="00000000-cafe-0002-0000-000000000002" relation="org:approver" type="c:OrgType" xsi:type="c:ObjectReferenceType"/>
+                                                    <q:value oid="00000000-cafe-0002-0000-000000000002" relation="org:owner" type="c:OrgType" xsi:type="c:ObjectReferenceType"/>
+                                                </q:ref>
+                                            </q:filter>
+                                        </q:exists>
+                                    </q:filter>
+                                </q:type>
+                            </q:filter>
+                        </query>
+                    </objects>
+                </recomputation>
+            </work>
+        </activity>
+    </task>
+
+=== Connectors
+
+Connectors are located in the *icf-connectors* subdirectory of the midpoint.home (default is /opt/midpoint/var/icf-connectors).
+This directory may be empty as few basic connectors are directly bundled with the midpoint war file.
+Specific information related to the connectors can be found on the dedicated xref:/midpoint/reference/resources/connector-setup.adoc[Connector Setup] docs page.
+
+I would mention the most common options how to provide connectors to be available for the midpoint instance.
+The goal is simply provide the file inside the kubernetes pod.
+
+* ConfigMap +
+The configMap may contain *data* or *binaryData* structure.
+In case of the files the binaryData would be used.
+ConfigMap will be used as volume and mounted to the filesystem of the pod.
+
+* Persistent volume +
+There can be mounted persistent volume.
+Based on used storage driver (node of the kubernetes) there may be available only readonly shared volume between more pods. With normal operation it would not be an issue but the case of update it may cause extra steps.
+This approach doesn't really have some benefit as the object have to be "delivered" to the persistent storage.
+It can be realized by mounting persistent volume and utilizing entry point or the persistent volume may be prepared already with the content.
+The handling would be very similar to NFS share option - just volume definition will differ.
+
+* *NFS share* +
+In this case the manipulation with the files are simple as all the connected pods (midpoint nodes) have write permission.
+Once you have already utilized NFS volume for any other reason it is definitely preferred option.
+
+==== ConfigMap
+
+We have to create kubernetes object containing the connectors we would like to pass to the pod for the midpoint instance.
+The easies way is to create temporary directory where the connectors are copied.
+Inside this temporary directory the following command can be run.
+
+.Create configMap from all the files in the current working directory
+[source, bash]
+kubectl create configmap -n mp-demo mp-demo-connectors --from-file=.
+
+if no error appear we have available configMap object to mount.
+
+.statefulset definition related to the configmap mount
+[source]
+...
+      volumes:
+        - name: mp-connectors
+          configMap:
+            name: mp-demo-connectors
+            defaultMode: 420
+...
+          env:
+            - name: MP_ENTRY_POINT
+              value: /opt/midpoint-dirs-docker-entrypoint
+...
+          volumeMounts:
+            - name: mp-connectors
+              mountPath: /opt/midpoint-dirs-docker-entrypoint/icf-connectors
+
+Using *entrypoint* the connectors will be copied to midpoint structure so the file will be fully available to midpoint.
+In case of mapping directly to */opt/midpoint/var/ifc-connectors* the files are read only and also just link to subdirectory ( this is how kubernetes realize the mount).
+
+==== NFS share
+
+NFS server is described in xref:/midpoint/install/kubernetes/cluster.adoc#_nfs[Cluster deployment].
+Only differences would be preparing also directory for the connectors.
+
+.Make directory for the connectors on NFS server
+[source]
+...
+      initContainers:
+        - name: init-structure
+          image: 'k8s.gcr.io/volume-nfs'
+          command: ["/bin/bash","-c"]
+          args:
+            - mkdir -p /exports/poi ;
+              echo "post-initial-objects directory has been created..."
+            - mkdir -p /exports/icf-connectors ;
+              echo "connectors directory has been created..."
+...
+
+.midPoint statefulset definition related to the connectors' NFS storage
+[source]
+...
+      volumes:
+        - name: nfs-connectors
+          nfs:
+            server: mp-demo-nfs.mp-demo.svc.cluster.local
+            path: /exports/connectors
+...
+          volumeMounts:
+            - name: nfs-connectors
+              mountPath: /opt/midpoint/var/icf-connectors
+...
+
+The content has to be delivered to the NFS share.
+It can be done independently on midpoint or using configMap described in the previous section.
+Entrypoint checking existence of the files by the name so once the file exists in the destination the entrypoint file is skipped.
+
+[#_export]
+=== Export - directory in midpoint home
+
+[NOTE]
+NFS server is described in xref:/midpoint/install/kubernetes/cluster.adoc#_nfs[Cluster deployment].
+Only differences would be preparing also directory for the export.
+
+There is subdirectory export in midpoint home directory where the exported content are stored (e.g. reports).
+The system know which midpoint node created the content.
+In case other node needs / is requested for the content it firstly try if it is not locally available.
+If the content is not available there is communication with the "originating" node to get the content.
+Sharing the export directory between the nodes prevent loosing data in case it is only on one specific node - e.g. scaling or re-creating the pod.
+
+.Make directory for the export on NFS server
+[source]
+...
+      initContainers:
+        - name: init-structure
+          image: 'k8s.gcr.io/volume-nfs'
+          command: ["/bin/bash","-c"]
+          args:
+            - mkdir -p /exports/poi ;
+              echo "post-initial-objects directory has been created..."
+            - mkdir -p /exports/export ;
+              echo "export directory has been created..."
+...
+
+.midPoint statefulset definition related to the export's NFS storage
+[source]
+...
+      volumes:
+        - name: nfs-export
+          nfs:
+            server: mp-demo-nfs.mp-demo.svc.cluster.local
+            path: /exports/export
+...
+          volumeMounts:
+            - name: nfs-export
+              mountPath: /opt/midpoint/var/export
+...
+
+=== Sample resource
+
+There may be needed to use also resources as source and / or target.
+The example we can use LDAP resource as defined in the link:https://github.com/Evolveum/midpoint-samples/tree/master/samples/book/2[midpoint-samples] on github.
+
+.Basic structure for the LDAP expected by the midpoint in the example | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/advanced-examples/configmap-ldap-init.yaml[Github]
+[source,kubernetes]
+----
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mp-demo-ldap-init
+  namespace: mp-demo
+data:
+  acl.ldif: |
+    dn:  olcDatabase={1}{{ LDAP_BACKEND }},cn=config
+    changetype: modify
+    replace: olcAccess
+    olcAccess: {0}to dn="cn=admin,{{ LDAP_BASE_DN }}"
+      by anonymous auth
+      by self write
+      by * none
+    olcAccess: {1}to attrs=userPassword,shadowLastChange
+      by dn="cn=idm,ou=Administrators,{{ LDAP_BASE_DN }}" write
+      by dn="cn=admin,{{ LDAP_BASE_DN }}" write
+      by anonymous auth
+      by self write
+      by * none
+    olcAccess: {2}to dn.base=""
+      by * read
+    olcAccess: {3}to dn.subtree="ou=people,{{ LDAP_BASE_DN }}"
+      by dn="cn=idm,ou=Administrators,{{ LDAP_BASE_DN }}" write
+    olcAccess: {4}to dn.subtree="ou=groups,{{ LDAP_BASE_DN }}"
+      by dn="cn=idm,ou=Administrators,{{ LDAP_BASE_DN }}" write
+    olcAccess: {5}to *
+      by dn="cn=admin,{{ LDAP_BASE_DN }}" write
+      by dn="cn=idm,ou=Administrators,{{ LDAP_BASE_DN }}" read
+      by self read
+      by * none
+  baseEntry.ldif: |+
+    dn: ou=groups,{{ LDAP_BASE_DN }}
+    objectClass: top
+    objectClass: organizationalUnit
+    ou: groups
+
+    dn: ou=people,{{ LDAP_BASE_DN }}
+    objectClass: top
+    objectClass: organizationalUnit
+    ou: people
+
+    dn: ou=administrators,{{ LDAP_BASE_DN }}
+    objectClass: top
+    objectClass: organizationalUnit
+    ou: administrators
+
+    dn: cn=idm,ou=Administrators,dc=example,dc=com
+    objectclass: top
+    objectclass: person
+    cn: idm
+    sn: IDM Administrator
+    description: Special LDAP acccount used by the IDM
+      to access the LDAP data.
+    userPassword: {SSHA}R5KF3K4X2FX5gkWKuDxm4M6gZyO0QgNF
+
+  ppolicy.ldif: |
+    #load password policy module
+    dn: cn=module{0},cn=config
+    changetype: modify
+    add: olcModuleLoad
+    olcModuleLoad: {2}ppolicy
+
+    #configure password policy module
+    dn: olcOverlay=ppolicy,olcDatabase={1}{{ LDAP_BACKEND }},cn=config
+    changetype: add
+    objectClass: olcPPolicyConfig
+    objectClass: olcOverlayConfig
+    olcOverlay: ppolicy
+    olcPPolicyDefault: cn=default,ou=pwpolicies,{{ LDAP_BASE_DN }}
+    olcPPolicyHashCleartext: TRUE
+    olcPPolicyUseLockout: TRUE
+  sssvlv.ldif: |
+    #load sssvlv module
+    dn: cn=module{0},cn=config
+    changetype: modify
+    add: olcModuleLoad
+    olcModuleLoad: {3}sssvlv
+
+    #configure sssvlv module
+    dn: olcOverlay=sssvlv,olcDatabase={1}{{ LDAP_BACKEND }},cn=config
+    changetype: add
+    objectClass: olcSssVlvConfig
+    objectClass: olcOverlayConfig
+    olcOverlay: sssvlv
+----
+
+.Service definition for the server | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/advanced-examples/service-ldap.yaml[Github]
+[source,kubernetes]
+apiVersion: v1
+kind: Service
+metadata:
+  name: mp-demo-ldap
+  namespace: mp-demo
+spec:
+  ports:
+    - name: ldap
+      port: 389
+  selector:
+    app: mp-demo-nfs
+  type: NodePort
+
+.Statefulset for the LDAP | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/advanced-examples/statefulset-ldap.yaml[Github]
+[source,kubernetes]
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mp-demo-ldap
+  namespace: mp-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mp-demo-ldap
+  template:
+    metadata:
+      labels:
+        app: mp-demo-ldap
+    spec:
+      volumes:
+        - name: ldap-init
+          configMap:
+            name: mp-demo-ldap-init
+            defaultMode: 420
+      containers:
+        - name: mp-demo-ldap
+          image: 'osixia/openldap:stable'
+          command: ["/container/tool/run", "--copy-service"]
+          ports:
+            - name: ldap
+              containerPort: 389
+              protocol: TCP
+          env:
+            - name: "LDAP_DOMAIN"
+              value: "example.com"
+            - name: "LDAP_ADMIN_PASSWORD"
+              value: "sercret"
+            - name: "LDAP_TLS"
+              value: "false"
+          volumeMounts:
+          - mountPath: /container/service/slapd/assets/config/bootstrap/ldif/custom
+            name: ldap-init
+          - mountPath: /var/lib/ldap
+            name: mp-demo-ldap-store
+          imagePullPolicy: IfNotPresent
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 10
+  serviceName: mp-demo-ldap
+  volumeClaimTemplates:
+    - kind: PersistentVolumeClaim
+      apiVersion: v1
+      metadata:
+        name: mp-demo-ldap-store
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 64Mi
+        storageClassName: csi-rbd-hdd
+        volumeMode: Filesystem
