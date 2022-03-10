@@ -283,24 +283,124 @@ We reserve the right not to support customized web browsers.
 
 == Upgrade
 
+MidPoint is a software designed with easy upgradeability in mind.
+We do our best to maintain strong backward compatibility of midPoint data model, configuration and system behavior.
+However, midPoint is also very flexible and comprehensive software system with a very rich data model.
+It is not humanly possible to test all the potential upgrade paths and scenarios.
+Also, some changes in midPoint behavior are inevitable to maintain midPoint development pace.
+Therefore, there may be some manual actions and configuration changes that need to be done during upgrades, mostly related to xref:/midpoint/versioning/feature-lifecycle/[feature lifecycle].
 
-TODO
+This section provides overall overview of the changes and upgrade procedures.
+Although we try to our best, it is not possible to foresee all possible uses of midPoint.
+Therefore, the information provided in this section are for information purposes only without any guarantees of completeness.
+In case of any doubts about upgrade or behavior changes please use services associated with xref:/support/subscription-sponsoring/[midPoint subscription programs].
+
+Please refer to the xref:/midpoint/reference/upgrade/upgrade-guide/[] for general instructions and description of the upgrade process.
+The guide describes the steps applicable for upgrades of all midPoint releases.
+Following sections provide details regarding release {release-version}.
+
+=== Upgrade From MidPoint 4.4.x
+
+MidPoint {release-version} data model is backwards compatible with previous midPoint version.
+Therefore xref:/midpoint/reference/upgrade/upgrade-guide/[the usual upgrade mechanism] can be used.
+There are some important changes to keep in mind:
+
+* Database schema needs to be upgraded using the xref:/midpoint/reference/upgrade/upgrade-guide/[usual mechanism].
+
+Please see xref:/midpoint/reference/upgrade/upgrade-guide/[] for details.
+
+* Version numbers of some bundled connectors have changed.
+Therefore, connector references from the resource definitions that are using the bundled connectors need to be updated.
+
+It is strongly recommended migrating to the xref:/midpoint/reference/repository/native-postgresql/[new native PostgreSQL repository implementation] for all deployments that have not migrated yet.
+However, it is *not* recommended upgrading the system and migrating the repositories in one step.
+It is recommended doing it in two separate steps.
+Please see xref:/midpoint/reference/repository/native-postgresql/migration/[] for the details.
+
+=== Upgrade From MidPoint Versions Older Than 4.4
+
+Upgrade from midPoint versions older than 4.4 to midPoint {release-version} is not supported directly.
+Please upgrade to midPoint 4.4.x first.
+
+=== Changes In Initial Objects Since 4.4
+
+MidPoint has a built-in set of "initial objects" that it will automatically create in the database if they are not present.
+This includes vital objects for the system to be configured (e.g. role `Superuser` and user `administrator`).
+These objects may change in some midPoint releases.
+However, midPoint is conservative and avoids overwrite of customized configuration objects.
+Therefore midPoint does not overwrite existing objects when they are already in the database.
+This may result in upgrade problems if the existing object contains configuration that is no longer supported in a new version.
+The following list contains a summary of changes to the initial objects in this midPoint release.
+The complete new set of initial objects is in the `config/initial-objects` directory in both the source and binary distributions.
+Although any problems caused by the change in initial objects is unlikely to occur, the implementors are advised to review the changes and assess the impact on case-by-case basis:
+
+* `000-system-configuration.xml`: TODO
 
 
-Upgrade/changes:
+Please review link:https://github.com/Evolveum/midpoint/commits/master/gui/admin-gui/src/main/resources/initial-objects[source code history] for detailed list of changes.
 
-Notifications:
+TODO: Point to initial objects in `config` directory of the distribution (and link to relese github for live version).
 
-* Previously, if no transport was specified for `customNotifier`, `customTransport` was quietly implied.
+=== Bundled Connector Changes Since 4.4
+
+* LDAP and AD connectors were upgraded to the latest available version 3.4.
+See xref:/connectors/connectors/com.evolveum.polygon.connector.ldap.LdapConnector/[LDAP connector page] and xref:/connectors/connectors/com.evolveum.polygon.connector.ldap.ad.AdLdapConnector/[Active Directory connector page] for details.
+
+* DatabaseTable connector was upgraded to the latest available version 1.4.9.1.
+See xref:/connectors/connectors/org.identityconnectors.databasetable.DatabaseTableConnector/[DatabaseTable connector page] for details.
+
+
+=== Behavior Changes Since 4.4
+
+* Notifications
+
+** Previously, if no transport was specified for `customNotifier`, `customTransport` was quietly implied.
 This is no longer the case and the transport must be explicitly mentioned just like in any other notifier.
 Custom notifier is actually in no way tied to the custom transport only - any transport can be used.
 
-* Previously, schema allowed nesting notifiers, e.g. putting `simpleFocalObjectNotifier` inside `timeValidityNotifier` or any other notifier.
+** Previously, schema allowed nesting notifiers, e.g. putting `simpleFocalObjectNotifier` inside `timeValidityNotifier` or any other notifier.
 This is no longer possible, if there is any nesting of concrete notifiers in your System configuration object it must be removed.
 Nesting inside `handler` element and inside `chained`/`forked` blocks is fine, although the latter is deprecated now.
 This nested notifiers didn't do anything anyway, so it is unlikely anyone used them.
 
-Plugins/overlays:
+=== Schema Changes Since 4.4
+
+TODO
+
+=== Important Internal Changes Since 4.4
+
+These changes should not influence people that use midPoint "as is".
+These changes should also not influence the XML/JSON/YAML-based customizations or scripting expressions that rely just on the provided library classes.
+These changes will influence midPoint forks and deployments that are heavily customized using the Java components.
+
+* Legacy JAXB/JAXWS code generator was replaced with a brand new code.
+Generated code is almost completely compatible with the previous code.
+Moreover, there are some new features (e.g. more convenient constructors/factories) that can be used in the new code.
 
 * For performance reasons, user interface code is scanning only `com.evolveum` packages on classpath.
 This can be changed using settings in `application.yml` file.
+This change may influence Maven overlay projects that include GUI customizations.
+
+
+++++
+{% include release-issues.html %}
+++++
+
+Some of the known issues are listed below:
+
+* There is a support to set up storage of credentials in either encrypted or hashed form.
+There is also unsupported and undocumented option to turn off credential storage.
+This option partially works, but there may be side effects and interactions.
+This option is not fully supported yet.
+Do not use it or use it only at your own risk.
+It is not included in any midPoint support agreement.
+
+* Native attribute with the name of 'id' cannot be currently used in midPoint (bug:MID-3872[]).
+If the attribute name in the resource cannot be changed then the workaround is to force the use of legacy schema.
+In that case midPoint will use the legacy ConnId attribute names (icfs:name and icfs:uid).
+
+* We have seen issues upgrading H2 instances to a new version.
+Generally speaking H2 is not supported for any particular use.
+We try to make H2 work and we try to make it survive an upgrade, but there are occasional issues with H2 use and upgrade.
+Make sure that you back up your data in a generic format (XML/JSON/YAML) in regular intervals to avoid losing them.
+It is particularly important to back up your data before upgrades and when working with development version of midPoint.
