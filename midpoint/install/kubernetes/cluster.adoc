@@ -107,10 +107,10 @@ To mount volume you can use syntax like this example:
 ...
     spec:
       volumes:
-        - name: nfs-poi
+        - name: nfs
           nfs:
             server: mp-demo-nfs.mp-demo.svc.cluster.local
-            path: /exports/poi
+            path: /exports
 ...
 
 Once the shared NFS volume is utilized we don't need to handle manual generating of the keystore as the first starting midpoint node will generate it.
@@ -208,17 +208,6 @@ spec:
       labels:
         app: mp-demo-nfs
     spec:
-      initContainers:
-        - name: init-structure
-          image: 'k8s.gcr.io/volume-nfs'
-          command: ["/bin/bash","-c"]
-          args:
-            - mkdir -p /exports/poi ;
-              echo "post-initial-objects directory has been created..."
-          volumeMounts:
-          - mountPath: /exports
-            name: mp-demo-nfs-store
-          imagePullPolicy: IfNotPresent
       containers:
         - name: mp-demo-nfs
           image: 'k8s.gcr.io/volume-nfs'
@@ -265,10 +254,6 @@ In case you will be using shared storage also for xref:/midpoint/install/kuberne
 ====
 There has been used the same image as in kubernetes documentation.
 Feel free to use any other image containing nfs server tool you are familiar with.
-
-There is used initContainer to create subdirectory for poi (Post-Initial-Objects) for the next example with mounting just POI to midPoint home.
-The mount would fail in case the directory is not available.
-In case you prefer to have all midPoint home directory on NFS the initContainer is not needed.
 ====
 
 .Service definition for the server | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/advanced-examples/service-nfs.yaml[Github]
@@ -319,10 +304,10 @@ spec:
           configMap:
             name: mp-demo-poi
             defaultMode: 420
-        - name: nfs-poi
+        - name: nfs
           nfs:
             server: mp-demo-nfs.mp-demo.svc.cluster.local
-            path: /exports/poi
+            path: /exports
       initContainers:
         - name: mp-config-init
           image: 'evolveum/midpoint:4.4-alpine'
@@ -363,10 +348,32 @@ spec:
               mountPath: /opt/midpoint/config-secrets
             - name: mp-poi
               mountPath: /opt/midpoint-dirs-docker-entrypoint/post-initial-objects
-            - name: nfs-poi
+            - name: nfs
               mountPath: /opt/midpoint/var/post-initial-objects
+              subPath: poi
           imagePullPolicy: IfNotPresent
   serviceName: mp-pg-demo
+
+[NOTE]
+====
+[source]
+      volumes:
+        - name: nfs
+          nfs:
+            server: mp-demo-nfs.mp-demo.svc.cluster.local
+            path: /exports
+...
+      containers:
+        - name: mp-pg-demo
+          volumeMounts:
+            - name: nfs
+              mountPath: /opt/midpoint/var/post-initial-objects
+              subPath: poi
+
+subPath label offer the option to structure NFS store.
+In case we prefer use just post-initial-object (poi) mount point we can use subdirectory on NFS structure.
+Using this option we don't need to prepare the structure in advance as in case of defining */export/poi* in volumes section.
+====
 
 [WARNING]
 The pod will not start (it will wait in state *PodInitializing*) until the NFS will be available. It can be unavailable as NFS server is not up yet or the FQDN can't be resolved. The reason can be find out in the pod's information.

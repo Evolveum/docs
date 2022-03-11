@@ -218,7 +218,7 @@ Then we will provide the values to add.
 </s:search>
 
 [NOTE]
-The file is available as one key of the configmap - link:https://github.com/Evolveum/midpoint-kubernetes/blob/main/advanced-examples/configmap-poi.yaml#L8-L54[111-sysconf-deployment.xml @ configmap-poi.yaml] on github.
+The file is available as one key of the configmap - link:https://github.com/Evolveum/midpoint-kubernetes/blob/main/advanced-examples/configmap-poi-111-sysconf-deployment.yaml[111-sysconf-deployment.xml @ configmap-poi-111-sysconf-deployment.yaml] on github.
 
 We can save the content to the file with any name but with .xml extension.
 The file names set the order of the files to process.
@@ -244,12 +244,12 @@ With any of these approach the information about processing (*.done*) will be ke
 Default security policy contain only information about the credentials.
 What may be interesting with the deployment is xref:/midpoint/reference/security/authentication/flexible-authentication/configuration.adoc[Flexible authentication].
 
-.configmap with flexible authentication | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/advanced-examples/configmap-poi-120.yaml[Github]
+.configmap with flexible authentication | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/advanced-examples/configmap-poi-120-flexible-auth.yaml[Github]
 [source]
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: mp-demo-poi
+  name: mp-demo-poi-120-flexible-auth
   namespace: mp-demo
 data:
   120-flexible-auth.xml: |-
@@ -414,7 +414,18 @@ There is also assigned Root Org object - the member relation.
 
 * 401-test-user.xml +
 Test user without known oid.
-There are assigned role and member Org.
+Username *test.user.org* with credentials *5ecr3t*. +
+Assigned objects:
+** End user role
+** Test role
+** member Organization (membership)
+
+* 402-test-user.xml +
+Test user without known oid.
+Username *test.user* with credentials *5ecr3t*. +
+Assigned objects:
+** End user role
+** Test role
 
 * 501-test-task-recompute-org-members.xml +
 Task definition to recompute all directly assigned members to the Org with any relation - member, manager, approver, owner.
@@ -425,7 +436,7 @@ This example task utilizing xref:/midpoint/reference/tasks/activities/index.adoc
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: mp-demo-poi
+  name: mp-demo-poi-role_user_org_task
   namespace: mp-demo
 data:
   201-test-role.xml: |-
@@ -448,17 +459,50 @@ data:
     </org>
   401-test-user.xml: |-
     <?xml version="1.0" encoding="UTF-8"?>
-    <user xmlns="http://midpoint.evolveum.com/xml/ns/public/common/common-3" xmlns:org="http://midpoint.evolveum.com/xml/ns/public/common/org-3">
-      <name>test user</name>
+    <user xmlns="http://midpoint.evolveum.com/xml/ns/public/common/common-3" xmlns:org="http://midpoint.evolveum.com/xml/ns/public/common/org-3" xmlns:t='http://prism.evolveum.com/xml/ns/public/types-3'>
+      <name>test.user.org</name>
+      <assignment>
+        <targetRef oid="00000000-0000-0000-0000-000000000008" relation="org:default" type="RoleType" />
+      </assignment>
       <assignment>
         <targetRef oid="00000000-cafe-0001-0000-000000000001" relation="org:default" type="RoleType" />
       </assignment>
       <assignment>
         <targetRef oid="00000000-cafe-0002-0000-000000000002" relation="org:default" type="OrgType" />
       </assignment>
+      <credentials>
+        <password>
+          <value>
+            <t:clearValue>5ecr3t</t:clearValue>
+          </value>
+        </password>
+      </credentials>
     </user>
-  501-test-recompute-members.xml: |-
-    <task xmlns="http://midpoint.evolveum.com/xml/ns/public/common/common-3" xmlns:c="http://midpoint.evolveum.com/xml/ns/public/common/common-3" xmlns:org="http://midpoint.evolveum.com/xml/ns/public/common/org-3" xmlns:q="http://prism.evolveum.com/xml/ns/public/query-3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" oid="00000000-cafe-0003-0000-000000000001">
+  402-test-user.xml: |-
+    <?xml version="1.0" encoding="UTF-8"?>
+    <user xmlns="http://midpoint.evolveum.com/xml/ns/public/common/common-3" xmlns:org="http://midpoint.evolveum.com/xml/ns/public/common/org-3" xmlns:t='http://prism.evolveum.com/xml/ns/public/types-3'>
+      <name>test.user</name>
+      <assignment>
+        <targetRef oid="00000000-0000-0000-0000-000000000008" relation="org:default" type="RoleType" />
+      </assignment>
+      <assignment>
+        <targetRef oid="00000000-cafe-0001-0000-000000000001" relation="org:default" type="RoleType" />
+      </assignment>
+      <credentials>
+        <password>
+          <value>
+            <t:clearValue>5ecr3t</t:clearValue>
+          </value>
+        </password>
+      </credentials>
+    </user>
+  501-test-recompute-members.xml: >-
+    <task xmlns="http://midpoint.evolveum.com/xml/ns/public/common/common-3"
+    xmlns:c="http://midpoint.evolveum.com/xml/ns/public/common/common-3"
+    xmlns:org="http://midpoint.evolveum.com/xml/ns/public/common/org-3"
+    xmlns:q="http://prism.evolveum.com/xml/ns/public/query-3"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    oid="00000000-cafe-0003-0000-000000000001">
         <name>Recompute all direct members of Organization test member Org</name>
         <assignment>
             <targetRef oid="00000000-0000-0000-0000-000000000502" relation="org:default" type="c:ArchetypeType" />
@@ -479,23 +523,7 @@ data:
                         <type>c:AssignmentHolderType</type>
                         <query>
                             <q:filter>
-                                <q:type>
-                                    <q:type>c:UserType</q:type>
-                                    <q:filter>
-                                        <q:exists>
-                                            <q:path>c:assignment</q:path>
-                                            <q:filter>
-                                                <q:ref>
-                                                    <q:path>c:targetRef</q:path>
-                                                    <q:value oid="00000000-cafe-0002-0000-000000000002" relation="org:default" type="c:OrgType" xsi:type="c:ObjectReferenceType"/>
-                                                    <q:value oid="00000000-cafe-0002-0000-000000000002" relation="org:manager" type="c:OrgType" xsi:type="c:ObjectReferenceType"/>
-                                                    <q:value oid="00000000-cafe-0002-0000-000000000002" relation="org:approver" type="c:OrgType" xsi:type="c:ObjectReferenceType"/>
-                                                    <q:value oid="00000000-cafe-0002-0000-000000000002" relation="org:owner" type="c:OrgType" xsi:type="c:ObjectReferenceType"/>
-                                                </q:ref>
-                                            </q:filter>
-                                        </q:exists>
-                                    </q:filter>
-                                </q:type>
+                                <q:text> . type UserType and . inOrg "00000000-cafe-0002-0000-000000000002"</q:text>
                             </q:filter>
                         </query>
                     </objects>
@@ -564,34 +592,20 @@ In case of mapping directly to */opt/midpoint/var/ifc-connectors* the files are 
 ==== NFS share
 
 NFS server is described in xref:/midpoint/install/kubernetes/cluster.adoc#_nfs[Cluster deployment].
-Only differences would be preparing also directory for the connectors.
-
-.Make directory for the connectors on NFS server
-[source]
-...
-      initContainers:
-        - name: init-structure
-          image: 'k8s.gcr.io/volume-nfs'
-          command: ["/bin/bash","-c"]
-          args:
-            - mkdir -p /exports/poi ;
-              echo "post-initial-objects directory has been created..."
-            - mkdir -p /exports/icf-connectors ;
-              echo "connectors directory has been created..."
-...
 
 .midPoint statefulset definition related to the connectors' NFS storage
 [source]
 ...
       volumes:
-        - name: nfs-connectors
+        - name: nfs
           nfs:
             server: mp-demo-nfs.mp-demo.svc.cluster.local
-            path: /exports/connectors
+            path: /exports
 ...
           volumeMounts:
-            - name: nfs-connectors
+            - name: nfs
               mountPath: /opt/midpoint/var/icf-connectors
+              subPath: icf-connectors
 ...
 
 The content has to be delivered to the NFS share.
@@ -603,7 +617,6 @@ Entrypoint checking existence of the files by the name so once the file exists i
 
 [NOTE]
 NFS server is described in xref:/midpoint/install/kubernetes/cluster.adoc#_nfs[Cluster deployment].
-Only differences would be preparing also directory for the export.
 
 There is subdirectory export in midpoint home directory where the exported content are stored (e.g. reports).
 The system know which midpoint node created the content.
@@ -611,38 +624,67 @@ In case other node needs / is requested for the content it firstly try if it is 
 If the content is not available there is communication with the "originating" node to get the content.
 Sharing the export directory between the nodes prevent loosing data in case it is only on one specific node - e.g. scaling or re-creating the pod.
 
-.Make directory for the export on NFS server
-[source]
-...
-      initContainers:
-        - name: init-structure
-          image: 'k8s.gcr.io/volume-nfs'
-          command: ["/bin/bash","-c"]
-          args:
-            - mkdir -p /exports/poi ;
-              echo "post-initial-objects directory has been created..."
-            - mkdir -p /exports/export ;
-              echo "export directory has been created..."
-...
-
 .midPoint statefulset definition related to the export's NFS storage
 [source]
 ...
       volumes:
-        - name: nfs-export
+        - name: nfs
           nfs:
             server: mp-demo-nfs.mp-demo.svc.cluster.local
-            path: /exports/export
+            path: /exports
 ...
           volumeMounts:
-            - name: nfs-export
+            - name: nfs
               mountPath: /opt/midpoint/var/export
+              subPath: export
+...
+
+=== projected volume
+
+There is also option to project volume - several others objects can be used to combine the volume.
+The usage may be e.g. to keep POI configmap separated in external storage (git).
+Once used the output content correspond with the situation only one configmap is simply used.
+
+[source,kubernetes]
+...
+      volumes:
+        - name: mp-poi
+          projected:
+            sources:
+            - configMap:
+                name: mp-demo-poi-111-sysconf-deployment
+            - configMap:
+                name: mp-demo-poi-120-flexible-auth
+            - configMap:
+                name: mp-demo-poi-role-user-org-task
+            - configMap:
+                name: mp-demo-poi-ldap-res
 ...
 
 === Sample resource
 
 There may be needed to use also resources as source and / or target.
 The example we can use LDAP resource as defined in the link:https://github.com/Evolveum/midpoint-samples/tree/master/samples/book/2[midpoint-samples] on github.
+
+The definition for ldap statefulset and service follow.
+There are also available midpoint objects for:
+
+* resource +
+Definition of the resource.
+
+* role +
+Role inducing account creating for the (user) object where is assigned.
+
+* user +
+Sample user with assigned role.
+Due to the requirements for the provisioning there have to be filled more fields - e.g. Full name.
+The account is created on the LDAP.
+
+During the processing there can be visible many lines in the log once the user is imported.
+That the resource is defined, but it is not complete - the schema is missing.
+With the provisioning the resource try to complete the schema first (communication with the resource).
+This operation cause this extra log records.
+If there would be more user objects other one would be processed without this extra step.
 
 .Basic structure for the LDAP expected by the midpoint in the example | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/advanced-examples/configmap-ldap-init.yaml[Github]
 [source,kubernetes]
@@ -787,10 +829,14 @@ spec:
             - name: "LDAP_TLS"
               value: "false"
           volumeMounts:
-          - mountPath: /container/service/slapd/assets/config/bootstrap/ldif/custom
-            name: ldap-init
-          - mountPath: /var/lib/ldap
-            name: mp-demo-ldap-store
+            - mountPath: /container/service/slapd/assets/config/bootstrap/ldif/custom
+              name: ldap-init
+            - mountPath: /var/lib/ldap
+              name: mp-demo-ldap-store
+              subPath: data
+            - mountPath: /etc/ldap/slapd.d
+              name: mp-demo-ldap-store
+              subPath: cfg
           imagePullPolicy: IfNotPresent
       restartPolicy: Always
       terminationGracePeriodSeconds: 10
@@ -808,3 +854,119 @@ spec:
             storage: 64Mi
         storageClassName: csi-rbd-hdd
         volumeMode: Filesystem
+
+.configmap with poi LDAP related | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/advanced-examples/configmap-poi-ldap-res.yaml[Github]
+[source,kubernetes]
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mp-demo-poi-ldap-res
+  namespace: mp-demo
+data:
+  151-resource-openldap.xml: |
+    <?xml version="1.0" encoding="UTF-8"?>
+    <!--
+      ~ Copyright (c) 2017 Evolveum
+      ~
+      ~ Licensed under the Apache License, Version 2.0 (the "License");
+      ~ you may not use this file except in compliance with the License.
+      ~ You may obtain a copy of the License at
+      ~
+      ~     http://www.apache.org/licenses/LICENSE-2.0
+      ~
+      ~ Unless required by applicable law or agreed to in writing, software
+      ~ distributed under the License is distributed on an "AS IS" BASIS,
+      ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+      ~ See the License for the specific language governing permissions and
+      ~ limitations under the License.
+      -->
+
+    <resource oid="00000000-cafe-0004-0000-000000000001"
+        xmlns="http://midpoint.evolveum.com/xml/ns/public/common/common-3"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:c="http://midpoint.evolveum.com/xml/ns/public/common/common-3"
+        xmlns:t='http://prism.evolveum.com/xml/ns/public/types-3' xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+        xmlns:ri="http://midpoint.evolveum.com/xml/ns/public/resource/instance-3"
+        xmlns:icfs="http://midpoint.evolveum.com/xml/ns/public/connector/icf-1/resource-schema-3"
+        xmlns:icfc="http://midpoint.evolveum.com/xml/ns/public/connector/icf-1/connector-schema-3"
+        xmlns:my="http://whatever.com/my" xmlns:q="http://prism.evolveum.com/xml/ns/public/query-3"
+        xmlns:mr="http://prism.evolveum.com/xml/ns/public/matching-rule-3"
+        xmlns:cap="http://midpoint.evolveum.com/xml/ns/public/resource/capabilities-3">
+
+        <name>LDAP</name>
+
+        <description>
+            LDAP resource using a ConnId LDAP connector. It contains configuration
+            for use with OpenLDAP servers.
+        </description>
+
+        <connectorRef type="ConnectorType">
+            <filter>
+                <q:equal>
+                    <q:path>c:connectorType</q:path>
+                    <q:value>com.evolveum.polygon.connector.ldap.LdapConnector</q:value>
+                </q:equal>
+            </filter>
+        </connectorRef>
+
+        <connectorConfiguration
+            xmlns:icfc="http://midpoint.evolveum.com/xml/ns/public/connector/icf-1/connector-schema-3"
+            xmlns:icfcldap="http://midpoint.evolveum.com/xml/ns/public/connector/icf-1/bundle/com.evolveum.polygon.connector-ldap/com.evolveum.polygon.connector.ldap.LdapConnector">
+            <icfc:configurationProperties>
+                <icfcldap:port>389</icfcldap:port>
+                <icfcldap:host>mp-demo-ldap.mp-demo.svc.cluster.local</icfcldap:host>
+                <icfcldap:baseContext>dc=example,dc=com</icfcldap:baseContext>
+                <icfcldap:bindDn>cn=idm,ou=Administrators,dc=example,dc=com</icfcldap:bindDn>
+                <icfcldap:bindPassword>
+                    <t:clearValue>secret</t:clearValue>
+                </icfcldap:bindPassword>
+                <icfcldap:pagingStrategy>auto</icfcldap:pagingStrategy>
+                <icfcldap:passwordHashAlgorithm>SSHA</icfcldap:passwordHashAlgorithm>
+                <icfcldap:vlvSortAttribute>uid,cn,ou,dc</icfcldap:vlvSortAttribute>
+                <icfcldap:vlvSortOrderingRule>2.5.13.3</icfcldap:vlvSortOrderingRule>
+                <icfcldap:operationalAttributes>memberOf</icfcldap:operationalAttributes>
+                <icfcldap:operationalAttributes>createTimestamp</icfcldap:operationalAttributes>
+                <icfcldap:usePermissiveModify>always</icfcldap:usePermissiveModify>
+                <icfcldap:lockoutStrategy>openldap</icfcldap:lockoutStrategy>
+            </icfc:configurationProperties>
+            <icfc:resultsHandlerConfiguration>
+                <icfc:enableNormalizingResultsHandler>false</icfc:enableNormalizingResultsHandler>
+                <icfc:enableFilteredResultsHandler>false</icfc:enableFilteredResultsHandler>
+                <icfc:enableAttributesToGetSearchResultsHandler>false</icfc:enableAttributesToGetSearchResultsHandler>
+            </icfc:resultsHandlerConfiguration>
+        </connectorConfiguration>
+...
+    </resource>
+  311-role-ldap.xml: |
+    <?xml version="1.0" encoding="UTF-8"?>
+    <role xmlns="http://midpoint.evolveum.com/xml/ns/public/common/common-3" xmlns:org="http://midpoint.evolveum.com/xml/ns/public/common/org-3" oid="00000000-cafe-0001-0000-000000000011">
+      <name>ldap</name>
+      <displayName>LDAP account</displayName>
+      <inducement>
+        <construction>
+           <resourceRef oid="00000000-cafe-0004-0000-000000000001" relation="org:default" type="ResourceType" />
+           <kind>account</kind>
+           <intent>default</intent>
+        </construction>
+      </inducement>
+    </role>
+  403-test-user.xml: |-
+    <?xml version="1.0" encoding="UTF-8"?>
+    <user xmlns="http://midpoint.evolveum.com/xml/ns/public/common/common-3" xmlns:org="http://midpoint.evolveum.com/xml/ns/public/common/org-3" xmlns:t='http://prism.evolveum.com/xml/ns/public/types-3'>
+      <name>test.user.ldap</name>
+      <fullName>Test user</fullName>
+      <givenName>Test</givenName>
+      <familyName>User</familyName>
+      <assignment>
+        <targetRef oid="00000000-0000-0000-0000-000000000008" relation="org:default" type="RoleType" />
+      </assignment>
+      <assignment>
+        <targetRef oid="00000000-cafe-0001-0000-000000000011" relation="org:default" type="RoleType" />
+      </assignment>
+      <credentials>
+        <password>
+          <value>
+            <t:clearValue>5ecr3t</t:clearValue>
+          </value>
+        </password>
+      </credentials>
+    </user>
