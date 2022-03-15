@@ -359,11 +359,10 @@ In that case you still can purge all identity data from midPoint, adjust HR conf
 . *Clean up the orphaned accounts*:
 Review the list of orphaned accounts (accounts in Active Directory not having an owner in midPoint which should mean they are not related to HR data on which midPoint data is based) and identify the following cases:
 
-* *orphaned accounts*: accounts which were not matched to midPoint data during correlation, and should not be in Active Directory. Review these accounts one by one and _mark_ the undesired ones as disposable. *TODO NEW FEATURE REQUIRED*
-* *system (service) accounts*: accounts which are not based on HR data, but are crucial for Active Directory. Review these accounts one by one and _mark_ the system accounts as protected in midPoint.
+* *orphaned accounts*: accounts which were not matched to midPoint data during correlation, and should not be in Active Directory. Review these accounts one by one and <<explicitly_marking_accounts_for_decommissioning,_mark_ the undesired ones as decommisioned>>.
+* *system (service) accounts*: accounts which are not based on HR data, but are crucial for Active Directory. Review these accounts one by one and <<explicitly_marking_accounts_as_protected,_mark_ the system accounts as protected in midPoint>>.
 +
 The accounts need to be reviewed manually and actions can take place either in the AD (by its administrators), or in midPoint (e.g. by configuring the system accounts as protected).
-*TODO now or in Step 3?* You can now activate the orphaned account deactivation (TODO: turning on `marked as disposable` -> `disable` / `delete`) to deactivate/delete all orphaned accounts (marked as disposable) in the target system using midPoint.
 +
 TIP: You can clean up the data in several iterations.
 
@@ -385,8 +384,6 @@ Adapt the mappings in midPoint to not cause undesired changes in Active Director
 +
 TIP: You can clean up the mappings in several iterations.
 +
-*TODO now or in Step 3?* When you are satisfied with the mappings, (TODO!) change the mappings to actually set the values.
-##From that moment, midPoint can update existing accounts in Active Directory.##
 
 This may seem as a pointless phase.
 Why not just go directly to automation?
@@ -413,6 +410,8 @@ Finally, we have reliable data to build on.
 What are we waiting for?
 
 TODO
+
+TODO When to actually clean up the orphaned/inconsistent data? In Step 2 or Step 3?
 
 . *On-boarding automation* (provisioning).
 TODO
@@ -459,9 +458,7 @@ in the target systems
 ** MidPoint should not conflict with the roles/groups assigned by other means
 ** More specifically, midPoint should tolerate them
 * *TODO* multiple account intents
-* *TODO* related to notifications: process to warn users before their password expire
 * *TODO* related to notifications: process to warn users before their user expire (`validTo`)
-* *TODO maybe ##NEW FEATURE REQUIRED##*: if password is expired, allow user to log in and set a new password? Maybe within some grace period?
 
 
 == Current Situation
@@ -1186,7 +1183,7 @@ There should be a process + notification to the user's e-mail address some (prec
 
 The e-mail should contain a link to midPoint.
 
-==== User expiration
+==== TODO User expiration
 
 If user is created with `validTo`, there should be a process + notification to the user's e-mail address some (preconfigured) time before the user is expired.
 
@@ -1248,7 +1245,7 @@ Where does it lead? -> IGA (Set up roles and policies, manage applications, enti
 == Notes
 
 This section is for misc notes, mostly on work in progress and current state of midPoint.
-This will be probabaly moved to other documents when this document is finished.
+This will be probably moved to other documents when this document is finished.
 
 === Missing Features and Ideas
 
@@ -1265,11 +1262,11 @@ We cannot generate username `jsmith` for John, because he may in fact use `jsmit
 We cannot generate `jsmith2` for Joe, as he may in fact use `jsmith` in AD.
 This would be a mess.
 
-Moreover, how do we set up a correlation rule? We can figure out that a "cannonical" username for John Smith is `jsmith`, but there is nothing in midPoint users to reliably compare that with, hence no easy way to find correlation candidates.
+Moreover, how do we set up a correlation rule? We can figure out that a "canonical" username for John Smith is `jsmith`, but there is nothing in midPoint users to reliably compare that with, hence no easy way to find correlation candidates.
 
 *Solution*: Do not generate usernames on HR import.
 Leave user's `name` empty.
-Instead, generate a "cannonical" username (`jsmith`) in `candidateIdentifier` property.
+Instead, generate a "canonical" username (`jsmith`) in `candidateIdentifier` property.
 John, Joe and Jack will all have the same value `jsmith` here.
 When correlating users with AD, we will look for `jsmith` in the `candidateIdentifier` property, find all three candidates.
 Once the account are (manually) correlated, inbound mapping from AD username to user's `name` will set the correct username.
@@ -1291,7 +1288,7 @@ We are thinking about correlators being able to reverse the outbound mappings an
 *Thoughts*: Maybe call this `cannonicalIdentifier` instead of `candidateIdentifier`?
 Probably not.
 
-
+[#explicitly_marking_accounts_as_protected]
 === Explicitly Marking Protected Accounts
 
 *Environment*: Correlating accounts on AD (or other resource), dealing with `administrator`, `root` and similar accounts.
@@ -1304,7 +1301,7 @@ Store that information in the shadow.
 +
 Of course, we would also need an ability to "unmark" the account, mistakes happen.
 
-*Drawbacks*: Deleting all shadows would not be a "harmless" operation any more.
+*Drawbacks*: Deleting all shadows would not be a "harmless" operation anymore.
 The information on protected accounts would disappear.
 However, we are already manually correlating accounts at this point.
 We would not delete all accounts anyway, as doing so would ruin manually-correlated links.
@@ -1312,6 +1309,7 @@ We would not delete all accounts anyway, as doing so would ruin manually-correla
 *Thoughts*: In fact, we would still configure `administrator` and `root` in resource configuration template, as these usernames are quite fixed.
 However, we would need this explicit marking for other accounts, that we cannot predict beforehand.
 
+[#explicitly_marking_accounts_for_decommissioning]
 === Explicitly Marking Accounts for Decommissioning
 
 *Environment*: Correlating accounts on AD (or other resource), dealing with accounts that belong to people left the organization ages ago.
@@ -1330,7 +1328,7 @@ Then we will run a pre-configured task that disables all accounts marked for dec
 +
 Of course, we would also need an ability to "unmark" the account, mistakes happen.
 
-*Drawbacks*: Deleting all shadows would not be a "harmless" operation any more.
+*Drawbacks*: Deleting all shadows would not be a "harmless" operation anymore.
 The information on protected accounts would disappear.
 However, we are already manually correlating accounts at this point.
 We would not delete all accounts anyway, as doing so would ruin manually-correlated links.
@@ -1339,11 +1337,44 @@ We would not delete all accounts anyway, as doing so would ruin manually-correla
 As long as they are active, they still pose a security risk.
 Therefore we should report them.
 However, they are "already being processed".
-Threfore we should not report them.
+Therefore we should not report them.
 
 What situation should the accounts have?
-Crealy, they are neight linked, unlinked or disputed.
+Really, they are not linked, unlinked or disputed.
 They are not really unmatched either.
 Maybe a new situation?
-Or just mind the decommissioning marker?
+Or just mind the decommissioning marker + unmatched combination?
 Maybe if a shadow has the decommissioning marker, then the situation does not matter anyway? (similar to protected accounts).
+
+=== (Not sure yet) Password Expiration
+
+*Environment*: Notifying users about their password being expired soon.
+
+NOTE: This is irrelevant for external authentication and/or if no self-service will be used in midPoint.
+
+*Problem*: We need to notify users before their passwords are expired (password aging) as they cannot access midPoint after the password are expired.
+
+*Solution*:
+
+. notify users in their dashboard
+. send notification to user with soon-to-be-expired password based on the password policy that applies to them (via security policies). This will require some task running periodically (each night?).
+
+*Drawbacks*: ?
+
+*Thoughts*: Can we avoid running the task for _whole population_ each night?
+Or should we allow users to log in even with expired password and change it immediately? (Maybe within some grace period.)
+
+
+=== (Not sure yet) Links in Approvals Notifications
+
+*Environment*: Insert link to the work item during approval notifications.
+
+NOTE: This is irrelevant if no approvals will be used in midPoint.
+
+*Problem*: Recipients of the approval notification need to log in to midPoint and navigate to work item - they do not have the link in e-mail notification.
+
+*Solution*: Insert link to the work item to the approval notification e-mail.
+
+*Drawbacks*: ?
+
+*Thoughts*: This is probably related also for other notifications, e.g. other cases (Identity matching? Manual provisioning?)
