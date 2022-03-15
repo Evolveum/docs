@@ -1212,6 +1212,8 @@ TODO: what about assignments and their parameters?
 We can re-use the functionality we have.
 Link for password reset will be sent to user's e-mail
 
+
+
 == Why MidPoint?
 
 Why we think midPoint is the best tool for this kind of approach?
@@ -1235,3 +1237,50 @@ Just go ahead, click the link and try it now.
 == What's Next
 
 Where does it lead? -> IGA (Set up roles and policies, manage applications, entitlements, organizational structure, etc.) ... once the solution is mature enough
+
+
+== Notes
+
+This section is for misc notes, mostly on work in progress and current state of midPoint.
+This will be probabaly moved to other documents when this document is finished.
+
+=== Missing Features and Ideas
+
+List of features missing in midPoint, and ideas for improvements.
+
+====  Correlation: Candidate Identifier
+
+*Environment*: Taking data from HR, correlating with AD.
+There are no employee numbers in AD.
+There is a username convention: `jsmith`, `jsmith2`, `jsmith3`
+
+*Problem*: How do we correlate John Smith, Joe Smith and Jack Smith?
+We cannot generate username `jsmith` for John, because he may in fact use `jsmith2` in AD.
+We cannot generate `jsmith2` for Joe, as he may in fact use `jsmith` in AD.
+This would be a mess.
+
+Moreover, how do we set up a correlation rule? We can figure out that a "cannonical" username for John Smith is `jsmith`, but there is nothing in midPoint users to reliably compare that with, hence no easy way to find correlation candidates.
+
+*Solution*: Do not generate usernames on HR import.
+Leave user's `name` empty.
+Instead, generate a "cannonical" username (`jsmith`) in `candidateIdentifier` property.
+John, Joe and Jack will all have the same value `jsmith` here.
+When correlating users with AD, we will look for `jsmith` in the `candidateIdentifier` property, find all three candidates.
+Once the account are (manually) correlated, inbound mapping from AD username to user's `name` will set the correct username.
+
+*Changes in midPoint:*
+
+. Make user `name` optional (as a configurable option? as a default?)
+
+. Add `candidateIdentifier` to common schema.
+
+. Figure out a way how to easily configure this.
+We do not want admin to set up the same expression in HR inbound mapping to `candidateIdentifier`, and again doing it in AD correlator.
+Maybe we need some concept of "username convention" that we can refer to?
+Would it work, as the schemas for user and AD account are different?
+Maybe we can use midPoint->AD mappings to figure which attribute belongs to `familyName` property?
+Maybe the correlator could do this.
+We are thinking about correlators being able to reverse the outbound mappings anyway ...
+
+*Thoughts*: Maybe call this `cannonicalIdentifier` instead of `candidateIdentifier`?
+Probably not.
