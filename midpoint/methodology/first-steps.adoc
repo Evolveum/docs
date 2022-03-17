@@ -1367,6 +1367,42 @@ Maybe if a shadow has the decommissioning marker, then the situation does not ma
 
 This may be related to bug:MID-761[]
 
+==== Custom Activation Status Override
+
+*Environment*: Source system provides user's activation status which is stored in standard activation properties in midPoint. Administrator may need to override this information via midPoint so that user may be enabled even if he/she is indicated as disabled and vice-versa.
+
+*Problem*: Sometimes the information from HR is not correct and needs to be overriden. If user's `activation/administrativeStatus` is set by (strong) inbound mapping from HR, it cannot be overriden by midPoint administrator.
+If a custom attribute is used, e.g. `extension/customAdministrativeStatus` (ActivationStatusType) is used, all outbound mappings for `activation/administrativeStatus` need to be modified to use the custom property instead of default `activation/effectiveStatus`. But this is not enough. User's `activation/effectiveStatus` in midPoint is always computed from standard activation properties.
+
+*Solution*: ? Maybe we need a customizable algorithm for `effectiveStatus` computation? This is AFAIK based on `activation` and `lifecycleState` by default.
+
+*Thoughts*: I was following xref:/midpoint/reference/schema/custom-schema-extension/#using-midpoint-types[Custom Schema Extension - Using midPoint Types]. I have updated outbound mapping like this:
+
+[source,xml]
+----
+<activation>
+    <administrativeStatus>
+        <outbound>
+            <enabled>true</enabled>
+            <source>
+                <path>extension/customAdministrativeStatus</path>
+            </source>
+            <expression>
+                <script>
+                    <code>
+                        if (!basic.isEmpty(customAdministrativeStatus)) {
+                            return customAdministrativeStatus
+                        }
+                        return input
+                    </code>
+                </script>
+            </expression>
+        </outbound>
+    </administrativeStatus>
+</activation>
+----
+
+This works, but the user in midPoint is (of course) indicated as disabled, because `activation/effectiveStatus` does not use the custom property and based on the documentation, `effectiveStatus` is not to be set explicitly.
 
 ==== TODO New mapping mode/strength
 
