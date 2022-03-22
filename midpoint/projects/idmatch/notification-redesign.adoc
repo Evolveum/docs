@@ -4,7 +4,22 @@
 * Jira task: bug:MID-7484[]
 * Existing issues for Notification component: https://jira.evolveum.com/issues/?jql=project%20%3D%20MID%20AND%20component%20%3D%20Notifications[search]
 
-== Current plan
+== Current status
+
+State of implemented for 4.5 version is:
+
+* Added message templates objects, these can be referenced from notifiers.
+** GUI administration was added, future improvements towards simplification are expected.
+* Partial separaton of transport from notifiacation, but still in the same Maven module.
+* New transport configuration separate from the notification (but mostly the same).
+** Transport `name` is now required and it is an element, not an attribute.
+* Deprecation of chained/forked features.
+* Recipient expression can return focus objects, which is important for localization of the messages.
+** Added expresion to the transport config to translate focus to the address string.
+* No persistence for notifications and messages for now.
+* No GUI notifications.
+
+== Plan
 
 Most recently identified gaps are convenience related, how to manage the notifications easily
 without messing with XML configuration directly.
@@ -59,27 +74,13 @@ This is not necessarily the nicest solution, but flexible.
 Alternatively, we need to add expression inside referencing transport element.
 * Configuration redesign, e.g. for additional transports types or two transports of the same type.
 ** Should transport configuration be primarily in Notification configuration?
-It may be useful/better to have it out of notifications and share it with reporting.
+It may be useful/better to have it out of notifications and share it with reporting, etc.
+(Note, that currently reporting uses notifications to send messages anyway.)
 * Configuration convenience, how much we can do on UI?
 * Attachments, currently file is referenced, requires OS/system administrator.
 * Push vs pull notifications (query) - this is relevant for UI notifications too.
 * Links from notifications (nonce?).
 ** If nonce is used, each recipient must have unique nonce - that is unique notification?
-
-Notification vs message for final transport.
-----
-event -> (0..*) notifications -\
-                                ----> (1..*) message (transport, mail)
-                    report(s) -/
-----
-
-Notification:
-
-* recipient
-* state (read or not)
-* messages*
-** transport
-** deliveryState
 
 LATER:
 What is Notification in Prism world? Object or Container or what?
@@ -96,6 +97,7 @@ function library is used to obtain the message here.
 * Recipient can be a User object or a list of addresses.
 * UI notification works only when User object is known.
 Recipient can be implicit depending on the notifier type.
+* Comments on `forked` and `chained` elements that are deprecated in 4.5.
 
 .SystemConfiguration object
 [source,xml]
@@ -105,7 +107,7 @@ Recipient can be implicit depending on the notifier type.
     <!-- Proposed notification configuration, not conforming to 4.4 schema -->
     <notificationConfiguration> <!-- this is Container, but order of handlers inside does not matter -->
         <!-- Implementation notes for chained/forked -->
-        <handler> <!-- EventHandlerType, TODO currently not containerable, do we want Containerable for GUI? -->
+        <handler> <!-- changed to containerable in 4.5 -->
             <name>just for inf</name>
             <description>
                 Describing the messy configuration below, what filters how, motivation, etc.
@@ -117,27 +119,10 @@ Recipient can be implicit depending on the notifier type.
             -->
             <category>modelEvent</category>
             <status>alsoSuccess</status>
-            <!--
-            TODO Unrealistic example of forked and chained elements (hardly used together).
-             This shows that each notifier is inside the separate forked/chained element.
-            -->
-            <forked> <!-- EventHandlerType -->
-                <passwordResetNotifier></passwordResetNotifier>
-            </forked>
-            <forked>
-                <userPasswordNotifier></userPasswordNotifier>
-            </forked>
-            <!-- TODO: In container we will need explicit <order> element. -->
-            <chained> <!-- EventHandlerType -->
-                <userPasswordNotifier></userPasswordNotifier>
-            </chained>
-            <chained>
-                <userRegistrationNotifier></userRegistrationNotifier>
-            </chained>
 
             <!--
             Unclear whether this is forked or chained, it is executed by AggregatedEventHandler#processEvent,
-            so it seems like chained, but AbstractGeneralNotifier#processEvent returns true (for common notifiers like those below). -->
+            so it seems like chained, but AbstractGeneralNotifier#processEvent returns true (for common notifiers like those below), so it is effectively "forked" (although not parallel). -->
             <passwordResetNotifier> <!-- PasswordResetNotifierType extending from EventHandlerType -->
                 <!--
                 Even for simple notifiers the filters are processed by aggregatedEventHandler.processEvent
@@ -152,31 +137,8 @@ Recipient can be implicit depending on the notifier type.
             </passwordResetNotifier>
             <!-- more concrete handlers -->
             <userPasswordNotifier>
-                <!-- What does this mean? Should not we disallow nesting? -->
-                <passwordResetNotifier></passwordResetNotifier>
+                ...
             </userPasswordNotifier>
-        </handler>
-        <!-- Probably a bug - delete also sends the notification: -->
-        <handler>
-            <description>filter on handler directly works fine</description>
-            <chained>
-                <operation>add</operation>
-                <simpleUserNotifier>
-                    <recipientExpression>
-                        <value>first@evolveum.com</value>
-                    </recipientExpression>
-                    <transport>mail</transport>
-                </simpleUserNotifier>
-            </chained>
-            <chained>
-                <simpleUserNotifier>
-                    <operation>delete</operation>
-                    <recipientExpression>
-                        <value>second@evolveum.com</value>
-                    </recipientExpression>
-                    <transport>mail</transport>
-                </simpleUserNotifier>
-            </chained>
         </handler>
 
         <handler>
@@ -197,7 +159,7 @@ Recipient can be implicit depending on the notifier type.
                         </parameter>
                     </function>
                 </messageExpression>
-                <!-- This implies <transport>bar</transport> -->
+                <!-- This implies <transport>bar</transport> NOT implemented in 4.5 yet-->
                 <transportConfig>
                     <name>bar</name>
                     <!-- Using different message function for bar transport. -->
@@ -235,7 +197,7 @@ Recipient can be implicit depending on the notifier type.
                         <code>event.requesteeIsUser()</code>
                     </script>
                 </filterExpression>
-                <!-- Is there a good default for this? Can this return UserType as well? -->
+                <!-- In 4.5 it is possible to return focus as well (or address as before). -->
                 <recipientExpression>
                     <script>
                         <code>requestee</code>
@@ -245,37 +207,25 @@ Recipient can be implicit depending on the notifier type.
                 <!-- Template by reference -->
                 <messageTemplateRef .../>
 
-                <!-- Probably overkill, just return the address directly in recipientExpression.
-                Here the recipient is the requestee from above. Confusing?
-                <recipientAddressExpression>
-                    <script><code>basic.getExtensionPropertyValue(recipient, 'otherEmail')</code></script>
-                </recipientAddressExpression>
-                -->
                 <transport>mail</transport>
             </simpleWorkflowNotifier>
         </handler>
+
         <!--
-        This section enables transports for notifications + allows notification specific configuration.
-        But even if not mentioned here, the transport can be used by the handler.
-        Alternative: It must be declared here as disabled and just enabled in the handler (just by mentioning it).
+        This section allows notification specific configuration for transports.
+        Transports must still be declared in messageTransportConfiguration!
         -->
-        <defaultNotificationTransports>
-            <transport>
-                <name>mail</name>
-                <logToFile>mail-notification.log</logToFile>
-            </transport>
-            <transport>
-                <name>bar</name>
-            </transport>
-            <!-- If "sms" is not here, will not be used for notifications by default. Alternatively: -->
-            <transport>
-                <name>sms</name>
-                <!-- not used by default -->
-                <enabled>false</enabled>
-                <!-- but furher configured if enabled per handler -->
-                <logToFile>sms-notification.log</logToFile>
-            </transport>
-        </defaultNotificationTransports>
+        <transportConfig>
+            <name>mail</name>
+            <logToFile>mail-notification.log</logToFile>
+        </transportConfig>
+        <transportConfig>
+            <name>sms</name>
+            <!-- not used by default -->
+            <enabled>false</enabled>
+            <!-- but furher configured if enabled per handler -->
+            <redirectToFile>sms-notification.log</redirectToFile>
+        </transportConfig>
     </notificationConfiguration>
     <messageTransportConfiguration>
         <mail>
@@ -287,14 +237,8 @@ Recipient can be implicit depending on the notifier type.
                 <username>mail</username>
                 <password>password</password>
             </server>
-            <!--
-            Should this work for various type of recipients, e.g. from/cc/bcc?
-            Who is in from, cc/bcc is probably not transport issue, but notification one.
-            Single address (String) or multiple addresses (Iterable<String>) can be returned.
-            There is also default implemented in Transport.getDefaultRecipientAddress().
-            -->
             <recipientAddressExpression>
-                <!-- What's the best name for the input variable? -->
+                <!-- Here always called recipient; not what it was in notifier. -->
                 <script><code>recipient.emailAddress</code></script>
             </recipientAddressExpression>
         </mail>
@@ -360,7 +304,7 @@ But this can be expressed by inlining the filter into the notifier itself:
 
 == Open questions
 
-* How to customize various templates?
+* How to customize various templates? (First GUI added in 4.5.)
 * How to represent changes, e.g. deltas, in them?
 * What notification states are necessary to support both GUI and various outbound transports?
 * What types of notifications are needed for various use cases, e.g. confirmation notification, governance-related notifications, error related notifications...?

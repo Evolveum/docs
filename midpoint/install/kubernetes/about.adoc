@@ -1,37 +1,31 @@
 = Used kubernetes objects
-:page-nav-title: used objects
+:page-nav-title: Used objects
 :toc:
 :toclevels: 4
 
 == What is it about
 
-This page is describing used kubernetes objects and its small description focused on midpoint environment.
+This page is describing used kubernetes objects and its small description focused on midPoint environment.
 
-== Type of the used objects
+== Type of used k8s objects
 
 === Namespace
 
 To have objects logically grouped the namespace can be used.
 The namespace has an impact on generated FQDNs or even permissions in the cloud environment in case they are utilized.
 
-.example of the *mp-demo* namespace definition
-[source,kubernetes]
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: mp-demo
-spec:
-  finalizers:
-    - kubernetes
+Sample object is available in xref:/midpoint/install/kubernetes/single-node.adoc#_namespace[Single Node] deployment.
 
-Link : link:https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/[kubernetes docs]
+Link : link:https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/[Kubernetes docs]
 
 === Pods
 
 Pods are running instances of the images.
 We will not manage them directly as they will be a result of the settings in other objects (like statefulSets).
 
-Link : link:https://kubernetes.io/docs/concepts/workloads/pods/[kubernetes docs]
+Sample object is available in xref:/midpoint/install/kubernetes/single-node.adoc#_pod[Single Node] deployment.
+
+Link : link:https://kubernetes.io/docs/concepts/workloads/pods/[Kubernetes docs]
 
 === ConfigMaps
 
@@ -39,24 +33,7 @@ The common configuration can be stored in ConfigMaps which can be used in the en
 From the point of view of the pods they are read only objects, what is good in many scenarios.
 In case we would need R/W objects, the configmaps are not the right objects to be used (in that case volume may be the option).
 
-.example of the post-initial-objects - new user
-[source,kubernetes]
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: mp-demo-poi
-  namespace: mp-demo
-data:
-  test-user.xml: >
-    <?xml version="1.0" encoding="UTF-8"?>
-    <user>
-      <name>test</name>
-    </user>
-  test2-user.xml: >
-    <?xml version="1.0" encoding="UTF-8"?>
-    <user>
-      <name>test2</name>
-    </user>
+Sample object is available in xref:/midpoint/install/kubernetes/single-node.adoc#_poi[Single Node] deployment.
 
 The configMap can be created in several ways.
 
@@ -66,14 +43,14 @@ This may sometime cause the issue as the size of the value for the field is limi
 For the common small objects is doesn't cause the issue.
 The namespace can be defined as parameter *-n mp-demo* or in the content of the yaml file.
 
-* *kubectl create configmap -n mp-demo --from-file=.* +
+* *kubectl create configmap -n mp-demo mp-demo-poi --from-file=.* +
 This way the annotation field is not created.
 If you provide directory as a value of _from-file_ the all the files in the directory became the keys of configMap and the contents of the files become the value of the keys.
 In case you provide just a single file only one key is created in the configMap. +
 The content of the kubernetes object is generated so the namespace have to be defined as parameter of the kubectl command.
 
 
-Link : link:https://kubernetes.io/docs/concepts/configuration/configmap/[kubernetes docs]
+Link : link:https://kubernetes.io/docs/concepts/configuration/configmap/[Kubernetes docs]
 
 === Secrets
 
@@ -84,7 +61,8 @@ The content is base64 encoded value.
 The short values can be directly shown (decoded) in the tools like link:https://k8slens.dev/[Lens].
 In principle, I can provide examples just with placeholder instead of the real values.
 
-.example of the secret object containing x509 certificate
+[#_cert]
+.Example of the secret object containing x509 certificate | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/advanced-examples/secret-cert-mp-pg-demo.yaml[Github]
 [source,kubernetes]
 kind: Secret
 apiVersion: v1
@@ -164,7 +142,7 @@ stringData:
 These lines are optional just for better overview - information about the containing certificate.
 ----
 
-.commands to generate self sign certificate
+.Commands to generate self signed certificate
 [source,bash]
 ----
 # generate the key and the certificate
@@ -186,27 +164,7 @@ kubectl create secret tls -n mp-demo cert-mp-pg-demo --cert=tls.crt --key=tls.ke
 openssl x509 -in tls.crt -text -noout
 ----
 
-.example of the secret object containing the passwords
-[source,kubernetes]
-apiVersion: v1
-kind: Secret
-metadata:
-  name: mp-demo
-  namespace: mp-demo
-data:
-  password: U3VwZXJTZWNyZXRQYXNzd29yZDAwNw==
-type: Opaque
-
-[NOTE]
-In the secret object the values are provided as base64 encoded content.
-For our example we have the following values: +
-SuperSecretPassword007 => U3VwZXJTZWNyZXRQYXNzd29yZDAwNw==
-
-.command to generate the secret with password
-[source,bash]
-kubectl create secret generic -n mp-demo mp-demo --from-literal=password=SuperSecretPassword007
-
-Link : link:https://kubernetes.io/docs/concepts/configuration/secret/[kubernetes docs]
+Link : link:https://kubernetes.io/docs/concepts/configuration/secret/[Kubernetes docs]
 
 === Services
 
@@ -216,12 +174,13 @@ The service looks for the pods based on the label.
 The service itself has assigned IP.
 The traffic is "forwarded" to the pods relevant to the service based on the label selector.
 
-One example has been already provided related to the deployment with postgresql DB.
+One example has been already provided related to the deployment with PostgreSQL DB.
 Other example may be for the midpoint itself.
 Here is example ready for the cluster environment.
 The difference is in Session Affinity setting.
 
-.example for the midpoint service (cluster ready)
+[#_service]
+.Example for the midPoint service (cluster ready) | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/advanced-examples/service-midpoint.yaml[Github]
 [source,kubernetes]
 apiVersion: v1
 kind: Service
@@ -249,7 +208,9 @@ Once there are more than 1 node the missing of the affinity setting cause loop o
 The reason is that after sending login information the session is created with one node but the next communication is handled by other node - the default is round-robin distribution of the communication.
 This other node doesn't know anything about just created session on previous node so the redirect to login page occur.
 
-Link : link:https://kubernetes.io/docs/concepts/services-networking/service/[kubernetes docs]
+Link : link:https://kubernetes.io/docs/concepts/services-networking/service/[Kubernetes docs]
+
+TODO: We will improve the configuration samples later to use session cluster replication to remove need of session affinity
 
 === Ingress
 
@@ -257,13 +218,20 @@ To be able to reach the services from outside on shared ports (80,443) there is 
 It utilizes SNI, which is nowadays automatically used so there is no additional requirement.
 We are defining the rules for the conditional traffic forwards to the specific service and port.
 
-.example of the ingress object definition (assumption: *mp-demo.local* domain)
+[#_ingress]
+.Example of the ingress object definition (assumption: *mp-demo.local* domain) | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/advanced-examples/ingress-midpoint.yaml[Github]
+
 [source,kubernetes]
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: mp-pg-demo
   namespace: mp-demo
+  annotations:
+    ingress.kubernetes.io/affinity: cookie
+    nginx.ingress.kubernetes.io/session-cookie-expires: '172800'
+    nginx.ingress.kubernetes.io/session-cookie-max-age: '172800'
+    nginx.ingress.kubernetes.io/session-cookie-name: mp-demo
 spec:
   tls:
     - hosts:
@@ -281,7 +249,7 @@ spec:
                 port:
                   number: 8080
 
-Link : link:https://kubernetes.io/docs/concepts/services-networking/ingress/[kubernetes docs]
+Link : link:https://kubernetes.io/docs/concepts/services-networking/ingress/[Kubernetes docs]
 
 === StatefulSets
 
@@ -289,37 +257,6 @@ This is the glue for all.
 This object defines the setting for the future pods and handle the amount of replicas.
 In case some pod will fail, the StatefulSet definition will handle the situation and recreate the new one.
 
-Link : link:https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/[kubernetes docs]
+Link : link:https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/[Kubernetes docs]
 
-== Tips
 
-=== custom path in URL
-
-Default path in URL is /midpoint.
-It is possible to change the path using *application.properties* file in midpoint.home location.
-
-.midpoint.home/application.properties
-[source]
-server.servlet.context-path=/xyz
-
-This will change the URL to /xyz instead of /midpoint.
-
-To set up we can use init container which is already used in case od native repository.
-Instead of directly run the *midpoint.sh* file we can run "script" containing set ip the necessary value next to midpoint.sh execution.
-
-.Original code for init container for midpoint pod
-[source,kubernetes]
-...
-          image: 'evolveum/midpoint:4.4-alpine'
-          command: ["/bin/bash","/opt/midpoint/bin/midpoint.sh","init-native"]
-          env:
-...
-
-.Customized code covering also change of the path in URL
-[source,kubernetes]
-...
-          image: 'evolveum/midpoint:4.4-alpine'
-          command: ["/bin/bash","-c"]
-          args: ["/opt/midpoint/bin/midpoint.sh init-native; echo 'server.servlet.context-path=/xyz' >/opt/mp-home/application.properties"]
-          env:
-...
