@@ -1014,6 +1014,12 @@ Imagine the following example:
 ** or you can configure your `config.xml` (`<url>`) or `-Dmidpoint.url` for all nodes (the values will be different for all nodes).
 ====
 
+[IMPORTANT]
+====
+Setting `-Dmidpoint.httpPort` does not change the actual HTTP port for the embedded server.
+See link:#changing-the-midpoint-embedded-tomcat-configuration[this section] to do that.
+====
+
 ==== Checking Cluster Communication
 
 Start all midPoint nodes and go to menu:Nodes[All nodes].
@@ -1565,27 +1571,67 @@ This can be configured using dependencies between the services.
 ====
 
 ////
+
 === Changing the midPoint Embedded Tomcat Configuration
 
+Default configuration is packaged inside `midpoint.war` file, but there are ways how to change it without modifying the binary file:
 
-If you need to change default HTTP listener port, you can do it in `application.yml` file in your `$midpoint.home` directory. Create the file if it does not exist.
+* You can create `application.yml` or `application.properties` file in your `$midpoint.home` directory and add the configuration changes there.
+The content of this file takes precedence over the defaults from the bundled `application.yml` file.
+* You can add JVM arguments to set system properties matching the property names from the config file.
+This takes precedence even over the custom `application.yml` file.
+Using the command line switches may also be more convenient for containerized midPoint.
+The switches can be delivered via `midpoint.sh` using `JAVA_OPTS` environment variable,
+or specified in the service configuration.
 
-For example, to update the default HTTP port to 8088:
+For example, to change the default HTTP listener port, you can create `application.yml` (or
+`application.properties`, if you prefer that format) file in your `$midpoint.home` directory.
 
 .application.yml file in midpoint.home directory:
-[source,bash]
+[source,yaml]
+----
+server:
+  port: 8088
+----
+
+.application.properties file in midpoint.home directory:
+[source,properties]
 ----
 server.port=8088
 ----
 
 After any change in `application.yml` you need to restart midPoint by stopping and starting the service using the commands specified above.
 
+Alternatively, provide the JVM argument to set the system property matching the property name
+from the configuration file, for example:
+[source,bash]
+----
+-Dserver.port=8088
+----
+
+This can be added to `JAVA_OPTS` or to the systemd service configuration.
+
 [NOTE]
 ====
 We do not recommend running midPoint listening on privileged ports ( 1024, e.g. 80).
 This would require midPoint running as root.
-Instead we recommend to create a reverse proxy before midPoint, e.g. using Apache HTTP Server.
+Instead, we recommend creating a reverse proxy before midPoint, e.g. using Apache HTTP Server.
 ====
+
+There are other configuration changes that can be done the same way.
+For instance, to change the default URL context from `midpoint`, set `server.servlet.context-path`
+to any other value, e.g. `/mypoint` (must start with `/`) or to `/` to run the GUI in the root context.
+
+[TIP]
+====
+Both techniques, the local `application.yml` file and JVM arguments, are standard ways
+how to configure application based on Spring Boot (which midPoint is).
+If you're interested in more details, see their https://docs.spring.io/spring-boot/docs/current/reference/html/features.html#features.external-config[Externalized Configuration] documentation.
+====
+
+// TODO AJP documentation? (non-documented, but used, no experimental status)
+// See this part of bundled application.yml: https://github.com/Evolveum/midpoint/blob/375f6525a79d4c23de2dd801114cd3ebef0259bb/gui/admin-gui/src/main/resources/application.yml#L19
+// Also see supported options in the code: https://github.com/Evolveum/midpoint/blob/f6f0574ec2037f3d602eff65e3a7f1cf131393d7/gui/admin-gui/src/main/java/com/evolveum/midpoint/web/boot/EmbeddedTomcatAutoConfiguration.java#L54
 
 ////
 If you need to change Java used by midPoint or the JVM parameters, you need to change `JAVA_HOME` environmental variable or `JAVA_OPTS`, respectively. Use `bin/setenv.sh` script located in the midPoint directory:
