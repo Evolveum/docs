@@ -26,28 +26,29 @@ and asks the human operator to choose among them. Second, midPoint is no longer 
 to internal actions when doing the correlation. It can now invoke external ID Match API provider
 that does the matching, and returns the owner (or a list of candidate owners) to midPoint.
 
-image::midpoint-idmatch.drawio.png
+image::midpoint-idmatch.drawio.png[Basic midPoint - ID Match communication]
 
 == Sample Scenario
 
-Let us now describe how the matching is configured. We will use the most basic scenario, where
-we have a single source resource, supplying user personal data (given name, family name,
-date of birth, and national ID). We will match accounts from this resource to midPoint users using
-the xref:sample-id-match-service.adoc[sample ID Match Service], pre-configured with three
-simple matching rules.
+Let us now describe how the matching is configured.
+
+We will use the most basic scenario, where we have a single source resource (Student Information System),
+supplying user personal data (given name, family name, date of birth, and national ID).footnote:[We ignore
+other attributes for now.]
+
+We will match accounts from this resource to midPoint users using the
+xref:sample-id-match-service.adoc[sample ID Match Service], pre-configured with three simple matching rules.
 
 Before specifying the correlation details themselves, please have a look at
-xref:correlation-time-mappings.adoc[correlation-time mappings]. We'll use them in the description below.
+xref:correlation-time-mappings.adoc[correlation-time mappings].
+We'll use them in the description below.
 
-== Configuring the Correlation on Resource
+== Configuring the Correlation
 
 The correlation definition is written in new `correlationDefinition` item, which supersedes
-`correlation` and `confirmation` ones.
+both `correlation` and `confirmation` items.
 
-NOTE: The use of this new item is considered to be experimental, except for the use related
-to ID Match API.
-
-The most simple definition looks like this:
+The most simple definition of ID Match-based correlation looks like this:
 
 [source,xml]
 ----
@@ -77,30 +78,36 @@ The most simple definition looks like this:
 
 Let us describe it in detail.
 
-=== The `<correlators>` section
+=== The `correlators` Section
 
 This section specifies how the correlation should take place. You can define a lot of various correlators here.
-The only one that is supported in 4.5 is `idMatch` correlator.
+However, the only one that is officially supported in 4.5 is `idMatch` correlator.
 
-The correlator contains the URL of the ID Match service to be used, along with the credentials.
+==== ID Match Correlator Configuration
+
+The configuration contains the URL of the ID Match service to be used, along with the credentials.
 
 Then it contains so-called follow-on correlator. What's its purpose?
 
 ID Match service does _not_ know about midPoint users nor their OIDs. It works with the concept of _reference IDs_ - globally-unique
-identifiers assigned by the service to individual persons. The matching is carried out by providing the correct reference ID:
-either one that matches an existing person, or a newly generated one.
+identifiers assigned by the service to individual persons. Therefore, the result of a matching process can be threefold:
 
-MidPoint then must somehow deal with this information. The most obvious way is to store such information somewhere
-in the user object (e.g. in `employeeNumber`, or `name`, or - what is perhaps the most natural - in defined extension item,
-like `referenceId` as in the example above). The role of follow-on correlator is then to find a midPoint user for given
-reference ID provided by ID Match service. In our example, midPoint tries to find a user with `extension/referenceId` equal
+1. Either the reference ID of an existing person is returned,
+2. or a new reference ID is generated,
+3. or a list of reference IDs (candidate matches) is returned.
+
+MidPoint then must somehow deal with this information.
+
+The most natural way of using reference IDs is this:
+
+1. A reference ID for a person is stored somewhere in the user object. It can be in a selected standard property
+(like `employeeNumber` or `name`), or an extension property (e.g. `extension/referenceId` as in our example).
+2. When ID Match service returns a reference ID or IDs (either as a definite match, or as part of the list
+of match candidates), the follow-on correlator looks up user or users by looking for these values in the
+user population. In our example, midPoint tries to find a user with `extension/referenceId` equal
 to the ID obtained, which is available in `$correlatorState/referenceId` property.
 
 As we describe later, there is a mapping that puts the reference ID to this property.
-
-NOTE: The follow-on correlator is used also when a list of potential matches is obtained from the ID Match service.
-Each potential match contains specific reference ID. These IDs are mapped to midPoint user objects, and then
-presented to the human operator for resolution.
 
 [NOTE]
 ====
@@ -122,7 +129,7 @@ You may use them on your own risk. But beware, the supported way of correlating 
 is still to use `correlation` and `confirmation` items.
 ====
 
-=== The `cases` section
+=== The `cases` Section
 
 When multiple potential owners are found, The default midPoint behavior is to simply store them in the shadow object.
 (In the `correlation` item.) This may be useful in the initial stages of midPoint deployment when the correlation
@@ -130,6 +137,38 @@ rules are not tuned enough, and may provide a lot of false matches. But, as you 
 rules, you may turn on the creation of _case_ objects that trigger human resolution of correlation-related questions.
 
 You do that by including (empty) `<cases>` item in your `<correlationDefinition>`, as described above.
+
+=== The `items` Section (Optional)
+
+By default, midPoint sends to ID Match service all single-valued properties that it finds in the focus
+object computed by inbound mappings executed before correlation. This may or may not be suitable in your case.
+If you need to customize this information, you can specify these properties explicitly.
+
+The basic configuration may look like this:
+
+.Specification of items to be sent to ID Match service
+[source,xml]
+----
+<definitions>
+    <items>
+        <item>
+            <path>givenName</path>
+        </item>
+        <item>
+            <path>familyName</path>
+        </item>
+        <item>
+            <path>extension/dateOfBirth</path>
+        </item>
+        <item>
+            <path>extension/nationalId</path>
+        </item>
+    </items>
+</definitions>
+----
+
+This simply tells midPoint to take the values of `givenName`, `familyName`, `extension/dateOfBirth`, and `extension/nationalId`,
+and send them to ID Match service under respective names: `givenName`, `familyName`, `dateOfBirth`, and `nationalId`.
 
 === Mappings
 
