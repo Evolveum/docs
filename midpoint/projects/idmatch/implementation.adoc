@@ -1,0 +1,228 @@
+= Identity Matching (Correlation) Implementation
+
+This is a description of an implementation of so-called _identity matching_
+using link:https://spaces.at.internet2.edu/display/cifer/SOR-Registry+Strawman+ID+Match+API[ID Match API].
+
+NOTE: The midPoint term for matching resource objects with midPoint user population
+is called _correlation_. In this document we will use the terms of "identity matching" and "correlation"
+interchangeably; preferring the latter one.
+
+#TODO move to more appropriate place#
+
+== Introduction
+
+Before midPoint 4.5, the correlation process was quite limited: It was possible to provide a query - or a set
+of queries - along with optional confirmation expression. These were evaluated against midPoint repository,
+and produced zero, one, or more _candidate owners_. If this process resulted in a single candidate,
+it was perceived as the owner of the account. If no object was found, this meant that an owner
+should be created (if appropriate reaction was set). And if multiple objects were found,
+the synchronization situation was said to be "disputed", and practically no further processing
+was possible. This mechanism is described xref:/midpoint/reference/synchronization/correlation-and-confirmation-expressions/[here].
+
+Starting with midPoint 4.5, the correlation process is much richer. First, midPoint can deal with
+multiple candidate owners. In such situation - if configured so - it can create a _correlation case_,
+i.e. something that has to be manually resolved. The case contains a list of candidate owners,
+and asks the human operator to choose among them. Second, midPoint is no longer restricted
+to internal actions when doing the correlation. It can now invoke external ID Match API provider
+that does the matching, and returns a list of candidate owners to midPoint.
+
+#TODO picture#
+
+== Sample Scenario
+
+Let us now describe how the matching is configured. We will use the most basic scenario, where
+we have a single source resource, supplying user personal data (given name, family name,
+date of birth, and national ID). We will match accounts from this resource to midPoint users using
+the xref:sample-id-match-service.adoc[sample ID Match Service], pre-configured with three
+simple matching rules.
+
+Before specifying the correlation details themselves, please have a look at
+xref:correlation-time-mappings.adoc[correlation-time mappings]. We'll use them in the description below.
+
+== Configuring the Correlation on Resource
+
+The correlation definition is written in new `correlationDefinition` item, which supersedes
+`correlation` and `confirmation` ones.
+
+NOTE: The use of this new item is considered to be experimental, except for the use related
+to ID Match API.
+
+The most simple definition looks like this:
+
+[source,xml]
+----
+<correlationDefinition>
+    <correlators>
+        <idMatch>
+            <url>http://localhost:9090/match/api/2</url>
+            <username>administrator</username>
+            <password><t:clearValue>5ecr3t</t:clearValue></password>
+            <followOn>
+                <filter>
+                    <ownerFilter>
+                        <q:equal>
+                            <q:path>extension/referenceId</q:path>
+                            <expression>
+                                <path>$correlatorState/referenceId</path>
+                            </expression>
+                        </q:equal>
+                    </ownerFilter>
+                </filter>
+            </followOn>
+        </idMatch>
+    </correlators>
+    <cases/>
+</correlationDefinition>
+----
+
+Let us describe it in detail.
+
+=== The `<correlators>` section
+
+This section specifies how the correlation should take place. You can define a lot of various correlators here.
+The only one that is supported in 4.5 is `idMatch` correlator.
+
+The correlator contains the URL of the ID Match service to be used, along with the credentials.
+
+Then it contains so-called follow-on correlator. What's its purpose?
+
+ID Match service does _not_ know about midPoint users nor their OIDs. It works with the concept of _reference IDs_ - globally-unique
+identifiers assigned by the service to individual persons. The matching is carried out by providing the correct reference ID:
+either one that matches an existing person, or a newly generated one.
+
+MidPoint then must somehow deal with this information. The most obvious way is to store such information somewhere
+in the user object (e.g. in `employeeNumber`, or `name`, or - what is perhaps the most natural - in defined extension item,
+like `referenceId` as in the example above). The role of follow-on correlator is then to find a midPoint user for given
+reference ID provided by ID Match service. In our example, midPoint tries to find a user with `extension/referenceId` equal
+to the ID obtained, which is available in `$correlatorState/referenceId` property.
+
+As we describe later, there is a mapping that puts the reference ID to this property.
+
+NOTE: The follow-on correlator is used also when a list of potential matches is obtained from the ID Match service.
+Each potential match contains specific reference ID. These IDs are mapped to midPoint user objects, and then
+presented to the human operator for resolution.
+
+[NOTE]
+====
+Besides ID Match, there are the following _experimental_ correlators:
+
+[%autowidth]
+[%header]
+|===
+| Correlator | Description
+| `items` | Correlate using specified set of items (computed by correlation-time inbound mappings).
+| `filter` | Traditional filter-based correlation.
+| `expression` | Correlation that uses custom expression.
+| `composite` | Composite correlation that invokes a set of child correlators (with a different level of authority)
+and combines their results.
+| `none` | Always returns "no owner" response. For development/testing purposes.
+|===
+
+You may use them on your own risk. But beware, the supported way of correlating (except for ID Match)
+is still to use `correlation` and `confirmation` items.
+====
+
+=== The `cases` section
+
+When multiple potential owners are found, The default midPoint behavior is to simply store them in the shadow object.
+(In the `correlation` item.) This may be useful in the initial stages of midPoint deployment when the correlation
+rules are not tuned enough, and may provide a lot of false matches. But, as you became more confident in your
+rules, you may turn on the creation of _case_ objects that trigger human resolution of correlation-related questions.
+
+You do that by including (empty) `<cases>` item in your `<correlationDefinition>`, as described above.
+
+=== Mappings
+
+Now let us see how attributes from resource accounts (plus reference ID from ID Match service) are mapped
+to midPoint user properties.
+
+This is the `objectType` definition from the resource:
+
+.Start of the definition
+[source,xml]
+----
+<objectType>
+    <kind>account</kind>
+    <intent>default</intent>
+    <default>true</default>
+    <objectClass>ri:AccountObjectClass</objectClass>
+    <!-- ... -->
+</objectType>
+----
+
+This is quite standard declaration of a default account.
+
+Here is the first attribute of `sisId` (a unique account identifier):
+
+.`sisId` declaration
+[source,xml]
+----
+<attribute>
+    <ref>ri:sisId</ref>
+    <inbound>
+        <strength>strong</strength>
+        <target>
+            <path>extension/sisId</path>
+        </target>
+    </inbound>
+    <inbound>
+        <strength>strong</strength>
+        <expression>
+            <path>$shadow/correlation/correlatorState/referenceId</path>
+        </expression>
+        <target>
+            <path>extension/referenceId</path>
+        </target>
+        <evaluationPhases>
+            <!-- Before correlation, this ID may not be known. -->
+            <exclude>beforeCorrelation</exclude>
+        </evaluationPhases>
+    </inbound>
+</attribute>
+----
+
+There are two mappings here.
+
+The first one is quite standard one: we store the ID in specific extension property (`sisId`).
+
+The second one is - in fact - not related to `sisId` at all. It stores the referenceId obtained from the ID Match service
+(and stored in the shadow in `correlation/correlatorState/referenceId` property) in user `extension/referenceId` property.
+We have to do this to allow this user be correlated by this ID later.
+
+We explicitly _forbid_ execution of this mapping before the correlation. It is because at that time we have (obviously)
+no reference ID.
+
+What about other attributes?
+
+Their mappings are fairly standard, like this one:
+
+.Declaration for a regular attribute
+[source,xml]
+----
+<attribute>
+    <ref>ri:firstName</ref>
+    <inbound>
+        <strength>strong</strength>
+        <target>
+            <path>givenName</path>
+        </target>
+    </inbound>
+</attribute>
+----
+
+Finally, we have to ensure that the regular mappings are executed _both_ before correlation and in regular clockwork processing:
+
+.Enabling execution of inbound mappings both before correlation and during clockwork
+[source,xml]
+----
+<mappingsEvaluation>
+    <inbound>
+        <defaultEvaluationPhases>
+            <phase>clockwork</phase>
+            <phase>beforeCorrelation</phase>
+        </defaultEvaluationPhases>
+    </inbound>
+</mappingsEvaluation>
+----
+
+The whole resource definition can be seen link:https://github.com/Evolveum/midpoint/blob/master/testing/story/src/test/resources/correlation/idmatch/simple/resource-sis.xml[on GitHub].
