@@ -18,7 +18,7 @@ footnote:[The details depend on how the information systems are organized, e.g. 
 student information system that supports identity matching itself, or not.]
 
 In this scenario let's assume we have a Student Information System that does not attempt to match identities
-itself, so it may keep various (unrelated) records for a single physical person.
+itself, so it may keep various (not connected) records for a single physical person.
 
 The goal of midPoint is to:
 
@@ -27,7 +27,7 @@ The goal of midPoint is to:
 
 == Student Information System
 
-In this case, the Student Information System is represented by a simple CSV file with the following structure:
+In this case, the Student Information System is represented by a CSV file with the following structure:
 
 .Student Information System data structure
 [%autowidth]
@@ -53,7 +53,7 @@ Unlike in xref:implementation.adoc[the simple scenario], we have to solve two di
 2. Maintenance of all variants of the data (not only the "official" ones)
 
 The latter point is not directly supported by midPoint for now, so we have to work a little to implement it. The basic
-question is: where to put the data? The usual answer is "use extension items", but it seems not applicable here. We
+question is: where to put the data? The usual answer is "use extension items", but it seems to be not applicable here. We
 don't know how many accounts would a user have, so it's not feasible to have items like `givenName1`, `givenName2`, etc.
 footnote:[It would be possible to create multivalued extension container for the data, of course. The design would
 be similar to the one we chose.]
@@ -62,12 +62,12 @@ Therefore, we have decided to use assignments for the storage of data variants. 
 that keeps the given name, family name, date of birth, and national ID from the account. And, of course, it points to
 appropriate study program.
 
-Like this very busy student that studies four programs, and works for the Department of Computer Science:
+Let's have a look at this very busy student that studies four programs, and works for the Department of Computer Science:
 
 .User `smith2` with five assignments
 image::screenshot-1.png[]
 
-The assignment contains the personal data from the particular account.
+Each assignment contains the personal data from the particular account.
 
 .Details of the assignment
 image::screenshot-2.png[]
@@ -76,7 +76,7 @@ Therefore, personal data about a student are stored in various places in the use
 
 1. The "official" data (selected from the most relevant account) are stored at the root level: in
 `givenName`, `familyName`, `extension/dateOfBirth`, and `extension/nationalId` properties.
-2. The partial date (copied from individual accounts) are stored in assignments: in
+2. The partial data (copied from individual accounts) are stored in assignments: in
 `assignment[x]/extension/givenName`, `assignment[x]/extension/familyName`, `assignment[x]/extension/dateOfBirth`,
 and `assignment[x]/extension/nationalId`, where `x` is the internal identifier of given assignment
 (unrelated to the SIS ID!).
@@ -175,7 +175,7 @@ within the correlation case.
 <2> ID Match correlator configuration
 <3> specification that correlation cases should be created
 
-The correlator and cases configuration is the same as in the xref:implementation.adoc[simple matching scenario], with one
+The correlator and cases configurations are the same as in the xref:implementation.adoc[simple matching scenario], with one
 slight addition: `sorIdentifierPrefix` can be used when there are multiple "systems of records" (source resources in midPoint speak).
 The reason is that ID Match service stores individual records under so-called SOR identifiers. MidPoint derives these identifiers
 from primary identifiers of respective accounts. But multiple source resources map to single SOR from the point of view of ID Match.
@@ -237,9 +237,7 @@ The second one is more complex: it transforms the whole account into a single as
     <ref>ri:sisId</ref>
     <inbound> <!--1-->
         <strength>strong</strength>
-        <expression> <!-- cannot use "source" because there's no definition for that piece of data -->
-            <!-- Hack. This mapping should be invokable directly. -->
-            <!-- We assume the reference ID is present. -->
+        <expression>
             <path>$shadow/correlation/correlatorState/referenceId</path>
         </expression>
         <target>
