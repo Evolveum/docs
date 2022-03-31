@@ -26,6 +26,7 @@ and asks the human operator to choose among them. Second, midPoint is no longer 
 to internal actions when doing the correlation. It can now invoke external ID Match API provider
 that does the matching, and returns the owner (or a list of candidate owners) to midPoint.
 
+.Communication between midPoint and ID Match service
 image::midpoint-idmatch.drawio.png[Basic midPoint - ID Match communication]
 
 == Sample Scenario
@@ -45,11 +46,13 @@ We'll use them in the description below.
 
 == Configuring the Correlation
 
-The correlation definition is written in new `correlationDefinition` item, which supersedes
-both `correlation` and `confirmation` items.
+The correlation definition is written in new `correlationDefinition` item, which is eventually
+going to supersede both `correlation` and `confirmation` items.
 
 The most simple definition of ID Match-based correlation looks like this:
 
+[#listing1]
+.Listing 1. Simple definition of ID Match-based correlation
 [source,xml]
 ----
 <correlationDefinition>
@@ -87,12 +90,12 @@ However, the only one that is officially supported in 4.5 is `idMatch` correlato
 
 The configuration contains the URL of the ID Match service to be used, along with the credentials.
 
-Then it contains so-called follow-on correlator. What's its purpose?
+Then it contains so-called _follow-on_ correlator. What's its purpose?
 
 ID Match service does _not_ know about midPoint users nor their OIDs. It works with the concept of _reference IDs_ - globally-unique
 identifiers assigned by the service to individual persons. Therefore, the result of a matching process can be threefold:
 
-1. Either the reference ID of an existing person is returned,
+1. Either the reference ID of already known person is returned,
 2. or a new reference ID is generated,
 3. or a list of reference IDs (candidate matches) is returned.
 
@@ -101,13 +104,17 @@ MidPoint then must somehow deal with this information.
 The most natural way of using reference IDs is this:
 
 1. A reference ID for a person is stored somewhere in the user object. It can be in a selected standard property
-(like `employeeNumber` or `name`), or an extension property (e.g. `extension/referenceId` as in our example).
+(like `employeeNumber` or `name`), or in an extension property (e.g. `extension/referenceId` as in our example).
+
 2. When ID Match service returns a reference ID or IDs (either as a definite match, or as part of the list
 of match candidates), the follow-on correlator looks up user or users by looking for these values in the
 user population. In our example, midPoint tries to find a user with `extension/referenceId` equal
 to the ID obtained, which is available in `$correlatorState/referenceId` property.
 
-As we describe later, there is a mapping that puts the reference ID to this property.
+.Reference ID resolution process
+image::midpoint-idmatch-detailed.drawio.png[Reference ID resolution]
+
+As we describe later, there is a mapping that puts the reference ID to this property. See xref:#sisId[Listing 4] below.
 
 [NOTE]
 ====
@@ -117,7 +124,7 @@ Besides ID Match, there are the following _experimental_ correlators:
 [%header]
 |===
 | Correlator | Description
-| `items` | Correlate using specified set of items (computed by correlation-time inbound mappings).
+| `items` | Correlate using specified set of items (computed by xref:correlation-time-mappings.adoc[correlation-time inbound mappings]).
 | `filter` | Traditional filter-based correlation.
 | `expression` | Correlation that uses custom expression.
 | `composite` | Composite correlation that invokes a set of child correlators (with a different level of authority)
@@ -131,22 +138,23 @@ is still to use `correlation` and `confirmation` items.
 
 === The `cases` Section
 
-When multiple potential owners are found, The default midPoint behavior is to simply store them in the shadow object.
+When multiple potential owners are found, the default midPoint behavior is to simply store them in the shadow object.
 (In the `correlation` item.) This may be useful in the initial stages of midPoint deployment when the correlation
 rules are not tuned enough, and may provide a lot of false matches. But, as you became more confident in your
-rules, you may turn on the creation of _case_ objects that trigger human resolution of correlation-related questions.
+correlation rules, you may turn on the creation of _case_ objects that trigger human resolution
+of correlation-related questions.
 
-You do that by including (empty) `<cases>` item in your `<correlationDefinition>`, as described above.
+You do that by including (empty) `<cases>` item in your `<correlationDefinition>`, as can be seen in xref:#listing1[Listing 1].
 
 === The `items` Section (Optional)
 
 By default, midPoint sends to ID Match service all single-valued properties that it finds in the focus
-object computed by inbound mappings executed before correlation. This may or may not be suitable in your case.
+object computed by "before-correlation" inbound mappings. This may or may not be suitable in your case.
 If you need to customize this information, you can specify these properties explicitly.
 
 The basic configuration may look like this:
 
-.Specification of items to be sent to ID Match service
+.Listing 2. Specification of items to be sent to ID Match service
 [source,xml]
 ----
 <definitions>
@@ -172,12 +180,12 @@ and send them to ID Match service under respective names: `givenName`, `familyNa
 
 === Mappings
 
-Now let us see how attributes from resource accounts (plus reference ID from ID Match service) are mapped
+Now let us see how attributes from resource accounts (along with reference ID from ID Match service) are mapped
 to midPoint user properties.
 
-This is the `objectType` definition from the resource:
+Let us describe sample `objectType` definition from the resource. The start of the definition is quite standard:
 
-.Start of the definition
+.Listing 3. Start of the object type definition
 [source,xml]
 ----
 <objectType>
@@ -189,22 +197,23 @@ This is the `objectType` definition from the resource:
 </objectType>
 ----
 
-This is quite standard declaration of a default account.
+==== Mappings for `sisId` and `referenceId`
 
 Here is the first attribute of `sisId` (a unique account identifier):
 
-.`sisId` declaration
+[#sisId]
+.Listing 4. Declaration of `sisId` attribute
 [source,xml]
 ----
 <attribute>
     <ref>ri:sisId</ref>
-    <inbound>
+    <inbound> <!--1-->
         <strength>strong</strength>
         <target>
             <path>extension/sisId</path>
         </target>
     </inbound>
-    <inbound>
+    <inbound> <!--2-->
         <strength>strong</strength>
         <expression>
             <path>$shadow/correlation/correlatorState/referenceId</path>
@@ -219,6 +228,8 @@ Here is the first attribute of `sisId` (a unique account identifier):
     </inbound>
 </attribute>
 ----
+<1> Mapping of `sisId` attribute to the user extension property.
+<2> Mapping of `referenceId` property (not an attribute!) to the user extension property.
 
 There are two mappings here.
 
@@ -231,11 +242,11 @@ We have to do this to allow this user be correlated by this ID later.
 We explicitly _forbid_ execution of this mapping before the correlation. It is because at that time we have (obviously)
 no reference ID.
 
-What about other attributes?
+==== Mappings for other (regular) attributes
 
-Their mappings are fairly standard, like this one:
+Mappings for other attributes are fairly standard. An example:
 
-.Declaration for a regular attribute
+.Listing 5. Declaration for a regular attribute
 [source,xml]
 ----
 <attribute>
@@ -249,9 +260,11 @@ Their mappings are fairly standard, like this one:
 </attribute>
 ----
 
+==== Enabling processing of mappings before the correlation
+
 Finally, we have to ensure that the regular mappings are executed _both_ before correlation and in regular clockwork processing:
 
-.Enabling execution of inbound mappings both before correlation and during clockwork
+.Listing 6. Enabling execution of inbound mappings both before correlation and during clockwork
 [source,xml]
 ----
 <mappingsEvaluation>
@@ -264,4 +277,11 @@ Finally, we have to ensure that the regular mappings are executed _both_ before 
 </mappingsEvaluation>
 ----
 
+== For More Information
+
 The whole resource definition can be seen link:https://github.com/Evolveum/midpoint/blob/master/testing/story/src/test/resources/correlation/idmatch/simple/resource-sis.xml[on GitHub].
+
+There are two more complex scenarios available:
+
+1. Medium-complexity scenario, covering three source systems.
+2. Multi-accounts scenario, covering a single resource with potentially more accounts per user.
