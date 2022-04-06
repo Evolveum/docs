@@ -42,10 +42,11 @@ Deal with just the very basic data items for now:
 * Names (given name, family name)
 * Employee number, student number or similar identifier
 * Status (active, former employee, alumni, etc.) and/or validity date/time (based on contract etc.)
-+
+
 Ignore other fields for now.
 We will get back to them later.
 
+[#import-users-from-hr]
 == 2. Import Users From HR To MidPoint
 
 *Import users* to midPoint, using HR data.
@@ -55,10 +56,17 @@ Then import the HR data, creating user objects in midPoint.
 As we are working with simple data for now, the import should go well.
 
 .User lifecycle
-NOTE: This is where user lifecycle management starts.
-We need at least some basic framework for user lifecycle management at this point.
-(TODO) Do we import only active users from HR? All users? How we will mark active users?
+[NOTE]
+====
+This is where user lifecycle management starts.
 
+We need at least some basic framework for user lifecycle management at this point.
+(TODO) Do we import only active users from HR? All users? How we will mark active users? (Auxiliary) Archetype?
+
+If we can identify inactive HR persons, we can utilize this information when checking for accounts in target systems that should not be there (if we do not import inactive users from HR, we will see their accounts in target systems as simply orphaned).
+====
+
+[#connect-active-directory]
 == 3. Connect Active Directory
 
 Set up your Active Directory (or perhaps LDAP) identity resource in midPoint.
@@ -70,34 +78,39 @@ We do not want to change any data yet.
 
 *Correlate Active Directory accounts* with midPoint users.
 If you have employee numbers stored in your Active Directory, then use that for correlation.
-If you do not, use generated midPoint usernames (e.g. `jsmith` convention) as the correlation identifier to match (assumed) majority of the accounts to their corresponding owners in midPoint:
+Otherwise, use the generated midPoint usernames (e.g. `jsmith` convention) as the correlation identifier to match (assumed) majority of the accounts to their corresponding owners in midPoint:
+
 .. Run the _reconciliation_ task on AD resource (TODO! Something more user-friendly in the resource rather than creating a task?).
 .. Then have a look at the results in midPoint GUI (interactively).
 
 If you maintained your identifier assignment conventions reasonably well, most identities should correlate well.
 MidPoint will show you correlation statistics for your accounts.
+
 Of course, there will be problems of `John Smith` and `Josh Smith` with their `jsmith` and `jsmith42` accounts.
 Let's leave that for later.
 For now just focus on correlating the bulk of users.
+
 If you get 80-90% users to correlate well, you are done here.
 Activate the correlation action (TODO: turning on `UNLINKED` -> `link` reaction) and correlate the majority of your accounts now.
 
 Of course, you are doing this for the first time.
 Chances are that you have not got all your configuration exactly right at the first try.
 If you need to make configuration adjustments, just make them and re-run the reconciliation task.
-In case of deeper problem, it is still OK to scrap your AD resource and do it again (go back to step 3).
-Maybe you need to grab more data from HR feed (e.g. you have not mapped employee number to midPoint, did you?).
-In that case you still can purge all identity data from midPoint, adjust HR configuration and import everything again (go back to step 2).
+In case of deeper problem, it is still OK to scrap your AD resource and do it again (go back to <<connect-active-directory,step 3>>).
+Maybe you need to grab more data from HR feed (e.g. you may have forgotten to map employee number to midPoint).
+In that case you still can purge all identity data from midPoint, adjust HR configuration and import everything again (go back to <<import-users-from-hr,step 2>>).
 
 == 5. Clean Up The Accounts
 
+After most of the accounts have been correlated, we can handle the rest.
+There will be one or more categories of uncorrelated accounts to take care of.
+
 . *Clean up the orphaned accounts*:
-Review the list of orphaned accounts (accounts in Active Directory not having an owner in midPoint which should mean they are not related to HR data on which midPoint data is based) and identify the following cases:
+Review the list of orphaned accounts (the accounts in Active Directory not having an owner in midPoint which should mean they are not related to HR data on which midPoint data is based) and identify the following cases:
 
 * *orphaned accounts*: accounts which were not matched to midPoint data during correlation, and should not be in Active Directory. Review these accounts one by one and <<explicitly_marking_accounts_for_decommissioning,_mark_ the undesired ones as decommisioned>> to be deactivated eventually.
-* *system (service) accounts*: accounts which are not based on HR data, but are crucial for Active Directory. Review these accounts one by one and <<explicitly_marking_accounts_as_protected,_mark_ the system accounts as protected in midPoint>>.
-+
-The accounts need to be reviewed manually and actions can take place either in the AD (by its administrators), or in midPoint (e.g. by configuring the system accounts as protected).
+* *system (service) accounts*: accounts which are not based on HR data, but are crucial for Active Directory. Review these accounts one by one and either remove unnecessary ones from AD (by AD administrators) or <<explicitly_marking_accounts_as_protected,_mark_ the system accounts as protected in midPoint>> to ignore them.
+
 +
 TIP: You can clean up the data in several iterations.
 
