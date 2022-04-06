@@ -1,0 +1,232 @@
+= Missing IGA Features
+:page-nav-title: Missing Features
+:page-display-order: 900
+:page-toc: top
+
+This is somehow unstructured, unprioritized and very unofficial list of IGA features that are missing in midPoint.
+It is more in a form of design notes.
+There is no promise that any of these features will be developed.
+That has to be decided yet.
+
+== Expression Profiles
+
+*Problem*: Expressions are foundation of midPoint flexibility.
+It is pretty much certain that role engineers will need to use expressions in roles.
+However, allowing use of expressions in current midPoint means quite literally to give up the keys to the kingdom.
+In IGA, role engineers will *not* be almighty system administrator.
+This task will be delegated.
+Expressions need to be safe.
+
+*Solution*: finish expression profiles, apply them consistently to all types and kinds of expressions in the system.
+Pre-configure reasonable expression profiles to choose from (initial objects).
+
+*Thoughts*: Expressions can appear in queries in GUI.
+What do we do about them?
+Apply the usual expression profiles?
+Or we need to do anything special?
+
+
+== Concept of Application
+
+*Problem*: We have concept of _identity resource_.
+The resource is a technical mechanism to interact with identity stores.
+However, one identity store (and hence one resource) may be used to manage many applications.
+For example, AD or LDAP servers can be used as user databases for many small applications.
+
+Access to the application is usually managed by assignment specific AD/LDAP group(s) to the account.
+
+*Solution*: Create a concept of _application_ that will represent the many applications built on top of resources.
+The application can be an archetype of a _service_.
+Application roles should refer to the application (probably in a form of _inducement_ to the application).
+
+In a simple case, the _application_ itself can be used as a role.
+For simple application, the users can request access to the application itself (looking it up in catalog).
+We would not need any roles at all.
+
+*Thoughts*: Should resource itself be considered an _application_?
+This could simplify management of single-application resources.
+Also, even AD or LDAP are in fact application on their own, e.g. granting administration rights to the directory itself.
+
+This can be used to manage entitlement/role lifecycle.
+E.g. if an application is decommissioned, we know which roles and which groups we have to delete.
+
+For nice organizations that are maintaining application catalog, we might be able to automatically synchronize _applications_ from application catalog.
+
+== Entitlement (Application Role) Ownership Management
+
+*Problem*: Who is responsible for AD group `foobar`?
+We have too many AD/LDAP groups, with too many members.
+IDM admins have to idea what the group does, how it is used in applications or even in which applications it is used.
+
+*Solution*: There would be probabaly one application role for each AD group.
+We can manage ownership of that role.
+We can assign owner (user or organization) who is responsible for the role.
+We can add _application_ (service) as in inducement in the role to keep track of application that it is part of.
+
+We can pre-configure policies, such as "all application roles must have an owner".
+Then we can track policy violations and gradually remediate the situation.
+
+*Thoughts*: One group may be used by several application (e.g. group such as "all employees").
+In such case we can still create an "application" role to represent the group, although the role would refer to several applications.
+This might be a bit strange, but it can still work.
+
+
+== Differential Resources
+
+*Problem*: Indirect provisioning.
+We are provisioning to resource `X`.
+However, the accounts end up in resources `A` and `B` in the end, mostly due to complicated legacy stuff.
+We have read-write access to `X`, we have read-only access to `A` and `B`.
+We want to make sure that all accounts were correctly provisioned to `A` and `B`.
+More importantly, we want to check for orphaned accounts in `A` and `B`.
+We want to make all kinds of reports about differences between `X` and `A`/`B`.
+
+*Solution ideas*:
+
+* Create "dual-legged" roles.
+One leg will provision in `X`, the other leg will _check_ accounts in `A`/`B`.
+We will need to create a completely new _comparison_ mechanism or mode for assignments/inducements.
+
+* Should we create "dual resources", resources that are somehow bound together?
+
+* Could be use (provisioning) dependencies?
+We will need to extend the dependencies to support comparison, and extend reporting.
+
+* Could we use policy rules?
+E.g. a rule specifying that if an account exists in `A`, then related account should also exist in `X` (or vice versa).
+
+*Thoughts*: There will be a time delay problem.
+The account will appear in `A`/`B` some time aftet it was created in `X`.
+This may be quite a long delays (hours/days).
+Could we re-use the mechanism that we have developed for semi-manual resources?
+
+== Relation As Role Parameter
+
+See xref:role-engineering/parametric-access/[]
+
+== Relation Display Name In assignmentRelation
+
+*Problem*: The term _relation_ is very generic, it does not tell people much about its meaning.
+
+*Solution*: We can specify "display name" for the relation in `assignmentRelation` part of archetype definition.
+E.g. we can change "relation" to "membership class" for project orgs.
+We can change "relation" to "access level" for parametric access to application resources (see xref:role-engineering/parametric-access/[]).
+
+This would be step towards midPoint speaking more business-like language.
+
+*Thoughts*: Do we need also to change display names of relation values?
+E.g. do we want to display something else than "Owner" for `owner` relation?
+
+== Shadow Marking
+
+Marks for protected, decomissioning, remediation, etc.
+
+See also xref:/midpoint/methodology/first-steps/solution/[]
+
+== Role Mining
+
+*Problem*: We have imported thousands of application roles, representing AD groups, wiki spaces, application entitlements and whatnot.
+We have automatically made assignments of the application roles to users, representing current group membership.
+Now we have more roles than users, each user having tens or even hundreds of assignments.
+This is a nightmare to manage.
+We have to make order.
+We want to group meaningful combination of application roles to business roles.
+Then we want to assign business roles to users, instead of application roles.
+But, how do we do it?
+How do we find what combinations of application roles are useful?
+
+*Solution*: Develop a super artificial intelligent gizmo, and problem solved.
+Just kidding.
+We need a mechanism that will detect combinations of application roles that are often used.
+E.g. combinations that are used by more than 5 users.
+We can make a recommendation to IDM administrator to use that combination to create a business role.
+The admin has to review the roles, decide whether it makes sense, add name and description and "enact" the role.
+This has to be semi-manual semi-automatic process.
+
+This can (and must be) parametrized.
+It will probably be an iterative process, that involves manual tuning the parameters to get reasonable results.
+It will probably start with "monster" roles, created from assignments that huge number of users share.
+Then the process will be tuned to go for finer and finer roles, until we get to level of detail where the mining no longer makes sense.
+
+*Thoughts*: This may be helped if we could use information on organizational structure.
+E.g. if we know that people that work in the same department have very similar combination of application roles, we can be almost certain that this will make a good candidate for business role.
+
+The mining does not ever stop.
+There should be a continuous process that scans for frequent role combinations, and notifies administrators when such combination appears.
+As people will be requesting privileges themselves, it is almost certain that there will be some "entropy" to sort out.
+
+== Risk Modelling / Risk Assessment Automation
+
+TODO: Assign risk level to roles/services, midpoint will compute risk per user, overall risk, risk per org unit, with charts and trends.
+
+== Risk-Based Triggers
+
+TODO
+
+== Collaborative Role Engineering
+
+TODO
+
+== Role "Refactoring" Tools
+
+TODO: e.g. a tool to create business role from application roles,
+replacing existing assignments of application roles to assignment of business role.
+
+== Remediation
+
+TODO
+
+== Improved Access Request User Experience
+
+TODO
+
+== Improved Case Management (Approvals) User Experience
+
+TODO
+
+== Access Request: End-to-End Process
+
+TODO: manage/track/record the process from selection of access, through approvals, clockwork, provisioning, all the way to the last manual ticket being closed.
+
+== Manual Provisioning Instructions
+
+TODO: There should be way to specify additional instructions for manual provisioning,
+such as reference to a process, guide, exact sequence of steps, etc.
+Such instructions should be added to the ticket for manual provisioning in ITSM.
+
+The `objectType` definition in resource seems to be the right place to place the instructions.
+Do we need instructions in role definition?
+There may be additional manual steps to be done for each role (e.g. manually assign to a specific group, or add a privilege).
+
+Maybe we need "virtual" entitlements for manual resource, that the role engineer can choose from when constructing roles?
+
+
+== Access Request Recommenders
+
+Recommend better roles that the user has selected.
+E.g. user has selected application roles `A`, `B` and `C`.
+The recmmender should (very strongly) suggest to request business role `X` instead,
+as `X` is an exact combination of `A`, `B` and `C`.
+
+The recommended could also suggest role `Y`, even though it contains `A`, `B`, `C` and `D` - as long as the additional risk introduced by `D` is low.
+
+We need this to "motivate" (read: more-or-less _force_) users to select business roles instead of application roles.
+
+
+== Risk-Based Approval Assistance
+
+Approver should see the risk introduced by the roles that he is approving.
+Also, there should be a warning in case that the overall risk posed by the user _after approval_ is above reasonable level.
+
+Also, there should be an option to add additional approval step based on risk (in case of new roles are too risky, or cummulative risk of the user is too high).
+
+
+== New Pre-Defined Objects
+
+We need to add following new pre-defined objects (initial objects):
+
+* System configuration:
+
+** Reasonable set of expression profiles to choose from.
+We do not want IDM admin to manually list all safe Groovy packages to use.
+We have to do it.

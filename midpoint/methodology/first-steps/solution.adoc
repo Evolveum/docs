@@ -716,6 +716,7 @@ image::mappings-idea3.png[]
 Explicit "marks" in shadow, meaning that shadow is:
 
 * Protected: no modification possible, ignored by recon and other processes.
+Used for emergency administration accounts such as `root` or `administrator`.
 
 * Decommissioning: the account should be disabled/deleted eventually, but not just yet.
 (TODO: we need better name for this, "decomissioning" is ugly and hard to understand)
@@ -724,6 +725,11 @@ Explicit "marks" in shadow, meaning that shadow is:
 E.g. remediation case should be opened, several people have to discussus what to do with the account.
 It will probably end up as protected account, or be decomissioned.
 (Overlap with IGA)
+
+* Do not touch: (need better name) ignore this account.
+Do not apply any mappings, do not change anything.
+The account is a mess, we have to sort it out eventually, just not yet.
+For the time being we just want to keep status quo, maybe include it in reports, but we are not going to do anything else.
 
 The details are below:
 
@@ -941,7 +947,93 @@ However, maybe a condition when to use the entire `objectType` definition would 
 
 bug:MID-7759[]
 
-=== New Pre-Defined Objects
+=== Value Override
+
+*Problem*: My HR system claims that my name is `Jane Doe`.
+However, I have married few days ago, my name is `Jane Doe-Smith` now.
+I want this name in all my systems.
+If I change the name in midPoint, next recon with HR will reset it again.
+
+*Problem*: My HR system claims that my work position code is `X1333`.
+I this is a typo.
+The correct value is `X1334`.
+However, it will take at least an eternity for HR to fix their data.
+I cannot wait that long with my project.
+I want to fix the value manually.
+However, if I change it manually, next sync with HR will reset it to incorrect value again.
+
+*Problem*: My HR system claims that a person is active, because he has an active employment contract.
+However, I have suspended him an hour ago, because of ongoing security incident investigation.
+I want to disable this person in midPoint.
+However, if I change `administrativeStatus` manually, the value will reset after the next recon with HR.
+
+TODO: Solution
+
+=== Mapping Preview/Warnings
+
+*Problem*: I'm changing a mapping in resource or role.
+I'm not sure what am I doing.
+I would like to see what is an estimated impact of the change.
+I would like to see:
+
+* (Minimal) What objects will be affected.
+E.g. "This mapping may affect data in accounts on `Foo Bar` resource", "This mapping may data in `User` objects in midPont repository, which may have effect on accounts and other objects linked to the users."
+
+* How many objects will be affected.
+E.g. "This mapping may affect 42 users that have this role assigned."
+
+* How many objects will be affected (more details).
+E.g. "This mapping may affect 42 users that have this role assigned directly, and 123 users that have it assigned indirectly."
+
+* (Ideal) Which objects will be affected:
+E.g. "This mapping would affect following users: John Black, Bill White, Jack Green."
+
+TODO: Solution
+
+=== Safe and Clean Removal of Resource
+
+*Problem*: If I remove a resource, there are still leftovers in the repository: shadows and tasks.
+Especially the shadows will never get deleted, as they are practically invisible without the resource.
+However, first steps with midPoint may involve quiet a few create->fail->delete cycles with a resource.
+
+*Solution*: Safe delete functionality for resource, that would give an option to delete shadows and tasks as well.
+This should also remove user links to the deleted shadows.
+
+=== Simple Resource Wizard
+
+*Problem*: The current resource wizard is pretty much useless.
+We need something simpler, usable for first steps.
+
+*Solution*: Create wizard with just a few initial steps, just enough to connect to the resource and run connection tests.
+Then lead the user through configuration steps using "calls to action".
+This essentially changes the entire "resource details" page tests into one big wizard.
+
+=== Simple Connector Management
+
+*Problem*: Upgrading a connector means changing connector reference in all resources.
+This involves use of non-trivial wizard or even less trivial XML editing.
+
+*Solution*: The usual case seems to be "I want to use latest version of a connector".
+Maybe we need an option for resource to look up and find the latest connector version?
+Maybe we need automatic procedure to upgrade the connector to the latest version, except for upgrades across major versions.
+We expect to have almost perfect compatibility for connector minor versions.
+This can be done automatically.
+Upgrade to a new major version may have compatibility issues, this should probably still be manual.
+
+== Schema Improvements
+
+We may want to add new items to the standard schema:
+
+* User
+
+** Candidate name (candidate username): username that was generated without any iteration tokens, e.g. `jsmith`.
+This can be very useful in correlating existing user populations.
+
+** Date of birth, or maybe separate year of birth and birthday (they may have different data protection properties).
+
+** National ID number.
+
+== New Pre-Defined Objects
 
 We need to add following new pre-defined objects (initial objects):
 
@@ -951,12 +1043,53 @@ Following objects are questionable:
 
 * Auxiliary person archetypes: `Employee`, `Contractor`, `Student`
 
-== Things to be resolved later
+== TODO For Discussion
 
-* *TODO* what about self-service? If no roles are used (yet) in midPoint, we may need only password change; but if external authentication (e.g. AD) is used, we don't need password change via midPoint either...
-* *TODO* what about any automatically assigned roles?
+These things need to further discussed:
+
+* User lifecycle:
+
+** Do we recommend importing active users only, or do we import all users?
+
+** Do we recommend deleting inactivated (e.g. lay-offs) users from midPoint?
+Or do we recommend keeping them in midPoint in archived state?
+What about retired users?
+What about data erasure?
+
+* Correlation
+
+** Reversibility of outbound mappings.
+We have AD outbound mapping fullName -> cn.
+We would like to use this mapping to correlate users.
+Could we "reverse" this mapping to do it?
+Probably we can, if it is `asIs`.
+Can we do better with othe mappings?
+How to mark which attributes/mappings even use for correlation?
+Is it a good idea, anyway?
+
+* Resource definition changes
+
+** Merge `synchronization` section to `objectType` (design meeting for 4.6)
+
+** Single-valued `objectClass` in `objectType`
+
+* Self service and authentication.
+What about self-service?
+When is the right time for self-service?
+If no roles are used (yet) in midPoint, we may need only password change; but if external authentication (e.g. AD) is used, we don't need password change via midPoint either...
+
+* Credential management.
+When is the right time?
+When do we need it?
+
+* What about roles?
+We may use archetypes, of course, that is what we will recommend.
+However, we may need 2-5 basic roles even at this point.
+Will we assign all roles automatically, will admin assign them, or do we need access request process?
+** What about automatically assigned roles? How to assign them?
 ** This might be related to the source system as well - for conditions
 ** This requires role model to exist - at least application roles
+
 * *TODO* what about role requesting and approvals?
 ** Even if this is done outside midPoint initially, or via manual / ticket
 requests, the roles are represented by group membership or something similar
@@ -965,4 +1098,11 @@ in the target systems
 ** More specifically, midPoint should tolerate them
 * *TODO* multiple account intents
 * *TODO* related to notifications: process to warn users before their user expire (`validTo`)
+
+* Simplified resource wizard and mapping configuration
+
+== Things To Work On
+
+These things are clear on high level, we just need to add the details, or document them:
+
 

@@ -1,3 +1,16 @@
+---
+layout: connector-misc-page
+title: Java Connector Server
+nav-title: Java Connector Server
+support-status: supportable
+functionality-status: stable
+origin: connId
+support-provided-by: Evolveum
+development-status: active
+source-url-master: https://github.com/Evolveum/ConnId
+upkeep-status: green
+description: Java based ConnId server for remote connector execution
+---
 = Java Connector Server
 :page-wiki-name: Java Connector Server
 :page-wiki-id: 7307556
@@ -5,23 +18,31 @@
 :page-wiki-metadata-create-date: 2013-01-30T19:18:21.182+01:00
 :page-wiki-metadata-modify-user: mmacik
 :page-wiki-metadata-modify-date: 2020-01-13T08:49:19.794+01:00
-:page-upkeep-status: yellow
+:page-upkeep-status: green
 
 Java Remote Connector Server is using the same kind of connectors that midPoint itself is using.
-The Java Remote Connector Server is used in situations where a connector needs a local access to some resource to be able to work with it.
-It is usually used for connectors that require local access to files such as xref:/connectors/connectors/com.evolveum.polygon.csvfile.CSVFileConnector/[CSVFile Connector (legacy)]. This avoids the need to copy the file using FTP or a similar mechanism which is difficult to do right and it is quite error-prone (e.g. problems with partially downloaded files, error handling, atomicity, etc.) Java Remote Connector Server is also used in situations that require firewall traversal or securing insecure communication protocol.
+The Java Remote Connector Server is used in situations where a connector needs a local access to some resource to be able to
+work with it.
+It is usually used for connectors that require local access to files such as
+xref:/connectors/connectors/com.evolveum.polygon.csvfile.CSVFileConnector/[CSVFile Connector (legacy)].
+This avoids the need to copy the file using FTP or a similar mechanism which is difficult to do right and it is quite error-prone (e.g. problems with partially downloaded files, error handling, atomicity, etc.) Java Remote Connector Server is also used in situations that require firewall traversal or securing insecure communication protocol.
 
 
 == Requirements
 
 * Java SE 6 or later
-
+* (from connId 1.5.1.0) Java SE 11 or later
 
 == Download
 
 [%autowidth]
 |===
 | Version | Download | Sources | Note
+
+| 1.5.1.0
+| link:[TODO]
+| link:[TODO]
+|
 
 | 1.5.0.10
 | link:https://nexus.evolveum.com/nexus/repository/releases/net/tirasa/connid/connector-server-zip/1.5.0.10/connector-server-zip-1.5.0.10.zip[ZIP]
@@ -48,7 +69,7 @@ It is usually used for connectors that require local access to files such as xre
 You may also download from the link:http://www.forgerock.org/openicf.html[OpenICF download page].
 
 
-== Installation
+== Installation (until connId 1.5.1.0)
 
 . Download and unzip the binary distribution (or clone git repo with sources and build your own with `mvn clean install` command)
 
@@ -94,25 +115,112 @@ java.util.logging.FileHandler.append = true
 Connector Server will run on foreground/console.
 CTRL+C will stop it.
 
+== Installation (from connId 1.5.1.0)
+. Download and unzip the binary distribution (or clone git repo with sources and build your own with `mvn clean install` command)
+. After the project is built you should find a zip file under `/ConnId/java/connector-server-zip/target` named `connid-connector-server-java-CONNID-VERSION.zip`
+. Unzip this file in your preferred directory
+. The name of the resulting sub-directory is `connid-connector-server/` and it contains the following child directories:
+.. _bin_, which contains the connector server startup scripts
+.. _bundles_, a directory to which you copy the desired "connector.jar" files (connectors)
+.. _conf_, configuration properties are stored here
+.. _lib_, contains the logback configuration files and also a subdirectory with java libs which are leveraged by the connector server
+. To start the server itself you need to invoke one of the startup scripts in the "bin/" subdirectory
+.. For Linux environments execute the .sh script with following command parameters `./bin/ConnectorServer.sh -run -properties conf/connectorserver.properties`, also add `-setKey -key <server password here>` to change server password to other than default
+.. For Windows environments execute the .bat script with run command `bin\ConnectorServer.bat /run`, also add `/setKey  <server password here>` to change server password to other than default
+. After the script execution a "/logs" directory is created with .log generated based on the logback.xm configuration, the defaults are:
+.. Logging of the connector server related libraries is dumped to "ConnectorServer.log"
+.. Logging of the connector instances is dumped to "Connector.log"
+
+Connector Server will run on foreground/console.
+CTRL+C will stop it.
+
+== Server Properties (from connId 1.5.1.0)
+The connector server can be configured via the connectorserver.properties file which resides in the `connid-connector-server/conf` sub-directory.
+This contains the following parameters with defaults (each with a prefix of 'connectorserver.'):
+
+. *port* [default '8759'], the port on which to execute
+. *bundleDir* [default 'bundles'], path to directory where to find the connector bundles
+. *libDir* [default 'lib'], path to directory where to find the libraries needed at runtime
+. *usessl* [default 'false'], true if connector server should use SSL, please see "Configuring SSL"
+. *key* [default 'lmA6bMfENJGlIDbfrVtklXFK32s\=', e.g. 'changeit'], secure hash of the gateway key
+.. can be changed by the option '-setKey -key' (Linux) or '/setKey' (Windows) added to the script execution
+. *loggerClass* [default 'org.identityconnectors.common.logging.impl.JDKLogger'], logger used by the connector server, there are multiple options:
+.. `org.identityconnectors.common.logging.impl.JDKLogger`, [default] can be configured via logback.xml (jul-slf4j bridge)
+.. `org.identityconnectors.common.logging.impl.noOpLogger`, no logging
+.. `org.identityconnectors.common.logging.StdOutLogger`, logging to standard output
+.. `org.identityconnectors.common.logging.slf4j.SLF4JLog`, can be configured via logback.xml
+. *ifaddress* [optional and by default not used, e.g. 'localhost'], specific address to bind to
+
+== Logback configuration (from connId 1.5.1.0)
+Using either the JDKLogger [default] or SLF4JLog you are capable of configuring the logging properties via a logback.xml configuration file.
+The file is present in the `connid-connector-server/lib` subdirectory.
+This is a part of the default configuration present in the execution scripts ConnectorServer.sh a ConnectorServer.bat.
+In both cases it's a result of specifying the `-Dlogback.configurationFile=lib/logback.xml` java property.
+If this is removed by default the logback.groovy configuration file is used as default [as stated in logback documentation].
+
+I will describe the 'logback.xml' as this is the current default used during startup.
+
+There are three main appenders, "SERVER-FILE", "CONNECTOR-FILE" and "STDOUT".
+The "STDOUT" appender is used as the root appender, currently all unspecified packages dump messages with the "debug" level to this appender.
+"SERVER-FILE" contains log messages related to the server libraries itself.
+This is a file appender for the 'connid-connector-server/logs/ConnectorServer.log' file.
+The verbosity of most of the loggers in this appender are governed by the 'SERVER_LEVEL' logback property set by defatul to the "INFO" level.
+"CONNECTOR-FILE" is the appender used to dump the messages originating from the actions of identity connector bundles.
+This is dumped to the file 'connid-connector-server/logs/Connector.log'.
+this case you might need to add also a logger to the 'polygon' project packages to log connectors base on the midPoint polygon bundles.
+Following is an example to set the "polygon" packages to the "TRACE" level.
+In this case all connectors based on the packages will bump trace level logs into the log file.
+
+[source]
+----
+ <logger name="com.evolveum.polygon" level="TRACE" additivity="false">
+    <appender-ref ref="CONNECTOR-FILE"/>
+ </logger>
+----
+
+== Using connectors which require SSL
+In this case you need to set up a keystore file where you should store the needed ssl certificates.
+This does not require the change of the 'usessl' configuration property to true.
+What you additionally need to set up is the specification of the keystore file which should be used and it's properties in the execution scripts.
+See 'Passing Keystore Parameters to Connector Server'.
+
+Best results here were by using the keystore format PKCS12, the type JCEKS seemed to cause some issues.
 
 == Automatic Server Startup
 
 
 === Systemd
 
-Create user/group for running the service (e.g. connid, connid).
+Create user/group for running the service (e.g. connid-server, connid-server).
+The home directory of the connector server should be located in the directory "/opt/connid-connector-server" in case of this example.
+Also set the "/opt/connid-connector-server/bin/ConnectorServer.sh" script to be executable.
 This user must have access to the connector server files.
 
 Create systemd service file /etc/systemd/system/java-connector-server.service (as root) - inspiration from link:http://stackoverflow.com/questions/21503883/spring-boot-application-as-a-service/22121547#22121547[http://stackoverflow.com/questions/21503883/spring-boot-application-as-a-service/22121547#22121547]:
 
+*until connId 1.5.1.0*
 [source]
 ----
 [Unit]
 Description=Java Connector Server Service
 [Service]
-User=connid
+User=connid-server
 WorkingDirectory=/opt/connid-connector-server
 ExecStart=/usr/bin/java -Xmx256m -cp "lib/framework/connector-framework.jar:lib/framework/connector-framework-internal.jar:lib/framework/groovy-all.jar" org.identityconnectors.framework.server.Main  -run -properties conf/ConnectorServer.properties
+SuccessExitStatus=143
+[Install]
+WantedBy=multi-user.target
+----
+
+*from connId 1.5.1.0*
+[source]
+----
+[Unit]
+Description=Java Connector Server Service
+[Service]
+User=connid-server
+WorkingDirectory=/opt/connid-connector-server/
+ExecStart=/opt/connid-connector-server/./bin/ConnectorServer.sh -run -properties /opt/connid-connector-server/conf/connectorserver.properties
 SuccessExitStatus=143
 [Install]
 WantedBy=multi-user.target
@@ -333,7 +441,20 @@ Please do not forget to xref:/connectors/connid/1.x/connector-server/[configure 
 
 Error "Cannot recover key": Make sure that the key password in the keystore is the same as the keystore password.
 
+== Using remote connectors
+To integrate remote connectors to your midPoint instance we use a special type of object called *Connector Host*.
+This represents information about the connector server, specifically it represents a configuration which enables us to communicate with the remote server.
+
+When the connector host object is configured we are capable of executing via this object the action of connector discovery.
+This causes midPoint to request the remote connector server instance for information about possible connector bundles available at the remote location.
+With this information midPoint creates the connector object representation in its repository, containing oid's same as other objects in midPoint.
+You are then capable of using those or other attributes to specify the needed connector in your resource configuration.
+
+The created connector object will have the name of the connector host as a part of its own name.
+
+Some an example and more information about the connector host object can be found xref:/midpoint/architecture/archive/data-model/midpoint-common-schema/connectorhosttype/[here].
 
 == See Also
 
 * xref:/connectors/connid/1.x/connector-server/[Connector Server]
+* xref:/midpoint/architecture/archive/data-model/midpoint-common-schema/connectorhosttype/[Connector Host Type]
