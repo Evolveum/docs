@@ -40,13 +40,53 @@ Create new accounts for users. (Mappings only for create.)
 Leave existing accounts "as is".
 If your data are good, you may roll-out automatic account updates as well.
 This is the right time to suspend your legacy on-boarding/provisioning process (e.g. scripts or manual processes).
+Updates of existing accounts must be "tolerant", e.g. if access rights of the accounts are managed by another solution (requesting, approving, tickets etc.), midPoint must tolerate it until the access right management is moved to midPoint as well.
 
-TODO: in order to "create new accounts for users" we need to know fow who, i.e. we already need to have some conditions.
+TODO: in order to "create new accounts for users" we need to know for whom, i.e. we already need to have some conditions.
 Even if we don't have roles and simply assign accounts in AD.
-E.g. we may want to assign AD accounts for all active employees.
+E.g. we may want to assign AD accounts for all active employees. This might be part of default archetype.
 
 TODO where will administrator enter the condition(s) for automatic assignments? Certainly not using object template with XML...
 We cannot use role autoassignment, as we do not have any role yet.
+We can use inducements in archetype which is assigned for all HR people.
+But even this is tricky: certainly not former employees.
+So we might need multiple archetypes (Structural: Person; Auxiliary: Active; Inactive; Former).
+We will need to display it as well. Already tracked as bug:MID-7525[] (TODO no fix version in JIRA!).
+
+.Archetype-based idea from discussion with Radovan:
+====
+People coming from HR resource will have `Person` (structural) archetype assigned.
+
+Based on person status, additional auxiliary archetypes may be assigned, such as:
+
+* `Active Employee`
+* `Temporarily Inactive Employee`
+* `Former Employee`
+* `Archived Employee`
+
+The auxiliary archetypes will contain the inducements to account construction (if no roles are used).
+
+Assignment of `Active Employee` auxiliary archetype may create the accounts.
+
+Assignment of `Inactive Employee` or `Former Employee` auxiliary archetype must _replace_ the `Active Employee` auxiliary archetype assignment.
+These archetypes may not have any inducements at all.
+This, with configuration of "disable instead of delete" in AD resource will deactivate the accounts when the person state changes.
+
+`Archive Employee` archetype _may_ be used for archival purposes, if we can have lifecycle state change from `Former Employee` -> `Archive Employee` somehow automated (with GDPR-like data clean-up etc.).
+
+The archetype(s) (probably `Active Employee`) can be incrementally enhanced with more and more account inducement for joiners when new resources are integrated into the automation phase. (A recomputation of users may be needed.)
+
+*Advantage*: even when no roles are defined, archetypes are role-like objects.
+
+*Disadvantage*: definition of the archetypes and their assignments conditions are needed. Even if the structural archetype can be (later) assigned directly in the `<objectSynchronization>` element, this does not solve the auxiliary ones.
+
+TODO: maybe we need a declarative way of specifying the conditions for specific archetypes (also auxiliary) in the `<objectSynchronization>`? Or simply a copy/paste mapping (set of mappings) will be needed in the HR resource?
+
+TODO: *Auxiliary archetypes are not yet claimed to be supported* (according to xref:/midpoint/reference/schema/archetypes/configuration/[], probably missing documentation, tracked as bug:MID-7515[] (TODO no fix version in JIRA!)).
+This will be needed.
+We will need to display it as well.
+Already tracked as bug:MID-7525[] (TODO no fix version in JIRA!).
+====
 
 TODO: if we want to allow updates only for accounts created by midPoint (not linked during initial reconciliations), we need to have some additional information/metadata in the shadows.
 Maybe even some marking.
@@ -56,6 +96,8 @@ TODO: maybe start with reconciliation instead of Live Synchronization to allow t
 == Off-Boarding Automation (Deprovisioning)
 
 * TODO we need to distinguish when to do off-boarding by some conditions (i.e. account assignment should be unassigned when employee is inactive) - need to figure out the entire recommended user lifecycle.
++
+See the box above where archetypes are mentioned. This may be the solution.
 * TODO we prefer disabling users in midPoint rather than deleting, or even better: use lifecycle states
 * TODO archive midPoint users instead of just disabling?
 ** This would not be possible using synchronization reaction. If we could distinguish that that account should be considered `archived` in HR (e.g. via configured capability?) we could have a new situation + new reaction *NEW FEATURE REQUIRED*
@@ -68,6 +110,6 @@ This "disable instead of delete" should be pre-configured in the AD resource tem
 
 == Follow-Up Steps
 
-. *Automate scans* for orphaned accounts.
+. *Automate scans* for orphaned accounts with automatic reaction (or reporting/notification).
 
 . *Switch from batch mode to event-driven synchronization from HR*.
