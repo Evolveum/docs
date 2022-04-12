@@ -18,7 +18,7 @@ The risk to upgradeability is relatively low, as we have to keep DB data model (
 * *Improved default configuration*: pre-configure midPoint for the usual use-cases.
 How exactly?
 Better _samples_? Pre-configured _profiles_?
-** Resource mappings-related: we can prepare function libraries (see also below) with most-common code usable for mappings. Admin will simply select one of the functions.
+** Resource mappings-related: we can prepare function libraries (see also below) with most-common code usable for mappings. Admin will simply select one of the functions. New function can be added any time.
 
 * *Improved user experience*: How exactly? For who? Engineers? End users? How skilled? What use-cases?
 
@@ -146,7 +146,7 @@ If we have a known user (list of users) in midPoint and their corresponding acco
 Guessing correlation:
 
 . specify user in midPoint
-. specify account in AD (owned but not linked to that user in midPoint yet)
+. specify account in AD (which we assume to be owned by this user, but is not linked to that user in midPoint yet)
 . midPoint will check if there is one or more attributes that could be used for matching (ideally: 1:1)
 
 Guessing mappings:
@@ -161,8 +161,8 @@ We need the following types of report:
 
 . *What is in target system and is not in midPoint?* This allows detection of orphaned accounts, system accounts etc. This is more or less a reconciliation report.
 . *What is in midPoint but not in target system?* This allows detection of missing rules between midPoint and target system, e.g. missing conditions for automatic provisioning for certain populations etc. This is more or less a simulation report.
-* *TODO* but we won't have any automatic provisioning at the beginning. No automatic rules yet. This report may be more relevant for later phases...?
-. *What will midPoint change in the target system?* This allows detection of incorrect/missing mappings between midPoint and target system as well as between midPoint and source system. This is more or less a simulation report.
+* *TODO* but we won't have any automatic provisioning at the beginning. No automatic rules yet. But we might have archetypes with inducements. ? This report may be more relevant for later phases...?
+. *What will midPoint change in the target system?* This allows detection of incorrect/missing mappings between midPoint and target system as well as between midPoint and source system. This is more or less a *simulation report*.
 
 For all reports: how to execute actions (manual correlation etc.) from the reports?
 Using interactive pages a'la menu:Resource[Accounts]?
@@ -172,6 +172,8 @@ TODO: new idea based on M. Spanik's idea: side-by-side report. See <<side-by-sid
 ==== What is in target system (AD) and is not in midPoint?
 
 Implementation in midPoint: target system reconciliation + reconciliation report.
+The report can display information about the last reconciliation for the system and can confirm tha user wants to run the reconciliation now - before the report.
+(Or vice-versa, confirm that user is OK with the last reconciliation timestamp.)
 
 The report (ideally interactive in Resource/Accounts, exportable to Excel) should contain the following information:
 
@@ -182,6 +184,8 @@ Query:
 Columns:
 
 * Account identifier (TODO which one in case of AD? `dn` or `userPrincipalName`?)
+* Account status
+* Account mark
 * Situation
 ** (with some tooltip/help for administrators about meaning)
 ** (display also what would happen if this is not dry-run!!! e.g. account would be deleted (situations/reactions)
@@ -193,35 +197,44 @@ Columns:
 * *Candidate owner* (in case we have dry-run) (TODO maybe also indicate why it was matched?)
 ** Maybe rename `Owner` to `Matched user` or `MidPoint User` or something like that...
 * Pending operations *TODO not necessarily needed for this case - read-only reconciliation*
-* TODO: probably we want to display status of the owner/candidate owner
+* Status of the owner/candidate owner (probably part of the values of owner/candidate owner)
 
 .Example report
 |===
-|Account identifier TODO which one in AD?|Situation|Owner|Candidate owner
+|Account identifier TODO which one in AD?|Status|Mark|Situation|Owner|Candidate owner
 
 |jsmith@example.com
+|enabled
+|DECOMMISSION
 |UNMATCHED (tooltip: Account in target system without owner in midPoint)
 |(none)
 |(none)
 
 |jdoe@example.com
+|enabled
+|(none)
 |UNLINKED (tooltip: Account in target system with candidate owner in midPoint)
 |(none)
-|John Doe (jdoe)
+|John Doe (jdoe), disabled
 
 |jsmith24@example.com
+|enabled
+|(none)
 |LINKED (tooltip: Account in target system owned by midPoint user)
-|John Smith (jsmith24)
+|John Smith (jsmith24), enabled
 |(none)
 
 |jsmith48@example.com
+|enabled
+|DECIDE-LATER
 |DISPUTED (tooltip: Account cannot be correlated to one midPoint user)
 |
-John Smith (jsmith2) - 33%
+John Smith (jsmith2), enabled - 33%
 
-Joe Smith (jsmith7) - 33%
+Joe Smith (jsmith7), enabled - 33%
 
-Jack Smith (jsmith98) - 33%
+Jack Smith (jsmith98),disabled - 33%
+|(none)
 
 |===
 
