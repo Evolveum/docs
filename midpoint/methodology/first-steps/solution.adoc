@@ -737,6 +737,145 @@ Link for password reset will be sent to user's e-mail
 
 
 
+=== Lifecycle
+
+==== Keeping Old Identities
+
+We want to keep "old" identities in midPoint.
+Motivation:
+
+* we want to avoid identifier reuse.
+
+* we want to revive old accounts of users that are returning to the system (e.g. former employees).
+
+* we want to clearly see accounts that belong to former employees, to clearly see who is (was) the owner.
+
+Therefore, we would like to import both active and inactive identities from HR.
+We are going to distinguish them using `lifecycleState`.
+
+==== Lifecycle States
+
+|===
+| State | Description | Accounts | Assignments | Archetype | Notes
+
+| Proposed
+| Users that are being prepared for on-boarding.
+E.g. employees that will start working next month.
+| existing, disabled
+| present, active
+| present, active
+| We want accounts to exists, e.g. for mailbox to exist, so the new employee can receive instructions for their first days at work.
++
+Alternatively, maybe we want accounts to exist (which requires active assignments), but no project/org/group membership yet (which requires inactive assignments).
+What to do about it?
+
+| Active
+| Normal, active users.
+E.g. active employees.
+| existing, enabled
+| present, active
+| present, active
+|
+
+| Former +
+(Better name? `decommissioned`?)
+| Former user, no longer active.
+E.g. employee that left recently.
+| existing, disabled
+| present, inactive
+| present, active
+| We want to keep accounts and assignments.
+In case that a mistake was made and the employee was "fired" by mistake, it will be easy to re-activate the accounts and re-provision privileges.
+No (important) information should be lost.
++
+The HR data record (account) will probably still exist in this state.
++
+We would like to keep user in this state for some time (months, years).
+Then automatically transition to `archived` state.
++
+This is not well aligned with `deprecated` state, as deprecated objects are formally still active.
+Therefore we probably need this new state.
+
+| Archived
+| Very old users, almost forgotten.
+E.g. employees that left years ago.
+| non-existent (except for resources that do not support delete)
+| not present (deleted when entering this state)
+| not present (deleted when entering this state)
+| The purpose of this state is mostly to avoid identifier reuse.
+In some cases also as a data archive used to interpret OIDs in audit logs.
++
+Entering to this state will be probably triggered by two events: 1. HR account deleted, 2. rotting in `former` state for a long time.
++
+We probably want to reduce amount of data (GDPR) for archived identities, maybe to the very extreme (keeping only the identifier).
+However, this functionality may come later.
+
+|===
+
+==== Temporary Inactive Users
+
+E.g. sabbatical, maternal leave
+
+*OPEN QUESTION*
+
+How to handle these? Special lifecycle state?
+Or just use `administrativeStatus`?
+
+Perhaps we would like to reserve `administrativeStatus` for manual "override" by IDM admin.
+Maybe we want automatic processes to use lifecycle only (and from/to dates, of course).
+
+For temporarily inactive users we want:
+
+* accounts should exist, disabled
+
+* assignments present, inactive
+
+* archetype present, active
+
+* Keep all user and account data
+
+* How about organizational membership?
+
+==== Ideas and Questions
+
+Pre-define out-of-box configuration:
+
+* Disable instead of delete for accounts.
+Maybe create a simplified "checkbox" configuration option for this, instead of writing activation expressions.
+
+* Delayed delete for accounts?
+Will we need this?
+Or will we handle this with lifecycle states (former->archived)?
+
+We may still prefer immediate delete of accounts, or delayed delete with a very short interval (few days) for resources that have expensive licenses.
+Deleting accounts early can save us a lot of money.
+
+Things to support when changing lifecycle states:
+
+* Setting whether user is considered active (enabled) or inactive (disabled) in this state.
+This affects `effectiveStatus`.
+
+* Setting whether to consider assignments active/inactive.
+Select assignments, e.g. we may want archetype assignment to be active, other assignemts inactive.
+
+* Removal of assignments. E.g. when entering `archived` state.
+
+* Change of archetype. Lifecycle state change seems to be ideal moment for automatic archetype change.
+We can do data minimization, which can play nice with change in archetype schema.
+
+How can we do "onboarding only? How to avoid deprovisioning users?
+
+* Bad idea: do not put users in former/archived states.
+This is bad, because I will not have information which users are supposed to be active.
+All users will look like active users to me.
+
+* Better idea: re-configure lifecycle former/archived lifecycle states to do nothing.
+I can still see whether user is active or not, but user's account will be active.
+I can run a report, predicting how many accunts will be disabled if I choose to automate offboarding.
+
+How can do offboarding only for "new" users (e.g. users that were offboarded yesterday), but leave other users unchanged?
+Is this even a reasonable thing to do?
+
 == Missing Features
 
 List of features missing in midPoint, and ideas for improvements.
