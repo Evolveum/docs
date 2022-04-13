@@ -1,0 +1,78 @@
+= Resource Schema Improvements in 4.6
+
+Minutes from the design meetings.
+
+== 13. 4. 2022
+
+xref:/midpoint/devel/design/resource-schema-improvements-4.6/2022-04-13-preparation.odp[Preparation (Libre Office Impress)]
+
+=== Conclusions So Far
+
+1. The `schemaHandling` and `synchronization` sections (i.e. resource object type definition and
+its synchronization definition) can be assumed to be 1:1.
+
+2. The `synchronization` section will be split into constituent parts that will be put directly
+into the object type definition:
+
+* `correlation` (currently `synchronization/correlationDefinition`) that specifies how the correlation is to be done,
+
+* `classification` that delineates the set of resource objects covered by the particular object type
+(#TODO a better name is to be found: `objects`? `delineation`? `set`? `boundary`? ...#)
+
+** Instead of the current `condition`, the preferred way how to specify the objects will be `baseContext` (optional)
+with `filter` (optional). This will allow using the specification not only to classify an existing shadow, but also to
+search for all shadows of the specific object type. (The existing `condition` will be retained for backwards compatibility
+and for extra complex situations.)
+
+=== Other Interesting Ideas
+
+These have got substantial but not definite level of agreement.
+
+1. The `reaction` specification will be no longer bound to clockwork-based actions. We may specify
+things like "create a case" (correlation, data fixing, ...), "link/unlink the owner quickly"
+(i.e. without involving), maybe "notify", "set policy situation", and so on.
+
+2. Idea for correlators: They could work with more implicit configuration, like setting some
+attributes as relevant for correlation. (E.g. marking `employeeNumber` as the definite correlation
+property, and `cn` as a hint.) Individual correlators - when enabled - would look for this information,
+and automatically take them into account. E.g. filter-based correlator would concentrate on `employeeNumber`,
+and ignore `cn`, while fuzzy correlator would consider both, with appropriate weights.
+
+3. Idea for mappings: They would no longer represent a transformation. Instead, a mapping will
+denote a _relation_ between (e.g.) resource object attribute and focal object property. And this
+relation will be used for data transformation (inbound and/or outbound, with specified strength),
+for data comparison (~ preview mode?), for correlation, and so on. (Question: what about relations
+that are not 1:1?) Note: "boxed" mappings (built-in or custom-created ones) will provide support
+for all - or selected - of these uses.
+
+4. Conditions in classification would be (maybe!) no longer required to be disjunctive. Maybe
+the missing condition should be interpreted as "if none of the others apply". Note that this could
+be a problem with the forward use of the conditions, i.e. when constructing resource object query
+to obtain all objects of given type.
+
+5. It would be good to have an ability to specify different reactions based on the situation
+(e.g. on whether account is enabled or disabled).footnote:[We think that distinguishing such
+cases using `intent` is a bit overkill. E.g. because of the need to re-classify after such changes.]
+Currently, it's possible do to that using conditions. But maybe we'd need something more flexible
+(like an expression that would provide the reaction?)
+
+6. Open question (in addition to ones presented in the invitation): How to validate account data
+before executing the synchronization? How to avoid synchronization of malformed accounts? This
+points to "shadow marking" functionality.
+
+7. Another additional open question: When listing accounts with unfinished classification rules
+we may obtain a lot of misclassified shadows. There should be something to avoid this, or to
+clean up the mess simply and quickly.
+
+8. It looks like the "private functionality" for types (see the intro presentation) may be
+a good idea; to avoid code duplication in mappings. However, Java code is maybe not realistically
+to be expected for the majority of engineers. Some useful tricks were suggested, e.g. auto-generating
+Groovy getters/setters from the extension schema.
+
+9. Also, mapping chaining for inbounds might be relevant, to avoid duplication or the need
+to "M:N" mappings (multiple account attributes to multiple focus attributes).
+
+=== Next Meeting
+
+*Topic:* Inheritance of type definitions. (Additionally: resource templates.) +
+*Time:* 25. 4. after devel stand-up (preliminary)
