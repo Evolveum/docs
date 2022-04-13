@@ -134,6 +134,7 @@ and `givenName`)
 . Save resource
 . Run reconciliation (no outbound mappings activated yet)
 . Run reconciliation report / review accounts using midPoint
+. Mark accounts which cannot be processed correctly at the moment. The marking must be displayed in the reconciliation report.
 
 The *Reconciliation* / *reconciliation report* steps can be repeated several times to iteratively fix the content in midPoint.
 
@@ -162,7 +163,7 @@ We need the following types of report:
 . *What is in target system and is not in midPoint?* This allows detection of orphaned accounts, system accounts etc. This is more or less a reconciliation report.
 . *What is in midPoint but not in target system?* This allows detection of missing rules between midPoint and target system, e.g. missing conditions for automatic provisioning for certain populations etc. This is more or less a simulation report.
 * *TODO* but we won't have any automatic provisioning at the beginning. No automatic rules yet. But we might have archetypes with inducements. ? This report may be more relevant for later phases...?
-. *What will midPoint change in the target system?* This allows detection of incorrect/missing mappings between midPoint and target system as well as between midPoint and source system. This is more or less a *simulation report*.
+. *What will midPoint change in the target system?* This allows detection of incorrect/missing mappings between midPoint and target system as well as between midPoint and source system. This is more or less a *simulation report* but beyond the current implementation of thresholds. We need to preview the changes.
 
 For all reports: how to execute actions (manual correlation etc.) from the reports?
 Using interactive pages a'la menu:Resource[Accounts]?
@@ -259,7 +260,7 @@ Visualisation notes:
 
 NOTE: This report should be executed after the reconciliation to have information about existing state.
 
-TODO Implementation in midPoint: ? recomputation limited to target system (AD) with simulation mode ? Special mapping mode?
+TODO Implementation in midPoint: ? recomputation limited to target system (AD) with simulation mode ? Special mapping mode? It seems to be similar to the simulation of changes which midPoint is about to make.
 
 The report (ideally interactive in Resource/Accounts, exportable to Excel) should contain the following information:
 
@@ -308,54 +309,132 @@ TODO Implementation in midPoint: ? recomputation limited to target system (AD) w
 
 TODO Or could this perhaps use passive caching (reconciliation will be executed before this report anyway)?
 
-The report (ideally interactive in Resource/Accounts, exportable to Excel) should contain the following information:
+The report (ideally *interactive* in Resource/Accounts, exportable to Excel) should contain the following information:
 
-Query: ? TODO ? focus oriented
+
+
+* just like reconciliation report (working with Shadows of certain resource)
 
 Columns:
 
+* Account identifier (TODO which one in case of AD? `dn` or `userPrincipalName`?)
+* Account status
+* Account mark
+* Situation
+** (with some tooltip/help for administrators about meaning)
+** (display also what would happen if this is not dry-run!!! e.g. account would be deleted (situations/reactions)
+* *TODO what about identity matching? Some kind of probability...? And reason?*
+** *TODO* if situation is `DISPUTED`, we could perhaps indicate potencial owners in the report?
+** *TODO* if situation is `DISPUTED`, *Change owner* action should perhaps use the potential owners instead of showing all users in midPoint?
+* Intent *TODO may be confusing for beginners!*
+* Owner
+* *Candidate owner* (in case we have dry-run) (TODO maybe also indicate why it was matched?)
+** Maybe rename `Owner` to `Matched user` or `MidPoint User` or something like that...
+* Pending operations *TODO not necessarily needed for this case - read-only reconciliation*
+* Status of the owner/candidate owner (probably part of the values of owner/candidate owner)
 
+.Example report
 |===
-|User name |Full name |User status|Account identifier|Changes to be made|Changes
+|Account identifier TODO which one in AD?|Status|Mark|Situation|Owner|Owner status|Change type|Number of changed attributes|Change
 
-|0001
-|Joe Doe
-|Enabled
-|jdoe
-|To be updated
-|%sn
-
-|0002
-|Joe Blue
-|Enabled
-|jblue
-|No change
+|jsmith@example.com
+|enabled
 |
-
-|0123
+|LINKED (tooltip: Account owned by midPoint user)
 |John Smith
-|Enabled
-|jsmith
-|To be updated
+|enabled
+|Update
+|1
+|> Family name
+
+|jsmith24@example.com
+|enabled
 |
-%dn
+|LINKED (tooltip: Account owned by midPoint user)
+|Jeremiah Smith
+|enabled
+|Update
+|1
+|> Distinguished Name
 
-%sn
 
-+MemberOf
+|jsmith4@example.com
+|enabled
+|##REVIEW_LATER##
+|LINKED (tooltip: Account owned by midPoint user)
+|Jebediah Smith
+|enabled
+|Update
+|4
+|> Distinguished Name
 
-%description
+> Family Name
+
++ Member Of
+
+> Description
+
 |===
 
 Legend (example):
 
-* *+*: attribute value to be added (multi-value attribute)
-* *%*: attribute value to be replaced (single-value attribute)
-* *-*: attribute value to be removed (multi-value attribute)
+* *>*: attribute value to be replaced (single-value attribute)
+* *+*: attribute value to be added (multi-value attribute, e.g. groups)
+* *-*: attribute value to be removed (multi-value attribute, e.g. groups)
 ** Maybe we could show at most X changes, to display more, administrator could "zoom in" by clicking. (Would need to be interactive report.)
-** Maybe we could display even the values, but that would require multiple "zoom in". (Would need to be interactive report.)
+** We should display even the values, but that would require multiple "zoom in". (Would need to be interactive report.)
 
-Some kind of statistics, which account attributes are being added/deleted/changed to see the trends.
+Example of zoomed info for specific user from the above table:
+
+* Account identifier: jsmith4@example.com
+* Status: enabled
+* Mark: ##REVIEW_LATER##
+* Situation: LINKED (Account owned by midPoint user)
+* Owner: Jebediah Smith
+* Owner status: enabled
+* Change status: Update (Account will be updated by midPoint) ##but the operation will be ignored due to REVIEW_LATER marking##.
+
+|===
+|Attribute|Old value|New value
+
+|Distinguished name
+|cn=Jebediah sMith,ou=. . .
+|cn=Jebediah Smith,ou= . . .
+
+|Family Name
+|sMith
+|Smith
+
+|Description
+|ticket 1234
+|ticket 0938
+
+|Member Of
+a|
+* cn=Group1, . . .
+a|
+* cn=Group1, . . .
+* cn=Group 9, . . .
+
+|===
+
+
+
+Some kind of statistics, which account attributes are being added/deleted/changed to see the trends, example:
+
+|===
+|Attribute|Number of changes
+
+|Distinguished Name|109
+|Family Name|109
+|Account status|80
+|Member of|75
+|Description|10
+|===
+
+*TODO would it be possible to click the list of changes and preview the changes related for the attribute/resource for all affected accounts? Interactively.*
+
+The reports should be interactive and allow operations - e.g. mark the account.
 
 Visualisation notes:
 
@@ -737,14 +816,17 @@ Used for emergency administration accounts such as `root` or `administrator`.
 (TODO: we need better name for this, "decomissioning" is ugly and hard to understand)
 
 * Remediation: the account has to be manually remediated.
-E.g. remediation case should be opened, several people have to discussus what to do with the account.
-It will probably end up as protected account, or be decomissioned.
+E.g. remediation case should be opened, several people have to discuss what to do with the account.
+It will probably end up as protected account, or be decommissioned.
 (Overlap with IGA)
+** This may be needed for source system account as well to ignore changes coming from that account (e.g. in case the source system has invalid data which cannot be fixed immediately.)
 
 * Do not touch: (need better name) ignore this account.
 Do not apply any mappings, do not change anything.
 The account is a mess, we have to sort it out eventually, just not yet.
 For the time being we just want to keep status quo, maybe include it in reports, but we are not going to do anything else.
+** This may be needed for source system account as well to ignore changes coming from that account (e.g. in case the source system has invalid data which cannot be fixed immediately.)
+
 
 The details are below:
 
@@ -801,7 +883,7 @@ We would not delete all accounts anyway, as doing so would ruin manually-correla
 
 *Thoughts*: Should we still report accounts marked for decommissioning as orphaned accounts?
 As long as they are active, they still pose a security risk.
-Therefore we should report them.
+Therefore, we should report them.
 However, they are "already being processed".
 Therefore we should not report them.
 
