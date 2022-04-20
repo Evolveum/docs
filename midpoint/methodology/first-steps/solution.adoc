@@ -755,6 +755,7 @@ We are going to distinguish them using `lifecycleState`.
 
 ==== Lifecycle States
 
+[%autowidth]
 |===
 | State | Description | Accounts | Assignments | Archetype | Notes
 
@@ -765,7 +766,7 @@ E.g. employees that will start working next month.
 | present, active
 | present, active
 | We want accounts to exists, e.g. for mailbox to exist, so the new employee can receive instructions for their first days at work.
-+
+
 Alternatively, maybe we want accounts to exist (which requires active assignments), but no project/org/group membership yet (which requires inactive assignments).
 What to do about it?
 
@@ -777,22 +778,34 @@ E.g. active employees.
 | present, active
 |
 
-| Former +
-(Better name? `decommissioned`?)
+| Suspended
+| User that we still have an active relation with, however the relation is temporarily suspended.
+E.g. leave of absence, such as maternal leave or sabbatical.
+Also, project which is on hold, role undergoing urgent security review, device marked as "forgotten at home" or "in repair", etc.
+| existing, disabled
+| present, inactive
+| present, active
+| We want to keep accounts and assignments, to make sure we can easily "resume" the user.
+It is very likely that the user will be re-activated eventually.
+Question: do we want this user to be shown as part of a team or orgunit?
+
+| Inactive
 | Former user, no longer active.
 E.g. employee that left recently.
+Also, recently-finished project, decommissioned role, device marked as "lost", etc.
 | existing, disabled
 | present, inactive
 | present, active
 | We want to keep accounts and assignments.
 In case that a mistake was made and the employee was "fired" by mistake, it will be easy to re-activate the accounts and re-provision privileges.
 No (important) information should be lost.
-+
+It is very unlikely that a user in this state will be re-activated (however, it may happen).
+
 The HR data record (account) will probably still exist in this state.
-+
+
 We would like to keep user in this state for some time (months, years).
 Then automatically transition to `archived` state.
-+
+
 This is not well aligned with `deprecated` state, as deprecated objects are formally still active.
 Therefore we probably need this new state.
 
@@ -804,39 +817,22 @@ E.g. employees that left years ago.
 | not present (deleted when entering this state)
 | The purpose of this state is mostly to avoid identifier reuse.
 In some cases also as a data archive used to interpret OIDs in audit logs.
-+
+
 Entering to this state will be probably triggered by two events: 1. HR account deleted, 2. rotting in `former` state for a long time.
-+
+
 We probably want to reduce amount of data (GDPR) for archived identities, maybe to the very extreme (keeping only the identifier).
 However, this functionality may come later.
 
 |===
 
-==== Temporary Inactive Users
 
-E.g. sabbatical, maternal leave
-
-*OPEN QUESTION*
-
-How to handle these? Special lifecycle state?
-Or just use `administrativeStatus`?
-
-Perhaps we would like to reserve `administrativeStatus` for manual "override" by IDM admin.
-Maybe we want automatic processes to use lifecycle only (and from/to dates, of course).
-
-For temporarily inactive users we want:
-
-* accounts should exist, disabled
-
-* assignments present, inactive
-
-* archetype present, active
-
-* Keep all user and account data
-
-* How about organizational membership?
 
 ==== Ideas and Questions
+
+Suspended users:
+
+* How about organizational membership? It seems that we seem to need different behaviour for organization membership (assignment) and (role-like) assignments, if we want to e.g. display also inactive users in the organizational structure.
+** Could we use a concept similar to "weak construction"? I.e. if we want people to actively assigned to organizations, the assignments/inducements may have some option for that to override the lifecycles?
 
 Pre-define out-of-box configuration:
 
@@ -846,11 +842,12 @@ Maybe create a simplified "checkbox" configuration option for this, instead of w
 * Delayed delete for accounts?
 Will we need this?
 Or will we handle this with lifecycle states (former->archived)?
+What if we need to use this feature only for some (not all) accounts?
 
 We may still prefer immediate delete of accounts, or delayed delete with a very short interval (few days) for resources that have expensive licenses.
 Deleting accounts early can save us a lot of money.
 
-Things to support when changing lifecycle states:
+Things to support when defining lifecycle states:
 
 * Setting whether user is considered active (enabled) or inactive (disabled) in this state.
 This affects `effectiveStatus`.
@@ -863,7 +860,10 @@ Select assignments, e.g. we may want archetype assignment to be active, other as
 * Change of archetype. Lifecycle state change seems to be ideal moment for automatic archetype change.
 We can do data minimization, which can play nice with change in archetype schema.
 
-How can we do "onboarding only? How to avoid deprovisioning users?
+* Archetype-specific display name for state?
+E.g. `inactive` employee should be displayed as "Former employee", whereas `inactive` project should be displayed as "Finished project".
+
+How can we do "onboarding only"? How to avoid deprovisioning users?
 
 * Bad idea: do not put users in former/archived states.
 This is bad, because I will not have information which users are supposed to be active.
@@ -871,10 +871,43 @@ All users will look like active users to me.
 
 * Better idea: re-configure lifecycle former/archived lifecycle states to do nothing.
 I can still see whether user is active or not, but user's account will be active.
-I can run a report, predicting how many accunts will be disabled if I choose to automate offboarding.
+I can run a report, predicting how many accunts will be disabled before I choose to automate offboarding.
 
-How can do offboarding only for "new" users (e.g. users that were offboarded yesterday), but leave other users unchanged?
+How can do offboarding only for "new" users (e.g. users that were offboarded yesterday), but leave other users unchanged? I can imagine to distinguish users based on "marks" (the marks would be set during the initial import, but not during the later synchronizations.)
 Is this even a reasonable thing to do?
+
+=== "Categories" TODO better name
+
+We should have some categories of information based on either importance regarding provisioning or governance/security. Or we can have both.
+
+The categories should be distinguishable by CSS styling, e.g. colors.
+
+==== Focus attributes
+
+Some focus attributes may be more sensitive than others, e.g. GDPR and data cleanup.
+We should have a way how to declare them (certainly not in schema, user must be able to override) and define e.g. colors.
+
+Example: showing former employees (even archived) with present private e-mail (`extension/mail`) will be indicated.
+
+Example: data cleanup for archived people with any of the sensitive attributes present.
+
+==== Resource attributes
+
+===== Correlation
+
+Attributes should be selectable as candidates for correlation before the correlation takes place.
+
+Example: `userPrincipalName` and `employeeNumber` AD attributes are marked as correlation attributes. Maybe even with order/precedence.
+
+===== Sensitivity
+
+Some resource account attribute may be more sensitive/important than others.
+E.g. if reconciliation attempts to change `userPrincipalName`, this is more serious than changing `description`.
+Report should show this in red colors.
+
+Example: reconciliation report with simulation will indicate if sensitive attribute values are being changed.
+
+This could be even used for thresholds: if there is more than X changes of sensitive attributes, stop the task.
 
 == Missing Features
 
