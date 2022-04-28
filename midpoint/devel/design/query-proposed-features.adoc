@@ -1,0 +1,183 @@
+= Query API: Proposed Features for 4.6
+
+WARNING: This is feature proposal for midPoint 4.6, it intention is to discuss
+proposed solutions and resulting implementation may differ.
+
+
+== Match on reference and it's target properties at same time
+
+Filters currently can match reference itself based on it's parameters such
+as `oid`,`relation` and `type` or we can use dereferencing paths (paths containing `@`)
+to match properties on referenced objects, but we can not match on both.
+
+===  Design proposal
+Adding option for `target` inside ref filter would allow us to write filters
+which targets both reference itself and target.
+
+----
+<query>
+    <filter>
+        <ref>
+            <path>assignment/targetRef</path>
+            <value relation="default"></value>
+            <target>
+                <equal>
+                  <path>name</path>
+                  <value>a-test-4</value>
+                </equal>
+            </target>
+        </ref>
+    </filter>
+</query>
+----
+
+In Axiom Query this could be:
+
+----
+assignment/targetRef matches (
+  relation = "default"
+  and target matches (
+    name = 'a-test-4'
+  )
+)
+----
+
+`target` would allow any valid filter to be executed. Most common use would be
+probably use with `type` filter (to allow matching on target type specific properties),
+but other filters could be used.
+
+In short ref filter without target filter specified will behave as before,
+once target filter it is specified it will work as join filter.
+
+=== Open Question: target exists filter?
+
+Interestingly this allows to construct filter like:
+  `assignment/targetRef matches (target not exists)`
+Note that similar filter could be created using path `assignment/target/@ not exists`
+Should this filter match any assignment, which target does not exist?
+
+
+
+== JOIN filter: referencedBy
+
+.Related JIRA Issues
+MID-4343 Seach: join::
+Support searches that "join" two object types. For example allow to search all roles, that are assigned to particular user.
+
+From description it seems, that we want to find target based on criteria on object which references it - this inverts ref filter relation.
+
+In order for such filter to work user needs to specify following:
+
+* Reference which is used for reverse search, this could be expressed as `path` to reference
+* Criteria which referencing object must match.
+
+
+
+.YAML format
+----
+query:
+  type: RoleType
+  filter:
+    referencedBy:
+      type: UserType
+      path: assignment/targetRef
+      target:
+        exists:
+          equal:
+            path: archetypeRef/@/name
+            value "System User"
+----
+
+----
+. referencedBy (
+      type = UserType
+      and path = assignment/targetRef
+      and target matches (
+        archetypeRef/@/name = "System User"
+      )
+)
+----
+
+NOTE::
+This may looks cumbersome, but `type` and `path` and `target` filter properties
+are neccessary. `path` specifies which reference is used for search. `target` provides
+additional properties (could be empty to match all). `type` is neccessary to provide
+schema for parsing `path` and `target` filter, also specify which data should be searched.
+
+
+Alternative proposed names: `refBy` , `refFrom`, `referencedFrom`, `inverseRef`
+
+
+The proposed syntax based on existing Axiom Query triplets may be bit less readable,
+but allow for faster prototyping.
+
+=== Default type
+
+The syntax could be simplified by having sane defaults (defined by Midpoint, not Prism)
+such as `type` could be `AssignmentHolderType`, which allows to use most properties
+for `matches` without need to specify type.
+
+.Axiom example
+----
+. referencedBy (
+  path = assignment/targetRef
+  and target matches (name = "SuperRole")
+)
+----
+
+=== Alternative: target based paths?
+
+Should we allow also target specific paths, for simplified syntax?
+
+.Axiom example
+----
+. referencedBy (
+  path = assignment/targetRef
+  and type = RoleType
+  and target/name = "SuperRole"
+)
+----
+
+=== Alternative: Ommiting target keyword?
+.Axiom example
+----
+. referencedBy (
+  @path = assignment/targetRef
+  and @type = RoleType
+  and name = "SuperRole"
+)
+----
+
+
+
+== Default Matching Rule / matching rules upgrade
+
+.Related JIRA Issues
+
+
+
+we already have schema annotation `a:matchingRule`, which allows to specify matching rule for property, currently this is used in provisioning for normalization of values.
+
+We can extend support of this to Query implementations, that implementation will get default `matchingRule` from property definition (which is defined by a:matchingRule), or we could define new property to not encroach on current use of `a:matchingRule`.
+
+This solution would require:
+
+* changes to `*FilterImpl` classes - eg. `getMatchingRule` will return `definition.getMatchingRule`
+ if matching rule is not defined in xml/axiom.
+* changes to schema XSD - items, where matching rules should be applied, should be annotated using `a:matchingRule`.
+
+Additionally we should explore allowing specificiation of default `matchingRule` on simple type definitions to
+facilitate future use-cases, where this behaviour should be specified by value type (e.g introduction of types such as LdapDN, UUID).
+
+The algorithm for selection of matching rule for search would be prefer most local definition, eg:
+
+. If filter specifies matching rule explicitly use it
+. If property definition specifies matching rule use it
+. If type definition (if supported) specifies matching rule use it
+. Use implementation specific matching rule (eg. default in database)
+
+== valueIn filter?
+
+This filter allows matching left value against set of right values and returns
+true if any of left values is contained in right values (difference to equals
+is if right side is list, any value match returns true).

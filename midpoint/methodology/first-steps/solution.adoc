@@ -18,7 +18,7 @@ The risk to upgradeability is relatively low, as we have to keep DB data model (
 * *Improved default configuration*: pre-configure midPoint for the usual use-cases.
 How exactly?
 Better _samples_? Pre-configured _profiles_?
-** Resource mappings-related: we can prepare function libraries (see also below) with most-common code usable for mappings. Admin will simply select one of the functions.
+** Resource mappings-related: we can prepare function libraries (see also below) with most-common code usable for mappings. Admin will simply select one of the functions. New function can be added any time.
 
 * *Improved user experience*: How exactly? For who? Engineers? End users? How skilled? What use-cases?
 
@@ -87,6 +87,9 @@ We probably want both, but to what degree? What we will be recommending? (method
 . Import a single resource account with <<import_single_account_preview,simulation option>> to see how the user would be created. Confirm the import or go back to resource configuration if needed.
 . Import accounts from resource
 
+Import all "accounts" (records) from the HR resource, both active and inactive ones.
+Use lifecycle states to distinguish between active and inactive users.
+
 The *Import* step can be repeated several times to iteratively fix the content in midPoint.
 If correlation configuration is changed during the iterations, the existing midPoint data may need to be purged (shadows) using the feature *Delete all identities* (*##NEW FEATURE REQUIRED##*: put this somewhere in resource configuration with proper warning/confirmation)
 
@@ -134,6 +137,7 @@ and `givenName`)
 . Save resource
 . Run reconciliation (no outbound mappings activated yet)
 . Run reconciliation report / review accounts using midPoint
+. Mark accounts which cannot be processed correctly at the moment. The marking must be displayed in the reconciliation report.
 
 The *Reconciliation* / *reconciliation report* steps can be repeated several times to iteratively fix the content in midPoint.
 
@@ -146,7 +150,7 @@ If we have a known user (list of users) in midPoint and their corresponding acco
 Guessing correlation:
 
 . specify user in midPoint
-. specify account in AD (owned but not linked to that user in midPoint yet)
+. specify account in AD (which we assume to be owned by this user, but is not linked to that user in midPoint yet)
 . midPoint will check if there is one or more attributes that could be used for matching (ideally: 1:1)
 
 Guessing mappings:
@@ -161,8 +165,8 @@ We need the following types of report:
 
 . *What is in target system and is not in midPoint?* This allows detection of orphaned accounts, system accounts etc. This is more or less a reconciliation report.
 . *What is in midPoint but not in target system?* This allows detection of missing rules between midPoint and target system, e.g. missing conditions for automatic provisioning for certain populations etc. This is more or less a simulation report.
-* *TODO* but we won't have any automatic provisioning at the beginning. No automatic rules yet. This report may be more relevant for later phases...?
-. *What will midPoint change in the target system?* This allows detection of incorrect/missing mappings between midPoint and target system as well as between midPoint and source system. This is more or less a simulation report.
+* *TODO* but we won't have any automatic provisioning at the beginning. No automatic rules yet. But we might have archetypes with inducements. ? This report may be more relevant for later phases...?
+. *What will midPoint change in the target system?* This allows detection of incorrect/missing mappings between midPoint and target system as well as between midPoint and source system. This is more or less a *simulation report* but beyond the current implementation of thresholds. We need to preview the changes.
 
 For all reports: how to execute actions (manual correlation etc.) from the reports?
 Using interactive pages a'la menu:Resource[Accounts]?
@@ -172,6 +176,8 @@ TODO: new idea based on M. Spanik's idea: side-by-side report. See <<side-by-sid
 ==== What is in target system (AD) and is not in midPoint?
 
 Implementation in midPoint: target system reconciliation + reconciliation report.
+The report can display information about the last reconciliation for the system and can confirm tha user wants to run the reconciliation now - before the report.
+(Or vice-versa, confirm that user is OK with the last reconciliation timestamp.)
 
 The report (ideally interactive in Resource/Accounts, exportable to Excel) should contain the following information:
 
@@ -182,6 +188,8 @@ Query:
 Columns:
 
 * Account identifier (TODO which one in case of AD? `dn` or `userPrincipalName`?)
+* Account status
+* Account mark
 * Situation
 ** (with some tooltip/help for administrators about meaning)
 ** (display also what would happen if this is not dry-run!!! e.g. account would be deleted (situations/reactions)
@@ -193,34 +201,44 @@ Columns:
 * *Candidate owner* (in case we have dry-run) (TODO maybe also indicate why it was matched?)
 ** Maybe rename `Owner` to `Matched user` or `MidPoint User` or something like that...
 * Pending operations *TODO not necessarily needed for this case - read-only reconciliation*
+* Status of the owner/candidate owner (probably part of the values of owner/candidate owner)
 
 .Example report
 |===
-|Account identifier TODO which one in AD?|Situation|Owner|Candidate owner
+|Account identifier TODO which one in AD?|Status|Mark|Situation|Owner|Candidate owner
 
 |jsmith@example.com
+|enabled
+|DECOMMISSION
 |UNMATCHED (tooltip: Account in target system without owner in midPoint)
 |(none)
 |(none)
 
 |jdoe@example.com
+|enabled
+|(none)
 |UNLINKED (tooltip: Account in target system with candidate owner in midPoint)
 |(none)
-|John Doe (jdoe)
+|John Doe (jdoe), ##disabled##
 
 |jsmith24@example.com
+|enabled
+|(none)
 |LINKED (tooltip: Account in target system owned by midPoint user)
-|John Smith (jsmith24)
+|John Smith (jsmith24), enabled
 |(none)
 
 |jsmith48@example.com
+|enabled
+|DECIDE-LATER
 |DISPUTED (tooltip: Account cannot be correlated to one midPoint user)
 |
-John Smith (jsmith2) - 33%
+John Smith (jsmith2), enabled - 33%
 
-Joe Smith (jsmith7) - 33%
+Joe Smith (jsmith7), enabled - 33%
 
-Jack Smith (jsmith98) - 33%
+Jack Smith (jsmith98), ##disabled## - 33%
+|(none)
 
 |===
 
@@ -245,7 +263,7 @@ Visualisation notes:
 
 NOTE: This report should be executed after the reconciliation to have information about existing state.
 
-TODO Implementation in midPoint: ? recomputation limited to target system (AD) with simulation mode ? Special mapping mode?
+TODO Implementation in midPoint: ? recomputation limited to target system (AD) with simulation mode ? Special mapping mode? It seems to be similar to the simulation of changes which midPoint is about to make.
 
 The report (ideally interactive in Resource/Accounts, exportable to Excel) should contain the following information:
 
@@ -294,53 +312,132 @@ TODO Implementation in midPoint: ? recomputation limited to target system (AD) w
 
 TODO Or could this perhaps use passive caching (reconciliation will be executed before this report anyway)?
 
-The report (ideally interactive in Resource/Accounts, exportable to Excel) should contain the following information:
+The report (ideally *interactive* in Resource/Accounts, exportable to Excel) should contain the following information:
 
-Query: ? TODO ? focus oriented
+
+
+* just like reconciliation report (working with Shadows of certain resource)
 
 Columns:
 
+* Account identifier (TODO which one in case of AD? `dn` or `userPrincipalName`?)
+* Account status
+* Account mark
+* Situation
+** (with some tooltip/help for administrators about meaning)
+** (display also what would happen if this is not dry-run!!! e.g. account would be deleted (situations/reactions)
+* *TODO what about identity matching? Some kind of probability...? And reason?*
+** *TODO* if situation is `DISPUTED`, we could perhaps indicate potencial owners in the report?
+** *TODO* if situation is `DISPUTED`, *Change owner* action should perhaps use the potential owners instead of showing all users in midPoint?
+* Intent *TODO may be confusing for beginners!*
+* Owner
+* *Candidate owner* (in case we have dry-run) (TODO maybe also indicate why it was matched?)
+** Maybe rename `Owner` to `Matched user` or `MidPoint User` or something like that...
+* Pending operations *TODO not necessarily needed for this case - read-only reconciliation*
+* Status of the owner/candidate owner (probably part of the values of owner/candidate owner)
 
+.Example report
 |===
-|User name |Full name |User status|Account identifier|Changes to be made|Changes
+|Account identifier TODO which one in AD?|Status|Mark|Situation|Owner|Owner status|Change type|Number of changed attributes|Change
 
-|0001
-|Joe Doe
-|Enabled
-|jdoe
-|To be updated
-|%sn
-
-|0002
-|Joe Blue
-|Enabled
-|jblue
-|No change
+|jsmith@example.com
+|enabled
 |
-
-|0123
+|LINKED (tooltip: Account owned by midPoint user)
 |John Smith
-|Enabled
-|jsmith
-|To be updated
+|enabled
+|Update
+|1
+|> Family name
+
+|jsmith24@example.com
+|enabled
 |
-%dn
+|LINKED (tooltip: Account owned by midPoint user)
+|Jeremiah Smith
+|enabled
+|Update
+|1
+|> Distinguished Name
 
-%sn
 
-+MemberOf
+|jsmith4@example.com
+|enabled
+|##REVIEW_LATER##
+|LINKED (tooltip: Account owned by midPoint user)
+|Jebediah Smith
+|enabled
+|Update
+|4
+|> Distinguished Name
 
-%description
+> Family Name
+
++ Member Of
+
+> Description
+
 |===
 
-** Legend (example):
-*** *+*: attribute value to be added (multi-value attribute)
-*** *%*: attribute value to be replaced (single-value attribute)
-*** *-*: attribute value to be removed (multi-value attribute)
-** Maybe we could show at most X changes, to display more, administrator could "zoom in" by clicking. (Would need to be interactive report.)
-** Maybe we could display even the values, but that would require multiple "zoom in". (Would need to be interactive report.)
+Legend (example):
 
-Some kind of statistics, which account attributes are being added/deleted/changed to see the trends.
+* *>*: attribute value to be replaced (single-value attribute)
+* *+*: attribute value to be added (multi-value attribute, e.g. groups)
+* *-*: attribute value to be removed (multi-value attribute, e.g. groups)
+** Maybe we could show at most X changes, to display more, administrator could "zoom in" by clicking. (Would need to be interactive report.)
+** We should display even the values, but that would require multiple "zoom in". (Would need to be interactive report.)
+
+Example of zoomed info for specific user from the above table:
+
+* Account identifier: jsmith4@example.com
+* Status: enabled
+* Mark: ##REVIEW_LATER##
+* Situation: LINKED (Account owned by midPoint user)
+* Owner: Jebediah Smith
+* Owner status: enabled
+* Change status: Update (Account will be updated by midPoint) ##but the operation will be ignored due to REVIEW_LATER marking##.
+
+|===
+|Attribute|Old value|New value
+
+|Distinguished name
+|cn=Jebediah sMith,ou=. . .
+|cn=Jebediah Smith,ou= . . .
+
+|Family Name
+|sMith
+|Smith
+
+|Description
+|ticket 1234
+|ticket 0938
+
+|Member Of
+a|
+* cn=Group1, . . .
+a|
+* cn=Group1, . . .
+* cn=Group 9, . . .
+
+|===
+
+
+
+Some kind of statistics, which account attributes are being added/deleted/changed to see the trends, example:
+
+|===
+|Attribute|Number of changes
+
+|Distinguished Name|109
+|Family Name|109
+|Account status|80
+|Member of|75
+|Description|10
+|===
+
+*TODO would it be possible to click the list of changes and preview the changes related for the attribute/resource for all affected accounts? Interactively.*
+
+The reports should be interactive and allow operations - e.g. mark the account.
 
 Visualisation notes:
 
@@ -643,6 +740,182 @@ Link for password reset will be sent to user's e-mail
 
 
 
+=== Lifecycle
+
+==== Keeping Old Identities
+
+We want to keep "old" identities in midPoint.
+Motivation:
+
+* we want to avoid identifier reuse.
+
+* we want to revive old accounts of users that are returning to the system (e.g. former employees).
+
+* we want to clearly see accounts that belong to former employees, to clearly see who is (was) the owner.
+
+Therefore, we would like to import both active and inactive identities from HR.
+We are going to distinguish them using `lifecycleState`.
+
+==== Lifecycle States
+
+[%autowidth]
+|===
+| State | Description | Accounts | Assignments | Archetype | Notes
+
+| Proposed
+| Users that are being prepared for on-boarding.
+E.g. employees that will start working next month.
+| existing, disabled
+| present, active
+| present, active
+| We want accounts to exists, e.g. for mailbox to exist, so the new employee can receive instructions for their first days at work.
+
+Alternatively, maybe we want accounts to exist (which requires active assignments), but no project/org/group membership yet (which requires inactive assignments).
+What to do about it?
+
+| Active
+| Normal, active users.
+E.g. active employees.
+| existing, enabled
+| present, active
+| present, active
+|
+
+| Suspended
+| User that we still have an active relation with, however the relation is temporarily suspended.
+E.g. leave of absence, such as maternal leave or sabbatical.
+Also, project which is on hold, role undergoing urgent security review, device marked as "forgotten at home" or "in repair", etc.
+| existing, disabled
+| present, inactive
+| present, active
+| We want to keep accounts and assignments, to make sure we can easily "resume" the user.
+It is very likely that the user will be re-activated eventually.
+Question: do we want this user to be shown as part of a team or orgunit?
+
+| Inactive
+| Former user, no longer active.
+E.g. employee that left recently.
+Also, recently-finished project, decommissioned role, device marked as "lost", etc.
+| existing, disabled
+| present, inactive
+| present, active
+| We want to keep accounts and assignments.
+In case that a mistake was made and the employee was "fired" by mistake, it will be easy to re-activate the accounts and re-provision privileges.
+No (important) information should be lost.
+It is very unlikely that a user in this state will be re-activated (however, it may happen).
+
+The HR data record (account) will probably still exist in this state.
+
+We would like to keep user in this state for some time (months, years).
+Then automatically transition to `archived` state.
+
+This is not well aligned with `deprecated` state, as deprecated objects are formally still active.
+Therefore we probably need this new state.
+
+| Archived
+| Very old users, almost forgotten.
+E.g. employees that left years ago.
+| non-existent (except for resources that do not support delete)
+| not present (deleted when entering this state)
+| not present (deleted when entering this state)
+| The purpose of this state is mostly to avoid identifier reuse.
+In some cases also as a data archive used to interpret OIDs in audit logs.
+
+Entering to this state will be probably triggered by two events: 1. HR account deleted, 2. rotting in `former` state for a long time.
+
+We probably want to reduce amount of data (GDPR) for archived identities, maybe to the very extreme (keeping only the identifier).
+However, this functionality may come later.
+
+|===
+
+
+
+==== Ideas and Questions
+
+What about validFrom/validTo?
+How will this work with lifecycle states?
+E.g. would we automatically switch lifecycle state after validTo passes?
+
+Suspended users:
+
+* How about organizational membership? It seems that we seem to need different behaviour for organization membership (assignment) and (role-like) assignments, if we want to e.g. display also inactive users in the organizational structure.
+** Could we use a concept similar to "weak construction"? I.e. if we want people to actively assigned to organizations, the assignments/inducements may have some option for that to override the lifecycles?
+
+Pre-define out-of-box configuration:
+
+* Disable instead of delete for accounts.
+Maybe create a simplified "checkbox" configuration option for this, instead of writing activation expressions.
+
+* Delayed delete for accounts?
+Will we need this?
+Or will we handle this with lifecycle states (former->archived)?
+What if we need to use this feature only for some (not all) accounts?
+
+We may still prefer immediate delete of accounts, or delayed delete with a very short interval (few days) for resources that have expensive licenses.
+Deleting accounts early can save us a lot of money.
+
+Things to support when defining lifecycle states:
+
+* Setting whether user is considered active (enabled) or inactive (disabled) in this state.
+This affects `effectiveStatus`.
+
+* Setting whether to consider assignments active/inactive.
+Select assignments, e.g. we may want archetype assignment to be active, other assignemts inactive.
+
+* Removal of assignments. E.g. when entering `archived` state.
+
+* Change of archetype. Lifecycle state change seems to be ideal moment for automatic archetype change.
+We can do data minimization, which can play nice with change in archetype schema.
+
+* Archetype-specific display name for state?
+E.g. `inactive` employee should be displayed as "Former employee", whereas `inactive` project should be displayed as "Finished project".
+
+How can we do "onboarding only"? How to avoid deprovisioning users?
+
+* Bad idea: do not put users in former/archived states.
+This is bad, because I will not have information which users are supposed to be active.
+All users will look like active users to me.
+
+* Better idea: re-configure lifecycle former/archived lifecycle states to do nothing.
+I can still see whether user is active or not, but user's account will be active.
+I can run a report, predicting how many accunts will be disabled before I choose to automate offboarding.
+
+How can do offboarding only for "new" users (e.g. users that were offboarded yesterday), but leave other users unchanged? I can imagine to distinguish users based on "marks" (the marks would be set during the initial import, but not during the later synchronizations.)
+Is this even a reasonable thing to do?
+
+=== "Categories" TODO better name
+
+We should have some categories of information based on either importance regarding provisioning or governance/security. Or we can have both.
+
+The categories should be distinguishable by CSS styling, e.g. colors.
+
+==== Focus attributes
+
+Some focus attributes may be more sensitive than others, e.g. GDPR and data cleanup.
+We should have a way how to declare them (certainly not in schema, user must be able to override) and define e.g. colors.
+
+Example: showing former employees (even archived) with present private e-mail (`extension/mail`) will be indicated.
+
+Example: data cleanup for archived people with any of the sensitive attributes present.
+
+==== Resource attributes
+
+===== Correlation
+
+Attributes should be selectable as candidates for correlation before the correlation takes place.
+
+Example: `userPrincipalName` and `employeeNumber` AD attributes are marked as correlation attributes. Maybe even with order/precedence.
+
+===== Sensitivity
+
+Some resource account attribute may be more sensitive/important than others.
+E.g. if reconciliation attempts to change `userPrincipalName`, this is more serious than changing `description`.
+Report should show this in red colors.
+
+Example: reconciliation report with simulation will indicate if sensitive attribute values are being changed.
+
+This could be even used for thresholds: if there is more than X changes of sensitive attributes, stop the task.
+
 == Missing Features
 
 List of features missing in midPoint, and ideas for improvements.
@@ -722,14 +995,17 @@ Used for emergency administration accounts such as `root` or `administrator`.
 (TODO: we need better name for this, "decomissioning" is ugly and hard to understand)
 
 * Remediation: the account has to be manually remediated.
-E.g. remediation case should be opened, several people have to discussus what to do with the account.
-It will probably end up as protected account, or be decomissioned.
+E.g. remediation case should be opened, several people have to discuss what to do with the account.
+It will probably end up as protected account, or be decommissioned.
 (Overlap with IGA)
+** This may be needed for source system account as well to ignore changes coming from that account (e.g. in case the source system has invalid data which cannot be fixed immediately.)
 
 * Do not touch: (need better name) ignore this account.
 Do not apply any mappings, do not change anything.
 The account is a mess, we have to sort it out eventually, just not yet.
 For the time being we just want to keep status quo, maybe include it in reports, but we are not going to do anything else.
+** This may be needed for source system account as well to ignore changes coming from that account (e.g. in case the source system has invalid data which cannot be fixed immediately.)
+
 
 The details are below:
 
@@ -786,7 +1062,7 @@ We would not delete all accounts anyway, as doing so would ruin manually-correla
 
 *Thoughts*: Should we still report accounts marked for decommissioning as orphaned accounts?
 As long as they are active, they still pose a security risk.
-Therefore we should report them.
+Therefore, we should report them.
 However, they are "already being processed".
 Therefore we should not report them.
 
@@ -1020,6 +1296,22 @@ We expect to have almost perfect compatibility for connector minor versions.
 This can be done automatically.
 Upgrade to a new major version may have compatibility issues, this should probably still be manual.
 
+=== User-Friendly Bulk Task Generator in GUI
+
+*Problem*: Administrator of midPoint has no way of creating a bulk task (e.g. for recompute, mark, user property update).
+
+*Solution*: Something like "wizard", but not as technical as in Studio:
+
+* Click to create New bulk task
+* Select type of task (e.g. recompute)
+* Select users:
+** using Axiom query
+** using text area with list of user names (to be pasted from e.g. Excel)
+* Select additional info (e.g. for bulk update - which attributes should be updated, and how (expression?))
+* Show preview, which users will be modified with simulation
+* Click button to do it
+
+
 == Schema Improvements
 
 We may want to add new items to the standard schema:
@@ -1047,14 +1339,11 @@ Following objects are questionable:
 
 These things need to further discussed:
 
-* User lifecycle:
+* User lifecycle/activation:
 
-** Do we recommend importing active users only, or do we import all users?
-
-** Do we recommend deleting inactivated (e.g. lay-offs) users from midPoint?
-Or do we recommend keeping them in midPoint in archived state?
-What about retired users?
-What about data erasure?
+** What about validFrom/validTo?
+How will this work with lifecycle states?
+E.g. would we automatically switch lifecycle state after validTo passes?
 
 * Correlation
 
