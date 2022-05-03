@@ -36,11 +36,23 @@ In Axiom Query this could be:
 ----
 assignment/targetRef matches (
   relation = "default"
+  and @ matches (
+    name = 'a-test-4'
+  )
+)
+----
+
+Also alternative with `target` is permitted.
+
+----
+assignment/targetRef matches (
+  relation = "default"
   and target matches (
     name = 'a-test-4'
   )
 )
 ----
+
 
 `target` would allow any valid filter to be executed. Most common use would be
 probably use with `type` filter (to allow matching on target type specific properties),
@@ -81,73 +93,123 @@ query:
     referencedBy:
       type: UserType
       path: assignment/targetRef
-      target:
-        exists:
-          equal:
-            path: archetypeRef/@/name
-            value "System User"
+      filter:
+        equal:
+          path: archetypeRef/@/name
+          value "System User"
 ----
 
 ----
 . referencedBy (
-      type = UserType
-      and path = assignment/targetRef
-      and target matches (
-        archetypeRef/@/name = "System User"
-      )
+      @type = UserType
+      and @path = assignment/targetRef
+      and archetypeRef/@/name = "System User"
 )
 ----
+
+----
+. referencedBy (
+      . type = UserType
+      and @path = assignment/targetRef
+      and archetypeRef/@/name = "System User"
+)
+----
+
 
 NOTE::
-This may looks cumbersome, but `type` and `path` and `target` filter properties
-are neccessary. `path` specifies which reference is used for search. `target` provides
-additional properties (could be empty to match all). `type` is neccessary to provide
-schema for parsing `path` and `target` filter, also specify which data should be searched.
+This may looks cumbersome, but `type` and `path` and `target` filter properties are neccessary. `path` specifies which reference is used for search.
+`target` provides additional properties (could be empty to match all).
+`type` is neccessary to provide schema for parsing `path` and `filter` filter, also specify which data should be searched.
 
+=== Optional: Distinguish between object properties and parent container properties
 
-Alternative proposed names: `refBy` , `refFrom`, `referencedFrom`, `inverseRef`
+Current proposed form of `referencedBy` assumes nested filter starts at object level.
+This does not allows to write directly filter such as referencedBy and match also on assignment properties and object properties at same time. This could be possible if we allow `referencedBy/@type` to be any type.
 
-
-The proposed syntax based on existing Axiom Query triplets may be bit less readable,
-but allow for faster prototyping.
-
-=== Default type
-
-The syntax could be simplified by having sane defaults (defined by Midpoint, not Prism)
-such as `type` could be `AssignmentHolderType`, which allows to use most properties
-for `matches` without need to specify type.
-
-.Axiom example
+.Example: Find all roles, which are assigned to users with `System User` archetype  and their assignment has `secret` extension attribute
 ----
-. referencedBy (
-  path = assignment/targetRef
-  and target matches (name = "SuperRole")
+.referencedBy (
+  @type = AssignmentType
+  and @path = targetRef
+  and extension/secret exists
+  and . ownedBy (
+      @type = UserType
+      and archetypeRef/@/name = "System User"
+  )
 )
 ----
 
-=== Alternative: target based paths?
+If we allow for parent paths and absolute paths, we can say in specification parent is owning element,
+then this filter could be written also as:
 
-Should we allow also target specific paths, for simplified syntax?
-
-.Axiom example
 ----
-. referencedBy (
-  path = assignment/targetRef
-  and type = RoleType
-  and target/name = "SuperRole"
+.referencedBy (
+  @type = UserType
+  and @path = assignment/targetRef
+  and ../extension/secret exists
+  and /archetypeRef/@/name = "System User"
 )
 ----
 
-=== Alternative: Ommiting target keyword?
-.Axiom example
+
+== ownedBy filter
+
+`ownedBy` filter allows for matching indexed containers based on properties of their parent (owning object or container).
+
+The syntax is similar to `referencedBy`. `ownedBy` filter can only be applied on self path (`.`).
+The properties of ownedBy filter are:
+
+type::
+  (Required) Type of parent / owner
+path::
+  (Optional) name / location of container inside parent
+filter::
+  (Optional) filter, to which parent needs to conform, filter is explicit element in XML/YAML/JSON.
+  In Axiom any filter which is not special property of `ownedBy` is automaticly nested in filter.
+
+=== Example: Find all assignments only using searchContainers
+
+.YAML version
 ----
-. referencedBy (
-  @path = assignment/targetRef
-  and @type = RoleType
-  and name = "SuperRole"
-)
+ownedBy:
+  type: AssignmentHolderType
+  path: assignment
 ----
 
+.Axiom version
+----
+. ownedBy ( @type = AssignmentHolderType and @path = assignment)
+----
+
+=== Example 2
+
+Find all User assignments which has `secret` extension property set to `true` and
+users have archetype `System User`
+
+.YAML version
+----
+and:
+  - equal:
+      path: extension/secret
+      value: true
+  - ownedBy:
+      type: UserType
+        path: assignment
+        filter:
+        equal:
+          path: archetypeRef/@/name = "System User"
+
+----
+
+.Axiom version
+----
+extension/secret = true
+and . ownedBy (
+  @type = UserType
+  and @path = assignment
+  and archetypeRef/@/name = "system User"
+)
+----
 
 
 == Default Matching Rule / matching rules upgrade
