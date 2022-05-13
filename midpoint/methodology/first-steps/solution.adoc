@@ -62,6 +62,138 @@ Do we want midPoint to do everything automatically (read from HR, process polici
 Or do we want midPoint to manage people that do it manually (review HR data, approve requests, create tickets for admins to create accounts)?
 We probably want both, but to what degree? What we will be recommending? (methodology)
 
+=== Current brainstormings: 5/2021
+
+NOTE: This are ##preliminary## steps of Connect/Cleanup/Automate which are currently brainstormed. Hic sunt dracones.
+
+==== Connect
+
+. connect source system (HR)
+.. Go to Resources, New resource (no template for HR), ##*Wizard #1 (Resource Connection Wizard?)*## starts
+.. Enter basic connection parameters
+.. midPoint will try connection and return further configuration properties (in case of LDAP this would be `baseContext` etc.)
+.. Schema restrictions (generation constraints) - for HR probably not, accounts only
+.. Save resource, no mappings yet
+.. I may now list the accounts in the resource through midPoint to see which data I have
+.. Click *This looks good, I want to import data**, ##*Wizard #2 (Resource Mapping Wizard?)*## starts
+.. Edit correlation criteria (which attribute should correlate to which property)
+.. Set `focusType` for synchronization (default: `UserType`)
+.. *TODO we don't set specific kind/intent here, defaults*
+.. *TODO TODO what about archetype here?*
+.. Set situations and reactions
+... `UNMATCHED`: reasonable default for source system is `addFocus`
+... `UNLINKED`: reasonable default is `link`
+... `LINKED`: "synchronize=true" equivalent
+... `DELETED`: ?
+... `DISPUTED`: ? can happen with source at all?
+.. Edit mappings (`givenName`, `familyName` etc, ##TODO## `lifecycleState`, ##TODO empty `name`##) - *strong mappings*
+... All mappings either `asIs` or simple mappings using *library* (trim, upper/lower case, ...)
+.. *##TODO only later we will add object template for `name` generator!!! Not now##*
+. import from source system (HR) - all users or first X accounts
+.. Accounts are imported as users, *no `name`, no `fullName`*
+. Enable `fullName` mapping in object template (there will be already one global object template (part of initial objects), but no enabled mappings yet (*##TODO 29/04/2022 alternative: one default archetype e.g. `Person` which has its own template. The archetype must be assigned to user, e.g. in synchronization settings just like FocusType, see above##*)
+.. for `fullName` there may be already *disabled default mapping*
+. (repeat import from HR until satisfied, fixing mappings)
+. *TODO we have not set any attribute for correlation criteria. Based on discussion it's not "mandatory" for simple cases (no multi-accounts)...*
+. ##*Here we are happy, but/because we do not have usernames yet!*##
+. connect target system (AD) - predefined template
+.. We assume we want to set `$focus/name` from the AD/LDAP, but not from all other target resources
+.. outbound mappings are in "comparison" mode
+.. non-invasive configuration (no reactions at all, not even `UNLINKED` -> `link`)
+.. review/update correlation. Select the attributes to correlate and how. Selecting from attributes which have mappings, and how (equal, substring, ...). Some weight/negative conditions. (E.g. if this attribute vs user property differs, this can't match even if `ri:cn` matched `$focus/fullName`). ##*TODO this is important for Katka for Resource wizard*##
+. run reconciliation with target system (no dry-run - that will be eventually deprecated); because all reactions are non-invasive and mappings do not enforce anything yet. Shadows are created.
+. run ##interactive## reconciliation report to show situations/reactions - including situations `UNMATCHED` etc. for which we do not have any reaction - yet. But the shadows will be classified.
+.. The report must show also "candidate" user owners. *NOTE: No linkRef yet!!!! (Store candidate owner(s) in Shadow?) Each run will overwrite this temporary state?*
+.. Report should show user identifier as a separate column and another column "display name" (typically fullName) - this should be configurable using expressions. A'la `adminGuiConfiguration`?
+
+==== Clean up
+
+*TODO finished here ##06/05/2022##*
+
+
+. run reconciliation report on account level: which accounts are extra?
+. account marking phase (optional):
+.. mark unmatched accounts for later decommissioning
+.. mark unmatched or other accounts (linkable, but maybe some special) for later review, if we do not know what to do with them (we are not sure if we can decommission them)
+.. mark protected accounts (in addition to using `<protected>` element in resource)
+... *TODO possible problem when accounts are first UNMATCHED and then made protected. Situation will be already stored in Shadow. Report should perhaps do something about it?*
+... some accounts may be deleted directly by AD administrators
+... *TODO problem with UNMATCHED->DELETED and dead shadows [MID-7927]*
+. *TODO TODO prepare/uncomment/activate inbound mapping from target to midPoint user? In comparison mode as well?* Maybe that mapping is default in the bundled resource template? E.g. from `userPrincipalName` minus `@domain.com` to `$focus/name`?
+.. TODO if we know, which attribute from AD we want to use as a basis for `$focus/name`, we *must* also have the opposite mapping - outbound from midPoint to be used from now on.
+.. TODO maybe that inbound should be removed later in Automate phase (already noted there)? When? Or we just make the mapping strength `weak` as we do not have any value yet in midPoint users and we will always have the value in the future! (But this will work only once.)
+. TODO set reactions for `UNLINKED` and `LINKED` and `DISPUTED` (TODO and identity matching?)
+. run reconciliation again to link the accounts
+. run reconciliation report (interactive?) again. ##Accounts are now linked to users##. TODO: ##is this the place for DISPUTED/identity matching?##
+. run reconciliation report on attribute level (simulation using mappings in "comparison" mode): what will midPoint change in target system (simulation of what would be done)
+.. The report should show some statistics e.g.:
+... How many accounts would be changed, deleted
+... Which attributes will be changed and how many changes (e.g. attribute `givenName` will be changed in 200 accounts), sorted desc
+... Table of changes to be made (*TODO how to present it? Our delta format e.g. in Preview changes takes too many screen space, how to even export it to CSV/Excel?*)
+.. How to continue - options:
+... fix account attributes in AD (administrator of AD) outside midPoint
+... update mappings in target resource (still in comparison mode)
+... mark account for later processing (do not touch until that)
+... if it is OK to allow the simulated changes, do not do anything
+. *TODO TODO run (the same?) reconciliation report to see what usernames will it generate in midPoint - simulation?*
+
+. Repeat reconciliation / reconciliation reports until satisfied, keep marked shadows until further resolution. They will not be touched by midPoint yet.
+.. *TODO possible problem with UNMATCHED->DELETED situation*
+.. *TODO possible problem with UNMATCHED->"PROTECTED" situation* (if accounts are first Unmatched and then made Protected, currently the old situation is kept)
+. switch mappings from "comparison" mode to TODO: normal/strong etc. (midPoint is still not synchronizing changes from source)
+. TODO what about reactions for `UNMATCHED` / `DELETED`? When to set them? It could be also in later iterations...
+. Decide what to do with to-be-decommissioned accounts (disable, delete, ...). It could be also in later iterations.
+. Run reconciliation (final time) to let midPoint do the desired changes. ##Accounts are now updated in target system based on mappings, except the marked accounts##
+. Optional: do something with the accounts marked for later review. It could be also in later iterations.
+. *TODO TODO TODO somewhere here add correlation to HR?*
+
+==== Automate
+
+. TODO now we have all *existing* AD usernames in midPoint, we can consider the identifier unique
+
+. *TODO TODO define and turn on username generator in object template! Otherwise we cannot automate onboarding.*
+.. TODO should the `name` mapping be `weak` to not overwrite anything originally coming from AD?
+... TODO what about user renames then?
+... TODO condition to differentiate "original" users and new users coming since midPoint is in place? We could mark also _users_ during the initial reconciliations from AD and use this to distinguish new users.
+
+.. TODO we need to specify the algorithm (selected from list?). Examples:
+... Example: `givenName initial + familyName + XX` where XX is a number starting from 1, 2, up to 99 and the first available is used
+... Example: `givenName initial + familyName + XX` where XX is a number starting from 01, 02, up to 99 and the first available is used
+... TODO what is the "starting number"?
+.. *##TODO TODO TODO what about this situation:##*
++
+in AD, there is `jsmith24` but there were obviously also `jsmith2`, `jsmith3` ... `jsmith23` which are now not in AD anymore.
++
+Where should we start if we do not want to reuse previous logins?
++
+Even worse, we don't know if there was any `jsmith52` previously!!!
+
+... TODO we cannot assume accounts for all former employees still exist in AD!!!
+... TODO we _might_ have more data if we reconcile other target systems later, where possibly also those logins exist!!! But this can conflict with usernames we start to generate with midPoint after AD/LDAP is connected!!!
+... ##TODO we could perhaps start with `jsmithXXX` from now to have absolutely different naming convention which is still understandable and rememberable to the users##
+.... TODO unless the identifier length causes a problem (in any system they will connect in the future!)
+... TODO alternative: if we use identifier and later we see it's bad (already used somewhere), provide a way of resolution... But how? If this username is already user by the new user and later the (former employee) account gets overwritten, we would need to resolve the situation for both the new user (using a recycled identifier) and overwritten account! How would we return the overwritten data back?
+.. TODO ... and turn off the (weak) mapping from AD/LDAP to midPoint
+
+. Define policy for automatic assignments: *TODO where? object template assignment of - what? Archetype? How will the user specify it, how will user edit it?*
+.. TODO I can imagine very simplified piece of configuration, where user will simply specify the "target" for inducement (e.g. "Account in Active Directory resource"), and kind, intent and condition would be optional.
++
+Conditions won't be required for the first iteration.
+In later iterations, the condition can change.
+In even later iterations, we need to cover automatic assignment of access rights.
+Either by autoassignment configuration in roles/role-like objects or in object template?
+.. TODO this policy must also define what to do when users are leaving!
+.. TODO: we need to *recompute* users after we change anything in this policy!
+
+. Turn off the current provisioning to target system
+.. *EXCEPT access right assignment, until we cover them via role-like objects in midPoint!!! Leave this for later iterations.*
+
+. Turn on synchronization between HR and midPoint
+
+. From now on, all people from HR will get AD accounts
+
+
+
 [#how_to_connect_hr_to_midpoint]
 === How to connect HR to midPoint
 
@@ -86,6 +218,9 @@ We probably want both, but to what degree? What we will be recommending? (method
 . List resource accounts
 . Import a single resource account with <<import_single_account_preview,simulation option>> to see how the user would be created. Confirm the import or go back to resource configuration if needed.
 . Import accounts from resource
+
+Import all "accounts" (records) from the HR resource, both active and inactive ones.
+Use lifecycle states to distinguish between active and inactive users.
 
 The *Import* step can be repeated several times to iteratively fix the content in midPoint.
 If correlation configuration is changed during the iterations, the existing midPoint data may need to be purged (shadows) using the feature *Delete all identities* (*##NEW FEATURE REQUIRED##*: put this somewhere in resource configuration with proper warning/confirmation)
@@ -195,14 +330,18 @@ Columns:
 ** *TODO* if situation is `DISPUTED`, *Change owner* action should perhaps use the potential owners instead of showing all users in midPoint?
 * Intent *TODO may be confusing for beginners!*
 * Owner
+* TODO we probably also need: Owner display name
 * *Candidate owner* (in case we have dry-run) (TODO maybe also indicate why it was matched?)
+* TODO we probably also need: Candidate owner display name
 ** Maybe rename `Owner` to `Matched user` or `MidPoint User` or something like that...
 * Pending operations *TODO not necessarily needed for this case - read-only reconciliation*
-* Status of the owner/candidate owner (probably part of the values of owner/candidate owner)
+* Status of the owner/candidate owner (probably part of the values of owner/candidate owner? bad to parse in CSV then...)
+
+*TODO how to display multiple potential owners in single cell or even two cells next to each other, if we use Candidate owner and Candidate owner display name? Table in table???* How is this done in ID Match?
 
 .Example report
 |===
-|Account identifier TODO which one in AD?|Status|Mark|Situation|Owner|Candidate owner
+|Account identifier TODO which one in AD?|Status|Mark|Situation|Owner|Owner display name|Candidate owner|Candidate owner display name
 
 |jsmith@example.com
 |enabled
@@ -210,32 +349,47 @@ Columns:
 |UNMATCHED (tooltip: Account in target system without owner in midPoint)
 |(none)
 |(none)
+|(none)
+|(none)
+
 
 |jdoe@example.com
 |enabled
 |(none)
 |UNLINKED (tooltip: Account in target system with candidate owner in midPoint)
 |(none)
-|John Doe (jdoe), ##disabled##
+|(none)
+|jdoe (##disabled##)
+|John Doe
 
 |jsmith24@example.com
 |enabled
 |(none)
 |LINKED (tooltip: Account in target system owned by midPoint user)
-|John Smith (jsmith24), enabled
+|jsmith24 (enabled)
+|John Smith
+|(none)
 |(none)
 
 |jsmith48@example.com
 |enabled
 |DECIDE-LATER
 |DISPUTED (tooltip: Account cannot be correlated to one midPoint user)
-|
-John Smith (jsmith2), enabled - 33%
-
-Joe Smith (jsmith7), enabled - 33%
-
-Jack Smith (jsmith98), ##disabled## - 33%
 |(none)
+|(none)
+|
+jsmith2, (enabled) - 33%
+
+jsmith7, (enabled) - 33%
+
+jsmith98, (##disabled##) - 33%
+|
+John Smith
+
+Joe Smith
+
+Jack Smith
+
 
 |===
 
@@ -324,11 +478,12 @@ Columns:
 ** (with some tooltip/help for administrators about meaning)
 ** (display also what would happen if this is not dry-run!!! e.g. account would be deleted (situations/reactions)
 * *TODO what about identity matching? Some kind of probability...? And reason?*
-** *TODO* if situation is `DISPUTED`, we could perhaps indicate potencial owners in the report?
+** *TODO* if situation is `DISPUTED`, we could perhaps indicate potential owners in the report?
 ** *TODO* if situation is `DISPUTED`, *Change owner* action should perhaps use the potential owners instead of showing all users in midPoint?
 * Intent *TODO may be confusing for beginners!*
 * Owner
 * *Candidate owner* (in case we have dry-run) (TODO maybe also indicate why it was matched?)
+* TODO We probably need also Candidate owner display name
 ** Maybe rename `Owner` to `Matched user` or `MidPoint User` or something like that...
 * Pending operations *TODO not necessarily needed for this case - read-only reconciliation*
 * Status of the owner/candidate owner (probably part of the values of owner/candidate owner)
@@ -755,6 +910,7 @@ We are going to distinguish them using `lifecycleState`.
 
 ==== Lifecycle States
 
+[%autowidth]
 |===
 | State | Description | Accounts | Assignments | Archetype | Notes
 
@@ -777,16 +933,28 @@ E.g. active employees.
 | present, active
 |
 
-| Former +
-(Better name? `decommissioned`? `dormant`?)
+| Suspended
+| User that we still have an active relation with, however the relation is temporarily suspended.
+E.g. leave of absence, such as maternal leave or sabbatical.
+Also, project which is on hold, role undergoing urgent security review, device marked as "forgotten at home" or "in repair", etc.
+| existing, disabled
+| present, inactive
+| present, active
+| We want to keep accounts and assignments, to make sure we can easily "resume" the user.
+It is very likely that the user will be re-activated eventually.
+Question: do we want this user to be shown as part of a team or orgunit?
+
+| Inactive
 | Former user, no longer active.
 E.g. employee that left recently.
+Also, recently-finished project, decommissioned role, device marked as "lost", etc.
 | existing, disabled
 | present, inactive
 | present, active
 | We want to keep accounts and assignments.
 In case that a mistake was made and the employee was "fired" by mistake, it will be easy to re-activate the accounts and re-provision privileges.
 No (important) information should be lost.
+It is very unlikely that a user in this state will be re-activated (however, it may happen).
 
 The HR data record (account) will probably still exist in this state.
 
@@ -812,32 +980,18 @@ However, this functionality may come later.
 
 |===
 
-==== Temporary Inactive Users
 
-E.g. sabbatical, maternal leave
 
-*OPEN QUESTION*
+==== Ideas and Questions
 
-How to handle these? Special lifecycle state?
-Or just use `administrativeStatus`?
+What about validFrom/validTo?
+How will this work with lifecycle states?
+E.g. would we automatically switch lifecycle state after validTo passes?
 
-Perhaps we would like to reserve `administrativeStatus` for manual "override" by IDM admin.
-Maybe we want automatic processes to use lifecycle only (and from/to dates, of course).
-
-For temporarily inactive users we want:
-
-* accounts should exist, disabled
-
-* assignments present, inactive
-
-* archetype present, active
-
-* Keep all user and account data
+Suspended users:
 
 * How about organizational membership? It seems that we seem to need different behaviour for organization membership (assignment) and (role-like) assignments, if we want to e.g. display also inactive users in the organizational structure.
 ** Could we use a concept similar to "weak construction"? I.e. if we want people to actively assigned to organizations, the assignments/inducements may have some option for that to override the lifecycles?
-
-==== Ideas and Questions
 
 Pre-define out-of-box configuration:
 
@@ -852,7 +1006,7 @@ What if we need to use this feature only for some (not all) accounts?
 We may still prefer immediate delete of accounts, or delayed delete with a very short interval (few days) for resources that have expensive licenses.
 Deleting accounts early can save us a lot of money.
 
-Things to support when changing lifecycle states:
+Things to support when defining lifecycle states:
 
 * Setting whether user is considered active (enabled) or inactive (disabled) in this state.
 This affects `effectiveStatus`.
@@ -864,6 +1018,9 @@ Select assignments, e.g. we may want archetype assignment to be active, other as
 
 * Change of archetype. Lifecycle state change seems to be ideal moment for automatic archetype change.
 We can do data minimization, which can play nice with change in archetype schema.
+
+* Archetype-specific display name for state?
+E.g. `inactive` employee should be displayed as "Former employee", whereas `inactive` project should be displayed as "Finished project".
 
 How can we do "onboarding only"? How to avoid deprovisioning users?
 
@@ -1291,6 +1448,22 @@ We expect to have almost perfect compatibility for connector minor versions.
 This can be done automatically.
 Upgrade to a new major version may have compatibility issues, this should probably still be manual.
 
+=== User-Friendly Bulk Task Generator in GUI
+
+*Problem*: Administrator of midPoint has no way of creating a bulk task (e.g. for recompute, mark, user property update).
+
+*Solution*: Something like "wizard", but not as technical as in Studio:
+
+* Click to create New bulk task
+* Select type of task (e.g. recompute)
+* Select users:
+** using Axiom query
+** using text area with list of user names (to be pasted from e.g. Excel)
+* Select additional info (e.g. for bulk update - which attributes should be updated, and how (expression?))
+* Show preview, which users will be modified with simulation
+* Click button to do it
+
+
 == Schema Improvements
 
 We may want to add new items to the standard schema:
@@ -1318,14 +1491,11 @@ Following objects are questionable:
 
 These things need to further discussed:
 
-* User lifecycle:
+* User lifecycle/activation:
 
-** Do we recommend importing active users only, or do we import all users?
-
-** Do we recommend deleting inactivated (e.g. lay-offs) users from midPoint?
-Or do we recommend keeping them in midPoint in archived state?
-What about retired users?
-What about data erasure?
+** What about validFrom/validTo?
+How will this work with lifecycle states?
+E.g. would we automatically switch lifecycle state after validTo passes?
 
 * Correlation
 

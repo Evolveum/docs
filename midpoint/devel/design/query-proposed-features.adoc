@@ -36,11 +36,23 @@ In Axiom Query this could be:
 ----
 assignment/targetRef matches (
   relation = "default"
+  and @ matches (
+    name = 'a-test-4'
+  )
+)
+----
+
+Also alternative with `target` is permitted.
+
+----
+assignment/targetRef matches (
+  relation = "default"
   and target matches (
     name = 'a-test-4'
   )
 )
 ----
+
 
 `target` would allow any valid filter to be executed. Most common use would be
 probably use with `type` filter (to allow matching on target type specific properties),
@@ -66,6 +78,13 @@ Support searches that "join" two object types. For example allow to search all r
 
 From description it seems, that we want to find target based on criteria on object which references it - this inverts ref filter relation.
 
+In order for such filter to work user needs to specify following:
+
+* Reference which is used for reverse search, this could be expressed as `path` to reference
+* Criteria which referencing object must match.
+
+
+
 .YAML format
 ----
 query:
@@ -74,25 +93,150 @@ query:
     referencedBy:
       type: UserType
       path: assignment/targetRef
-      target:
-        exists:
-          equal:
-            path: archetypeRef/@/name
-            value "System User"
+      filter:
+        equal:
+          path: archetypeRef/@/name
+          value "System User"
 ----
 
 ----
 . referencedBy (
-      type = UserType
-      and path = assignment/targetRef
-      and target matches (
-        archetypeRef/@/name = "System User"
-      )
+      @type = UserType
+      and @path = assignment/targetRef
+      and archetypeRef/@/name = "System User"
 )
 ----
 
-The proposed syntax based on existing Axiom Query triplets may be bit less readable,
-but allow for faster prototyping.
+----
+. referencedBy (
+      . type = UserType
+      and @path = assignment/targetRef
+      and archetypeRef/@/name = "System User"
+)
+----
+
+
+NOTE::
+This may looks cumbersome, but `type` and `path` and `target` filter properties are neccessary. `path` specifies which reference is used for search.
+`target` provides additional properties (could be empty to match all).
+`type` is neccessary to provide schema for parsing `path` and `filter` filter, also specify which data should be searched.
+
+=== Optional: Distinguish between object properties and parent container properties
+
+Current proposed form of `referencedBy` assumes nested filter starts at object level.
+This does not allows to write directly filter such as referencedBy and match also on assignment properties and object properties at same time. This could be possible if we allow `referencedBy/@type` to be any type.
+
+.Example: Find all roles, which are assigned to users with `System User` archetype  and their assignment has `secret` extension attribute
+----
+.referencedBy (
+  @type = AssignmentType
+  and @path = targetRef
+  and extension/secret exists
+  and . ownedBy (
+      @type = UserType
+      and archetypeRef/@/name = "System User"
+  )
+)
+----
+
+If we allow for parent paths and absolute paths, we can say in specification parent is owning element,
+then this filter could be written also as:
+
+----
+.referencedBy (
+  @type = UserType
+  and @path = assignment/targetRef
+  and ../extension/secret exists
+  and /archetypeRef/@/name = "System User"
+)
+----
+
+
+== ownedBy filter
+
+`ownedBy` filter allows for matching indexed containers based on properties of their parent (owning object or container).
+
+The syntax is similar to `referencedBy`. `ownedBy` filter can only be applied on self path (`.`).
+The properties of ownedBy filter are:
+
+type::
+  (Required) Type of parent / owner
+path::
+  (Optional) name / location of container inside parent
+filter::
+  (Optional) filter, to which parent needs to conform, filter is explicit element in XML/YAML/JSON.
+  In Axiom any filter which is not special property of `ownedBy` is automaticly nested in filter.
+
+=== Example: Find all assignments only using searchContainers
+
+.YAML version
+----
+ownedBy:
+  type: AssignmentHolderType
+  path: assignment
+----
+
+.Axiom version
+----
+. ownedBy ( @type = AssignmentHolderType and @path = assignment)
+----
+
+=== Example 2
+
+Find all User assignments which has `secret` extension property set to `true` and
+users have archetype `System User`
+
+.YAML version
+----
+and:
+  - equal:
+      path: extension/secret
+      value: true
+  - ownedBy:
+      type: UserType
+        path: assignment
+        filter:
+        equal:
+          path: archetypeRef/@/name = "System User"
+
+----
+
+.Axiom version
+----
+extension/secret = true
+and . ownedBy (
+  @type = UserType
+  and @path = assignment
+  and archetypeRef/@/name = "system User"
+)
+----
+
+
+== Default Matching Rule / matching rules upgrade
+
+.Related JIRA Issues
+
+
+
+we already have schema annotation `a:matchingRule`, which allows to specify matching rule for property, currently this is used in provisioning for normalization of values.
+
+We can extend support of this to Query implementations, that implementation will get default `matchingRule` from property definition (which is defined by a:matchingRule), or we could define new property to not encroach on current use of `a:matchingRule`.
+
+This solution would require:
+
+* changes to `*FilterImpl` classes - eg. `getMatchingRule` will return `definition.getMatchingRule`
+ if matching rule is not defined in xml/axiom.
+* changes to schema XSD - items, where matching rules should be applied, should be annotated using `a:matchingRule`.
+
+Additionally we should explore allowing specificiation of default `matchingRule` on simple type definitions to
+facilitate future use-cases, where this behaviour should be specified by value type (e.g introduction of types such as LdapDN, UUID).
+
+The algorithm for selection of matching rule for search would be prefer most local definition, eg:
+
+. If filter specifies matching rule explicitly use it
+. If property definition specifies matching rule use it
+. If type definition (if supported) specifies matching rule use it
+. Use implementation specific matching rule (eg. default in database)
 
 == valueIn filter?
 

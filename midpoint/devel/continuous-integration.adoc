@@ -1,18 +1,137 @@
 = Continuous Integration
-:page-wiki-name: Continuous Integration
-:page-wiki-id: 26411191
-:page-wiki-metadata-create-user: semancik
-:page-wiki-metadata-create-date: 2018-07-23T11:51:28.115+02:00
-:page-wiki-metadata-modify-user: martin.lizner
-:page-wiki-metadata-modify-date: 2019-09-18T14:22:32.909+02:00
-:page-upkeep-status: orange
-:page-upkeep-note: Almost nothing here
+:page-toc: top
+
+== CI Server
 
 Jenkins: link:https://jenkins.evolveum.com/[https://jenkins.evolveum.com/]
 
-Travis: link:https://travis-ci.org/Evolveum/midpoint[https://travis-ci.org/Evolveum/midpoint]
+On the Jenkins you can see the state of our builds.
 
-Please note, that Travis CI is sometimes subject to random test failures due to Travis infrastructure limitations.
+[WARNING]
+The rest of this page is rather technical information, probably only useful for midPoint developers.
+
+== Build information
+
+TODO
+
+=== 3rd party libraries with custom forks
+
+Sometimes we need to fix or change a library that is used in midPoint.
+Prime example is https://github.com/Evolveum/quartz[our fork of Quartz] library.
+Such dependencies have `.e<number>` suffix to their original version, like `2.3.2.e3`.
+Sometimes the dot separator is accidentally omitted, but we should be consistent.
+
+Problems with this solution as of early 2022 were:
+
+* Building of these forks is not covered by any process, only manual builds exist (can be fixed easily).
+* Branching strategy is unclear - it should perhaps somehow follow the midPoint needs?
+This can also be made more obvious by introducing CI builds where the branch will be explicit.
+
+Shortly used custom Logback 1.2.3e1 (dot separator forgotten here) was removed from the project in
+midPoint version 4.6 in favor of main-line 1.2.11 which contains necessary fixes.
+
+== Experimental/WIP
+
+New/future Jenkins: link:https://jenkins-new.evolveum.com/[https://jenkins-new.evolveum.com/]
+
+* Our Jenkins uses https://plugins.jenkins.io/kubernetes/[Kubernetes plugin] to run the builds.
+* Build Job is stored in our private GitLab as XML file.
+* Build pipeline which actually describes how the build is executed can be either in the same
+private repository or in the repository that we want to build.
+** The latter has an advantage that the same Git repository is used in job XML and makes triggering
+the build after push more straightforward.
+* Install https://plugins.jenkins.io/github/[GitHub plugin] to allow GitHub hooks after push.
+** All GitHub repositories must be set up with this Webhook by our GitHub administrator.
+** Enable the webhook trigger in Jenkins job.
+This can be done either by changing the XML in our private GitLab and then uploadning it via API,
+or one can change it on the UI, download the config XML and merge the changes to Git sources.
+Both ways are described in the private repo.
+
+TODO:
+
+* Mailing notifications? What are declarative options?
+* Running external DB for DB-specific tests (Oracle, old PG, SQL Server). (V)
+Native repo done, we prepare the container just before the build/tests.
+* Fix burning Jenkins Oops problem errors, quite often on build details. (K)
+* Can we hide some more internal/noisy jobs for users that are not logged in? (K)
+** https://plugins.jenkins.io/role-strategy/ but probably other options?
+* How to debug failed build? (V)
+Can we leave pod/containers available for some limited time?
+** Alternatively, if tests fail, perhaps download test.log (or target) as artifact.
+* Add job for our Quartz, use the right branch (likely not master). (V)
+* Tune how to failure properly, setting FAILURE flag is not enough.
+Also https://stackoverflow.com/a/56975233/658826 (V)
+
+Open questions:
+
+* If we want to download only current Git tarball, we need to use something else than GitDiscribe,
+because `.git` is not available.
+** The time savings of fetching the tarball only are tremendous, e.g. 10 seconds vs 2-4 minutes.
+** BUT: How to fetch the changes since last build?
+This evaluated by the `git` step inside the pipeline, so it seems.
+* There seems to be no environment variable with URL of SCM (GIT) provided by Jenkins.
+This was debugged by `printenv | sort` command in the pipeline that was part of the repository.
+This means, that besides the job definition (XML or UI) itself, you have to repeat the GIT URL
+in the pipeline itself.
+** Similarly, there is no way to communicate what branch is going to be built.
+
++
+This is not a big deal for single-branch build (any reasonably complex build), but it can be
+annoying for simple builds (localization, samples...) where a single build could handle all the supported branches.
+
+* Related to the previous point - Jenkins can do Git checkout by itself, if no `git` step is in
+the pipeline - but what is the difference?
+Also, why do we use `git` step when https://www.jenkins.io/doc/pipeline/steps/git/[the documentation]
+states that "the git step is a simplified shorthand for a subset of the more powerful checkout step"?
+
+=== Maven considerations when using pipeline
+
+Maven on Jenkins is run differently than your normal command line `mvn` and does a few things
+we need to cover by explicit options:
+
+* We don't need to pollute logs with transport progress for downloads/uploads, add `-ntp` option.
+* Add `-B` to avoid accidental color codes in logs (may be unnecessary, but let's be safe).
+* Add `-Dmaven.test.failure.ignore` for multi-module build if you want to run the build to the end.
+This is what Maven plugin for Jenkins normally does, but `mvn` does not.
+This is not necessary if tests are skipped, of course (e.g. `-DskipTests`).
+
+=== Other random pipeline notes
+
+* Job parameters (e.g. `VERBOSE`) are accessible in the pipeline like script properties, i.e.
+just writing `VERBOSE` in the code or `$\{VERBOSE}` in double-quote string (GString).
+** However, the parameter *must* be provided for such a pipeline, otherwise `groovy.lang.MissingPropertyException: No such property: VERBOSE for class: groovy.lang.Binding` is thrown.
+** Usage of parameter can be easily made option by accessing it via `params` map, i.e. `params.VERBOSE`
+in the code or `${params.VERBOSE}` in a GString.
+** Default value can be easily provided using Elvis operator `?:`, e.g. in GString: `${params.VERBOSE ?: '0'}`.
+** Params are mostly Strings, but there are ways how to initialize integer variable as well.
+** If parameter is accessed on many places, it may be easier to extract it at the beginning
+of the pipeline script to avoid repeated default fallback:
++
+----
+def verbose = params.VERBOSE ?: '0' // now use verbose variable lower instead params.VERBOSE
+----
+** Note, that when `$\{verbose}` is used iside GString it is replaced by the pipeline (Groovy) interpreter.
+If it is used in string (or multi-line string) defining shell script, it is already a resolved value for that script.
+Single-quote string (plain, non-G string) can be used and `$\{whatever}` will be left for the shell script to resolve.
+
+* While not exactly hallmark of https://en.wikipedia.org/wiki/Reproducible_builds[Reproducible build],
+it may be practicle to have Maven+JDK container name parametrized.
+(Reproducibility can be saved by providing the default assumed container via Elvis operator.)
+This allows using the same pipeline for multiple jobs, e.g. for JDK 11 and 17, which otherwise is exactly the same.
+
+* By default, `sh` blocks imply `-ex` flags which means that any command exiting with non-zero code
+(error) will cause the whole block to be exited - and this will also fail the stage (unless caught).
+But if shebang is used (e.g. `$$#!/bin/bash$$`) the flags are not implied and must be added explicitly.
+It's best to always write shebang as `$$#!/bin/bash -ex$$` or even with `-eux` if we want to enforce
+that all used variables are set (`-x` causes that each command is printed before execution).
+See https://www.jenkins.io/doc/pipeline/steps/workflow-durable-task-step/#sh-shell-script[the documentation] for `sh` step.
+Alternatively, don't use shebang unless really needed for some `bash` specific syntax.
+
+* `jnlp` container runs as `jenkins` user by default.
+For our purposes it's better when it runs as `root`, so always add `runAsUser: '0'` to the definition.
+Typically, builder (Maven+JDK) and DB containers also run as root by default, but let's use `runAsUser` everywhere.
+The reason for this is that some tools (e.g. `npm`) are sensitive when writing as root
+(from the builder image) to a directory that belongs to non-root owner.
 
 == See Also
 
