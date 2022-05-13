@@ -1,22 +1,23 @@
 = Resource and Object Type Inheritance
 :page-since: 4.6
 
-When configuring resources in the past, more or less copy-and-paste was inevitable: either when dealing
+When configuring resources in the past, some amount of copy-and-paste work was inevitable: either when dealing
 with multiple object types in a resource, or across similar resources. Since 4.6, this should be no longer
 the case. MidPoint provides the feature of _inheritance_ between resources as well as between individual
 object types.
 
 == Resource Inheritance
 
-A resource can specify its _super-resource_, i.e. an ancestor, of which it inherits the configuration.
+A resource can specify its _super-resource_ (a parent) of which it inherits the configuration.
+
 A typical use of this feature would be to implement so-called _resource templates_: abstract configurations,
 that can be made operational by filling-in missing configuration pieces, like specific connection parameters,
 credentials, or other specific configuration item.
 
 NOTE: The current implementation is limited to a single parent for each particular resource. (Parents can
 be chained, so a resource can have a parent, grandparent, grand-grand-parent, and so on.) In the future we
-may relax this limitation, and allow a resource to inherit from more ancestor, allowing some common configuration
-fragments to be injected into multiple resources at once.
+may relax this single-parent limitation, and allow a resource to inherit from more ancestor, allowing some
+common configuration fragments to be injected into multiple resources at once.
 
 == Object Type Inheritance
 
@@ -33,16 +34,20 @@ NOTE: The current implementation is limited to a single parent for each particul
 can be chained, just like for resources.) This also means that explicit and implicit inheritance cannot be applied
 at the same time: if there is an object type with implicit supertype, it cannot have an explicit super-type defined.
 
-The following example shows two situations:
+=== Examples
 
-1. On the left we have `MyAD` resource, with object type of `account/general` that has two (explicitly defined) subtypes:
+.Single resource, two concrete object types with a parent
+image::templates-and-object-types-single-resource.drawio.png[Object Type Inheritance]
+
+Here we see `MyAD` resource, with object type of `account/general` that has two (explicitly defined) subtypes:
 `account/default` and `account/admin`.
 
-2. On the right we have `MyAD-1` resource that inherits from `Generic AD` resource. The object type `account/abstract` in
-`MyAD-1` is an implicit child of `account/abstract` in `Generic AD`, and - at the same time - it is an explicit parent
-of `account/employee` and `account/admin` in `MyAD-1`.
+.Two resources, with implicit inheritance between corresponding object types
+image::templates-and-object-types-two-resources.drawio.png[Object Type Inheritance]
 
-image::templates-and-object-types.drawio.png[Object Type Inheritance]
+`MyAD-1` resource inherits from abstract `GenericAD` resource that serves as a template (in this case).
+The object type `account/general` in `MyAD-1` is an implicit child of `account/general` in `GenericAD`,
+and - at the same time - it is an explicit parent of `account/default` and `account/admin` in `MyAD-1`.
 
 == Configuring Resource Inheritance
 
@@ -54,7 +59,7 @@ The super-resource is defined by including the `super` item in the child resourc
 <resource oid="...">
     <name>MyAD-1</name>
     <super>
-        <resourceRef oid="873a5483-ded8-4607-ac06-ea5ae92ce755"/> <!-- Generic AD -->
+        <resourceRef oid="873a5483-ded8-4607-ac06-ea5ae92ce755"/> <!-- GenericAD -->
     </super>
     ...
 </resource>
@@ -68,7 +73,7 @@ to be marked as `abstract`, to avoid being directly used by midPoint.
 [source,xml]
 ----
 <resource oid="873a5483-ded8-4607-ac06-ea5ae92ce755">
-    <name>Generic AD</name>
+    <name>GenericAD</name>
     <abstract>true</abstract>
     ...
 </resource>
@@ -89,7 +94,7 @@ The explicit type inheritance is defined like this:
     <schemaHandling>
         <objectType>
             <kind>account</kind>
-            <intent>employee</intent>
+            <intent>default</intent>
             <super>
                 <kind>account</kind>
                 <intent>general</intent>
@@ -128,7 +133,7 @@ The explicit type inheritance is defined like this:
 </resource>
 ----
 
-We see two concrete object types (`account/employee` and `account/admin`) inheriting from an abstract one: `account/general`.
+We see two concrete object types (`account/default` and `account/admin`) inheriting from an abstract one: `account/general`.
 They both modify the definition of `ri:drink` attribute. The former changes the `tolerant` flag to `false`, while the latter
 sets the attribute as ignored. More on the exact merging algorithms is in the following section.
 
@@ -197,7 +202,7 @@ this specialty is not externally visible. It may be seen only in detailed (TRACE
 | `limitations`
 | `PropertyLimitationsType`
 | `layer` footnote:[The behavior here is a little specific: We merge the entries that have no layers specified,
-and for all other layers we simply do per-layer merging. See link:https://github.com/Evolveum/midpoint/blob/master/infra/schema/src/main/java/com/evolveum/midpoint/schema/merger/objdef/LimitationsMerger.java[the code]]
+and for all other layers we simply do per-layer merging. See link:https://github.com/Evolveum/midpoint/blob/master/infra/schema/src/main/java/com/evolveum/midpoint/schema/merger/objdef/LimitationsMerger.java[the code].]
 
 | `correlation/correlators`
 | `AbstractCorrelatorType`
@@ -207,7 +212,7 @@ and for all other layers we simply do per-layer merging. See link:https://github
 | `CorrelationItemDefinitionType`
 | `name` footnote:[This is experimental, and may change before 4.6 release.]
 
-| `target` footnote:[Under `correlation/correlators/definitions/items/item` or `correlation/correlators/definitions/places`]
+| `target` footnote:[Under `correlation/correlators/definitions/items/item` or `correlation/correlators/definitions/places`.]
 | `CorrelationItemTargetDefinitionType`
 | `qualifier` footnote:[This is experimental, and may change before 4.6 release.]
 
@@ -234,3 +239,10 @@ the schema; but if they are not abstract, they will eventually have one. In orde
 be used; no attempts to find matching values of items are made. We recommend migrating to the new object-type specific
 synchronization configuration.
 5. Resource name is always required: it will not be inherited from the parent.
+6. The current configuration driving the merge can be seen in link:https://github.com/Evolveum/midpoint/blob/master/infra/schema/src/main/java/com/evolveum/midpoint/schema/merger/TypeSpecificMergersConfigurator.java[the source code].
+
+== Samples
+
+Sample abstract and specific CSV resource can be seen here:
+
+https://github.com/Evolveum/midpoint-samples/tree/master/samples/resources/csv/inheritance
