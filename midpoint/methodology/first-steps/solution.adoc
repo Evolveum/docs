@@ -63,11 +63,10 @@ Or do we want midPoint to manage people that do it manually (review HR data, app
 We probably want both, but to what degree? What we will be recommending? (methodology)
 
 === Current brainstormings: 5/2021
-:sectnums:
 
 NOTE: This are ##preliminary## steps of Connect/Cleanup/Automate which are currently brainstormed. Hic sunt dracones.
 
-==== Connect
+==== Step I: Connect
 
 
 ===== Connect Source System (HR)
@@ -95,19 +94,26 @@ NOTE: This are ##preliminary## steps of Connect/Cleanup/Automate which are curre
 . Edit or improve mappings (`givenName`, `familyName` etc, ##TODO## `lifecycleState`; no mapping for `name` yet) - *strong mappings*
 .. All mappings either `asIs` or simple mappings using *library* (trim, upper/lower case, ...)
 . import from source system (HR) - all users or first X accounts
-. Enable `fullName` mapping in object template (there will be already one global object template (part of initial objects), but no enabled mappings by default (*##TODO 29/04/2022 alternative: one default archetype e.g. `Person` which has its own template. The archetype must be assigned to user, e.g. in synchronization settings just like FocusType, see above##*)
+. Enable `fullName` mapping.
++
+Alternatives:
 
+.. in global object template (there will be already one global object template (part of initial objects), but no enabled mappings by default
+.. (*##TODO 29/04/2022 alternative: one default archetype e.g. `Person` which has its own template. The archetype must be assigned to user, e.g. in synchronization settings just like FocusType, see above##*)
 
 NOTE: TODO we have not set any attribute for correlation criteria. Based on discussion it's not "mandatory" for simple cases (no multi-accounts)...
 
 TIP: FYI: We have imported HR data; we do not have usernames yet
 
 
-===== Connect target system (AD) - predefined template
+===== Connect target system (AD)
 
+. Create resource using predefined template
 . We assume we want to set `$focus/name` from the AD/LDAP, but not from all other target resources.
++
 If we do not want username from AD/LDAP, we might already have it from HR (e.g. employee number).
-. outbound mappings are in "comparison" mode
+So this should be optional / to be selected by the user.
+. outbound mappings are in "comparison" mode by default
 . non-invasive configuration (no/empty reactions for no situations at all, not even `UNLINKED` -> `link`)
 . save resource
 . list accounts via midPoint (to check permissions etc.)
@@ -122,7 +128,7 @@ If we do not want username from AD/LDAP, we might already have it from HR (e.g. 
 // end moving below
 ////
 
-==== Clean up
+==== Step II: Clean up
 
 ===== Correlation phase (repeat until satisfied)
 
@@ -142,15 +148,15 @@ TIP: FYI: Shadows are classified.
 .. Report should show user identifier as a separate column and another column "display name" (typically fullName) - this should be configurable using expressions. A'la `adminGuiConfiguration`?
 // end moved from above
 
-====== Account marking phase (optional)
+====== (Optional) Account marking phase
 
 . mark unmatched accounts for later decommissioning
-. mark unmatched or other accounts (linkable, but maybe some special) for later review, if we do not know what to do with them (we are not sure if we can decommission them)
+. mark unmatched or other accounts (linkable, but maybe some special) for later review, if we do not know what to do with them. (We are not sure if we can decommission them. Let's postpone the decision.)
 . mark protected accounts (in addition to using `<protected>` element in resource)
 .. If the account has situation, `PROTECTED` will erase it. Situation will be already stored in Shadow.
-.. some accounts may be deleted directly by AD administrators
+.. NOTE: some accounts may be deleted directly by AD administrators after they see the report
 
-====== Manual linking phase
+====== (Optional) Manual linking phase
 
 . manually link `UNMATCHED` and `DISPUTED` accounts to their owners if correlation was not successful (e.g. married women with different names on both sides etc.)
 
@@ -159,9 +165,11 @@ TIP: FYI: Shadows are classified.
 
 ===== Link accounts phase
 
-. set reactions for `UNLINKED` -> `link` and `LINKED` -> synchronize and keep `UNMATCHED`, `DELETED` and `DISPUTED` without any reaction
-
-. TIP: FYI: Most accounts are in `UNLINKED` and `LINKED` (manually linked accounts) situation.
+. set reactions for `UNLINKED` -> `link` and `LINKED` -> synchronize.
++
+Keep `UNMATCHED`, `DELETED` and `DISPUTED` without any reaction.
++
+TIP: FYI: Most accounts are in `UNLINKED` and `LINKED` (manually linked accounts) situation.
 
 . run reconciliation again to *link the accounts to midPoint owners*
 
@@ -194,9 +202,7 @@ The report should show some statistics e.g.:
 
 ===== Turn on the provisioning policy
 
-. Switch mappings from "comparison" mode to TODO: normal/strong etc. (midPoint is still not synchronizing changes from source)
-
-. TODO what about reactions for `UNMATCHED` / `DELETED`? When to set them? It could be also in later iterations... or in *Automate*
+. Switch outbound mappings from "comparison" mode to TODO: normal/strong etc. (midPoint is still not synchronizing changes from source)
 
 . Run reconciliation to let midPoint do the desired changes.
 
@@ -204,7 +210,7 @@ TIP: FYI: Accounts are now updated in target system based on mappings, except th
 
 *TODO TODO TODO somewhere here add correlation to HR?*
 
-==== Automate
+==== Step III: Automate
 
 ===== Username import phase if this is the resource to import username from (repeat until satisfied)
 
@@ -263,11 +269,23 @@ Either by autoassignment configuration in roles/role-like objects or in object t
 
 ===== Turn off the current provisioning to target system
 
+. Turn off the current provisioning to the target system for accounts
+
 . *EXCEPT access right assignment, until we cover them via role-like objects in midPoint!!! Leave this for later iterations.*
 
 ===== Turn on synchronization between HR and midPoint
 
+. Turn on the automatic synchronization between HR and midPoint
+
 TIP: FYI: From now on, all people from HR will get AD accounts
+
+===== Turn on automatic account enforcement policy
+
+. Set appropriate reactions for `UNMATCHED` / `DELETED`
+
+. Schedule reconciliation task
+
+. (Optional) Schedule reconciliation report to be generated/sent
 
 // END OF BRAINSTORMINGS
 
