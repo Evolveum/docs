@@ -30,11 +30,16 @@ This can also be made more obvious by introducing CI builds where the branch wil
 Shortly used custom Logback 1.2.3e1 (dot separator forgotten here) was removed from the project in
 midPoint version 4.6 in favor of main-line 1.2.11 which contains necessary fixes.
 
-== Experimental/WIP
+== New Jenkins server
 
 New/future Jenkins: link:https://jenkins-new.evolveum.com/[https://jenkins-new.evolveum.com/]
 
 * Our Jenkins uses https://plugins.jenkins.io/kubernetes/[Kubernetes plugin] to run the builds.
+* MidPoint/Prism builds are made public using https://plugins.jenkins.io/matrix-auth/[Matrix Authorization Strategy] plugin.
+** Global Security is configured to use *Project-based Matrix Authorization Strategy* and *Anonymous* user has *Read* permission in *Overall* category.
+No permissions for views are necessary, the views containing visible tasks will be automatically visible as well.
+** The rest is job configuration where *Read* permission in *Job* category is added for *Anonymous* user.
+This does exactly what we are used to from our old Jenkins.
 * Build Job is stored in our private GitLab as XML file.
 * Build pipeline which actually describes how the build is executed can be either in the same
 private repository or in the repository that we want to build.
@@ -43,24 +48,23 @@ the build after push more straightforward.
 * Install https://plugins.jenkins.io/github/[GitHub plugin] to allow GitHub hooks after push.
 ** All GitHub repositories must be set up with this Webhook by our GitHub administrator.
 ** Enable the webhook trigger in Jenkins job.
-This can be done either by changing the XML in our private GitLab and then uploadning it via API,
+This can be done either by changing the XML in our private GitLab and then uploading it via API,
 or one can change it on the UI, download the config XML and merge the changes to Git sources.
 Both ways are described in the private repo.
+** Poll SCM is also a viable option if we don't want to build after each push.
+Use our home timezone `TZ=Europe/Bratislava` on the first line of the specification to get the expected results.
 
 TODO:
 
 * Mailing notifications? What are declarative options?
-* Running external DB for DB-specific tests (Oracle, old PG, SQL Server). (V)
-Native repo done, we prepare the container just before the build/tests.
+* Running external DB for DB-specific tests (Oracle, old PG, SQL Server).
+DONE for native and generic PG, MS SQL Server experiment started, Oracle todo. (P)
 * Fix burning Jenkins Oops problem errors, quite often on build details. (K)
-* Can we hide some more internal/noisy jobs for users that are not logged in? (K)
-** https://plugins.jenkins.io/role-strategy/ but probably other options?
+(Perhaps it's not such a ...ehm... burning problem eventually?)
 * How to debug failed build? (V)
 Can we leave pod/containers available for some limited time?
 ** Alternatively, if tests fail, perhaps download test.log (or target) as artifact.
 * Add job for our Quartz, use the right branch (likely not master). (V)
-* Tune how to failure properly, setting FAILURE flag is not enough.
-Also https://stackoverflow.com/a/56975233/658826 (V)
 
 Open questions:
 
@@ -110,12 +114,12 @@ of the pipeline script to avoid repeated default fallback:
 ----
 def verbose = params.VERBOSE ?: '0' // now use verbose variable lower instead params.VERBOSE
 ----
-** Note, that when `$\{verbose}` is used iside GString it is replaced by the pipeline (Groovy) interpreter.
+** Note, that when `$\{verbose}` is used inside GString it is replaced by the pipeline (Groovy) interpreter.
 If it is used in string (or multi-line string) defining shell script, it is already a resolved value for that script.
 Single-quote string (plain, non-G string) can be used and `$\{whatever}` will be left for the shell script to resolve.
 
 * While not exactly hallmark of https://en.wikipedia.org/wiki/Reproducible_builds[Reproducible build],
-it may be practicle to have Maven+JDK container name parametrized.
+it may be practical to have Maven+JDK container name parametrized.
 (Reproducibility can be saved by providing the default assumed container via Elvis operator.)
 This allows using the same pipeline for multiple jobs, e.g. for JDK 11 and 17, which otherwise is exactly the same.
 
@@ -132,6 +136,11 @@ For our purposes it's better when it runs as `root`, so always add `runAsUser: '
 Typically, builder (Maven+JDK) and DB containers also run as root by default, but let's use `runAsUser` everywhere.
 The reason for this is that some tools (e.g. `npm`) are sensitive when writing as root
 (from the builder image) to a directory that belongs to non-root owner.
+
+* `Publisher` step for TestNG result publication (results and chart) does NOT consider failed
+test configuration as a reason for unstable build.
+To change this, add `failureOnFailedTestConfig: true` to the configuration map for the step.
+See docs https://www.jenkins.io/doc/pipeline/steps/testng-plugin/[here].
 
 == See Also
 
