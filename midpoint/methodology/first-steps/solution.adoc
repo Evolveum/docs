@@ -66,101 +66,182 @@ We probably want both, but to what degree? What we will be recommending? (method
 
 NOTE: This are ##preliminary## steps of Connect/Cleanup/Automate which are currently brainstormed. Hic sunt dracones.
 
-==== Connect
+==== Step I: Connect
 
-. connect source system (HR)
-.. Go to Resources, New resource (no template for HR), ##*Wizard #1 (Resource Connection Wizard?)*## starts
-.. Enter basic connection parameters
-.. midPoint will try connection and return further configuration properties (in case of LDAP this would be `baseContext` etc.)
-.. Schema restrictions (generation constraints) - for HR probably not, accounts only
-.. Save resource, no mappings yet
-.. I may now list the accounts in the resource through midPoint to see which data I have
-.. Click *This looks good, I want to import data**, ##*Wizard #2 (Resource Mapping Wizard?)*## starts
-.. Edit correlation criteria (which attribute should correlate to which property)
-.. Set `focusType` for synchronization (default: `UserType`)
-.. *TODO we don't set specific kind/intent here, defaults*
-.. *TODO TODO what about archetype here?*
-.. Set situations and reactions
-... `UNMATCHED`: reasonable default for source system is `addFocus`
-... `UNLINKED`: reasonable default is `link`
-... `LINKED`: "synchronize=true" equivalent
-... `DELETED`: ?
-... `DISPUTED`: ? can happen with source at all?
-.. Edit mappings (`givenName`, `familyName` etc, ##TODO## `lifecycleState`, ##TODO empty `name`##) - *strong mappings*
-... All mappings either `asIs` or simple mappings using *library* (trim, upper/lower case, ...)
-.. *##TODO only later we will add object template for `name` generator!!! Not now##*
+
+===== Connect Source System (HR)
+
+. Go to Resources, New resource (no template for HR), ##*Wizard #1 (Resource Connection Wizard?)*## starts
+. Enter basic connection parameters
+. midPoint will try connection and return further configuration properties (in case of LDAP this would be `baseContext` etc.)
+. Schema restrictions (generation constraints) - for HR probably not, accounts only
+. Save resource, no mappings yet
+. I may now list the accounts in the resource through midPoint to see which data I have
+. Click *This looks good, I want to import data*, ##*Wizard #2 (Resource Mapping Wizard?)*## starts
+. Edit correlation criteria (which attribute should correlate to which property)
+. Set `focusType` for synchronization (default: `UserType`)
+. *TODO we don't set specific kind/intent here, defaults*
+. *TODO TODO what about archetype here?*
+. Set situations and reactions
+.. `UNMATCHED`: reasonable default for source system is `addFocus`
+.. `UNLINKED`: reasonable default is `link`
+.. `LINKED`: "synchronize=true" equivalent
+.. `DELETED`: ?
+.. `DISPUTED`: ? can happen with source at all?
+
+===== Start import user phase (repeat until satisfied)
+
+. Edit or improve mappings (`givenName`, `familyName` etc, ##TODO## `lifecycleState`; no mapping for `name` yet) - *strong mappings*
+.. All mappings either `asIs` or simple mappings using *library* (trim, upper/lower case, ...)
 . import from source system (HR) - all users or first X accounts
-.. Accounts are imported as users, *no `name`, no `fullName`*
-. Enable `fullName` mapping in object template (there will be already one global object template (part of initial objects), but no enabled mappings yet (*##TODO 29/04/2022 alternative: one default archetype e.g. `Person` which has its own template. The archetype must be assigned to user, e.g. in synchronization settings just like FocusType, see above##*)
-.. for `fullName` there may be already *disabled default mapping*
-. (repeat import from HR until satisfied, fixing mappings)
-. *TODO we have not set any attribute for correlation criteria. Based on discussion it's not "mandatory" for simple cases (no multi-accounts)...*
-. ##*Here we are happy, but/because we do not have usernames yet!*##
-. connect target system (AD) - predefined template
-.. We assume we want to set `$focus/name` from the AD/LDAP, but not from all other target resources
-.. outbound mappings are in "comparison" mode
-.. non-invasive configuration (no reactions at all, not even `UNLINKED` -> `link`)
+. Enable `fullName` mapping.
++
+Alternatives:
+
+.. in global object template (there will be already one global object template (part of initial objects), but no enabled mappings by default
+.. (*##TODO 29/04/2022 alternative: one default archetype e.g. `Person` which has its own template. The archetype must be assigned to user, e.g. in synchronization settings just like FocusType, see above##*)
+
+NOTE: TODO we have not set any attribute for correlation criteria. Based on discussion it's not "mandatory" for simple cases (no multi-accounts)...
+
+TIP: FYI: We have imported HR data; we do not have usernames yet
+
+
+===== Connect target system (AD)
+
+. Create resource using predefined template
+. We assume we want to set `$focus/name` from the AD/LDAP, but not from all other target resources.
++
+If we do not want username from AD/LDAP, we might already have it from HR (e.g. employee number).
+So this should be optional / to be selected by the user.
+. outbound mappings are in "comparison" mode by default
+. non-invasive configuration (no/empty reactions for no situations at all, not even `UNLINKED` -> `link`)
+. save resource
+. list accounts via midPoint (to check permissions etc.)
+
+////
+// moving below
 .. review/update correlation. Select the attributes to correlate and how. Selecting from attributes which have mappings, and how (equal, substring, ...). Some weight/negative conditions. (E.g. if this attribute vs user property differs, this can't match even if `ri:cn` matched `$focus/fullName`). ##*TODO this is important for Katka for Resource wizard*##
 . run reconciliation with target system (no dry-run - that will be eventually deprecated); because all reactions are non-invasive and mappings do not enforce anything yet. Shadows are created.
 . run ##interactive## reconciliation report to show situations/reactions - including situations `UNMATCHED` etc. for which we do not have any reaction - yet. But the shadows will be classified.
 .. The report must show also "candidate" user owners. *NOTE: No linkRef yet!!!! (Store candidate owner(s) in Shadow?) Each run will overwrite this temporary state?*
 .. Report should show user identifier as a separate column and another column "display name" (typically fullName) - this should be configurable using expressions. A'la `adminGuiConfiguration`?
+// end moving below
+////
 
-==== Clean up
+==== Step II: Clean up
 
-*TODO finished here ##06/05/2022##*
+===== Correlation phase (repeat until satisfied)
+
+// moved from above
+. review/update correlation. Select the attributes to correlate and how. Select from attributes which have mappings, and how (equal, substring, ...). Some weight/negative conditions. (E.g. if this attribute vs user property differs, this can't match even if `ri:cn` matched `$focus/fullName`).
++
+##*TODO this is important for Katka for Resource wizard*##
+
+. run reconciliation with target system (no dry-run - that will be eventually deprecated); because all reactions are non-invasive and mappings do not enforce anything yet.
++
+TIP: FYI: Shadows are created.
+. run ##interactive## reconciliation report to show situations/reactions - including situations `UNMATCHED` etc. for which we do not have any reaction - yet.
++
+TIP: FYI: Shadows are classified.
+
+.. The report must show also "candidate" user owners. *NOTE: No linkRef yet!!!! (Store candidate owner(s) in Shadow?) Each run will overwrite this temporary state?*
+.. Report should show user identifier as a separate column and another column "display name" (typically fullName) - this should be configurable using expressions. A'la `adminGuiConfiguration`?
+// end moved from above
+
+====== (Optional) Account marking phase
+
+. mark unmatched accounts for later decommissioning
+. mark unmatched or other accounts (linkable, but maybe some special) for later review, if we do not know what to do with them. (We are not sure if we can decommission them. Let's postpone the decision.)
+. mark protected accounts (in addition to using `<protected>` element in resource)
+.. If the account has situation, `PROTECTED` will erase it. Situation will be already stored in Shadow.
+.. NOTE: some accounts may be deleted directly by AD administrators after they see the report
+
+====== (Optional) Manual linking phase
+
+. manually link `UNMATCHED` and `DISPUTED` accounts to their owners if correlation was not successful (e.g. married women with different names on both sides etc.)
+
+##TODO we finished here 13.5.2022##
 
 
-. run reconciliation report on account level: which accounts are extra?
-. account marking phase (optional):
-.. mark unmatched accounts for later decommissioning
-.. mark unmatched or other accounts (linkable, but maybe some special) for later review, if we do not know what to do with them (we are not sure if we can decommission them)
-.. mark protected accounts (in addition to using `<protected>` element in resource)
-... *TODO possible problem when accounts are first UNMATCHED and then made protected. Situation will be already stored in Shadow. Report should perhaps do something about it?*
-... some accounts may be deleted directly by AD administrators
-... *TODO problem with UNMATCHED->DELETED and dead shadows [MID-7927]*
-. *TODO TODO prepare/uncomment/activate inbound mapping from target to midPoint user? In comparison mode as well?* Maybe that mapping is default in the bundled resource template? E.g. from `userPrincipalName` minus `@domain.com` to `$focus/name`?
-.. TODO if we know, which attribute from AD we want to use as a basis for `$focus/name`, we *must* also have the opposite mapping - outbound from midPoint to be used from now on.
-.. TODO maybe that inbound should be removed later in Automate phase (already noted there)? When? Or we just make the mapping strength `weak` as we do not have any value yet in midPoint users and we will always have the value in the future! (But this will work only once.)
-. TODO set reactions for `UNLINKED` and `LINKED` and `DISPUTED` (TODO and identity matching?)
-. run reconciliation again to link the accounts
-. run reconciliation report (interactive?) again. ##Accounts are now linked to users##. TODO: ##is this the place for DISPUTED/identity matching?##
-. run reconciliation report on attribute level (simulation using mappings in "comparison" mode): what will midPoint change in target system (simulation of what would be done)
-.. The report should show some statistics e.g.:
-... How many accounts would be changed, deleted
-... Which attributes will be changed and how many changes (e.g. attribute `givenName` will be changed in 200 accounts), sorted desc
-... Table of changes to be made (*TODO how to present it? Our delta format e.g. in Preview changes takes too many screen space, how to even export it to CSV/Excel?*)
-.. How to continue - options:
-... fix account attributes in AD (administrator of AD) outside midPoint
-... update mappings in target resource (still in comparison mode)
-... mark account for later processing (do not touch until that)
-... if it is OK to allow the simulated changes, do not do anything
+===== Link accounts phase
+
+. set reactions for `UNLINKED` -> `link` and `LINKED` -> synchronize.
++
+Keep `UNMATCHED`, `DELETED` and `DISPUTED` without any reaction.
++
+TIP: FYI: Most accounts are in `UNLINKED` and `LINKED` (manually linked accounts) situation.
+
+. run reconciliation again to *link the accounts to midPoint owners*
+
+. *TODO enable identity matching for `DISPUTED`*
+
+TIP: FYI: All linkable accounts are in `LINKED` situation or in progress of identity matching.
+
+===== Attribute correlation phase (repeat until satisfied)
+
+. run reconciliation report on _attribute level_ (simulation using mappings in "comparison" mode): what will midPoint change in target system (simulation of what would be done).
+The report should show some statistics e.g.:
+.. How many accounts would be changed, deleted
+.. Which attributes will be changed and how many changes (e.g. attribute `givenName` will be changed in 200 accounts), sorted desc
+.. Table of changes to be made (*TODO how to present it? Our delta format e.g. in Preview changes takes too many screen space, how to even export it to CSV/Excel?*)
+
+. (Option 1) Fix account attributes in AD (administrator of AD) outside midPoint, if they are incorrect
+. (Option 2) Update mappings in target resource (still in comparison mode), if they are incorrect
+. (Option 3) Mark account for later processing (do not touch until that) to make exception
+. (Option 4) Do not do anything if the mappings are OK, even if they attempt to change target system accounts
+
 . *TODO TODO run (the same?) reconciliation report to see what usernames will it generate in midPoint - simulation?*
 
-. Repeat reconciliation / reconciliation reports until satisfied, keep marked shadows until further resolution. They will not be touched by midPoint yet.
-.. *TODO possible problem with UNMATCHED->DELETED situation*
-.. *TODO possible problem with UNMATCHED->"PROTECTED" situation* (if accounts are first Unmatched and then made Protected, currently the old situation is kept)
-. switch mappings from "comparison" mode to TODO: normal/strong etc. (midPoint is still not synchronizing changes from source)
-. TODO what about reactions for `UNMATCHED` / `DELETED`? When to set them? It could be also in later iterations...
-. Decide what to do with to-be-decommissioned accounts (disable, delete, ...). It could be also in later iterations.
-. Run reconciliation (final time) to let midPoint do the desired changes. ##Accounts are now updated in target system based on mappings, except the marked accounts##
-. Optional: do something with the accounts marked for later review. It could be also in later iterations.
-. *TODO TODO TODO somewhere here add correlation to HR?*
+===== Clean-up marked shadows
 
-==== Automate
+. TIP: FYI Shadows are still marked as decommissioned/do not touch.
 
-. TODO now we have all *existing* AD usernames in midPoint, we can consider the identifier unique
+. TODO Even for shadows marked as "do not touch", if they are also UNLINKED / LINKED, we may want to read from the shadows and use it to create midPoint username. Otherwise we might miss this information and generate such username for someone else! So this "do not touch" could mean something as "half-protected" or "write-protected" accounts. But linking should work for them.
 
-. *TODO TODO define and turn on username generator in object template! Otherwise we cannot automate onboarding.*
-.. TODO should the `name` mapping be `weak` to not overwrite anything originally coming from AD?
-... TODO what about user renames then?
-... TODO condition to differentiate "original" users and new users coming since midPoint is in place? We could mark also _users_ during the initial reconciliations from AD and use this to distinguish new users.
+. Cleanup at least some marked shadows (decommissioned/do not touch). *TODO does this need mappings? This is the following action in the list*
+.. (Optional) Unmark decommissioned accounts (which are also UNMATCHED) to allow midPoint to eventually remove them in later phases.
+.. (Optional) Unmark "do not touch" accounts to allow midPoint to update them in later phases.
 
-.. TODO we need to specify the algorithm (selected from list?). Examples:
-... Example: `givenName initial + familyName + XX` where XX is a number starting from 1, 2, up to 99 and the first available is used
-... Example: `givenName initial + familyName + XX` where XX is a number starting from 01, 02, up to 99 and the first available is used
-... TODO what is the "starting number"?
-.. *##TODO TODO TODO what about this situation:##*
+===== Turn on the provisioning policy
+
+. Turn off the "comparison" mode in outbound mappings.
++
+(midPoint is still not synchronizing changes from source)
+
+. Run reconciliation to let midPoint do the desired changes.
+
+TIP: FYI: Accounts are now updated in target system based on mappings, except the accounts that are still marked.
+
+*TODO TODO TODO somewhere here add correlation to HR?*
+
+==== Step III: Automate
+
+===== Username import phase if this is the resource to import username from (repeat until satisfied)
+
+. Prepare/uncomment/activate (weak?) inbound mapping from target to midPoint user (mapping is default in the bundled resource template) E.g. from `userPrincipalName` minus `@domain.com` to `$focus/name`?
+
+. Preview the inbound username mapping on single user before running reconciliation
+
+. TODO if we know, which attribute from AD we want to use as a basis for `$focus/name`, we *must* also have the opposite mapping - outbound from midPoint to be used from now on.
+. run reconciliation with the target system to import the usernames
+
+. TODO maybe that inbound should be removed later in Automate phase (already noted there)? When? Or we just make the mapping strength `weak` as we do not have any value yet in midPoint users and we will always have the value in the future! (But this will work only once.)
+
+TIP: FYI: Now we have all *existing* AD usernames in midPoint, we can consider the identifier unique.
+
+===== Activate username generator
+
+TODO: where? object template?
+
+. TODO should the `name` mapping be `weak` to not overwrite anything originally coming from AD?
+.. TODO what about user renames from now on?
+.. TODO condition to differentiate "original" users and new users coming since midPoint is in place? We could mark also _users_ during the initial reconciliations from AD and use this to distinguish new users.
+
+. TODO we need to specify the algorithm (selected from list?). Examples:
+.. Example: `givenName initial + familyName + XX` where XX is a number starting from 1, 2, up to 99 and the first available is used
+.. Example: `givenName initial + familyName + XX` where XX is a number starting from 01, 02, up to 99 and the first available is used
+.. TODO what is the "starting number"?
+. *##TODO TODO TODO what about this situation:##*
 +
 in AD, there is `jsmith24` but there were obviously also `jsmith2`, `jsmith3` ... `jsmith23` which are now not in AD anymore.
 +
@@ -168,29 +249,51 @@ Where should we start if we do not want to reuse previous logins?
 +
 Even worse, we don't know if there was any `jsmith52` previously!!!
 
-... TODO we cannot assume accounts for all former employees still exist in AD!!!
-... TODO we _might_ have more data if we reconcile other target systems later, where possibly also those logins exist!!! But this can conflict with usernames we start to generate with midPoint after AD/LDAP is connected!!!
-... ##TODO we could perhaps start with `jsmithXXX` from now to have absolutely different naming convention which is still understandable and rememberable to the users##
-.... TODO unless the identifier length causes a problem (in any system they will connect in the future!)
-... TODO alternative: if we use identifier and later we see it's bad (already used somewhere), provide a way of resolution... But how? If this username is already user by the new user and later the (former employee) account gets overwritten, we would need to resolve the situation for both the new user (using a recycled identifier) and overwritten account! How would we return the overwritten data back?
-.. TODO ... and turn off the (weak) mapping from AD/LDAP to midPoint
+.. TODO we cannot assume accounts for all former employees still exist in AD!!!
+.. TODO we _might_ have more data if we reconcile other target systems later, where possibly also those logins exist!!! But this can conflict with usernames we start to generate with midPoint after AD/LDAP is connected!!!
+.. ##TODO we could perhaps start with `jsmithXXX` from now to have absolutely different naming convention which is still understandable and rememberable to the users##
+... TODO unless the identifier length causes a problem (in any system they will connect in the future!)
+.. TODO alternative: if we use identifier and later we see it's bad (already used somewhere), provide a way of resolution... But how? If this username is already user by the new user and later the (former employee) account gets overwritten, we would need to resolve the situation for both the new user (using a recycled identifier) and overwritten account! How would we return the overwritten data back?
+. TODO ... and turn off the (weak) mapping from AD/LDAP to midPoint
 
-. Define policy for automatic assignments: *TODO where? object template assignment of - what? Archetype? How will the user specify it, how will user edit it?*
-.. TODO I can imagine very simplified piece of configuration, where user will simply specify the "target" for inducement (e.g. "Account in Active Directory resource"), and kind, intent and condition would be optional.
+
+===== Define policy for automatic assignments
+
+*TODO where? object template assignment of - what? Archetype? How will the user specify it, how will user edit it?*
+
+. TODO I can imagine very simplified piece of configuration, where user will simply specify the "target" for inducement (e.g. "Account in Active Directory resource"), and kind, intent and condition would be optional.
 +
 Conditions won't be required for the first iteration.
 In later iterations, the condition can change.
 In even later iterations, we need to cover automatic assignment of access rights.
 Either by autoassignment configuration in roles/role-like objects or in object template?
-.. TODO this policy must also define what to do when users are leaving!
-.. TODO: we need to *recompute* users after we change anything in this policy!
+. TODO this policy must also define what to do when users are leaving!
+. TODO: we need to *recompute* users after we change anything in this policy!
 
-. Turn off the current provisioning to target system
-.. *EXCEPT access right assignment, until we cover them via role-like objects in midPoint!!! Leave this for later iterations.*
 
-. Turn on synchronization between HR and midPoint
+===== Turn off the current provisioning to target system
 
-. From now on, all people from HR will get AD accounts
+. Turn off the current provisioning to the target system for accounts
+
+. *EXCEPT access right assignment, until we cover them via role-like objects in midPoint!!! Leave this for later iterations.*
+
+===== Turn on synchronization between HR and midPoint
+
+. Turn on the automatic synchronization between HR and midPoint
+
+TIP: FYI: From now on, all people from HR will get AD accounts
+
+===== Turn on automatic account enforcement policy
+
+. Set appropriate reactions for `UNMATCHED` / `DELETED`
+
+. Schedule reconciliation task
+
+. (Optional) Schedule reconciliation report to be generated/sent
+
+// END OF BRAINSTORMINGS
+// Move it somewhere else
+
 
 
 
@@ -1157,6 +1260,7 @@ Do not apply any mappings, do not change anything.
 The account is a mess, we have to sort it out eventually, just not yet.
 For the time being we just want to keep status quo, maybe include it in reports, but we are not going to do anything else.
 ** This may be needed for source system account as well to ignore changes coming from that account (e.g. in case the source system has invalid data which cannot be fixed immediately.)
+** TODO: if such accounts is actually UNLINKED or LINKED, we might want to protect it against any changes (outbound), but we may need it to import data from it (inbound). E.g. in case of importing login names from AD, we want to import it and then protect the account against changes, because it is the President of Galaxy
 
 
 The details are below:

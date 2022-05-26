@@ -1,0 +1,446 @@
+= AD test environment setup
+:page-nav-title: AD test environment setup
+:page-upkeep-status: yellow
+:toc:
+
+== Introduction
+
+This page contain the complete set of command in powershell used to set up the test environment.
+It can be used as reference setup for the testing.
+This setting has been tested on the windows servers up to version 2022.
+
+As all the steps are realized by the powershell it is applicable also on Windows server in *core* installation - without the (G)UI.
+
+== Assumption
+
+To have the example complete and usable we have to set some "variable" of the environment.
+For the documentation purpose we will expect following values:
+
+|====
+| assumed information | Value(s)
+
+| Network
+| address (CIDR) : 192.168.122.0/24 +
+GW : 192.168.122.1 +
+DNS server : 192.168.122.1
+
+| Windows version
+| Windows Server 2019
+
+| "Upper" domain
+| ad2019.lab.evolveum.com +
+DC=ad2019,DC=lab,DC=evolveum,DC=com +
+IP : 192.168.122.161 +
+FQDN: ad01.ad2019.lab.evolveum.com
+
+| Sub domain
+| sub2019.ad2019.lab.evolveum.com +
+DC=sub2019,DC=ad2019,DC=lab,DC=evolveum,DC=com +
+IP : 192.168.122.143 +
+FQDN: ad02.sub2019.ad2019.lab.evolveum.com +
+(optionaly the alias) FQDN: ad02.ad2019.lab.evolveum.com
+|====
+
+[NOTE]
+====
+To have the configuration working we have to delegate *ad2019.lab.evolveum.com* to the windows server (192.168.122.161) in the DNS system (NS record).
+Alternatively we can force the system to use the windows server (192.168.122.161) as DNS resolver.
+We don't need to explicitly handle subdomain *sub2019* as it will be known by the ad01 server.
+====
+
+== SSH
+
+To this topis there is available also dedicated xref:../windows-ssh-server.adoc[doc page].
+
+.enable Windows Capability
+[source,powershell]
+----
+Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
+
+Set-Service sshd -StartupType Automatic
+Set-Service ssh-agent -StartupType Automatic
+Start-Service sshd
+Start-Service ssh-agent
+
+Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0
+
+New-ItemProperty -Path "HKLM:\SOFTWARE\OpenSSH" -Name DefaultShell -Value "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe" -PropertyType String -Force
+----
+
+[NOTE]
+====
+In case the default shell is not set the powershell have to be explicitly run after connection is established.
+
+[source]
+----
+C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+----
+====
+
+[WARNING]
+====
+LDAP connector is bundled with midPoint distribution.
+In case of SSH connector it has to be additionally downloaded.
+The connector can be found on nexus.
+For more information check dedicated xref:/connectors/connectors/com.evolveum.polygon.connector.ssh.SshConnector[doc page].
+====
+
+=== Setup RSA keys to authentication (optional)
+
+This step is optional.
+It can speed up the reconnection during the setup process of the environment.
+
+.adding the key and set up proper permission for the file
+[source,powershell]
+----
+add-content -Path C:\ProgramData\ssh\administrators_authorized_keys
+
+# Add the keys (one per line).
+# The empty line properly end the process of editing.
+
+#get the ACL object for the file
+$acl = Get-Acl C:\ProgramData\ssh\administrators_authorized_keys
+
+#add the proper permissions to the list of ACLs
+$acl.SetAccessRuleProtection($true, $false)
+$administratorsRule = New-Object system.security.accesscontrol.filesystemaccessrule("Administrators","FullControl","Allow")
+$systemRule = New-Object system.security.accesscontrol.filesystemaccessrule("SYSTEM","FullControl","Allow")
+$acl.SetAccessRule($administratorsRule)
+$acl.SetAccessRule($systemRule)
+
+#process the setting
+$acl | Set-Acl
+----
+
+== New forest (first domain in multi-domain environment)
+
+It is recommended to use static IP address.
+One of the reason is DNS delegation for the domain resolving - the AD system use DNS records to distribute information about the nodes operating in AD's role.
+
+.set up static IP and FQDN of the server
+[source,powershell]
+----
+Get-NetAdapter | New-NetIPAddress -AddressFamily IPv4 -IPAddress 192.168.122.161 -PrefixLength 24 -DefaultGateway 192.168.122.1
+Get-NetAdapter | Set-DnsClientServerAddress -ServerAddresses ("192.168.122.1")
+
+$computer = Get-WmiObject -Class Win32_ComputerSystem
+$computer.Rename("ad01")
+
+Restart-Computer -Force
+----
+
+.Add the windows feature and promote the domain
+[source,powershell]
+----
+Install-WindowsFeature -name AD-Domain-Services -IncludeManagementTools
+
+# You will be interactively prompted for the pasword
+$Password = Read-Host -Prompt   'Enter SafeMode Admin Password' -AsSecureString
+
+$Params = @{
+    CreateDnsDelegation = $false
+    DomainMode = 'WinThreshold'
+    DomainName = 'ad2019.lab.evolveum.com'
+    DomainNetbiosName = 'AD2019'
+    ForestMode = 'WinThreshold'
+    InstallDns = $true
+    NoRebootOnCompletion = $false
+    SafeModeAdministratorPassword = $Password
+    Force = $true
+}
+
+Install-ADDSForest @Params
+----
+
+At this point the system will be rebooted.
+After the new start of the system it will take longer time as there will be processing the initial setup of the newly promoted domain.
+
+It may be good idea to set up *Password never expires* on administrator account.
+It is optional so don't do it in case you would face your internal security policy.
+
+.Set *Password newer expire* for administrator account
+[source,powershell]
+----
+Set-ADUser -Identity administrator -PasswordNeverExpires $true
+----
+
+.optional DNS record for ad02 in "upper" zone
+[source,powershell]
+----
+Add-DnsServerResourceRecordA -Name "ad02" -ZoneName "ad2019.lab.evolveum.com" -IPv4Address "192.168.122.143"
+----
+
+The following objects are related to midPoint's conntest.
+The corresponding setting can be found on link:https://github.com/Evolveum/midpoint/blob/master/testing/conntest/src/test/resources/ad-ldap-multidomain/resource-ad2019.xml[github] page.
+
+.Objects related to the conntest
+[source,powershell]
+----
+New-ADGroup -name pirates -SamAccountName pirates -GroupScope Global -GroupCategory Security -DisplayName pirates -Path "CN=Users,DC=ad2019,DC=lab,DC=evolveum,DC=com"
+
+New-ADUser -AccountPassword ( "qwe.123" | ConvertTo-SecureString -AsPlainText -Force)  -Description "The best pirate the world has ever seen" -DisplayName "Jack Sparrow" -Enabled $true -GivenName Jack -Name "Jack Sparrow" -PasswordNeverExpires $true -SamAccountName jack -Surname Sparrow -UserPrincipalName "jack@ad2019.lab.evolveum.com" -Path "CN=Users,DC=ad2019,DC=lab,DC=evolveum,DC=com"
+
+Add-ADGroupMember -Identity 'CN=pirates,CN=Users,DC=ad2019,DC=lab,DC=evolveum,DC=com' -Members 'CN=Jack Sparrow,CN=Users,DC=ad2019,DC=lab,DC=evolveum,DC=com'
+
+New-ADUser -AccountPassword ( "qwe.123" | ConvertTo-SecureString -AsPlainText -Force) -DisplayName "MidPoint" -Enabled $true -Name "MidPoint" -PasswordNeverExpires $true -SamAccountName midpoint -Surname MidPoint -UserPrincipalName "midpoint@ad2019.lab.evolveum.com" -Path "CN=Users,DC=ad2019,DC=lab,DC=evolveum,DC=com"
+
+Add-ADGroupMember -Identity 'CN=Domain Admins,CN=Users,DC=ad2019,DC=lab,DC=evolveum,DC=com' -Members 'CN=MidPoint,CN=Users,DC=ad2019,DC=lab,DC=evolveum,DC=com'
+
+##
+# https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-adts/1522b774-6464-41a3-87a5-1e5633c3fbbb
+# 1131f6aa-9c07-11d1-f79f-00c04fc2dcd2 ~ DS-Replication-Get-Changes
+## Import-Module ActiveDirectory
+$path = "AD:DC=ad2019,DC=lab,DC=evolveum,DC=com"
+$acl = Get-Acl -Path $path
+$ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+	[System.Security.Principal.IdentityReference] (get-aduser -identity midpoint).SID,
+	[System.DirectoryServices.ActiveDirectoryRights] 'ExtendedRight',
+	[System.Security.AccessControl.AccessControlType] 'Allow',
+	(new-object Guid '1131f6aa-9c07-11d1-f79f-00c04fc2dcd2')
+)
+$acl.AddAccessRule($ace)
+Set-Acl -Path $path -AclObject $acl
+
+New-ADUser -AccountPassword ( "qwe.123" | ConvertTo-SecureString -AsPlainText -Force) -Description "Test for SSH client (SSH connector tests)" -DisplayName "SSH Test" -Enabled $true -GivenName Ssh -Name "SSH Test" -PasswordNeverExpires $true -SamAccountName sshtest -Surname Test -UserPrincipalName "sshtest@ad2019.lab.evolveum.com" -Path "CN=Users,DC=ad2019,DC=lab,DC=evolveum,DC=com"
+
+New-ADUser -AccountPassword ( "qwe.123" | ConvertTo-SecureString -AsPlainText -Force) -DisplayName "Guybrush Threepwood" -Enabled $true -GivenName Guybrush -Name "Guybrush Threepwood" -SamAccountName guybrush -Surname Threepwood -UserPrincipalName "guybrush@ad2019.lab.evolveum.com" -Path "CN=Users,DC=ad2019,DC=lab,DC=evolveum,DC=com"
+
+Add-ADGroupMember -Identity 'CN=pirates,CN=Users,DC=ad2019,DC=lab,DC=evolveum,DC=com' -Members 'CN=Guybrush Threepwood,CN=Users,DC=ad2019,DC=lab,DC=evolveum,DC=com'
+
+New-ADOrganizationalUnit -Name Org -Path "DC=ad2019,DC=lab,DC=evolveum,DC=com"
+----
+
+.clean up the conntest related objects (except midpoint account and org OU)
+[source,powershell]
+----
+Remove-ADUser -Identity "CN=SSH Test,CN=Users,DC=ad2019,DC=lab,DC=evolveum,DC=com"
+Remove-ADUser -Identity "CN=Jack Sparrow,CN=Users,DC=ad2019,DC=lab,DC=evolveum,DC=com"
+Remove-ADUser -Identity "CN=Guybrush Threepwood,CN=Users,DC=ad2019,DC=lab,DC=evolveum,DC=com"
+Remove-ADGroup -Identity "CN=pirates,CN=Users,DC=ad2019,DC=lab,DC=evolveum,DC=com"
+----
+
+== Next domain - sub domain
+
+It is recommended to use static IP address.
+Even the the location would be updated on ad01 DNS server (NS record) it is good idea to have it static.
+At least for better troubleshooting in case of any issue.
+
+.set up static IP and FQDN of the server
+[source,powershell]
+----
+Get-NetAdapter | New-NetIPAddress -AddressFamily IPv4 -IPAddress 192.168.122.143 -PrefixLength 24 -DefaultGateway 192.168.122.1
+Get-NetAdapter | Set-DnsClientServerAddress -ServerAddresses ("192.168.122.161")
+$computer = Get-WmiObject -Class Win32_ComputerSystem
+$computer.Rename("ad02")
+
+Restart-Computer -Force
+----
+
+.Add windows feature and promote the domain
+[source,powershell]
+----
+Install-WindowsFeature -name AD-Domain-Services -IncludeManagementTools
+
+# You need to provide credentials with proper permission in "upper" domain.
+# Account of the administrator is quite fine for this purpose :).
+# You will be interactively prompted for the credentials of the administrator account in AD2019 domain.
+$cred=New-Object -TypeName PSCredential -ArgumentList @('ad2019\administrator',(Read-Host -AsSecureString -Prompt "Password"))
+
+# You will be interactively prompred for the Safe mode admin password for the newly promoted domain
+$Password = Read-Host -Prompt   'Enter SafeMode Admin Password' -AsSecureString
+
+$Params = @{
+    Force = $true
+    NoGlobalCatalog = $false
+    CreateDNSDelegation = $true
+    Credential = $cred
+    DatabasePath = "C:\Windows\NTDS"
+    DomainMode = "WinThreshold"
+    DomainType = "ChildDomain"
+    InstallDNS = $true
+    LogPath = "C:\Windows\NTDS"
+    NewDomainName = "sub2019"
+    NewDomainNetBIOSName = "sub2019"
+    ParentDomainName = "ad2019.lab.evolveum.com"
+    Norebootoncompletion = $false
+    SiteName = "Default-First-Site-Name"
+    SYSVOLPath = "C:\Windows\SYSVOL"
+    SafeModeAdministratorPassword = $Password
+}
+
+Install-ADDSDomain @Params
+----
+
+At this point the system will be rebooted.
+After the new start of the system it will take longer time as there will be processing the initial setup of the newly promoted domain.
+
+It may be good idea to set up *Password never expires* on administrator account.
+It is optional so don't do it in case you would face your internal security policy.
+
+.Set *Password newer expire* for administrator account
+[source,powershell]
+----
+Set-ADUser -Identity administrator -PasswordNeverExpires $true
+----
+
+The following objects are related to midPoint's conntest.
+The corresponding setting can be found on link:https://github.com/Evolveum/midpoint/blob/master/testing/conntest/src/test/resources/ad-ldap-multidomain/resource-ad2019.xml[github] page.
+
+.Objects related to the conntest
+[source,powershell]
+----
+New-ADUser -AccountPassword ( "qwe.123" | ConvertTo-SecureString -AsPlainText -Force) -DisplayName "MidPoint" -Enabled $true -Name "MidPoint" -PasswordNeverExpires $true -SamAccountName midpoint -Surname MidPoint -UserPrincipalName "midpoint@sub2019.ad2019.lab.evolveum.com" -Path "CN=Users,DC=sub2019,DC=ad2019,DC=lab,DC=evolveum,DC=com"
+
+Add-ADGroupMember -Identity "CN=Domain Admins,CN=Users,DC=sub2019,DC=ad2019,DC=lab,DC=evolveum,DC=com" -Members "CN=MidPoint,CN=Users,DC=sub2019,DC=ad2019,DC=lab,DC=evolveum,DC=com"
+
+##
+# https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-adts/1522b774-6464-41a3-87a5-1e5633c3fbbb
+# 1131f6aa-9c07-11d1-f79f-00c04fc2dcd2 ~ DS-Replication-Get-Changes
+## Import-Module ActiveDirectory
+$path = "AD:DC=sub2019,DC=ad2019,DC=lab,DC=evolveum,DC=com"
+$acl = Get-Acl -Path $path
+$ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+	[System.Security.Principal.IdentityReference] (get-aduser -identity midpoint).SID,
+	[System.DirectoryServices.ActiveDirectoryRights] 'ExtendedRight',
+	[System.Security.AccessControl.AccessControlType] 'Allow',
+	(new-object Guid '1131f6aa-9c07-11d1-f79f-00c04fc2dcd2')
+)
+$acl.AddAccessRule($ace)
+Set-Acl -Path $path -AclObject $acl
+----
+
+== Certificate for the SSL services (LDAPs)
+
+Without this step the LDAP connection will work, but it will be handled with lower security.
+One of the impact could be limitation on password attribute access.
+This example will cover the situation you have your own CA for the test environment.
+
+=== Assumption
+
+In this example we will have available two files.
+
+- *ca.pem* +
+PEM encoded file containing CA certificate.
+This file will be used to import CA cert as trusted Root CA.
+
+- *ad01.p12* +
+PKCS12 (pfx) file containing private ("key") and public ("cert") certificate for the server.
+Next to it the package contain also certificate of sub CA in case it is in use.
+
+.copy the files to the server (on remote computer / where the files are located)
+[source,bash]
+----
+scp ca.pem 192.168.122.161:C:/Users/Administrator/Desktop/ca.pem
+scp ad01.p12 192.168.122.161:C:/Users/Administrator/Desktop/certificate.pfx
+----
+
+[NOTE]
+The pkcs12 should be secured by the password.
+For the documentation purpose let assume the password *pass123*.
+
+.import CA cert and key&cert to the proper certificate store (on windows server)
+[source,powershell]
+----
+$pfxPassword = "pass123" | ConvertTo-SecureString -AsPlainText -Force
+Import-PfxCertificate -Exportable -Password $pfxPassword -CertStoreLocation Cert:\LocalMachine\My -FilePath $env:USERPROFILE\Desktop\certificate.pfx
+Import-Certificate -CertStoreLocation Cert:\LocalMachine\Root -FilePath $env:USERPROFILE\Desktop\ca.pem
+
+# once imported the files are not needed - it could be deleted
+Remove-Item -Path $env:USERPROFILE\Desktop\certificate.pfx
+Remove-Item -Path $env:USERPROFILE\Desktop\ca.pem
+----
+
+.to check the result
+[source,powershell]
+----
+# To check content of the Desktop
+Get-ChildItem -path $env:USERPROFILE\Desktop
+
+# To check the Machine's cert
+Get-ChildItem -path cert:\LocalMachine\My | Sort-Object Subject
+
+# To check trusted Root CA
+Get-ChildItem -path cert:\LocalMachine\Root | Sort-Object Subject
+----
+
+Once the certificate is properly imported it is automatically used.
+The LDAPs (and other SSL based services) on the server is directly available.
+
+[NOTE]
+====
+The similar process should be done also on ad02.
+Each server need own certificate - containing the relevant information.
+
+If you upload the incorrect cert (e.g. ad01's cert to ad02) the certificate could be imported without error, but it will be ignored.
+No SSL based services will not use it in that case.
+====
+
+[IMPORTANT]
+====
+To have the certificate with the same KeyUsage as the one generated with the windows CA service there should be:
+
+- 1.3.6.1.5.5.7.3.1 TLS WWW server authentication
+- 1.3.6.1.5.5.7.3.2 TLS WWW client authentication
+- 1.3.6.1.5.2.3.5 KDC Authentication
+- 1.3.6.1.4.1.311.20.2.2 Smart Card Logon
+
+.sample configuration block for openssl
+[source]
+----
+...
+[ win_server ]
+basicConstraints = CA:FALSE
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid,issuer:always
+keyUsage = digitalSignature, nonRepudiation, keyEncipherment
+subjectAltName = @san
+extendedKeyUsage = 1.3.6.1.5.5.7.3.1, 1.3.6.1.5.5.7.3.2, 1.3.6.1.5.2.3.5, 1.3.6.1.4.1.311.20.2.2
+
+[ san ]
+DNS.0 = localhost
+IP.0 = 127.0.0.1
+----
+
+====
+
+== Useful commands (cheat sheet)
+
+.Information about the computer and network setting
+[source,powershell]
+----
+Get-NetAdapter | Get-NetIPAddress
+Get-NetAdapter | Get-DnsClientServerAddress
+Get-NetAdapter | Get-NetRoute
+Get-WmiObject -Class Win32_ComputerSystem
+----
+
+.To check ACL on specific object of AD
+[source,powershell]
+(Get-Acl -Path "AD:DC=ad2019,DC=lab,DC=evolveum,DC=com").Access | Where-Object {$_.IdentityReference -Like "AD2019\midpoint"}
+
+.to get information about user object
+[source,powershell]
+Get-ADUser midpoint -Properties *
+
+.to get information about user's group membership(s)
+[source,powershell]
+Get-ADPrincipalGroupMembership jack | % distinguishedName
+
+.LDAP troubleshooting
+[source,powershell]
+----
+# get log level for the LDAP
+Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\NTDS\Diagnostics" -Name "16 LDAP Interface Events"
+
+# set log level for the LDAP
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\NTDS\Diagnostics" -Name "16 LDAP Interface Events" -Value 0x5
+
+# how to get relevant log's records
+Get-EventLog -List
+Get-EventLog -LogName "Directory Service" | Group-Object -Property EntryType -NoElement | Sort-Object -Property Count -Descending
+Get-EventLog -LogName "Directory Service" -EntryType Warning
+Get-EventLog -LogName "Directory Service" -Index XXX | Format-Table -wrap
+Get-EventLog -LogName "Directory Service" -Newest 20  | Format-Table -wrap
+
+Get-WinEvent -FilterHashTable @{Logname='System';ID=1074} | Format-Table TimeCreated,Message -wrap
+----
