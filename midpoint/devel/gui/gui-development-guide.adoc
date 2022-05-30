@@ -195,34 +195,126 @@ If you need to do something with the model value in the subcomponent, do it indi
 
 TODO: object wrappers
 
-== Styles and Stylesheets
-
-MidPoint CSS style system is based on link:http://getbootstrap.com/[Bootstrap] framework and link:https://adminlte.io/themes/v3/[AdminLTE template]. The styles are processed by using SCSS CSS pre-processor.
-
-TODO: more about less, how it works
-
-The midpoint uses standard Bootstrap 4.6 and AdminLTE CSS classes whenever possible.
-If a component needs a custom class, the SCSS code for that class should be places in the file:
-
-`src/frontend/scss/*midpoint-theme.less*`
-
-Each definition that is put into this file should be commented.
-The comment should at least mention which component uses that definition.
-While Java has a nice search and refactoring features, LESS has none of that.
-Therefore maintenance of stylesheets is a major challenge.
-The comments make it much easier.
-
-== Processing of CSS and javascript
+== Styles and Javascript
 
 All SCSS styles and javascript files are processed using NodeJS/Webpack 5.
 Styles and javascript dependencies are defined in `admin-gui/package.json`, webpack configuration is along in `webpack.*.js`.
+Currently, there are two webpack profiles:
 
-During maven build `npm run build` is executed, which starts webpack for `production` environment.
+. Production - `webpack.production.js`
+. Development - `webpack.development.js`
+
+Both of them use common configuration defined in *webpack.common.js* and these configuration files are consumed using `webpack.config.js`.
+Last mentioned file decides which profile to use by checking environment variable.
+
+We also defined two main and one helper script in `package.json` - *build*, *watch* and *postinstall*.
+Results of webpack build can be found in `admin-gui/target/generated-resources/webpack/static`.
+
+`postinstall` npm script is used to execute out patch-package procedure.
+This allows us to patch npm packages that were installed previously to `admin-gui/node-modules`.
+Currently, we have to patch `admin-lte` and `bootstrap-multiselect` packages because they contain some bugs and authors didn't publish bugfixed versions yet.
+Patch files were generated using steps described in https://www.npmjs.com/package/patch-package#user-content-usage[patch-package npm description].
+Patch files are stored in `admin-gui/patches`.
+
+During maven build `npm run build` is executed using `maven-frontend-plugin`, which starts webpack build for `production` environment.
 Production build created minified css/javascript files.
 
 During development one can use `npm run watch` from executed from `admin-gui` folder.
 Webpack will then watch for changes done in scss/javascript resources.
 This can be used together with `application.yml` option `spring.resources.chain.cache=false` for hot reload/recompile during development.
+
+Style and javascript resoruces are located in `admin-gui/src/frontend`.
+
+Our style and javascript resources are divided via webpack configuration into two groups - `vendors` and `midpoint`.
+`vendors` group contain all resources that we use as libraries, mostly defined through npm dependencies, see:
+
+* admin-gui/src/frontend/js/vendors.js
+* admin-gui/src/frontend/scss/vendors.scss
+
+`midpoint` group contain all resources that we created, see:
+
+* admin-gui/src/frontend/js/midpoint.js
+* admin-gui/src/frontend/scss/midpoint.scss
+
+This means that webpack will generate two main sets of resources and few others:
+
+* vendors css/js
+* midpoint css/js
+* ... and few others
+
+== Styles
+
+MidPoint CSS style system is based on link:http://getbootstrap.com/[Bootstrap] framework and link:https://adminlte.io/themes/v3/[AdminLTE template]. The styles are processed by using SCSS CSS pre-processor.
+
+The midpoint uses standard Bootstrap 4.6 and AdminLTE 3.2 CSS classes whenever possible.
+If a component needs a custom class, the SCSS code for that class should be places in the file:
+
+[%autowidth,cols="2",options="header"]
+|===
+|File
+|Description
+
+|`scss/_admin-lte-overrides.scss`
+| Used to override rules defined in admin-lte theme
+
+|`scss/_admin-lte-variables.scss`
+| Used for variable overrides for admin-lte theme
+
+|`scss/_bootstrap-variables.scss`
+| Used for variable overrides for bootstrap
+
+|`scss/_midpoint-variables.scss`
+| Defined variables specific for midpoint, includes variables/mixins/utils from admin-lte and bootstrap
+
+|`scss/midpoint.scss`
+| Main stylesheet for our custom styles
+
+|`scss/midpoint-utils.scss`
+| Utility rules should be defined here
+
+|`scss/vendors.scss`
+| Main stylesheet for all libraries
+
+|`scss/wicket.scss`
+| Rule overrides for wicket framework
+|===
+
+Custom rules should be used only when necessary - to avoid large copy&paste or create very custom designs.
+In all other cases please use https://getbootstrap.com/docs/4.6/utilities[bootstrap utilities] (mainly).
+
+If custom rules are to be created for our wicket components, they should be defined in `src/frontend/scss/*midpoint.scss*`.
+For each component main class should be created and named using kebab-case. For example:
+
+[source,java]
+----
+public class MySamplePanel extends BasePanel {
+
+    public MySamplePanel(String id) {
+        super(id);
+
+        add(Attribute.appender("class", "my-sample"));
+    }
+}
+----
+
+and corresponding styles in `midpoint.scss`:
+
+[source, scss]
+----
+.my-sample {
+  // whatever you need to define using scss syntax
+}
+----
+
+Don't forget to check dark-mode as well.
+Avoid copy&paste of SCSS or HTML.
+
+Each definition should be commented.
+The comment should at least mention which component uses that definition.
+
+=== Javascripts
+
+todo
 
 == Error Handling
 
