@@ -135,6 +135,8 @@ So this should be optional / to be selected by the user.
 // moved from above
 . review/update correlation. Select the attributes to correlate and how. Select from attributes which have mappings, and how (equal, substring, ...). Some weight/negative conditions. (E.g. if this attribute vs user property differs, this can't match even if `ri:cn` matched `$focus/fullName`).
 +
+"Smart correlation" based on attributes and their weight is also possible.
++
 ##*TODO this is important for Katka for Resource wizard*##
 
 . run reconciliation with target system (no dry-run - that will be eventually deprecated); because all reactions are non-invasive and mappings do not enforce anything yet.
@@ -144,26 +146,26 @@ TIP: FYI: Shadows are created.
 +
 TIP: FYI: Shadows are classified.
 
-.. The report must show also "candidate" user owners. *NOTE: No linkRef yet!!!! (Store candidate owner(s) in Shadow?) Each run will overwrite this temporary state?*
+.. The report must show also "candidate" user owners.
++
+*NOTE: No linkRef yet! (Store candidate owner(s) in Shadow?) Each run will overwrite this temporary state?*
 .. Report should show user identifier as a separate column and another column "display name" (typically fullName) - this should be configurable using expressions. A'la `adminGuiConfiguration`?
 // end moved from above
 
 ====== (Optional) Account marking phase
 
 . mark unmatched accounts for later decommissioning
-. mark unmatched or other accounts (linkable, but maybe some special) for later review, if we do not know what to do with them. (We are not sure if we can decommission them. Let's postpone the decision.)
+. mark unmatched or other accounts (linkable, but maybe some special) for later review ("do not update"), if we do not know what to do with them. (We are not sure if we can decommission them. Let's postpone the decision.)
 . mark protected accounts (in addition to using `<protected>` element in resource)
 .. If the account has situation, `PROTECTED` will erase it. Situation will be already stored in Shadow.
 .. NOTE: some accounts may be deleted directly by AD administrators after they see the report
 
-====== (Optional) Manual linking phase
-
-. manually link `UNMATCHED` and `DISPUTED` accounts to their owners if correlation was not successful (e.g. married women with different names on both sides etc.)
-
-##TODO we finished here 13.5.2022##
+//====== (Optional) Manual linking phase
 
 
 ===== Link accounts phase
+
+. manually link `UNMATCHED` and `DISPUTED` accounts to their owners if correlation was not successful (e.g. married women with different family names on both sides etc.)
 
 . set reactions for `UNLINKED` -> `link` and `LINKED` -> synchronize.
 +
@@ -173,103 +175,120 @@ TIP: FYI: Most accounts are in `UNLINKED` and `LINKED` (manually linked accounts
 
 . run reconciliation again to *link the accounts to midPoint owners*
 
-. *TODO enable identity matching for `DISPUTED`*
+. manually correlate `DISPUTED` accounts using interactive owner selection from candidate owners (human interaction using cases)
 
-TIP: FYI: All linkable accounts are in `LINKED` situation or in progress of identity matching.
+TIP: FYI: All linkable accounts are in `LINKED` situation or in progress of manual correlation.
 
-===== Attribute correlation phase (repeat until satisfied)
 
-. run reconciliation report on _attribute level_ (simulation using mappings in "comparison" mode): what will midPoint change in target system (simulation of what would be done).
-The report should show some statistics e.g.:
-.. How many accounts would be changed, deleted
-.. Which attributes will be changed and how many changes (e.g. attribute `givenName` will be changed in 200 accounts), sorted desc
-.. Table of changes to be made (*TODO how to present it? Our delta format e.g. in Preview changes takes too many screen space, how to even export it to CSV/Excel?*)
 
-. (Option 1) Fix account attributes in AD (administrator of AD) outside midPoint, if they are incorrect
-. (Option 2) Update mappings in target resource (still in comparison mode), if they are incorrect
-. (Option 3) Mark account for later processing (do not touch until that) to make exception
-. (Option 4) Do not do anything if the mappings are OK, even if they attempt to change target system accounts
-
-. *TODO TODO run (the same?) reconciliation report to see what usernames will it generate in midPoint - simulation?*
-
-===== Clean-up marked shadows
-
-. TIP: FYI Shadows are still marked as decommissioned/do not touch.
-
-. TODO Even for shadows marked as "do not touch", if they are also UNLINKED / LINKED, we may want to read from the shadows and use it to create midPoint username. Otherwise we might miss this information and generate such username for someone else! So this "do not touch" could mean something as "half-protected" or "write-protected" accounts. But linking should work for them.
-
-. Cleanup at least some marked shadows (decommissioned/do not touch). *TODO does this need mappings? This is the following action in the list*
-.. (Optional) Unmark decommissioned accounts (which are also UNMATCHED) to allow midPoint to eventually remove them in later phases.
-.. (Optional) Unmark "do not touch" accounts to allow midPoint to update them in later phases.
-
-===== Turn on the provisioning policy
-
-. Turn off the "comparison" mode in outbound mappings.
-+
-(midPoint is still not synchronizing changes from source)
-
-. Run reconciliation to let midPoint do the desired changes.
-
-TIP: FYI: Accounts are now updated in target system based on mappings, except the accounts that are still marked.
-
-*TODO TODO TODO somewhere here add correlation to HR?*
-
-==== Step III: Automate
+// FIXME: Username import phase moved from Automate; check !!!! But seems to be fine here, discussed with Katka, Slavek, Palo, Mato
 
 ===== Username import phase if this is the resource to import username from (repeat until satisfied)
 
-. Prepare/uncomment/activate (weak?) inbound mapping from target to midPoint user (mapping is default in the bundled resource template) E.g. from `userPrincipalName` minus `@domain.com` to `$focus/name`?
+If we want to import existing usernames from this resource (e.g. AD), we need to do it for all LINKED accounts, *including the accounts marked for later review ("do not update")*.
+
+. Prepare/uncomment/activate (weak?) inbound mapping from target to midPoint user (mapping is default in the bundled resource template) E.g. from `userPrincipalName` minus `@domain.com` to `$focus/name`.
 
 . Preview the inbound username mapping on single user before running reconciliation
 
-. TODO if we know, which attribute from AD we want to use as a basis for `$focus/name`, we *must* also have the opposite mapping - outbound from midPoint to be used from now on.
-. run reconciliation with the target system to import the usernames
+. Prepare also outbound mapping for the attribute (still in "comparison" mode) to allow accounts to be created when midPoint starts to provision them in this target system.
+
+. Run reconciliation with the target system to import the usernames.
+Outbound mappings are still in "comparison" mode.
 
 . TODO maybe that inbound should be removed later in Automate phase (already noted there)? When? Or we just make the mapping strength `weak` as we do not have any value yet in midPoint users and we will always have the value in the future! (But this will work only once.)
 
 TIP: FYI: Now we have all *existing* AD usernames in midPoint, we can consider the identifier unique.
 
+
+
+
+
+
+
+===== Attribute correlation phase (repeat until satisfied)
+
+. run reconciliation report on _attribute level_ (simulation using mappings in "comparison" mode): what will midPoint change in target system (simulation of what would be done).
++
+*Review the report output with target system administrators.*
++
+The report should show some statistics e.g.:
+
+.. How many accounts would be changed, deleted
+.. How many accounts are with "do not update" mark (outbounds are ignored for them)
+.. Which attributes will be changed and how many changes (e.g. attribute `givenName` will be changed in 200 accounts), sorted desc
+.. Table of changes to be made (*TODO how to present it? Our delta format e.g. in Preview changes takes too many screen space, how to even export it to CSV/Excel?*)
+. based on the review, you have several options:
+.. (Option 1) Update mappings in target resource (still in comparison mode), if they are incorrect
+.. (Option 2) Mark account for later processing (do not touch until that) to make exception
+.. (Option 3) Let midPoint perform the account update(s) if the mappings are OK, even if they attempt to change target system accounts
+//. (Option 4) Fix account attributes in AD (administrator of AD) outside midPoint, if they are incorrect
+
+===== Clean-up marked shadows
+
+TIP: FYI Shadows are still marked as decommissioned/do not update.
+
+. Cleanup at least some marked shadows (decommissioned/do not update). *TODO does this need mappings? This is the following action in the list*
+.. (Optional) Unmark decommissioned accounts (which are also UNMATCHED) to allow midPoint to eventually remove them in later phases.
+.. (Optional) Unmark "do not update" accounts to allow midPoint to update them in later phases.
+
+===== Turn on the provisioning policy
+
+. (Optional) Run the simulation report one more time
+
+. Turn off the "comparison" mode in outbound mappings.
++
+(midPoint is still not synchronizing changes from source)
+
+. Run reconciliation with target system to let midPoint do the desired changes.
+
+TIP: FYI: Accounts are now updated in target system based on mappings, except the accounts that are still marked.
+
+===== TODO TODO add correlation to HR
+
+*TODO TODO TODO somewhere here add correlation to HR?*
+
+==== Step III: Automate
+
+
 ===== Activate username generator
 
-TODO: where? object template?
-
-. TODO should the `name` mapping be `weak` to not overwrite anything originally coming from AD?
-.. TODO what about user renames from now on?
-.. TODO condition to differentiate "original" users and new users coming since midPoint is in place? We could mark also _users_ during the initial reconciliations from AD and use this to distinguish new users.
-
-. TODO we need to specify the algorithm (selected from list?). Examples:
+. Edit default object template for users *TODO or archetype(s)*
+. Define mapping for `name` using pre-defined expressions (select from list) - similar to mapping expressions in resource wizard
 .. Example: `givenName initial + familyName + XX` where XX is a number starting from 1, 2, up to 99 and the first available is used
 .. Example: `givenName initial + familyName + XX` where XX is a number starting from 01, 02, up to 99 and the first available is used
-.. TODO what is the "starting number"?
-. *##TODO TODO TODO what about this situation:##*
-+
-in AD, there is `jsmith24` but there were obviously also `jsmith2`, `jsmith3` ... `jsmith23` which are now not in AD anymore.
-+
-Where should we start if we do not want to reuse previous logins?
-+
-Even worse, we don't know if there was any `jsmith52` previously!!!
+. All future midPoint usernames will be generated using this algorithm, starting with the lowest possible number which is not already used.
+. Turn off the (weak) username mapping from AD/LDAP to midPoint
 
-.. TODO we cannot assume accounts for all former employees still exist in AD!!!
-.. TODO we _might_ have more data if we reconcile other target systems later, where possibly also those logins exist!!! But this can conflict with usernames we start to generate with midPoint after AD/LDAP is connected!!!
-.. ##TODO we could perhaps start with `jsmithXXX` from now to have absolutely different naming convention which is still understandable and rememberable to the users##
-... TODO unless the identifier length causes a problem (in any system they will connect in the future!)
-.. TODO alternative: if we use identifier and later we see it's bad (already used somewhere), provide a way of resolution... But how? If this username is already user by the new user and later the (former employee) account gets overwritten, we would need to resolve the situation for both the new user (using a recycled identifier) and overwritten account! How would we return the overwritten data back?
-. TODO ... and turn off the (weak) mapping from AD/LDAP to midPoint
+
+====== Username exceptions and customizations
+
+If your environment is using usernames which are not present in the target system used for username import (e.g. AD/LDAP) but are used in other systems, midPoint will be unaware of them until that system is integrated with midPoint.
+Account creation in such systems will fail if the account already exists.
+
+In such case, you have the following options:
+
+. Connect the other system and import usernames from the system as well
+. Use a different username format for new users and accounts created by midPoint, e.g. `givenName initial + familyName + XXX` where `XXX` is a number starting from 001, 003, up to 999 and first available is used.
+. Resolve the situation when conflict happens by selecting a different username for the user, renaming user's accounts using the new username and informing the user.
 
 
 ===== Define policy for automatic assignments
 
-*TODO where? object template assignment of - what? Archetype? How will the user specify it, how will user edit it?*
+The first policy will be defined in Archetype, which is assigned to user while imported from source system.
 
-. TODO I can imagine very simplified piece of configuration, where user will simply specify the "target" for inducement (e.g. "Account in Active Directory resource"), and kind, intent and condition would be optional.
-+
-Conditions won't be required for the first iteration.
-In later iterations, the condition can change.
-In even later iterations, we need to cover automatic assignment of access rights.
-Either by autoassignment configuration in roles/role-like objects or in object template?
-. TODO this policy must also define what to do when users are leaving!
-. TODO: we need to *recompute* users after we change anything in this policy!
+. Administrator can edit the policy (inducements) in midPoint GUI:
 
+.. Edit archetype
+.. Add inducement for target system (e.g. AD/LDAP)
+... Kind, intent are optional; not needed for the first iteration
+
+. In later iterations, roles or role-like objects and conditions for their automatic assignments can be added.
+This will require the administrator to update either Archetype or Object template or use role autoassignment feature.
+
+.. TODO this policy must also define what to do when users are leaving!
+
+. We need to *recompute* users after we change anything in this policy!
 
 ===== Turn off the current provisioning to target system
 
@@ -283,11 +302,11 @@ Either by autoassignment configuration in roles/role-like objects or in object t
 
 TIP: FYI: From now on, all people from HR will get AD accounts
 
-===== Turn on automatic account enforcement policy
+===== Turn on automatic reactions for unauthoritative changes in target system
 
-. Set appropriate reactions for `UNMATCHED` / `DELETED`
+. Set appropriate reactions for `UNMATCHED` / `DELETED` for target system
 
-. Schedule reconciliation task
+. Schedule reconciliation task for target system
 
 . (Optional) Schedule reconciliation report to be generated/sent
 
