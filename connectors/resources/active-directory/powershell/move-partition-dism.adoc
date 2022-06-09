@@ -1,0 +1,214 @@
+= Move the partition on the disk
+:page-visibility: hidden
+:toc:
+
+== About
+
+In some situation we need to move the partition's location on the hard drive.
+The Recovery environment (the hidden partition) cannot be simply moved.
+In case there is `recovery partition` between the `Drive C` and the unallocated partition the extension of `C` is not possible.
+Firstly the `recovery partition` have to be moved to the end of the drive.
+
+This description is using `diskpart` and `dism` tools which are automatically available with the installation of windows system.
+
+== Initial state
+
+We have 38 GB free space, but it can't be used for extending system partition - location of the recovery partition prevent to extend it.
+
+[NOTE]
+====
+.DISKPART> list disk
+[source]
+  Disk ###  Status         Size     Free     Dyn  Gpt
+  --------  -------------  -------  -------  ---  ---
+  Disk 0    Online           50 GB    38 GB
+
+Please note the last column.
+As there is no asterisk (`*`) there is MBR tables.
+If the asterisk is present the GPT would be used.
+This information will be needed at the end of the process to properly set the partition (to make it hidden again).
+
+.DISKPART> list partition
+[source]
+  Partition ###  Type              Size     Offset
+  -------------  ----------------  -------  -------
+  Partition 1    Primary            100 MB  1024 KB
+  Partition 2    Primary             11 GB   101 MB
+  Partition 3    Recovery           524 MB    11 GB
+
+We will operate with the situation only one hard disk is available (disk 0) on the system.
+The location is of the recovery partition is 3 (need to be moved to the end of the disk).
+====
+
+== Move the partition
+
+For the purpose of the process we will utilize the letter `R` for recovery partition (3) and the letter `T` for temporary partition (4).
+In case you have any of the letter in use feel free to use any other letter just update the command with correct letter.
+
+It is not easy to get information for proper offset for new partition.
+The easiest way is to create new temporary partition (4) over all remaining space and shrink it for the size we need.
+This way we will get the space for temporary image of the recovery partition (3) and force location of the new partition to the end of the disk.
+
+We will create the same size of the recovery partition (3) - in our case it will be 524 MB.
+
+=== Create the image of the recovery partition
+
+To create the image we will need to assign the letter to the recovery partition (3).
+We will also create temporary partition (4).
+It will be used also for the image location.
+
+.run the diskpart (system / powershell environment)
+[source]
+diskpart
+
+.assign the letter to the partition and create temporary partition (diskpart environment)
+[source]
+----
+select disk 0
+select partition 3
+assign letter=R
+
+create partition primary
+shrink desired=524
+format quick fs=ntfs label=temp
+assign letter=T
+exit
+----
+
+Now we can create the image in the temporary partition (4).
+We should remove / deactivate current Windows RE setting pointing to this recovery partition (3).
+
+.create the image and disable WinRE setting(system / powershell environment)
+[source]
+----
+Dism /Capture-Image /ImageFile:T:\recovery.wim /CaptureDir:R:\ /Name:"Recovery"
+
+ReAgentc.exe /disable
+----
+
+=== Remove the old recovery partition and recreate new one
+
+We are now ready to remove the partition (3).
+We will remove the current recovery partition (3).
+Next step will be to extend system partition (2) over the new free space after just deleted partition - it will force the new partition to be created at the end of the disk.
+The newly created recovery partition (3) will be created afterwards in the space prepared at the end of the drive.
+
+.run the diskpart (system / powershell environment)
+[source]
+diskpart
+
+.remove old recovery partition and create new one at the end of the disk (diskpart environment)
+[source]
+----
+select disk 0
+select partition 3
+delete partition override
+
+select partition 2
+extend
+
+create partition primary
+format quick fs=ntfs
+assign letter=R
+exit
+----
+
+[NOTE]
+====
+The partition numbers are persistent over the diskpart session.
+The numbers correspond with the records in the partition table.
+
+As the partition with id 3 has been deleted there have been "free spot" in partition table.
+The information about the new partition have been stored to this free spot.
+
+That is the reason why the new partition has the same ID as previously deleted one.
+The physical location on the disk is not the same.
+====
+
+=== Restore image to the new recovery partition
+
+Now we are ready to restore the content of the image to the newly created recovery partition (3).
+Next step will be set the Recovery environment to use this content and enable it.
+
+.Restore the image to the partition and enable it (system / powershell environment)
+[source]
+----
+Dism /Apply-Image /ImageFile:T:\recovery.wim /Index:1 /ApplyDir:R:\
+
+reagentc /setreimage /path R:\Recovery\WindowsRE
+reagentc /enable
+----
+
+=== Finalize the partitions setting
+
+We are now ready to remove temporary partition (4) and extend the system partition (2) over the free space.
+
+.run the diskpart (system / powershell environment)
+[source]
+diskpart
+
+.remove temporary partition and extend system partition (diskpart environment)
+[source]
+----
+select disk 0
+select partition 4
+delete partition
+select partition 2
+extend
+----
+
+The content and system setting is done.
+The remaining is to finalize the partition setting.
+At this moment the steps differ based on the used partition tables (MBR or GPT).
+The last step will be to remove the assigned letter.
+
+.set the partition - the case of MBR / BIOS  (diskpart environment)
+[source]
+----
+select disk 0
+select partition 3
+set id=27
+remove
+exit
+----
+
+.set the partition - the case of GPT / UEFI  (diskpart environment)
+[source]
+----
+select disk 0
+select partition 3
+set id="de94bba4-06d1-4d40-a16a-bfd50179d6ac"
+gpt attributes=0x8000000000000001
+remove
+exit
+----
+
+== Final State
+
+We have moved the recovery partition to the end of the disk.
+The system partition has been extended to all free space.
+
+[NOTE]
+====
+.DISKPART> list disk
+[source]
+----
+  Disk ###  Status         Size     Free     Dyn  Gpt
+  --------  -------------  -------  -------  ---  ---
+  Disk 0    Online           50 GB      0 B
+----
+
+.DISKPART> list partition
+[source]
+----
+  Partition ###  Type              Size     Offset
+  -------------  ----------------  -------  -------
+  Partition 1    Primary            100 MB  1024 KB
+  Partition 2    Primary             49 GB   101 MB
+  Partition 3    Recovery           524 MB    49 GB
+----
+====
+
+== Links
+
+- link:https://docs.microsoft.com/en-us/windows-hardware/manufacture/desktop/capture-and-apply-windows-system-and-recovery-partitions?view=windows-11[Capture and apply Windows, system, and recovery partitions @Microsoft Docs]
