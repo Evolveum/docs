@@ -164,6 +164,146 @@ Once the secret is created we have to modify the stateful set for the midpoint.
               mountPath: /opt/midpoint/mount-keystore
 ...
 
+[#_keystore_additional_cert]
+==== Additional certificate to keystore
+
+In some situation we need to add additional certificate to keystore.
+The common use case may be to set trust to the certificate for SSL / TLS sessions.
+As the keystore is loaded during the start of midPoint it has to be prepared in advance.
+The ideal location for it is initContainer.
+
+[NOTE]
+In case you have persistent volume with already generated keystore the relevant steps are related just to xref:/midpoint/reference/security/crypto/keystore-configuration.adoc#import-trusted-ca-certificate[import] the certificate to keystore.
+
+The option for additional certificate is available in xref:/midpoint/install/midpoint-sh.adoc[midpoint.sh] file.
+It is described also in xref:/midpoint/install/docker/native-demo.adoc#init-native[docker] related part of documentation (kubernetes is utilizing docker images).
+
+To add the certificate we need to generate the keystore.
+For this purpose we need to use following environment variables:
+
+* midpoint keystore password (one of the options)
+** MP_PW_DEF +
+Where to store the default password for keystore - *changeit*
+** MP_PW +
+Where to store generated password for the keystore
+* MP_KEYSTORE +
+location of the _jceks_ file
+* MP_CERT +
+The certificate(s) to add into the keystore.+
+The structure of the certificate(s) should be: +
+[source]
+-----BEGIN CERTIFICATE-----
+...
+-----END CERTIFICATE-----
++
+or +
+[source]
+-----BEGIN CERTIFICATE-----
+...
+-----END CERTIFICATE-----
+-----BEGIN CERTIFICATE-----
+...
+-----END CERTIFICATE-----
+
+.example of the simple standalone pod with custom trusted certificate (H2 DB) | link: https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/advanced-examples/pod-cert-to-keystore-env.yaml[Github]
+[source,yaml]
+apiVersion: v1
+kind: Pod
+metadata:
+  name: mp-demo-cert
+  namespace: mp-demo
+spec:
+  volumes:
+    - name: vol
+      emptyDir: {}
+  initContainers:
+    - name: mp-config-init
+      image: evolveum/midpoint:4.4.1-alpine
+      command:
+        - /bin/bash
+        - /opt/midpoint/bin/midpoint.sh
+        - init-native
+      env:
+        - name: MP_PW_DEF
+          value: /opt/mp-home/keystorepw
+        - name: MP_KEYSTORE
+          value: /opt/mp-home/keystore.jceks
+        - name: MP_CERT
+          value: |
+            -----BEGIN CERTIFICATE-----
+            MIIDxDCCAqygAwIBAgIUfImu6HQ145sOn1ra6pYn9KgIQzkwDQYJKoZIhvcNAQEL
+            BQAwFDESMBAGA1UEAwwJZGVtbyBjZXJ0MB4XDTIyMDIyMjA5MDQ1M1oXDTMyMDIy
+            MDA5MDQ1M1owFDESMBAGA1UEAwwJZGVtbyBjZXJ0MIIBIjANBgkqhkiG9w0BAQEF
+            AAOCAQ8AMIIBCgKCAQEAu4k5OzoZdBuBlc6ZVp3uwhiQi2sfRRPU8dzTATb6zN/W
+            7Fn3mBngjHRfKKNBcmKgnlIA75qziiKew75/Zis50kT5lxTcS3fVylBfkNFO1WQO
+            qg0FJBMoGPdrKRxww8XbAB5fThSNHe5ZlY0RhFX7xWSADzA7X4FzGsuou6l1xhrT
+            MNu8brfUnf6JWG019mdevclhZzKycAW70UdhAOYj7a3LPMxGev7tLQCA25LCL0Gd
+            jfZnZzkkyhYQbqkUmt6wAKmTesF3Az8uW7FKWIZ9kLkrXVP7xviGI7ga+XYrWM+Q
+            1515ecUXL3YmODn/WdFbwGSnAXl9mQIyZmNRAsHuSwIDAQABo4IBDDCCAQgwCQYD
+            VR0TBAIwADAdBgNVHQ4EFgQUTtuRHta8KDnjuGzpV8F0c/nApmwwTwYDVR0jBEgw
+            RoAUTtuRHta8KDnjuGzpV8F0c/nApmyhGKQWMBQxEjAQBgNVBAMMCWRlbW8gY2Vy
+            dIIUfImu6HQ145sOn1ra6pYn9KgIQzkwCwYDVR0PBAQDAgXgMGkGA1UdEQRiMGCC
+            GG1wLXBnLWRlbW8ubXAtZGVtby5sb2NhbIIcd3d3Lm1wLXBnLWRlbW8ubXAtZGVt
+            by5sb2NhbIIJbG9jYWxob3N0ghVsb2NhbGhvc3QubG9jYWxkb21haW6HBH8AAAEw
+            EwYDVR0lBAwwCgYIKwYBBQUHAwEwDQYJKoZIhvcNAQELBQADggEBACXhqQlHdnNF
+            XP5rHGBM98PSH7MZeavcQnBF3T4LDgCXeI++ab6sUpFaJAGdx156gd6sLr9OyV5h
+            M2CloNT0omXkJOI1uDAJyqUu9RD47NiLDf6yr9z91t4O1pAu4rcWaaKT/wqVcGda
+            WQ0mBgNgJLW+TwsT7rn93mdkhEIVXqmjhNNd6nfDdgkpozZCSPQkdt8IllKdPvrC
+            Aq4wBlDHzKSIIhnDFa0+1DUnAATY9dREARGQ5SMjFf2j5+k/mrH+vpkSx7QD0rQt
+            Rk5bDe6gVf6E1xl6s8e6Un65xncF7keoDUDHVHs6d16nhdLA2/yOMKSdic2EbfYB
+            8WjXHbt7O9M=
+            -----END CERTIFICATE-----
+      volumeMounts:
+        - name: vol
+          mountPath: /opt/mp-home
+          subPath: mp-home
+      imagePullPolicy: IfNotPresent
+  containers:
+    - name: mp-demo-cert
+      image: evolveum/midpoint:4.4.1-alpine
+      ports:
+        - name: gui
+          containerPort: 8080
+          protocol: TCP
+      env:
+        - name: MP_NO_ENV_COMPAT
+          value: '1'
+      volumeMounts:
+        - name: vol
+          mountPath: /opt/midpoint/var
+          subPath: mp-home
+      imagePullPolicy: IfNotPresent
+  restartPolicy: Always
+
+In the log of the initContainer we will see log similar (the hash is related to the specific certificate used to add) log:
+
+.sample output visible on the console (log)
+[source]
+- - - - -
+CN=test CA
+1D:8D:E5:7A:29:13:09:A5:A3:9E:D5:CF:13:1A:41:65:EC:51:79:D5 .:. Not Found
+36:C3:F0:82:BC:76:59:5F:B9:D9:22:93:F5:23:48:84:27:29:C6:88:04:E2:17:24:E7:AC:5C:2A:FB:BC:2E:68 .:. Not Found
+Adding cert to certstore...
+- - - - -
+
+
+There can be used reference to the secret object instead of directly including the cert.
+This approach make it easier to update the certificate
+
+.standalone pod with H2 DB (difference to previous sample - full object is on the Github) | link: https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/advanced-examples/pod-cert-to-keystore-secret.yaml[Github]
+[source,yaml]
+spec:
+  initContainers:
+      env:
+        - name: MP_CERT
+          valueFrom:
+            secretKeyRef:
+              name: cert-mp-pg-demo
+              key: tls.crt
+
+[NOTE]
+The xref:/midpoint/install/kubernetes/single-node.adoc#_cert[secret] with *cert-mp-pg-demo* certificate is used in the example.
+
 [#_nfs]
 == NFS
 
