@@ -90,9 +90,109 @@ following:
     <indexed>
         <objectType>c:AbstractRoleType</objectType>
         <item>c:displayName</item>
+        <item>c:description</item>
     </indexed>
 </fullTextSearch>
 ----
+
+=== Adding extension properties to assignment
+
+MidPoint supports extension for assignments, which can be implemented using standard midPoint extension mechanism.
+Following is an example extension, which adds an `string` property `reason` to assignment, to store reason,
+why assignment was made.
+
+.extension.xsd
+[source, xml]
+----
+<xsd:schema elementFormDefault="qualified"
+            targetNamespace="http://example.com/xml/ns/mySchema"
+            xmlns:tns="http://example.com/xml/ns/mySchema"
+            xmlns:a="http://prism.evolveum.com/xml/ns/public/annotation-3"
+            xmlns:c="http://midpoint.evolveum.com/xml/ns/public/common/common-3"
+            xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+
+    <xsd:complexType name="AssignmentExtensionType">
+        <xsd:annotation>
+            <xsd:appinfo>
+                <a:extension ref="c:AssignmentType"/>
+            </xsd:appinfo>
+        </xsd:annotation>
+        <xsd:sequence>
+            <xsd:element name="reason" type="xsd:string" minOccurs="0" maxOccurs="1">
+                <xsd:annotation>
+                    <xsd:appinfo>
+                        <a:indexed>true</a:indexed>
+                        <a:displayName>Assignment Reason (extension)</a:displayName>
+                        <a:displayOrder>120</a:displayOrder>
+                    </xsd:appinfo>
+                </xsd:annotation>
+            </xsd:element>
+        </xsd:sequence>
+    </xsd:complexType>
+</xsd:schema>
+----
+
+If the repository search is enabled, we can also search in indexed assignment extension fields.
+
+.Advanced Search (XML)
+[source, xml]
+----
+<filter>
+  <substring>
+    <path>extension/reason</path>
+    <value>administrator</value>
+  </substring>
+<filter>
+----
+
+.Axiom Query Search
+[source, axiom]
+----
+extension/reason contains "administrator"
+----
+
+
+=== Adding column to Assignment panel
+
+We can add custom columns to assignment panel by modifying `panel->listView` admin GUI configuration.
+
+.Enabling repository search for all assignments
+[source, xml]
+----
+<systemConfiguration ...>
+    ...
+    <adminGuiConfiguration>
+        ....
+        <objectDetails>
+            <objectDetailsPage>
+                <type>c:UserType</type>
+                <panel>
+                    <identifier>assignments</identifier>
+                    <panel>
+                        <identifier>allAssignments</identifier>
+                        <listView>
+                            ...
+                            <includeDefaultColumns>true</includeDefaultColumns>
+                            <column>
+                                <name>reason</name>
+                                <path>extension/reason</path>
+                            </column>
+                        </listView>
+                    </panel>
+                </panel>
+            </objectDetailsPage>
+        </objectDetails>
+    </adminGuiConfiguration>
+    ...
+</systemConfiguration>
+----
+
+The important parts are:
+
+ * `includeDefaultColumns` - setting this to `true` preserves original default columns, so we do not need to redeclare them
+ * `column` - adds column definition
+ ** `name` - name / identifier of the column
+ ** `path` - item path of the data to be displayed in the column, in this case it is extension/reason
 
 == Using Advanced Filters
 
