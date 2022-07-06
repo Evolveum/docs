@@ -1,0 +1,145 @@
+= GUI: Assignment Repository Search
+:page-since: 4.6
+
+== Background Information
+
+MidPoint GUI uses in-memory search by default in assignment panels on object
+details page.
+In-memory search does not allow to perform advanced searches on assignments, but since midPoint {page-since} alternative repository-based implementation of assignment search is available.
+
+Current limitations of repository-based search in assignments views:
+
+ . New (unsaved) assignments are not filtered (since they do not have representation) in repository. They are always displayed at start of the list.
+. Assignment lists sorted by `Name` may appear unsorted if `Display Name` of role is different. (Combined sort based on name and display name is not supported)
+. Full-text search is performed on target of an assignment (eg. assigned role).
+. We recommend to enable repository-based search only on `allAssignments` panel.
+
+== Setting it up
+
+By default all assignments panels use in-memory search.
+
+=== Enabling Repository Search for allAssignments
+It is possible to enable repository-based search on per object detail - assignment panel basis.
+
+This is done by adding / editing `adminGuiConfiguration -> objectDetails -> objectDetailsPage` section in system configuration.
+
+Following example shows how to enable repository-based search for all assignments on user detail page.
+
+.Enabling repository search for all assignments
+[source, xml]
+----
+<systemConfiguration ...>
+    ...
+    <adminGuiConfiguration>
+        ....
+        <objectDetails>
+            <objectDetailsPage>
+                <type>c:UserType</type>
+                <panel>
+                    <identifier>assignments</identifier>
+                    <panel>
+                        <identifier>allAssignments</identifier>
+                        <listView>
+                            <dataProvider xsi:type="c:RepositoryAssignmentDataProviderType"/>
+                        </listView>
+                    </panel>
+                </panel>
+            </objectDetailsPage>
+        </objectDetails>
+    </adminGuiConfiguration>
+    ...
+</systemConfiguration>
+----
+
+The important part is setting xsi:type of `panel->listView->dataProvider` to `c:RepositoryAssignmentDataProviderType` in order to enable repository-based search.
+
+If you already have configuration for `User` object details page, you should merge this into your existing configuration.
+
+NOTE: As it is obvious from configuration example, this configuration is per object type. If you want repository-based search for assignments of other object types, you need to add `objectDetailsPage` configuration for each of them.
+
+For additional existing assignment panels and their GUI configuration see xref:midpoint/reference/admin-gui/admin-gui-config/[Admin GUI Configuration].
+
+After saving this changes, you should log-out and log-in in order to changes
+affect your GUI session.
+
+
+=== Full-text search
+
+Repository search provider allows you to use full-text search in assignment panels.
+Full-text is performed on indexed full-text properties of assignment target only.
+
+In order to enable full-text indexing see xref:/midpoint/reference/repository/full-text-search/[Full-Text Search]
+
+For clarity of search for end-users, we at least recommend setting indexing for
+following:
+
+* `AssignmentHolderType`
+** `name` - target name displayed for most of assignments
+* `AbstractRoleType`
+** `displayName` - alternative name of roles, services displayed in GUI
+
+.Full-text search configuration
+[source, xml]
+----
+<fullTextSearch>
+    <enabled>true</enabled>
+    <indexed>
+        <objectType>c:AssignmentHolderType</objectType>
+        <item>c:name</item>
+    </indexed>
+    <indexed>
+        <objectType>c:AbstractRoleType</objectType>
+        <item>c:displayName</item>
+    </indexed>
+</fullTextSearch>
+----
+
+== Using Advanced Filters
+
+Now in Advanced Search mode or Axiom Query language you are able to perform
+queries also on assignment target via dereferencing using special path `@`.
+You can learn more about filters and derefencing in xref:/midpoint/reference/concepts/query/[Query Documentation].
+
+The root object for queries is `AssignmentType`.
+
+
+.Assignment whose target name contains string `user`
+====
+[source, xml]
+.Advanced (XML filter)
+----
+<filter>
+  <substring>
+    <path>targetRef/@/name</path>
+    <value>user</value>
+  </substring>
+</filter>
+----
+
+.Axiom Filter
+[source, axiom]
+----
+targetRef/@/name contains "user"
+----
+====
+
+.All assignments to roles, which are members of "System role"
+====
+
+[source, xml]
+.Advanced (XML filter)
+----
+<filter>
+    <equal>
+        <path>targetRef/@/roleMembershipRef/@/name</path>
+        <value>System role</value>
+    </equal>
+</filter>
+----
+
+.Axiom Filter
+[source, axiom]
+----
+targetRef/@/roleMembershipRef/@/name = "System role"
+----
+====
