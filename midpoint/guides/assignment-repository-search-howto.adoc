@@ -3,29 +3,23 @@
 
 == Background Information
 
-MidPoint GUI uses in-memory search by default in assignment panels on object
-details page.
-In-memory search does not allow to perform advanced searches on assignments, but since midPoint {page-since} alternative repository-based implementation of assignment search is available.
+When displaying assignments, midPoint - by default - uses so-called _in-memory_ search.
+It is faster but has various limitations: The main one is that it is not possible to formulate
+advanced queries, like "show only assignments of roles whose names contain specified text".
+However, since midPoint {page-since} the _repository-based_ search is available as an alternative.
 
-Current limitations of repository-based search in assignments views:
+== Enabling Repository Search for an Assignments Panel
 
- . New (unsaved) assignments are not filtered (since they do not have representation) in repository. They are always displayed at start of the list.
-. Assignment lists sorted by `Name` may appear unsorted if `Display Name` of role is different. (Combined sort based on name and display name is not supported)
-. Full-text search is performed on target of an assignment (eg. assigned role).
-. We recommend to enable repository-based search only on `allAssignments`, `roleAssignments`, `serviceAssignments` or `orgAssignments` panels, since other panels relies also on in-memory search.
+By default, all assignments panels use in-memory search.
 
-== Setting it up
+The repository-based search is enabled per object type and per assignment panel. It is done by
+adding or editing `adminGuiConfiguration -> objectDetails -> objectDetailsPage` section
+in the system configuration.
 
-By default all assignments panels use in-memory search.
+The following example illustrates how to enable repository-based search for the panel that shows
+all assignments of a user.
 
-=== Enabling Repository Search for allAssignments
-It is possible to enable repository-based search on per object detail - assignment panel basis.
-
-This is done by adding / editing `adminGuiConfiguration -> objectDetails -> objectDetailsPage` section in system configuration.
-
-Following example shows how to enable repository-based search for all assignments on user detail page.
-
-.Enabling repository search for all assignments
+.Enabling repository search for "All assignments" panel
 [source, xml]
 ----
 <systemConfiguration ...>
@@ -34,13 +28,13 @@ Following example shows how to enable repository-based search for all assignment
         ....
         <objectDetails>
             <objectDetailsPage>
-                <type>c:UserType</type>
+                <type>UserType</type> <!--1-->
                 <panel>
                     <identifier>assignments</identifier>
                     <panel>
-                        <identifier>allAssignments</identifier>
+                        <identifier>allAssignments</identifier> <!--2-->
                         <listView>
-                            <dataProvider xsi:type="c:RepositoryAssignmentDataProviderType"/>
+                            <dataProvider xsi:type="RepositoryAssignmentDataProviderType"/> <!--3-->
                         </listView>
                     </panel>
                 </panel>
@@ -50,63 +44,102 @@ Following example shows how to enable repository-based search for all assignment
     ...
 </systemConfiguration>
 ----
+<1> Causes this configuration to be applied to user assignments
+<2> Denotes "all assignments" panel
+<3> The most important part: enables repository-based search
 
-The important part is setting xsi:type of `panel->listView->dataProvider` to `c:RepositoryAssignmentDataProviderType` in order to enable repository-based search.
+If you already have configuration for `User` object details page, you should merge this into your
+existing configuration.
 
-If you already have configuration for `User` object details page, you should merge this into your existing configuration.
-
-NOTE: As it is obvious from configuration example, this configuration is per object type. If you want repository-based search for assignments of other object types, you need to add `objectDetailsPage` configuration for each of them.
+NOTE: As it is obvious from the configuration example, this configuration is per object type.
+If you want repository-based search for assignments of other object types, you need to add
+`objectDetailsPage` configuration for each of them.
 
 For additional existing assignment panels and their GUI configuration see xref:/midpoint/reference/admin-gui/admin-gui-config/[Admin GUI Configuration].
 
-After saving this changes, you should log-out and log-in in order to changes
-affect your GUI session.
+After saving these changes, you should log out and log in again. Otherwise, the changes would not
+be applied to your GUI session.
 
+== Enabling Full-Text Search
 
-=== Full-text search
+The repository search provider allows you to use full-text search in assignment panels. In order
+to use this feature, full-text indexing must be enabled system-wide. Please see
+xref:/midpoint/reference/repository/full-text-search/[Full-Text Search] for details.
 
-Repository search provider allows you to use full-text search in assignment panels.
-Full-text is performed on indexed full-text properties of assignment target only.
+For clarity of search for end-users, we recommend setting full-text indexing at least for
+the following properties:
 
-In order to enable full-text indexing see xref:/midpoint/reference/repository/full-text-search/[Full-Text Search]
+[%autowidth]
+[%header]
+|===
+| Type | Property | Description
+| `AssignmentHolderType` | `name` | Target name displayed for most assignments.
+| `AbstractRoleType` | `displayName` | Alternative name displayed for roles and services
+(if present).
+|===
 
-For clarity of search for end-users, we at least recommend setting indexing for
-following:
+The following configuration snippet indexes `name` for all `AssignmentHolderType` objects
+(i.e. almost all objects in the system) and additionally `displayName` and `description`
+for all abstract roles. It is to be put into the system configuration object at the root level.
+(Do not forget to reindex the repository after including it.)
 
-* `AssignmentHolderType`
-** `name` - target name displayed for most of assignments
-* `AbstractRoleType`
-** `displayName` - alternative name of roles, services displayed in GUI
-
-.Full-text search configuration
+.Full-text search configuration example
 [source, xml]
 ----
 <fullTextSearch>
     <enabled>true</enabled>
     <indexed>
-        <objectType>c:AssignmentHolderType</objectType>
-        <item>c:name</item>
+        <objectType>AssignmentHolderType</objectType>
+        <item>name</item>
     </indexed>
     <indexed>
-        <objectType>c:AbstractRoleType</objectType>
-        <item>c:displayName</item>
-        <item>c:description</item>
+        <objectType>AbstractRoleType</objectType>
+        <item>displayName</item>
+        <item>description</item>
     </indexed>
 </fullTextSearch>
 ----
 
-=== Adding extension properties to assignment
+=== An Example of Full-Text Search
 
-MidPoint supports extension for assignments, which can be implemented using standard midPoint extension mechanism.
-Following is an example extension, which adds an `string` property `reason` to assignment, to store reason,
-why assignment was made.
+Let us have a user `test` with the following five role assignments:
 
-.extension.xsd
+image::assignment-repository-search/full-text-1.png[All five assignments]
+
+After entering `approver` into the full-text search box the `Approver` role assignment is shown:
+
+image::assignment-repository-search/full-text-approver.png[Assignment matching the word 'approver']
+
+After entering `decisions` into the full-text search box the `Approver` and `Reviewer` assignments
+are shown:
+
+image::assignment-repository-search/full-text-decisions.png[Assignments matching the word 'decisions']
+
+It is because they have the description of "Role authorizing users to make approval decisions on
+work items." and "Role authorizing users to make decisions on certification cases.", respectively.
+Only those two objects contain the word `decisions` in their full-text indexed properties.
+
+=== Full-Text Search Limitations
+
+The full-text search currently matches only properties of the _target object_, e.g. the role that
+is assigned to the user. The properties of the assignment itself (e.g. the description of the
+assignment) are not searchable by this feature.
+
+== Adding Extension Properties to Assignments
+
+MidPoint supports extending the structure of assignments, just like it does for ordinary objects.
+
+=== Extending the Schema
+
+For example, the following `extension.xsd` file (put into the `schema` directory in midPoint home)
+adds a `string` property named `reason` to an assignment. It may denote the reason why the
+assignment has been created.
+
+.Sample `extension.xsd` file
 [source, xml]
 ----
 <xsd:schema elementFormDefault="qualified"
             targetNamespace="http://example.com/xml/ns/mySchema"
-            xmlns:tns="http://example.com/xml/ns/mySchema"
             xmlns:a="http://prism.evolveum.com/xml/ns/public/annotation-3"
             xmlns:c="http://midpoint.evolveum.com/xml/ns/public/common/common-3"
             xmlns:xsd="http://www.w3.org/2001/XMLSchema">
@@ -122,7 +155,7 @@ why assignment was made.
                 <xsd:annotation>
                     <xsd:appinfo>
                         <a:indexed>true</a:indexed>
-                        <a:displayName>Assignment Reason (extension)</a:displayName>
+                        <a:displayName>Assignment Reason</a:displayName>
                         <a:displayOrder>120</a:displayOrder>
                     </xsd:appinfo>
                 </xsd:annotation>
@@ -132,31 +165,15 @@ why assignment was made.
 </xsd:schema>
 ----
 
-If the repository search is enabled, we can also search in indexed assignment extension fields.
+Note that it's necessary to restart midPoint after augmenting or changing the extension schema,
+e.g. by adding a file like this one.
 
-.Advanced Search (XML)
-[source, xml]
-----
-<filter>
-  <substring>
-    <path>extension/reason</path>
-    <value>administrator</value>
-  </substring>
-<filter>
-----
+=== Making Custom Property Visible in Assignment List
 
-.Axiom Query Search
-[source, axiom]
-----
-extension/reason contains "administrator"
-----
+We can add custom columns to the assignment panel by modifying `panel->listView` item in the
+admin GUI configuration.
 
-
-=== Adding column to Assignment panel
-
-We can add custom columns to assignment panel by modifying `panel->listView` admin GUI configuration.
-
-.Enabling repository search for all assignments
+.Adding newly-created property to assignment list
 [source, xml]
 ----
 <systemConfiguration ...>
@@ -165,17 +182,17 @@ We can add custom columns to assignment panel by modifying `panel->listView` adm
         ....
         <objectDetails>
             <objectDetailsPage>
-                <type>c:UserType</type>
+                <type>UserType</type>
                 <panel>
                     <identifier>assignments</identifier>
                     <panel>
                         <identifier>allAssignments</identifier>
                         <listView>
                             ...
-                            <includeDefaultColumns>true</includeDefaultColumns>
-                            <column>
-                                <name>reason</name>
-                                <path>extension/reason</path>
+                            <includeDefaultColumns>true</includeDefaultColumns> <!--1-->
+                            <column> <!--2-->
+                                <name>reason</name> <!--3-->
+                                <path>extension/reason</path> <!--4-->
                             </column>
                         </listView>
                     </panel>
@@ -186,46 +203,92 @@ We can add custom columns to assignment panel by modifying `panel->listView` adm
     ...
 </systemConfiguration>
 ----
+<1> Setting this to `true` preserves original default columns, so we do not need to redeclare them.
+<2> Adds the column definition
+<3> Name (identifier) of the column
+<4> Item path of the data to be displayed in the column. In this case it is `extension/reason`.
 
-The important parts are:
+NOTE: Do not forget to log out and log in after this change, to make it effective.
 
- * `includeDefaultColumns` - setting this to `true` preserves original default columns, so we do not need to redeclare them
- * `column` - adds column definition
- ** `name` - name / identifier of the column
- ** `path` - item path of the data to be displayed in the column, in this case it is extension/reason
+Now, we can put values into this property, e.g. like this:
 
-==== Making column sortable
+image::assignment-repository-search/custom-extension-value.png[Custom extension value]
 
-It is possible to make our custom column sortable (if we are using RepositoryAssignmentDataProvider)
-by declaring `sortProperty` for column. Sort property is still experimental,
-so syntax for declaration is item path with full namespace declarations.
+We may do the same for e.g. `Superuser` assignment, leading to:
 
-If we want to enable sorting on our extension `reason` container, we would have
-following column definition in `panel->listView` section.
+image::assignment-repository-search/assignments-with-additional-column.png[Assignments with additional column]
 
+Now, if the repository search is enabled, we can also search in indexed assignment extension fields.
+It is necessary to use either Advanced Search or Axiom Query Search feature for this.
+
+For example:
+
+.Advanced search (XML)
+[source, xml]
+----
+<filter>
+  <substring>
+    <path>extension/reason</path>
+    <value>testing</value>
+  </substring>
+</filter>
+----
+
+.Axiom query search
+[source, axiom]
+----
+extension/reason contains "testing"
+----
+
+image::assignment-repository-search/extension-search-xml.png[Extension search using XML]
+image::assignment-repository-search/extension-search-axiom.png[Extension search using Axiom]
+
+NOTE: Because of current limitations (see the end of this guide) it is necessary to save the user
+object before being able to search for its assignments' properties.
+
+Other examples of using advanced or Axiom search are in later parts of this guide.
+
+=== Making Custom Column Sortable
+
+By default, the assignments are sorted alphabetically by the target namefootnote:[See the
+list of current limitations for the distinction between the name and the display name here.].
+However, it is possible to make our custom column sortable (again, if we are using
+`RepositoryAssignmentDataProvider`) by declaring `sortProperty` for column.
+
+The sort property is still an experimental feature, so syntax for declaration is a bit complex:
+it is in the form of item path with full namespace declarations.
+
+As an example, if we want to enable sorting on our extension `reason` property, we need to have
+the following column definition in `panel->listView` section.
+
+.Making the custom column sortable
 [source, xml]
 ----
 <column>
     <name>reason</name>
     <path>extension/reason</path>
     <sortProperty>
-        declare namespace c="http://midpoint.evolveum.com/xml/ns/public/common/common-3";
         declare namespace myext="http://example.com/xml/ns/mySchema";
-       c:extension/myext:reason
+        extension/myext:reason
     </sortProperty>
 </column>
 ----
 
-== Using Advanced Filters
+WARNING: This feature is currently not available in some configurations. This is going to be fixed.
 
-Now in Advanced Search mode or Axiom Query language you are able to perform
-queries also on assignment target via dereferencing using special path `@`.
-You can learn more about filters and derefencing in xref:/midpoint/reference/concepts/query/[Query Documentation].
+== Using Advanced or Axiom Search Feature
 
-The root object for queries is `AssignmentType`.
+It is possible to formulate advanced queries using either Advanced (XML) or Axiom Search.
 
+In the case of assignments, you are able to perform queries that deal with both _assignment data_
+and _assignment target data_. The latter are accessed via so-called dereferencing using special
+path component `@`.
 
-.Assignment whose target name contains string `user`
+NOTE: You can learn more about filters and dereferencing in xref:/midpoint/reference/concepts/query/[Query Documentation].
+
+Let us have a look at some examples.
+
+.Displaying assignments whose target name contains string `user`
 ====
 [source, xml]
 .Advanced (XML filter)
@@ -238,14 +301,14 @@ The root object for queries is `AssignmentType`.
 </filter>
 ----
 
-.Axiom Filter
+.Axiom filter
 [source, axiom]
 ----
 targetRef/@/name contains "user"
 ----
 ====
 
-.All assignments to roles, which are members of "System role"
+.Displaying assignments to objects, which are members of "System role"
 ====
 
 [source, xml]
@@ -259,9 +322,39 @@ targetRef/@/name contains "user"
 </filter>
 ----
 
-.Axiom Filter
+.Axiom filter
 [source, axiom]
 ----
 targetRef/@/roleMembershipRef/@/name = "System role"
 ----
 ====
+
+Note that we are looking for all assignments targeting an object that is itself a member of `System role`
+object - assuming that `System role` is an archetype. There are currently four such assignments: all except
+`End user`-targeted one.
+
+image::assignment-repository-search/search-for-system-role-assignments.png[Search for system role assignments]
+
+NOTE: When considering the available properties for search, take into account that the root object
+for queries in this panel is `AssignmentType`. So you may open the schema definition for this object,
+and refer to all its indexed properties (i.e. present in the repository).
+
+== Current Limitations
+
+The following are current limitations of repository-based search in assignment views. (Some of
+them have been already mentioned in this guide.)
+
+. New (i.e. unsaved) assignments are not being filtered. All of them are always displayed at start
+of the list using the green color, regardless of whether they match the search filter, or not.
+The reason is that they are not yet present in the repository.
+. For the same reason, any changes made to the assignments and not yet saved into the repository
+are not reflected in the filtering results. For example, if you search for the `extension/reason`
+property of the assignment, any changes made to this property are reflected in the search result
+only after the user object is saved into the repository.
+. Assignment lists sorted by `Name` may appear unsorted if `Display Name` of the target object
+(e.g. role) is different from its `Name`. (The combined sort based on name and display name
+is not supported.)
+. Full-text search is performed on _target_ of an assignment (e.g. assigned role) only.
+The content of assignment itself is not indexed for full-text search.
+. We recommend to enable repository-based search only on `allAssignments`, `roleAssignments`,
+`serviceAssignments` or `orgAssignments` panels, since other panels rely on in-memory search.
