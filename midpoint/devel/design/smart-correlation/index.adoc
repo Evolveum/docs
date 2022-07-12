@@ -1,0 +1,221 @@
+= Smart Correlation in midPoint 4.6
+
+== Introduction
+
+The "smart correlation" is a mechanism to correlate identity data to existing focus objects in the repository.
+A typical use is e.g. the synchronization process, where (previously unknown) accounts on a resource are synchronized
+to midPoint. Another typical use is manual or automated registration of new users, including self-registration.
+
+In midPoint 4.4 and before, the only way of correlation was the use of correlation filters, with strict binary
+output: either a matching object was found, or there was no match.
+
+In midPoint 4.5 we have introduced manual correlation for situations where there is a candidate match (or more
+candidate matches) that need to be resolved by human operator. Moreover, multiple correlation mechanisms have
+been created: a custom script, external ID Match API service, or simplified, item-based correlation.
+
+The goal for midPoint 4.6 is to provide a configurable correlation mechanism that is able to work
+with approximate matching. For short, it is called _smart correlation_.
+
+== High-Level Requirements
+
+. The correlation mechanism must support _approximate matching_. In other words, it is not sufficient to match
+a given data item (e.g. surname) only based on pure equality, probably after some normalization.
+The solution must support formulating correlation rules using metrics like e.g. Levenshtein distance,
+Jaro distance, Jaro-Winkler distance, phonetics based matching (Soundex, Metaphone, etc).
+
+. Eventually, the correlation mechanism must support multiple _variants_ of identity data. For example, a woman
+may have different name before and after marriage. Or, a data about a person coming from student information
+system may be a little different from a data about the same person coming from human resources system.
+We may want to keep both variants of the data when considering that person during correlation
+of newly-arrived identity data. The treatment of identity data (e.g. whether to keep "older" variants)
+or not should be configurable, and probably manageable by human operator on case-by-case basis.
+
+. Eventually, the correlation mechanism should be _adaptive_. It should take human decisions into account
+in its future executions.
+
+=== Limitations for 4.6
+
+- Requirement #3 (adaptivity) will not be implemented.
+- Requirement #2 (multiple variants) will be implemented only if allowed by time available.
+
+== Some Design Decisions
+
+=== Correlation Rules
+
+In 4.6, the correlation mechanism will be based on _rules_. A rule can state that "if family name,
+date of birth, and the national-wide ID all match, then the identity is the same". Another rule can state that
+"if (only) the national-wide ID matches, then the identity is the same with the confidence level
+of 0.7" (whatever the number means).
+
+==== An Example
+
+Let us consider the following _correlation items_.
+
+.Sample correlation items
+[%header]
+[%autowidth]
+|===
+| Item name | Description | Item path
+| `givenName` | Given name | `givenName`
+| `familyName` | Family name | `familyName`
+| `dateOfBirth` | Date of birth | `extension/dateOfBirth`
+| `nationalId` | National-wide identifier (like social security number) | `extension/nationalId`
+|===
+
+We can use them to formulate e.g. the following rules:
+
+.Sample set of correlation rules
+[%header]
+[%autowidth]
+|===
+| Rule# | Situation | Resulting confidence
+| 1
+| `familyName`, `dateOfBirth`, and `nationalId` exactly match
+| Sure identity match
+| 2
+| `nationalId` exactly matches
+| 0.8
+| 3
+| `givenName`, `familyName`, `dateOfBirth` exactly match
+| 0.7
+| 4
+| `dateOfBirth` and first 5 characters of `familyName` matches
+| 0.5
+| 5
+| `familyName` matches with Levenshtein distance (`LD`) between 1 and 4
+| 0.5 - `LD`/10
+|===
+
+The rule #4 is just an example of using a custom normalization of a correlation item,
+namely taking the first 5 characters of it. There may be a default normalization as well,
+like taking lower-cased string data, with any diacritic marks stripped off.
+
+The rule #5 is an example of a dynamically-computed confidence - in this case based
+on the specific value of the Levenshtein distance between identity data in question
+and the candidate identity whose match is being considered.
+
+=== Implementation Options
+
+There are two basic implementation options here.
+
+==== Option 1: Using Existing Data
+
+No special tables are necessary here. All correlation-related queries are issued against
+existing data, typically in `m_user` table.
+
+The main disadvantage of this approach is that we are limited to a single variant of the data:
+the current ones stored in the focus object (e.g. user). More advanced searches are possible,
+but with the complexity we have seen in experimental assignment-based correlation data storage
+in midPoint 4.5.
+
+==== Option 2: Using Separate Correlation Data Container
+
+Here we put all correlation-related data to a special _correlation container_ that may look like this:
+
+[source, xml]
+----
+<correlation>
+    <variant id="1">
+        <item>
+            <identifier>givenName</identifier>
+            <value>Alice</value>
+        </item>
+        <item>
+            <identifier>familyName</identifier>
+            <value>Green</value>
+        </item>
+        <item>
+            <identifier>dateOfBirth</identifier>
+            <value>1997-01-01</value>
+        </item>
+        <item>
+            <identifier>nationalId</identifier>
+            <value>9751013333</value>
+        </item>
+    </variant>
+    <variant id="2">
+        <item>
+            <identifier>givenName</identifier>
+            <value>Alice</value>
+        </item>
+        <item>
+            <identifier>familyName</identifier>
+            <value>Johnson</value>
+        </item>
+        <item>
+            <identifier>dateOfBirth</identifier>
+            <value>1997-01-01</value>
+        </item>
+        <item>
+            <identifier>nationalId</identifier>
+            <value>9751013333</value>
+        </item>
+    </variant>
+</correlation>
+----
+
+The maintenance of this container is semi-automatic: It is carried out by midPoint itself,
+according to specified rules - e.g. whether to keep "historic" records related to e.g. changes
+in family name related to marriage, or to fixing typos in the data; or whether to keep data
+specific to individual source resources (like student information system or human resources system).
+The data may be also corrected or entered manually by an operator.
+
+The search is then carried out on this data.
+
+Again, here are two implementation options.
+
+===== Option 2a: Custom Correlation Table
+
+The data may be stored in a custom correlation table, like this:
+
+.Sample correlation table
+[%header]
+[%autowidth]
+|===
+| OID | Variant ID | givenName | familyName | familyName5 | dateOfBirth | nationalId
+| 081168ee-de54-4005-9bdd-a6c55d7fcef7
+| 1
+| alice
+| green
+| green
+| 1997-01-01
+| 9751013333
+
+| 081168ee-de54-4005-9bdd-a6c55d7fcef7
+| 2
+| alice
+| johnson
+| johns
+| 1997-01-01
+| 9751013333
+
+| 0d49b6ff-7143-4afa-a02f-0abd84f3201d
+| 1
+| jack
+| sparrow
+| sparr
+| 1691-01-01
+| 9101014444
+|===
+
+These tables would be - at least initially - created _externally_ i.e. by the person deploying
+midPoint. They are mapped to midPoint data using the correlation configuration.
+
+===== Option 2b: Embedded Correlation Data
+
+An alternative solution (not requiring custom correlation table) is to use JSONB-typed table column
+right in appropriate table (like `m_user`) - in exactly the same way as `extension` is stored today.
+This approach may be a bit less efficient, but dramatically easier to set up: no custom table
+creation is required.
+
+The main disadvantages of option 2 is the implementation and administration complexity. We would
+need to implement a mechanism that would keep the source data (in user, shadows, assignments, ...)
+in sync with the correlation container; including some rules driving that. And the deployer would
+need to configure that mechanism.
+
+=== The Way Forward for 4.6
+
+If we were able to issue fuzzy searches (e.g. using Levenshtein distance) against JSONB-encoded
+data stored in extension container, then - most probably - the best way for 4.6 would be to avoid
+creation of separate correlation container, and limit ourselves to querying existing data.
+(Or doing the magic introduced in 4.5 while dealing with arbitrarily-distributed correlation data.)
