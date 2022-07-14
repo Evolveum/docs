@@ -42,6 +42,7 @@ in its future executions.
 === Limitations for 4.6
 
 - Requirement #3 (adaptivity) will not be implemented.
+
 - Requirement #2 (multiple variants) will be implemented in limited way: Only a single variant
 per data source (e.g. focus object or a given resource) will be maintained. Moreover, the variant
 data will be maintained automatically, that is, manual corrections will not be supported.
@@ -108,7 +109,7 @@ and the candidate identity whose match is being considered.
 
 There are two basic implementation options.
 
-==== Option 1: Using Existing Data
+==== Option 1: Using Existing Data (Rejected)
 
 All correlation-related queries are issued against existing data, typically in the `m_user` table.
 No extra database tables need to be created.
@@ -129,18 +130,18 @@ can be seen in experimental examples in midPoint 4.5.
 . Maintaining historic variants of the data, i.e., those that have been overwritten already
 (either in the repository object or in resource objects), requires even more custom coding.
 
-==== Option 2: Using Separate Correlation Data Container
+==== Option 2: Using Separate Correlation Data Container (Accepted)
 
-Here we put all correlation-related data into a special _correlation data container_ that may look
+Here we put all correlation-related data into a special _identities container_ that may look
 like this:
 
-.Correlation data container sample
+.Identities container sample
 [source, xml]
 ----
 <user>
     <!-- ... other data ... -->
-    <correlation>
-        <variant id="1">
+    <identities>
+        <identity id="1">
             <source xsi:type="FocusCorrelationDataSourceType"/>
             <items>
                 <original>
@@ -157,12 +158,15 @@ like this:
                     <nationalId>9751013333</dateOfBirth>
                 </normalized>
             </items>
-        </variant>
-        <variant id="2">
+        </identity>
+        <identity id="2">
             <source xsi:type="ProjectionCorrelationDataSourceType">
                 <shadowRef oid="43fb79a3-d22d-480d-aa85-e04aa4749d46"/>
+                <resourceRef oid="858d8c22-b737-4024-a039-aa3f45ebef7e"/>
+                <kind>account</kind>
+                <intent>default</intent>
+                <tag>10704444</tag>
             </source>
-            <!-- to save space, can we put here multiple sources (if the data is the same)? -->
             <items>
                 <original>
                     <givenName>Alice</givenName>
@@ -178,199 +182,66 @@ like this:
                     <nationalId>9751013333</dateOfBirth>
                 </normalized>
             </items>
-        </variant>
-        <!-- Another way of treating alternative normalizations? But what about the queries? -->
-        <variant id="3">
-            <source xsi:type="ProjectionCorrelationDataSourceType">
-                <shadowRef oid="461f1aca-73d3-41e9-bbed-64b636f72520"/>
-            </source>
-            <items>
-                <original>
-                    <givenName>Alice</givenName>
-                    <familyName>Johnson</familyName>
-                    <dateOfBirth>1997-01-01</dateOfBirth>
-                    <nationalId>9751013333</dateOfBirth>
-                </original>
-                <normalized id="1">
-                    <givenName>alice</givenName>
-                    <familyName>johnson</familyName>
-                    <!-- avoiding values that are equal -->
-                </normalized>
-                <normalized id="2">
-                    <identifier>first-5-characters</identifier>
-                    <familyName>johns</familyName>
-                    <!-- avoiding values that are equal -->
-                </normalized>
-            </items>
-        </variant>
-    </correlation>
+        </identity>
+    </identities>
 </user>
 ----
 
 We need to have both original version of the data and the normalized one. The former is needed,
 for example, to show correlation options in the GUI. The latter is needed for the actual matching.
 
-_Do we need both versions in the XML form?_
+_Couldn't the repository do the normalization itself?_
 
-After all, we do not do the same for polystring data: usually, we store only the original form
-in XML, and repository does the normalization itself. In this case, however, the normalization
-algorithms are focus/archetype/object-type specific, so it makes sense they are executed
-in `model-impl` module.
+It could. But, we want to keep things simple, and responsibilities clearly divided.
+The repository does not need to know about the normalization/matching rules. All it needs
+is the schema. The current decision was to provide the definitions along with the data,
+i.e. exactly like the `attributes` container in `ShadowType` objects is implemented.
 
-But, indeed, we might make this data _index-only_ - or, at least, factored out from the main XML.
-We will decide on this in the course of the development.
+_Will the data be stored in object JSON representation?_
 
-_What about the alternative normalizations?_
+No. We want to conserve the space. Data will be stored in separate tables, because `identity`
+item is multivalued. Each `identity` row will contain a small "full-object" column (containing
+everything except `items`) and two JSONB columns: one for `original` and one for `normalized`
+version of the data.footnote:[We have considered custom tables for the data, which would be
+created by the deployment engineer. But we have rejected the idea as too complex.]
 
-The names like `familyName.5` seem to be clumsy. Are there other options? Maybe something like
-this:
+==== Querying the Identity Data
 
-.Other way of storing alternative normalizations
-[source, xml]
-----
-<user>
-    <!-- ... other data ... -->
-    <correlation>
-        <variant id="1">
-            <source> ... </source>
-            <item>
-                <identifier>givenName</identifier>
-                <value>Alice</value>
-                <normalized>
-                    <value>alice</value>
-                </normalized>
-            </item>
-            <item>
-                <identifier>familyName</identifier>
-                <value>Johnson</value>
-                <normalized>
-                    <value>johnson</value>
-                </normalized>
-                <normalized>
-                    <identifier>first-5-characters</identifier>
-                    <value>johns</value>
-                </normalized>
-            </item>
-            <item>
-                <identifier>dateOfBirth</identifier>
-                <value>1997-01-01</value>
-                <!-- normalized is the same as the original -->
-            </item>
-            <item>
-                <identifier>nationalId</identifier>
-                <value>9751013333</value>
-                <!-- normalized is the same as the original -->
-            </item>
-        </variant>
-        <!-- other variants -->
-    </correlation>
-</user>
-----
+There are two options when doing this:
 
-The main issue with those alternative representations is how we should query them.
-The original (plain) representation can be queried like this:
-
+.Matching whole records
 [source,axiom]
 ----
-correlation/variant matches (
+identities/identity matches (
     items/normalized/givenName =[levenshtein(0,3)] 'alice'
     and items/normalized/familyName.5 =[levenshtein(0,1)] 'johns'
     and items/normalized/dateOfBirth = '1997-01-01'
 )
 ----
 
-The alternative representations would require either some new query features, like
-
+.Matching individual items
 [source,axiom]
 ----
-correlation/variant matches (
-    item[identifier='givenName']/normalized[identifier is null]/value='alice'
-)
+identities/identity/items/normalized/givenName =[levenshtein(0,3)] 'alice'
+and identities/identity/items/normalized/familyName.5 =[levenshtein(0,1)] 'johns'
+and identities/identity/items/normalized/dateOfBirth = '1997-01-01'
 ----
 
-Or, there would need to be some magic during query interpretation, e.g., using
-fake prism structures to query the data.
+It is to be decided which query style should be used. The repository should support both.
 
-The maintenance of this container is semi-automatic: It is carried out by midPoint itself,
-according to specified rules, e.g., whether to keep historic records related to changes like
-surname being changed after a marriage, or to fixing typos in the data; or whether to keep data
-specific to individual source resources (like student information system or human resources system).
-Additionally, the data can be corrected, added, or deleted manually by an operator.
+==== Updating the Identity Data
 
-Here are two implementation options.
-
-===== Option 2a: Custom Correlation Table
-
-The data can be stored in a custom correlation database table like this:
-
-.Sample correlation table
-[%header]
-[%autowidth]
-|===
-| OID | Variant ID | givenName | familyName | familyName5 | dateOfBirth | nationalId
-| 081168ee-de54-4005-9bdd-a6c55d7fcef7
-| 1
-| alice
-| green
-| green
-| 1997-01-01
-| 9751013333
-
-| 081168ee-de54-4005-9bdd-a6c55d7fcef7
-| 2
-| alice
-| johnson
-| johns
-| 1997-01-01
-| 9751013333
-
-| 0d49b6ff-7143-4afa-a02f-0abd84f3201d
-| 1
-| jack
-| sparrow
-| sparr
-| 1691-01-01
-| 9101014444
-|===
-
-Such a table would be - at least initially - created _externally_, i.e., by the person deploying
-midPoint. It would be mapped to midPoint data using the correlation configuration.
-
-===== Option 2b: Embedded Correlation Data
-
-An alternative solution (not requiring a custom correlation table) is to use a JSONB-typed table
-column right in the appropriate table (like `m_user`) - in the same way as `extension` is stored
-today. This approach may be a bit less efficient but dramatically easier to set up: no custom
-table creation is required.
-
-The main disadvantages of option 2 (both 2a and 2b) are the implementation and administration
-complexity. We would need to implement a mechanism that would keep the source data (in user,
-shadows, assignments, and the like) in sync with the correlation data container; including
-some rules driving that. And the deployer would need to configure that mechanism.
-
-=== Updating the Correlation Data
-
-The correlation data - or maybe it should be called _Identity Variants Data_ - could be updated
-via improved inbound mappings.
+The data on identities - could be updated via improved inbound mappings.
 
 image::identity-variants.drawio.png[Identity Variants]
 
-Maybe they need not be constrained to the use for correlation?
+In the future, we may also consider adding historic identity records there. Or, some other ones,
+e.g. related to the registration or self-registration processes (not connectable to a particular
+resource). Management of some of these data could be also manual. Some kinds of changes could
+be handled at the level of individual items' values, recording also the value metadata. There
+are countless possibilities here.
 
 === The Suggested Way Forward for 4.6
-
-Because we need to provide - at least - roughly the functionality if ID Match API, we need some
-support for correlation data variants. Therefore, we have to go with option 2, presumably 2b.
-
-We know we are able to issue fuzzy searches (e.g. using Levenshtein distance) also against
-JSONB-encoded data stored in extension container. For example,
-
-[source,sql]
-----
-SELECT *, levenshtein(ext->>'1','alex') FROM m_user WHERE levenshtein(ext->>'1','alex') < 3;
-----
-
-Therefore, the following is suggested:
 
 . Enhance Query API so that it will support selected approximate search features. As a minimum,
 Levenshtein edit distance will be supported. The exact form is to be decided, e.g., if the support
@@ -379,15 +250,15 @@ That way or another, we need to specify Levenshtein distance bound or bounds, an
 an option to return the measured distance as part of the result set. (Otherwise, if we would like
 to reflect the distance in the metric, we would need to compute it ourselves.)
 - Requirements specification (i.e. what are the required options): *Tadek*, *Pavol*
-- Implementation: *Rišo* or *Pavol* or *?*
+- Implementation: *Tony*
 
 . Implement the new Query API features in the native repository.
-- By: *Rišo* and *?*
+- By: *Tony*
 
-. Implement the new correlation data container in the native repository.
-- By: *Rišo* and *?*
+. Implement the `identities` container in the native repository.
+- By: *Rišo*
 
-. Implement the functionality to update the correlation data container.
+. Implement the functionality to update the `identities` container.
 - By: *Pavol* with the help of *Tadek*
 
 . Update the correlation configuration language (see xref:configuration.adoc[separate document]).
