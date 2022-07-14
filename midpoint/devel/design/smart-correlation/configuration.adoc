@@ -1,0 +1,273 @@
+= Smart Correlation Configuration
+:toc:
+
+== Correlators
+
+The general configuration schema - as introduced in midPoint 4.5 - is the following:
+
+The basic element of the configuration is the _correlator configuration_.
+(Note that each correlator can be seen as a _correlation rule_ in the sense
+of the xref:index.adoc[overview document]. Risking a bit of confusion, let us stick
+with the term _correlator_ in this document. At least for now.)
+
+== Correlation Algorithm Outline
+
+Individual correlators are evaluated in a defined order. Each one produces zero, one, or more
+candidate matches. Each candidate match has a _confidence_ assigned: either "fully certain" flag,
+meaning that the correlator is certain that this is the identity searched for, or a decimal number
+denoting the level of confidence. The scale for this number is specific for each correlator.
+
+=== Combining the Results
+
+The algorithm for combining the results is the following:
+
+. Each correlator provides a set of candidate matches, each with a confidence value.
+. A union of these sets is constructed, and for each candidate, the confidence values coming
+from individual correlators are summed. (Except for `ignoreIfMatchedBy` correlators, see below.)
+
+=== "Ignore if Matched by" Flag
+
+When two rules (let us mark them 1 and 2) are concerned, it may happen that a match by rule 1
+automatically implies the match by rule 2. As an example, consider the situation when rule 1
+matches by both `givenName` and `familyName` (at the same time) and rule 2 matches
+by `familyName` only, without regarding any other items.
+
+Let us now assume that rule 1 brings a confidence increment of 0.5, while rule 2 brings
+the increment of 0.3. This setup means, though, that in practice any candidate
+matching rule 1 would match rule 2 as well, providing an increase of 0.5 + 0.3 = 0.8.
+While not necessarily incorrect, such treatment is counter-intuitive.
+
+Therefore, we have introduced a mechanism to avoid such duplicate confidence incrementing
+by marking rule 2 as being ignored for those candidates that are matched by rule 1
+as well.footnote:[In the future, we may consider reducing the database
+load by explicitly eliminating the results of rule 1 from the query issued for finding matches
+for rule 2. However, this will require thorough performance testing to see if it leads to real
+improvements.] This is done by setting `ignoreIfMatchedBy` for `rule 2` to `rule 1`.
+
+=== Using the Resulting Confidence Values
+
+In midPoint 4.6, the resulting aggregated confidence values for individual candidates are compared
+with two _threshold values_:
+
+. _Automatic match threshold_ (`AM`): if a confidence value is equal or greater than this one, the candidate
+is considered to automatically match the identity data. (If, for some reason, multiple candidates
+do this, then the situation is reported as a potential problem, and human decision is requested.)
+
+. _No-match threshold_ (`NM`): if a confidence value is below this one, the candidate is not considered
+to be matching at all - not even for human decision.
+
+Said in other words:
+
+. If there is a single candidate with confidence value &ge; `AM` then it is automatically matched.
+. Otherwise, all candidates with confidence value &ge; `NM` are taken for human resolution.
+(If there are multiple candidates with confidence value &ge; `AM` among them, then the situation
+is reported as suspicious.)
+. If there are none, "no match" situation is assumed.
+
+== Correlator Types and Common Options
+
+A correlator can be of multiple _types_:
+
+.Types of correlators
+[%header]
+[%autowidth]
+|===
+| Type | Meaning
+| `items` | Smart item-based correlator. The suggested one.
+| `filter` | Legacy (pre-4.5) filter-based correlator.
+| `expression` | Experimental correlator, based on an evaluation of a custom expression. Since 4.5.
+| `idmatch` | Correlator that uses an external ID Match API. Since 4.5.
+| `composite` | A correlator that composes other correlators.
+|===
+
+Each correlator has the following optional parameters:
+
+.Generic correlator (rule) parameters
+[%header]
+[%autowidth]
+|===
+| Parameter | Meaning
+| `order`
+| Order in which this correlator is to be evaluated. (Related to other correlators with the same authority level.)
+
+| `authority`
+| How is the result of the correlator interpreted. (See the table below.)
+
+| `confidence`
+| Defines how this correlator - if matching - increases the overall confidence of its results.
+It may be a constant value, or an expression - for example, deriving the confidence value from
+Levenshtein edit distance of selected item values.
+
+| `ignoreIfMatchedBy`
+| If any of these match the candidate that this particular correlator
+matches as well, the confidence increase stemming from being matched by this correlator
+is not applied.
+|===
+
+The following setting is a questionable one. It was created in midPoint 4.5 as an experimental
+feature, so it is kept here just to see if it will be of any use.
+
+.Correlator authority
+[%header]
+[%autowidth]
+|===
+| Value | Meaning
+| `principal` | If the correlator finds a single owner with certainty, the answer is considered
+final, without asking other correlators. Otherwise, results from these correlators are combined
+in the standard way.
+| `authoritative` | If all the authoritative correlators provide (the same) single owner, or
+no owner (with certainty), then this single owner is considered as final, without asking other,
+non-authoritative correlators. Otherwise, results from these correlators are combined in the
+standard way.
+| `nonAuthoritative` | Results of these correlators are combined in the standard way.
+|===
+
+The default authority was `authoritative` for 4.5. This is to be reconsidered in 4.6 and beyond.
+(Maybe the default should be `nonAuthoritative` if the confidence is specified as something below
+`sure`?)
+
+== Item-Based Correlator Configuration
+
+The `items` correlator has the following configuration:
+
+.Configuration options for `items` correlator
+[%header]
+[%autowidth]
+|===
+| Option | Meaning
+| `item` (multi-valued) | A definition of (or a reference to) a correlation item that has to match
+when checked by this correlator.
+|===
+
+.Definition of a correlation item
+[%header]
+[%autowidth]
+|===
+| Option | Meaning | Example
+| `name`
+| Name by which this definition is referenced. If not present, the last segment
+of the item path is used to derive the name.
+| `dateOfBirth`
+
+| `path`
+| Where (in the focus object) is this correlation item stored.
+| `extension/dateOfBirth`
+
+| `matching`
+| Matching algorithm for this item.
+|
+|===
+
+Each item can be matched using a specific algorithm. This determines the normalization of the
+item value before being stored and the query options used when searching. Some examples:
+
+.Matching specification examples
+[%header]
+[%autowidth]
+|===
+| Option | Normalization | Query | Parameters
+| PolyStringNorm
+| Actually-configured PolyString "norm" normalization.
+| Standard equality
+| -
+
+| PolyStringNorm + Levenshtein
+| Actually-configured PolyString "norm" normalization.
+| Levenshtein distance
+| Distance interval
+
+| PolyStringNorm + First N
+| Actually-configured PolyString "norm" normalization,
+but taking first N characters only.
+| Standard equality
+| `N`
+|===
+
+#TODO other examples; matching for non-string parameters#
+
+NOTE: The PolyString "norm" normalization does not require `PolyString`-typed configuration items.
+It is applicable to any `String` or `PolyString` values.
+
+NOTE: Levenshtein edit distances of individual items should be usable in the confidence expressions.
+They should be referencable using variable names like `distanceX` where `X` is the correlation item
+name; and additionally `distance` if there is a single correlation item configured to be compared
+using this metric.
+
+=== Item Definition vs Item Reference
+
+A correlation item can be specific to a single correlator, or can be shared among multiple
+correlators. In the latter case it can be defined at an upper level, that is, in an
+embedding correlator, or a correlator referenced by the `extending` parameter.
+
+#TODO describe this in more detail#
+
+== Attribute-Level Configuration
+
+To make correlation configuration more user-friendly, it is possible to specify correlation also
+at the level of attributes.
+
+.An example of attribute-level configuration
+[source, xml]
+----
+<attribute>
+    <ref>icfs:name</ref>
+    <displayName>Group name</displayName>
+    <correlation/> <!--1-->
+    <outbound>
+        <source>
+            <path>name</path>
+        </source>
+    </outbound>
+    <inbound>
+        <strength>weak</strength>
+        <target>
+            <path>name</path>
+        </target>
+    </inbound>
+</attribute>
+----
+<1> Specifies the correlation
+
+The `correlation` item can have the following properties:
+
+.Attribute-level correlation definition properties
+[%header]
+[%autowidth]
+|===
+| Property | Meaning | Default
+
+| `authority`
+| An authority of the correlator created for this attribute.
+| Depending on confidence?
+
+| `confidence`
+| A confidence of the correlator created for this attribute.
+| `sure`
+
+| `itemPath`
+| A focus item this attribute should be correlated to.
+| Derived from the inbound mapping, if possible.
+
+| `matching` ?
+| How this item should be matched.
+| "PolyString norm"
+
+| `correlators` (`rules` ?)
+| Correlators (rules) this attribute should be added to.
+| None
+|===
+
+If present, this configuration item will turn on "before correlation" evaluation of inbound
+mappings for this attribute.
+
+NOTE: Perhaps we should do the same for explicit (standalone) definition of a correlation item.
+But we would need to scan for all inbound mappings that refer to that item.
+
+== Item-Level Configuration (?)
+
+Maybe we could allow specifying the correlation right on the focus item, e.g. in the object
+template. This would be common to all resources referring to the particular focus or focus
+archetype.
+
+Maybe we will _have to_ do this, just to ensure the "focus" variant will be updated when
+changes unrelated to a synchronization are applied to the user object.

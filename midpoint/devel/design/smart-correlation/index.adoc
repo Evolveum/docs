@@ -1,4 +1,5 @@
 = Smart Correlation in midPoint 4.6 and Beyond
+:toc:
 
 == Introduction
 
@@ -41,16 +42,18 @@ in its future executions.
 === Limitations for 4.6
 
 - Requirement #3 (adaptivity) will not be implemented.
-- Requirement #2 (multiple variants) will be implemented if allowed by the time available.
+- Requirement #2 (multiple variants) will be implemented in limited way: Only a single variant
+per data source (e.g. focus object or a given resource) will be maintained. Moreover, the variant
+data will be maintained automatically, that is, manual corrections will not be supported.
 
 == Some Design Decisions
 
 === Correlation Rules
 
-In 4.6, the correlation mechanism will be based on _rules_. A rule can state that
-"if the family name, date of birth, and the national-wide ID all match, then the identity
-is the same". Another rule can state that "if (only) the national-wide ID matches, then
-the identity is the same with the confidence level of 0.7" (whatever the number means).
+In 4.6, the correlation mechanism will be based on _rules_, technically called _correlators_.
+A rule can state that "if the family name, date of birth, and the national-wide ID all match,
+then the identity is the same". Another rule can state that "if (only) the national-wide ID matches,
+then the identity is the same with the confidence level of 0.7" (whatever the number means).
 
 Rules reference _correlation items_. A correlation item is a prism item (currently, it must be
 a property) of the correlated focus object, e.g., a user.
@@ -95,8 +98,7 @@ We can use them to formulate e.g. the following rules:
 |===
 
 Rule #4 is just an example of using a custom normalization of a correlation item,
-namely, taking the first five characters of it. (There may be a default normalization as well,
-like taking lower-cased string data, with any diacritic marks stripped off.)
+namely, taking the first five characters of it.
 
 Rule #5 is an example of dynamically-computed confidence - in this case, based
 on the specific value of the Levenshtein distance between identity data in question
@@ -132,58 +134,168 @@ can be seen in experimental examples in midPoint 4.5.
 Here we put all correlation-related data into a special _correlation data container_ that may look
 like this:
 
+.Correlation data container sample
 [source, xml]
 ----
 <user>
     <!-- ... other data ... -->
     <correlation>
         <variant id="1">
-            <item>
-                <identifier>givenName</identifier>
-                <value>Alice</value>
-            </item>
-            <item>
-                <identifier>familyName</identifier>
-                <value>Green</value>
-            </item>
-            <item>
-                <identifier>dateOfBirth</identifier>
-                <value>1997-01-01</value>
-            </item>
-            <item>
-                <identifier>nationalId</identifier>
-                <value>9751013333</value>
-            </item>
+            <source xsi:type="FocusCorrelationDataSourceType"/>
+            <items>
+                <original>
+                    <givenName>Alice</givenName>
+                    <familyName>Green</familyName>
+                    <dateOfBirth>1997-01-01</dateOfBirth>
+                    <nationalId>9751013333</dateOfBirth>
+                </original>
+                <normalized>
+                    <givenName>alice</givenName>
+                    <familyName>green</familyName>
+                    <familyName.5>green</familyName>
+                    <dateOfBirth>1997-01-01</dateOfBirth>
+                    <nationalId>9751013333</dateOfBirth>
+                </normalized>
+            </items>
         </variant>
         <variant id="2">
-            <item>
-                <identifier>givenName</identifier>
-                <value>Alice</value>
-            </item>
-            <item>
-                <identifier>familyName</identifier>
-                <value>Johnson</value>
-            </item>
-            <item>
-                <identifier>dateOfBirth</identifier>
-                <value>1997-01-01</value>
-            </item>
-            <item>
-                <identifier>nationalId</identifier>
-                <value>9751013333</value>
-            </item>
+            <source xsi:type="ProjectionCorrelationDataSourceType">
+                <shadowRef oid="43fb79a3-d22d-480d-aa85-e04aa4749d46"/>
+            </source>
+            <!-- to save space, can we put here multiple sources (if the data is the same)? -->
+            <items>
+                <original>
+                    <givenName>Alice</givenName>
+                    <familyName>Johnson</familyName>
+                    <dateOfBirth>1997-01-01</dateOfBirth>
+                    <nationalId>9751013333</dateOfBirth>
+                </original>
+                <normalized>
+                    <givenName>alice</givenName>
+                    <familyName>johnson</familyName>
+                    <familyName.5>johns</familyName.5>
+                    <dateOfBirth>1997-01-01</dateOfBirth>
+                    <nationalId>9751013333</dateOfBirth>
+                </normalized>
+            </items>
+        </variant>
+        <!-- Another way of treating alternative normalizations? But what about the queries? -->
+        <variant id="3">
+            <source xsi:type="ProjectionCorrelationDataSourceType">
+                <shadowRef oid="461f1aca-73d3-41e9-bbed-64b636f72520"/>
+            </source>
+            <items>
+                <original>
+                    <givenName>Alice</givenName>
+                    <familyName>Johnson</familyName>
+                    <dateOfBirth>1997-01-01</dateOfBirth>
+                    <nationalId>9751013333</dateOfBirth>
+                </original>
+                <normalized id="1">
+                    <givenName>alice</givenName>
+                    <familyName>johnson</familyName>
+                    <!-- avoiding values that are equal -->
+                </normalized>
+                <normalized id="2">
+                    <identifier>first-5-characters</identifier>
+                    <familyName>johns</familyName>
+                    <!-- avoiding values that are equal -->
+                </normalized>
+            </items>
         </variant>
     </correlation>
 </user>
 ----
+
+We need to have both original version of the data and the normalized one. The former is needed,
+for example, to show correlation options in the GUI. The latter is needed for the actual matching.
+
+_Do we need both versions in the XML form?_
+
+After all, we do not do the same for polystring data: usually, we store only the original form
+in XML, and repository does the normalization itself. In this case, however, the normalization
+algorithms are focus/archetype/object-type specific, so it makes sense they are executed
+in `model-impl` module.
+
+But, indeed, we might make this data _index-only_ - or, at least, factored out from the main XML.
+We will decide on this in the course of the development.
+
+_What about the alternative normalizations?_
+
+The names like `familyName.5` seem to be clumsy. Are there other options? Maybe something like
+this:
+
+.Other way of storing alternative normalizations
+[source, xml]
+----
+<user>
+    <!-- ... other data ... -->
+    <correlation>
+        <variant id="1">
+            <source> ... </source>
+            <item>
+                <identifier>givenName</identifier>
+                <value>Alice</value>
+                <normalized>
+                    <value>alice</value>
+                </normalized>
+            </item>
+            <item>
+                <identifier>familyName</identifier>
+                <value>Johnson</value>
+                <normalized>
+                    <value>johnson</value>
+                </normalized>
+                <normalized>
+                    <identifier>first-5-characters</identifier>
+                    <value>johns</value>
+                </normalized>
+            </item>
+            <item>
+                <identifier>dateOfBirth</identifier>
+                <value>1997-01-01</value>
+                <!-- normalized is the same as the original -->
+            </item>
+            <item>
+                <identifier>nationalId</identifier>
+                <value>9751013333</value>
+                <!-- normalized is the same as the original -->
+            </item>
+        </variant>
+        <!-- other variants -->
+    </correlation>
+</user>
+----
+
+The main issue with those alternative representations is how we should query them.
+The original (plain) representation can be queried like this:
+
+[source,axiom]
+----
+correlation/variant matches (
+    items/normalized/givenName =[levenshtein(0,3)] 'alice'
+    and items/normalized/familyName.5 =[levenshtein(0,1)] 'johns'
+    and items/normalized/dateOfBirth = '1997-01-01'
+)
+----
+
+The alternative representations would require either some new query features, like
+
+[source,axiom]
+----
+correlation/variant matches (
+    item[identifier='givenName']/normalized[identifier is null]/value='alice'
+)
+----
+
+Or, there would need to be some magic during query interpretation, e.g., using
+fake prism structures to query the data.
 
 The maintenance of this container is semi-automatic: It is carried out by midPoint itself,
 according to specified rules, e.g., whether to keep historic records related to changes like
 surname being changed after a marriage, or to fixing typos in the data; or whether to keep data
 specific to individual source resources (like student information system or human resources system).
 Additionally, the data can be corrected, added, or deleted manually by an operator.
-
-The search is then carried out on this data.
 
 Here are two implementation options.
 
@@ -238,7 +350,8 @@ some rules driving that. And the deployer would need to configure that mechanism
 
 === The Suggested Way Forward for 4.6
 
-We will probably go with the first option, i.e., using existing data to execute correlation queries.
+Because we need to provide - at least - roughly the functionality if ID Match API, we need some
+support for correlation data variants. Therefore, we have to go with option 2, presumably 2b.
 
 We know we are able to issue fuzzy searches (e.g. using Levenshtein distance) also against
 JSONB-encoded data stored in extension container. For example,
@@ -260,12 +373,18 @@ to reflect the distance in the metric, we would need to compute it ourselves.)
 - Implementation: *Rišo* or *Pavol*
 
 . Implement the new Query API features in the native repository.
-- By: *?*
+- By: *Rišo* and *?*
 
-. Update the correlation configuration language (see a separate document).
+. Implement the new correlation data container in the native repository.
+- By: *Rišo* and *?*
+
+. Implement the functionality to update the correlation data container.
 - By: *Pavol* with the help of *Tadek*
 
-. Update the correlators to support uncertainty and confidence levels
+. Update the correlation configuration language (see xref:configuration.adoc[separate document]).
+- By: *Pavol* with the help of *Tadek*
+
+. Update the correlators to support uncertainty, confidence levels, and variants
 - By: *Pavol* with the help of *Tadek*
 
 . Update the GUI to show certainty levels (and other modifications as needed)
