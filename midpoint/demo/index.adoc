@@ -22,9 +22,10 @@ There is also a handful of systems that cannot be integrated with LDAP server, e
 
 == Usage Notes
 
-The live demo environment is a single virtual machine that runs all the necessary systems.
+The live demo environment is deployed on a kubernetes cluster with two nodes.
+If you want to deploy your own midPoint demo environment head to link:https://github.com/Evolveum/midpoint-kubernetes/tree/main/midpoint-live-demo[this] github page.
 The machine is restored to its original state every night.
-The same machine is shared by all the users therefore please be nice and try not to spoil the work of others.
+The same environment is shared by all the users therefore please be nice and try not to spoil the work of others.
 Try to create your own users, account and roles and do not considerably modify existing users, roles or resources.
 We would like this description to hold at least roughly even after a few users played a bit with the demo machine.
 If you find the machine in a bad shape please contact us.
@@ -71,11 +72,12 @@ We also want to gradually automate implementation of organizational structure.
 == Implementation Outline
 
 The central piece of the implementation is obviously midPoint.
-MidPoint is deployed in a Tomcat web container which is also used to expose the midPoint administration console.
+MidPoint is deployed in embedded Tomcat web container which is also used to expose the midPoint administration console.
 MidPoint is using appropriate connectors to manage the other systems.
 All the connectors are agent-less and are standard connectors bundled with midPoint (more info on them can be seen link:https://wiki.evolveum.com/display/midPoint/Identity+Connectors[here]).
 
 The HR system is an authoritative source.
+HR is deployed in Tomcat web container together with address book system.
 MidPoint scans for changes of the CSV file that the HR system exports.
 All identities that midPoint finds in the export file are pulled into midPoint and are used to create new midPoint users.
 
@@ -109,14 +111,14 @@ Login: administrator +
 Password: 5ecr3t
 
 
-| MidPoint identity repository
+| MidPoint native identity repository
 | PostgreSQL Database
 | Storage of midPoint data such as user data, accounts, roles, resource definitions, etc.
 |
 
 
 | LDAP Server
-| OpenDJ
+| OpenLDAP
 | Central LDAP directory server for the organization.
 Other applications connect here for simple password-based authentication and group-based authorization.
 | link:https://demo.evolveum.com/ldapadmin/[https://demo.evolveum.com/ldapadmin/]
@@ -145,16 +147,8 @@ Password: 5ecr3t
 
 | Java Web Container
 | Apache Tomcat
-| Tomcat is a simple and lightweight Java web container that is used to host midPoint and some other small applications.
+| Tomcat is a simple and lightweight Java web container that is used to host midPoint and some other small applications. It is used in embedded form with midPoint and as standalone server for HR and address book applications.
 It provides Java environment for midPoint.
-|
-
-
-| Web Server
-| Apache HTTP server
-| Apache provides a configuration flexibility that tomcat does not have.
-Apache acts as a reverse proxy for Tomcat which results in "publishing" midPoint on a public HTTP or HTTPS port.
-It is also frequently used to unify several applications into the same URL namespace, limit access, secure with SSL, etc.
 |
 
 
@@ -170,9 +164,9 @@ Password: 5ecr3t
 |===
 
 The demo configuration is available directly in the demo midPoint instance (menu Configuration / Repository Objects / All objects).
-However, the most important files are also maintained in our source code repository from where they may also be downloaded (use git client or a regular web downloader):
+However, all the files are also available here:
 
-link:https://github.com/Evolveum/midpoint/tree/master/samples/demo[https://github.com/Evolveum/midpoint/tree/master/samples/demo]
+link:https://github.com/Evolveum/midpoint-kubernetes/tree/main/midpoint-live-demo/base/midpoint-renaissance-demo-config[https://github.com/Evolveum/midpoint-kubernetes/tree/main/midpoint-live-demo/base/midpoint-renaissance-demo-config]
 
 
 == Walkthrough
@@ -271,17 +265,11 @@ The configuration says that for each `unmatched` account a new midPoint user sho
 .. MidPoint cannot create just any user.
 The new user needs to be initialized with the data from the account that caused all this in the first place.
 Therefore link:https://wiki.evolveum.com/display/midPoint/Inbound+Mapping[inbound mappings] are used to initialize the new user.
-This sets username, given name, family name and other user attributes.
+This sets username, given name, family name and other user attributes. They also assign an link:https://docs.evolveum.com/midpoint/reference/schema/archetypes/[archetype] to a user. This archetype is assigned based on user's employment type, and it induces roles that users with a given employment type should have. Please note that these roles are indirectly assigned to a user, so they would not appear in _all_ section of _assignments_ section but only in _all direct/indirect assignments_ section.
 
 .. link:https://wiki.evolveum.com/display/midPoint/Object+Template[User template] processing takes place now.
 User template is processed every time user is created or modified.
 User template completes the user by computing full name from given name and family name.
-
-.. link:https://wiki.evolveum.com/display/midPoint/Object+Template[User template] also determines which roles to assign to the new user.
-It does so by checking the value of `subtype` user property.
-This in turn comes from the HR system and was synchronized to user using link:https://wiki.evolveum.com/display/midPoint/Inbound+Mapping[inbound mapping] from the HR account.
-This assigns a `Full Time Employee` or `Contractor` role to the user.
-Automatically.
 
 .. User is now fully initialized and it is created.
 
@@ -294,11 +282,11 @@ More details how is it done you will find in _Implementation Details_ section (s
 
 
 . Check that the new user has appropriate roles and accounts... The user should have _Full Time Employee_ role if you have chosen a `FTE` type in the HR application, and _HR Feed_ resource assigned.
-Check that by opening user details and switching to _Assignments_ tab.
+Check that by opening user details and switching to _All direct/indirect assignments_ in _Assignments_ tab.
 
 .. User has 3 projections (read this as accounts or user records) in resources_. _All are visible on _Projections_ tab.
 Full_ Time Employee_ role gives him access to LDAP server and Address-book application.
-_HR Feed_ resouce assignment ensures user's projection in _HR Feed_ resource (this assignment is somehow technical, but enables clear view of where the user is projected)
+_HR Feed_ resource assignment ensures user's projection in _HR Feed_ resource (this assignment is somehow technical, but enables clear view of where the user is projected)
 
 .. Check if a matching account was created in the Address-book application by accessing it at link:https://demo.evolveum.com/addressbook/[https://demo.evolveum.com/addressbook/]. You need the user's password to log into the Addressbook application; the users created from HR system have generated password, so you may postpone this until you change user's password (see below).
 
@@ -310,7 +298,7 @@ You may use LDAP administration web application that is accessible at link:https
 
 . Open the details of the user that you have created in the previous step (in midPoint).
 
-. Navigate to _Password_ section at the bottom of the user _Basics_ tab.
+. Navigate to _Password_ tab in user details.
 
 . Click on a _Change_ button next to the password value field.
 Additional fields will appear.
@@ -337,7 +325,7 @@ Click on small _Show empty fields_ text in _Password_ section of the  account an
 Click Save button.
 
 
-. Check that the password was changed.. Try to access Addressbook application at link:https://demo.evolveum.com/addressbook/[https://demo.evolveum.com/addressbook/]. The password field is displayed in a cleartext for clarity.
+. Check that the password was changed. Try to access Addressbook application at link:https://demo.evolveum.com/addressbook/[https://demo.evolveum.com/addressbook/]. The password field is displayed in a cleartext for clarity.
 
 .. Access the LDAP administration tool at link:http://demo.evolveum.com/ldapadmin/[http://demo.evolveum.com/ldapadmin/]. Find the account that belongs to your used.
 The account details form has a _Check_ button next to the password field.
@@ -355,7 +343,7 @@ As soon as you insert new password for user in midPoint, the password in LDAP is
 . Navigate to the _Roles_ / All roles menu and examine the list of roles.
 Their description should be helpful.
 
-. The `Full Time Employee` and `Contractor` roles are assigned automatically using a user template.
+. The `Full Time Employee` and `Contractor` roles are assigned automatically using a user's archetype.
 The user that was created in the previous steps should have one of them already.
 Therefore there will not be much fun with this user any more ...
 
@@ -653,7 +641,7 @@ Just go to the _Repository objects / All objects_ and select `Resource` object t
 | Type | CSV File
 
 | File name
-| `/var/opt/hr/export.csv`
+| `/opt/midpoint/var/import/midpoint-source.csv`
 
 
 | Configuration
@@ -686,14 +674,16 @@ The next resource definition section provides configuration of the connector:
 [source,xml]
 ----
 <connectorConfiguration xmlns:icfc="http://midpoint.evolveum.com/xml/ns/public/connector/icf-1/connector-schema-3">
-    <icfc:configurationProperties xmlns:gen658="http://midpoint.evolveum.com/xml/ns/public/connector/icf-1/bundle/com.evolveum.polygon.connector-csv/com.evolveum.polygon.connector.csv.CsvConnector">
-        <gen658:multivalueDelimiter>;</gen658:multivalueDelimiter>
-        <gen658:fieldDelimiter>,</gen658:fieldDelimiter>
-        <gen658:filePath>/var/opt/hr/export.csv</gen658:filePath>
-        <gen658:encoding>utf-8</gen658:encoding>
-        <gen658:nameAttribute>empnum</gen658:nameAttribute>
-        <gen658:uniqueAttribute>empnum</gen658:uniqueAttribute>
-    </icfc:configurationProperties>
+        <icfc:configurationProperties xmlns:gen593="http://midpoint.evolveum.com/xml/ns/public/connector/icf-1/bundle/com.evolveum.polygon.connector-csv/com.evolveum.polygon.connector.csv.CsvConnector">
+            <gen593:multivalueDelimiter>;</gen593:multivalueDelimiter>
+            <gen593:fieldDelimiter>,</gen593:fieldDelimiter>
+            <gen593:quote>"</gen593:quote>
+            <gen593:filePath>/opt/midpoint/var/import/midpoint-source.csv</gen593:filePath>
+            <gen593:quoteMode>ALL</gen593:quoteMode>
+            <gen593:encoding>utf-8</gen593:encoding>
+            <gen593:nameAttribute>empnum</gen593:nameAttribute>
+            <gen593:uniqueAttribute>empnum</gen593:uniqueAttribute>
+        </icfc:configurationProperties>
 </connectorConfiguration>
 ----
 
@@ -828,7 +818,7 @@ Following table summarizes mapping configuration:
 
 
 | `emptype`
-| $focus/subtype
+| assignment - archetype with a matching name
 
 
 |===
@@ -914,7 +904,7 @@ This capability tells about enable/disable activation flag:
 
 
 The `<cap:ignoreAttribute>` deservers a few more words.
-If this definition is set to `true` or missing, the emptype attribute would not be imported to focus object while synchronization of the user - no matter what schema handling rules define.
+If this definition is set to `true` or missing, the emptype attribute would not be imported while synchronization of the user - no matter what schema handling rules define.
 If you change this attribute, you need also refresh the schema of the resource.
 
 The credentials mapping determines how passwords (and other credential types in the future) are synchronized between accounts and users.
@@ -1076,7 +1066,7 @@ It will also be linked to the HR record.
 
 [cols="h,1"]
 |===
-| Directory server | OpenDJ (locahost, port 1389)
+| Directory server | openLDAP (ldap-service)
 
 | Root suffix
 | `dc=example,dc=com`
@@ -1145,39 +1135,28 @@ Its clear text value is secret.
 .LDAP resource configuration section
 [source,xml]
 ----
-<connectorRef oid="62bb8d6b-e051-4bea-8161-b50cdfd50706" relation="org:default" type="c:ConnectorType"/>
-<connectorConfiguration xmlns:icfc="http://midpoint.evolveum.com/xml/ns/public/connector/icf-1/connector-schema-3">
-    <icfc:resultsHandlerConfiguration>
-        <icfc:enableNormalizingResultsHandler>false</icfc:enableNormalizingResultsHandler>
-        <icfc:enableFilteredResultsHandler>false</icfc:enableFilteredResultsHandler>
-        <icfc:filteredResultsHandlerInValidationMode>false</icfc:filteredResultsHandlerInValidationMode>
-        <icfc:enableAttributesToGetSearchResultsHandler>false</icfc:enableAttributesToGetSearchResultsHandler>
-    </icfc:resultsHandlerConfiguration>
-    <icfc:configurationProperties xmlns:gen249="http://midpoint.evolveum.com/xml/ns/public/connector/icf-1/bundle/com.evolveum.polygon.connector-ldap/com.evolveum.polygon.connector.ldap.LdapConnector">
-        <gen249:host>localhost</gen249:host>
-        <gen249:port>389</gen249:port>
-        <gen249:bindDn>cn=idm,ou=Administrators,dc=example,dc=com</gen249:bindDn>
-        <gen249:bindPassword>
-           <t:encryptedData>
-                <t:encryptionMethod>
-                    <t:algorithm>http://www.w3.org/2001/04/xmlenc#aes128-cbc</t:algorithm>
-                </t:encryptionMethod>
-                <t:keyInfo>
-                    <t:keyName>4HXeUejV93Vd3JuIZz7sbs5bVko=</t:keyName>
-                </t:keyInfo>
-                <t:cipherData>
-                    <t:cipherValue>eN0ihOdTh1j4FqgSLYJ6YqozYHMbbJfkjdY9RQSY4dg=</t:cipherValue>
-                </t:cipherData>
-            </t:encryptedData>
-        </gen249:bindPassword>
-        <gen249:baseContext>dc=example,dc=com</gen249:baseContext>
-        <gen249:pagingStrategy>auto</gen249:pagingStrategy>
-        <gen249:vlvSortAttribute>uid,cn,ou,dc</gen249:vlvSortAttribute>
-        <gen249:vlvSortOrderingRule>2.5.13.3</gen249:vlvSortOrderingRule>
-        <gen249:operationalAttributes>memberOf</gen249:operationalAttributes>
-        <gen249:operationalAttributes>createTimestamp</gen249:operationalAttributes>
-    </icfc:configurationProperties>
-</connectorConfiguration>
+<connectorConfiguration xmlns:icfc="http://midpoint.evolveum.com/xml/ns/public/connector/icf-1/connector-schema-3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:c="http://midpoint.evolveum.com/xml/ns/public/common/common-3" xsi:type="c:ConnectorConfigurationType">
+        <icfc:resultsHandlerConfiguration>
+            <icfc:enableNormalizingResultsHandler>false</icfc:enableNormalizingResultsHandler>
+            <icfc:enableFilteredResultsHandler>false</icfc:enableFilteredResultsHandler>
+            <icfc:filteredResultsHandlerInValidationMode>false</icfc:filteredResultsHandlerInValidationMode>
+            <icfc:enableAttributesToGetSearchResultsHandler>false</icfc:enableAttributesToGetSearchResultsHandler>
+        </icfc:resultsHandlerConfiguration>
+        <icfc:configurationProperties xmlns:gen604="http://midpoint.evolveum.com/xml/ns/public/connector/icf-1/bundle/com.evolveum.polygon.connector-ldap/com.evolveum.polygon.connector.ldap.LdapConnector" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="icfc:ConfigurationPropertiesType">
+            <gen604:port>389</gen604:port>
+            <gen604:host>ldap-service.mp-demo.svc.cluster.local</gen604:host>
+            <gen604:bindDn>cn=admin,dc=example,dc=com</gen604:bindDn> <!-- todo aci and idm account -->
+            <gen604:bindPassword>
+                <clearValue>secret</clearValue>
+            </gen604:bindPassword>
+            <gen604:baseContext>dc=example,dc=com</gen604:baseContext>
+            <gen604:pagingStrategy>spr</gen604:pagingStrategy>
+            <gen604:vlvSortAttribute>uid,cn,ou,dc</gen604:vlvSortAttribute>
+            <gen604:vlvSortOrderingRule>2.5.13.3</gen604:vlvSortOrderingRule>
+            <gen604:operationalAttributes>memberOf</gen604:operationalAttributes>
+            <gen604:operationalAttributes>createTimestamp</gen604:operationalAttributes>
+        </icfc:configurationProperties>
+    </connectorConfiguration>
 ----
 
 The next part of resource definition is resource schema.
@@ -1287,10 +1266,9 @@ Following table provides summary:
 
 
 | `employeeType`
-| $focus/subtype (weak)
-| $focus/subtype (strong)
-| Synchronized both ways, authoritative in midPoint
-
+| Assignment - archetype with a matching name (weak)
+|
+| Synchronized both ways tho only one way is defined in this schema, authoritative in midPoint.
 
 |===
 
@@ -1390,10 +1368,10 @@ However, if a new LDAP account is found that cannot be matched to any existing m
 
 [cols="h,1"]
 |===
-| Type | Database table, PostgreSQL database (locahost)
+| Type | Database table, PostgreSQL database (addressbook-db-service)
 
 | Database server
-| localhost, port 5432
+| addressbook-db-service
 
 
 | Database name
@@ -1557,21 +1535,22 @@ The resource configuration is as follows:
 [source,xml]
 ----
 <connectorConfiguration>
-        <icfc:configurationProperties>
-            <icscdbtable:port>5432</icscdbtable:port>
-            <icscdbtable:host>localhost</icscdbtable:host>
-            <icscdbtable:user>addressbook</icscdbtable:user>
-            <icscdbtable:password><clearValue>secret</clearValue></icscdbtable:password>
-            <icscdbtable:database>addressbook</icscdbtable:database>
-            <icscdbtable:table>people</icscdbtable:table>
-            <icscdbtable:keyColumn>username</icscdbtable:keyColumn>
-            <icscdbtable:passwordColumn>password</icscdbtable:passwordColumn>
-            <icscdbtable:jdbcDriver>org.postgresql.Driver</icscdbtable:jdbcDriver>
-            <icscdbtable:jdbcUrlTemplate>jdbc:postgresql://%h:%p/%d</icscdbtable:jdbcUrlTemplate>
-            <icscdbtable:enableEmptyString>false</icscdbtable:enableEmptyString>
-            <icscdbtable:rethrowAllSQLExceptions>true</icscdbtable:rethrowAllSQLExceptions>
-            <icscdbtable:nativeTimestamps>true</icscdbtable:nativeTimestamps>
-        </icfc:configurationProperties>
+        <icfc:configurationProperties
+				xmlns:icscdbtable="http://midpoint.evolveum.com/xml/ns/public/connector/icf-1/bundle/com.evolveum.polygon.connector-databasetable/org.identityconnectors.databasetable.DatabaseTableConnector">
+			<icscdbtable:user>midpoint</icscdbtable:user>
+            		<icscdbtable:password><clearValue>T0p-secret</clearValue></icscdbtable:password>
+            		<icscdbtable:jdbcDriver>org.postgresql.Driver</icscdbtable:jdbcDriver>
+            		<icscdbtable:jdbcUrlTemplate>jdbc:postgresql://addressbook-db-service.mp-demo.svc.cluster.local:5432/midpoint</icscdbtable:jdbcUrlTemplate>
+			<icscdbtable:port>5432</icscdbtable:port>
+			<icscdbtable:host>addressbook-db-service.mp-demo.svc.cluster</icscdbtable:host>
+			<icscdbtable:database>addressbook</icscdbtable:database>
+			<icscdbtable:table>people</icscdbtable:table>
+			<icscdbtable:keyColumn>username</icscdbtable:keyColumn>
+			<icscdbtable:passwordColumn>password</icscdbtable:passwordColumn>
+			<icscdbtable:enableEmptyString>false</icscdbtable:enableEmptyString>
+			<icscdbtable:rethrowAllSQLExceptions>true</icscdbtable:rethrowAllSQLExceptions>
+			<icscdbtable:nativeTimestamps>true</icscdbtable:nativeTimestamps>
+		</icfc:configurationProperties>
     </connectorConfiguration>
 ----
 
@@ -1667,41 +1646,31 @@ The mapping is _weak_ therefore it will be applied only if `fullName` has no val
 Even though this mapping is considered every time the user is created or modified, it will most likely be applied only when a user is created and fullName is not filled in.
 If the mapping will be switched to _normal_ or _strong_ strength then it will be applied every time and it will force `fullName` consistency.
 
-Next there are few quite similar mappings in the user template.
-The purpose of these mappings is to automatically assign account or roles.
-These form a basic automation logic for the demo environment.
-One of the mappings is illustrated below:
+== Archetype
+Archetype is simply well-defined object subtype. In this demo, we use archetypes for users but there can be archetypes for organizations, roles, or services. Typical archetypes are Employee, Partner, Company, Department, Business role, or Application.
+In this demo, we use archetypes `Full time employee`, `Part time employee`, `Contractor`, and `Retired`.
+Archetype is assigned to a user during import from resource based on his employment type. This archetype then induces roles, which users with a given employment type should have.
+The archetype also induces weak construction of an account with `employeeType` value on OpenLDAP resource. This does not create a new account rather it will change/add `employeeType` value on an existing account.
 
-.Mapping for automatic role assignment
 [source,xml]
 ----
-<mapping>
-        <source>
-            <path>subtype</path>
-        </source>
-        <expression>
-            <value>
-                <assignment>
-                    <targetRef oid="abf3884a-7778-11e2-abb7-001e8c717e5b" type="c:RoleType"/>
-                </assignment>
-            </value>
-        </expression>
-        <target>
-            <path>assignment</path>
-        </target>
-        <condition>
-            <script>
-                <code>subtype == 'FTE'</code>
-            </script>
-        </condition>
-    </mapping>
+<inducement id="1">
+    <construction>
+        <resourceRef oid="ebd0bf7b-7e80-4175-ba5e-4fd5de2ecd62" type="c:ResourceType"/>
+        <strength>weak</strength>
+        <kind>account</kind>
+        <attribute>
+            <ref>ri:employeeType</ref>
+            <outbound>
+                <strength>strong</strength>
+                <expression>
+                    <value>RETIRED</value>
+                </expression>
+            </outbound>
+        </attribute>
+    </construction>
+</inducement>
 ----
-
-This mapping reacts to the value of `subtype` user property.
-If there is an `FTE` value in the `subtype` property then the mapping will be activated and it will add the specified assignment to the user.
-The assignments point to the role identified by link:https://wiki.evolveum.com/display/midPoint/Object+ID[oid]`abf3884a-7778-11e2-abb7-001e8c717e5b` which is an `Full Time Employee` role.
-Therefore this simple mapping will make sure that uses that have `FTE` user type are automatically assigned to the `Full Time Employee` role.
-
 
 === RBAC implementation
 
