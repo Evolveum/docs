@@ -1,8 +1,8 @@
 ---
 layout: connector-page
 display-order: 200
-functionality-status: exprimental
-development-status: community
+functionality-status: stable
+development-status: active
 support-status: supportable
 origin: Evolveum
 support-provided-by: Evolveum
@@ -10,9 +10,9 @@ target-systems: Office365, Azure Active Directory
 connector-protocol: Microsoft Graph API
 source-url-master: https://github.com/Evolveum/connector-microsoft-graph-api
 description: Identity connector for Microsoft Azure services (Office365, Azure AD) based on Graph API.
-upkeep-status: red
+upkeep-status: green
 ---
-= Microsoft Graph API Connector
+= Microsoft Azure (Graph API) Connector
 :page-wiki-name: Microsoft Graph API Connector
 :page-wiki-id: 15433824
 :page-wiki-metadata-create-user: paulheaney
@@ -34,7 +34,7 @@ upkeep-status: red
 
 | Live Synchronization
 | YES
-|
+| * Not supported for Licences object type
 
 | Password
 | YES
@@ -53,18 +53,16 @@ upkeep-status: red
 
 == Versions
 
-TODO
-
 [%autowidth]
 |===
 | Version | Origin | Binary | Sources | Build Date | Description
 
-|
-|
-|
-|
-|
-|
+| 1.0.0.1
+| Evolveum
+| link:https://nexus.evolveum.com/nexus/repository/releases/com/evolveum/polygon/connector-msgraph/1.0.0.1/connector-msgraph-1.0.0.1.jar[download jar]
+| link:https://github.com/Evolveum/connector-microsoft-graph-api[Evolveum git repository (master)]
+| Jan 21 2022
+| Stable version
 
 |===
 
@@ -79,171 +77,66 @@ TODO
 
 === Limitations
 
-Currently only users are supported, group management has not been implemented at present due to the Azure Active Directory Graph API not supporting the creation of mail enabled groups currently.
+Currently three object types are supported by the connector. Accounts, groups and licence objects.
+There are some limitations in case of more complex relationship parameters (i.e. "App role assignments" in regards of the User type objects), which are not present in the schema because of the current connID API limitations. Also the creation of "distribution lists" and "mail and security" groups is not possible due to graph API limitations. General provisioning and deprovisioning of group objects is otherwise permitted. Licences objects access is possible and read-only.
 
+== Notes
 
-=== Supported attributes
+The following ssl certificates are need for the connector deployment:
+[source]
+----
+DigiCert Global Root CA
+DigiCert Global Root G2
+----
 
-The connector supports all attributes link:http://git.evolveum.com/gitweb/?p=openicf.git;a=blob;f=connectors/dotnet/ActiveDirectoryConnector/ObjectClasses.xml;hb=HEAD[supported by AD connector], along with the following Exchange ones.
-Descriptions are taken from link:http://technet.microsoft.com/en-us/library/bb123981%28v=exchg.150%29.aspx[Microsoft's site].
+Some API resources might have a limit on the amount of API calls. This called 'resource throttling' might have an effect on the general performance of the connector. The connector itself copes with this by invoking the request for a specific resource multiple times (if needed) with a pause between each attempt. The length of the 'wait time' depends on the reply from the API endpoint, which provides the connector with the information about the availability of the endpoint. For more information see "https://docs.microsoft.com/en-us/graph/throttling".
+
+== Configuration parameters
 
 [%autowidth]
 |===
-| Attribute | Description | Office365 counterpart | Notes
+| Parameter | Note 
 
-| city
-|
-| city
-|
+| clientId
+| The Application ID that the 'Application Registration Portal' (apps.dev.microsoft.com) assigned to your app.
 
-| country
-|
-| county
-|
+| clientSecret
+| The Application Secret that you generated for your app in the app registration portal.
 
-| department
-|
-| department
-|
+| tenantId
+| Either Domain name of the Azure AD tenant or the tenant's guid identifier.
 
-| displayName
-|
-| displayName
-|
+| proxyPort
+| Port number of the HTTPS proxy to use to connect to cloud services. For this setting to take any effect, ProxyHost needs to be configured as well.
 
-| facsimileTelephoneNumber
-|
-| facsimileTelephoneNumber
-|
+| proxyHost
+| Hostname of the HTTPS proxy to use to connect to cloud services. If used, ProxyPort needs to be configured as well.
 
-| givenName
-|
-| givenName
-|
+| pageSize
+| The number of entries to bring back per page in the call to the Graph API
 
-| jobTitle
-|
-| jobTitle
-|
+| disabledPlans
+| List of the SkuId:ServicePlanId,[ServicePlanId2...]. These service plan will be disabled during assignment of the each license
 
-| licenses
-|
-|
-| Licenses are in the format:
-+
-[source]
-----
-SKU:PLAN:PLAN
-----
-+
-if you wish to assign only certain plans to a user, if you wish to assign all plans within a SKU to a user simply specify
-+
-[source]
-----
-SKU
-----
-+
-SKUs are the subscriptions such as "Microsoft Office 365 Plan A3 for Students" and plans are the individual components "Exchange Online (Plan 2)"The SKU and plan need to be specified in the short format which can be found using the Graph Explorer (http://graphexplorer.cloudapp.net/) the SKU is the skuPartNumber (e.g. ENTERPRISEPACK_STUDENT) and the PLAN is the servicePlanName (e.g. EXCHANGE_S_ENTERPRISE)
+| inviteGuests
+| Whether to allow creation of guest accounts by inviting users from outside the tenant (based on e-mail address only)
 
-| mail
-|
-| mail
-|
+| sendInviteMail
+| Whether to send an email invitation to guest users.
 
-| mailNickname
-|
-| mailNickname
-|
+| inviteRedirectUrl
+| Specify a URL that an invited user should be redirected to once he claims his invitation. Mandatory if 'InviteGuests' is true
 
-| mobile
-|
-| mobile
-|
+| inviteMessage
+| Custom message to send in an invite. Requires 'InviteRedirectURL'
 
-| otherMails
-|
-| otherMails
-|
+| throttlingRetryWait
+| Max time period in between requests impacted by throttling. Define as number of seconds. Default 10
 
-| forceChangePasswordNextLogin
-| Boolean to force change of password at next login
-| forceChangePasswordNextLogin
-| Only used in managed domains
-
-
-| physicalDeliveryOfficeName
-|
-| physicalDeliveryOfficeName
-|
-
-| postalCode
-|
-| postalCode
-|
-
-| preferredLanguage
-|
-| preferredLanguage
-|
-
-| proxyAddresses
-|
-| proxyAddresses
-|
-
-| state
-|
-| state
-|
-
-| streetAddress
-|
-| streetAddress
-|
-
-| surname
-|
-| surname
-|
-
-
-| telephoneNumber
-|
-| telephoneNumber
-|
-
-| thumbnailPhoto
-|
-| thumbnailPhoto
-|
-
-| immutableId
-|
-| immutableId
-| Mandatory for federated domains
-+
-This string is base64 encoded and must match that which is passed as the immutable ID within the federation solution.
-+
-Depending on the source of the attribute and the federation solution being used the way the attribute is base 64 encoded varies and within this connector can be configured using the immutableIDEncodeMechanism configuration variable.
-+
-Microsoft manipulate the order of the bits a GUID when base 64 encoding hence the various encoding mechanisms.
-+
-TODO expand
-
-| usageLocation
-|
-|
-| Mandatory if licenses are to be assigned
-
-
-| NAME
-|
-|
-| This should match the userPrincipalName within a federated environment
+| throttlingRetryCount
+| Max retry count in case of an request impacted by throttling. Default 3.
 
 |===
 
-
 == Resource Sample
-
-wiki:Office+365+/+Azure+Active+Directory[Office 365]
+xref:/connectors/resources/msgraph/[Microsoft Azure (Graph) Samples]

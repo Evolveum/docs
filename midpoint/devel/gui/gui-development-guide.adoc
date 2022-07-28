@@ -24,7 +24,7 @@ However, recently we have been refactoring and cleaning up the GUI code and also
 Currently there are several ways how to extend the GUI:
 
 * Customize GUI styles, e.g. color scheme, fonts and so on.
-(CSS/LESS, see wiki:Look+&+Feel+Customization+HOWTO[Look & Feel Customization HOWTO])
+(CSS/LESS, see xref:/midpoint/reference/admin-gui/look-feel-customization/[Look & Feel Customization HOWTO])
 
 * Create custom launchers for "home" page in midPoint GUI (declarative, see Admin GUI Configuration Type)
 
@@ -38,7 +38,6 @@ In the future we plan the following mechanisms:
 * Create custom GUI pages (Java development)
 
 * Use custom GUI forms in existing pages (declarative)
-
 
 == MidPoint GUI API
 
@@ -77,7 +76,6 @@ If you are not lucky you will have to rewrite the code.
 Anyway, if you think about using some components in this package it might be a good idea to contact us and discuss it.
 We might move the class to the API immediately and save you a lot of time in the future.
 
-
 == Base Page and Utility Classes
 
 All midPoint pages share the same things: header, footer, navigation bar, title, stylesheets, ability to display menu, etc.
@@ -96,8 +94,7 @@ Two most prominent classes are:
 
 * `WebComponentUtil`: contains utility methods that are often used in Wicket components (panels, forms, ...)
 
-* `WebModelServiceUtil`: contains utility methods that interact with midPoint wiki:IDM+Model+Interface[IDM Model Interface] (`ModelService`, `ModelInteractionService`) and other midPoint components.
-
+* `WebModelServiceUtil`: contains utility methods that interact with midPoint xref:/midpoint/reference/interfaces/model-java/[IDM Model Interface] (`ModelService`, `ModelInteractionService`) and other midPoint components.
 
 == MidPoint GUI Components
 
@@ -109,15 +106,15 @@ But currently most of them are still in the gray zone.
 But we are continually sorting that out.
 To make the reuse easier, we are keeping a list of components that are already ready for reuse:
 
-wiki:List+of+Reusable+GUI+Components[List of Reusable GUI Components]
+xref:/midpoint/devel/gui/list-of-reusable-gui-components/[List of Reusable GUI Components]
 
 The GUI is already several years old and it has been through several redesigns and refactoring.
 That are some things that we are not entirely proud of but which cannot be completely removed right now.
 These are marked as deprecated in Java.
 But there are also associated CSS classes and JS scriptlets and other artifacts.
-Therefore the following list contains things that should not be used any more:
+Therefore the following list contains things that should not be used anymore:
 
-wiki:List+of+Deprecated+GUI+Components[List of Deprecated GUI Components]
+xref:/midpoint/devel/gui/list-of-deprecated-gui-components/[List of Deprecated GUI Components]
 
 
 === How To Make a Reusable Component
@@ -142,8 +139,7 @@ You may also describe where do you think the component might be useful (why do y
 Each component java class and associated HTML file should be placed in its own sub-package.
 E.g. `com.evolveum.midpoint.gui.api.component.foo.FooPanel.`
 
-. List the component in wiki:List+of+Reusable+GUI+Components[List of Reusable GUI Components]
-
+. List the component in xref:/midpoint/devel/gui/list-of-reusable-gui-components/[List of Reusable GUI Components]
 
 === Component Structure
 
@@ -162,7 +158,6 @@ This may cause premature loading of the model (see below).
 Also, these methods should *not* invoke `getPage()` method, because the component is just being constructed and it is not part of the component tree yet.
 
 * TODO: Passing PageBase to constructor or rather passing the segregated interfaces.
-
 
 === Wicket Models
 
@@ -196,42 +191,162 @@ We do not want to load the model unless it is necessary.
 E.g. we would like to load a model only if an expandable component is expanded, so can usually avoid loading the model entirely for the component that are not visible.
 If you need to do something with the model value in the subcomponent, do it indirectly through sub-component model and trigger loading only when subcomponent model is used.
 
-
 === Object Wrappers
 
 TODO: object wrappers
 
+== Styles and Javascript
 
-== Styles and Stylesheets
+All SCSS styles and javascript files are processed using NodeJS/Webpack 5.
+Styles and javascript dependencies are defined in `admin-gui/package.json`, webpack configuration is along in `webpack.*.js`.
+Currently, there are two webpack profiles:
 
-MidPoint CSS style system is based on link:http://getbootstrap.com/[Bootstrap] framework and link:https://almsaeedstudio.com/themes/AdminLTE/index2.html[AdminLTE template]. The styles are processed by using LESS CSS pre-processor.
+. Production - `webpack.production.js`
+. Development - `webpack.development.js`
 
-TODO: more about less, how it works
+Both of them use common configuration defined in *webpack.common.js* and these configuration files are consumed using `webpack.config.js`.
+Last mentioned file decides which profile to use by checking environment variable.
 
-The midpoint uses standard Bootstrap and AdminLTE CSS classes whenever possible.
-If a component needs a custom class, the LESS code for that class should be places in the file:
+We also defined two main and one helper script in `package.json` - *build*, *watch* and *postinstall*.
+Results of webpack build can be found in `admin-gui/target/generated-resources/webpack/static`.
 
-`src/main/webapp/less/*midpoint-theme.less*`
+`postinstall` npm script is used to execute out patch-package procedure.
+This allows us to patch npm packages that were installed previously to `admin-gui/node-modules`.
+Currently, we have to patch `admin-lte` and `bootstrap-multiselect` packages because they contain some bugs and authors didn't publish bugfixed versions yet.
+Patch files were generated using steps described in https://www.npmjs.com/package/patch-package#user-content-usage[patch-package npm description].
+Patch files are stored in `admin-gui/patches`.
 
-Each definition that is put into this file should be commented.
+During maven build `npm run build` is executed using `maven-frontend-plugin`, which starts webpack build for `production` environment.
+Production build created minified css/javascript files.
+
+During development one can use `npm run watch` from executed from `admin-gui` folder.
+Webpack will then watch for changes done in scss/javascript resources.
+This can be used together with `application.yml` option `spring.resources.chain.cache=false` for hot reload/recompile during development.
+
+Style and javascript resoruces are located in `admin-gui/src/frontend`.
+
+Our style and javascript resources are divided via webpack configuration into two groups - `vendors` and `midpoint`.
+`vendors` group contain all resources that we use as libraries, mostly defined through npm dependencies, see:
+
+* admin-gui/src/frontend/js/vendors.js
+* admin-gui/src/frontend/scss/vendors.scss
+
+`midpoint` group contain all resources that we created, see:
+
+* admin-gui/src/frontend/js/midpoint.js
+* admin-gui/src/frontend/scss/midpoint.scss
+
+This means that webpack will generate two main sets of resources and few others:
+
+* vendors css/js
+* midpoint css/js
+* ... and few others
+
+== Styles
+
+MidPoint CSS style system is based on link:http://getbootstrap.com/[Bootstrap] framework and link:https://adminlte.io/themes/v3/[AdminLTE template]. The styles are processed by using SCSS CSS pre-processor.
+
+The midpoint uses standard Bootstrap 4.6 and AdminLTE 3.2 CSS classes whenever possible.
+If a component needs a custom class, the SCSS code for that class should be places in the file:
+
+[%autowidth,cols="2",options="header"]
+|===
+|File
+|Description
+
+|`scss/_admin-lte-overrides.scss`
+| Used to override rules defined in admin-lte theme
+
+|`scss/_admin-lte-variables.scss`
+| Used for variable overrides for admin-lte theme
+
+|`scss/_bootstrap-variables.scss`
+| Used for variable overrides for bootstrap
+
+|`scss/_midpoint-variables.scss`
+| Defined variables specific for midpoint, includes variables/mixins/utils from admin-lte and bootstrap
+
+|`scss/midpoint.scss`
+| Main stylesheet for our custom styles
+
+|`scss/midpoint-utils.scss`
+| Utility rules should be defined here
+
+|`scss/vendors.scss`
+| Main stylesheet for all libraries
+
+|`scss/wicket.scss`
+| Rule overrides for wicket framework
+|===
+
+Custom rules should be used only when necessary - to avoid large copy&paste or create very custom designs.
+In all other cases please use https://getbootstrap.com/docs/4.6/utilities[bootstrap utilities] (mainly).
+
+If custom rules are to be created for our wicket components, they should be defined in `src/frontend/scss/*midpoint.scss*`.
+For each component main class should be created and named using kebab-case. For example:
+
+[source,java]
+----
+public class MySamplePanel extends BasePanel {
+
+    public MySamplePanel(String id) {
+        super(id);
+
+        add(Attribute.appender("class", "my-sample"));
+    }
+}
+----
+
+and corresponding styles in `midpoint.scss`:
+
+[source, scss]
+----
+.my-sample-panel {
+  // whatever you need to define using scss syntax
+}
+----
+
+Don't forget to check dark-mode as well.
+Avoid copy&paste of SCSS or HTML.
+
+Each definition should be commented.
 The comment should at least mention which component uses that definition.
-While Java has a nice search and refactoring features, LESS has none of that.
-Therefore maintenance of stylesheets is a major challenge.
-The comments make it much easier.
 
-There are also old files `evolveum.less` and `midpoint.less`. These files are *deprecated*. [.underline]#Nothing# should be added or modified in these files.
-Nothing.
-If you need to update any definition in these files move it to `midpoint-theme.less` first and comment it, so we know that the definition is still used and where it is used.
-The `evolveum.less` and `midpoint.less` files are going to disappear sooner or later.
+=== Javascripts
 
+[%autowidth,cols="2",options="header"]
+|===
+|File
+|Description
+
+| Folders
+| Few folders contain javascript packages that weren't published in NPM registry.
+We should consider them deprecated and move to existing NPM packages for better maintainability.
+
+| `js/ace-editor.js`
+| ACE editor wrapper made to integrate ACE with wicket.
+
+| `js/midpoint.js`
+| Root javascript file that import all our javascript code.
+
+| `js/midpoint-theme.js`
+| Our main javascript file, all functions should go here.
+If necessary, for long and complex javascripts new file can be created and imported to `midpoint.js`.
+
+| `js/passwords.js`
+| Javascript related to password validation and complexity checks.
+Contains imports from 3rd party libraries + our customization.
+
+| `js/vendors.js`
+| File containing imports from third party libraries.
+
+|===
 
 == Error Handling
 
 TODO:
 
-
 == Look&Feel and UX Recommendations
-
 
 === Use of Dates and Times
 
@@ -240,7 +355,6 @@ There are several variants of the date formats, shorter and longer.
 The guidelines for their use are:
 
 TODO: Kate
-
 
 == Misc Recommendation
 
@@ -253,7 +367,6 @@ Learn to use generics properly.
 
 * TODO: serialization and serial version ID
 
-
 == See Also
 
-* wiki:Customization+With+Overlay+Project[Customization With Overlay Project]
+* xref:/midpoint/reference/deployment/maven-overlay-project/[Customization With Overlay Project]

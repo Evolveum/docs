@@ -1,0 +1,466 @@
+= Notification Redesign in 4.5
+:page-toc: top
+
+* Jira task: bug:MID-7484[]
+* Existing issues for Notification component: https://jira.evolveum.com/issues/?jql=project%20%3D%20MID%20AND%20component%20%3D%20Notifications[search]
+
+== Current status
+
+State of implemented for 4.5 version is:
+
+* Added message templates objects, these can be referenced from notifiers.
+** GUI administration was added, future improvements towards simplification are expected.
+* Partial separaton of transport from notifiacation, but still in the same Maven module.
+* New transport configuration separate from the notification (but mostly the same).
+** Transport `name` is now required and it is an element, not an attribute.
+* Deprecation of chained/forked features.
+* Recipient expression can return focus objects, which is important for localization of the messages.
+** Added expresion to the transport config to translate focus to the address string.
+* No persistence for notifications and messages for now.
+* No GUI notifications.
+
+== Plan
+
+Most recently identified gaps are convenience related, how to manage the notifications easily
+without messing with XML configuration directly.
+To help with this, the plan is:
+
+* Implement persistent message template objects.
+The template serves as a replacement for content-related configuration in the notifier
+where it can be referenced by OID.
+* Transport configuration will be pulled out of notification support to a separate `<messageTransportConfiguration>`
+(after `<notificationConfiguration>` element).
+* Transport instance can be referenced by a unique `name` (unique among transports).
+* Notification configuration changes are minimal:
+** Elements `forked` and `chained` are planned for deprecation and later removal.
+Forked is implicit behavior and chained setups can be often written more dierectly.
+** Elements for transports are deprecated and replaced by separate configuration mentioned above.
+Mostly they can be moved to that section, but `<name>` element must be added for each.
+** New `messageTemplateRef` is added to notifier configuration.
+** Currently, the transports for a notifier are enabled by mentioning them with `transport` element.
+The meaning will be slightly changed, as the content will now reference the name, but this may require no change at all.
+** To override notifier specific setup for a particular transport, new `transportConfig` element will be added.
+This must use explicit `name` subelement and other elements are allowed, at least `messageTemplateRef` should.
+Do we want all content and addressing elements available there?
+
+== Known current limitations
+
+* No in-app notifications.
+* No notification persistence.
+This makes in-app notifications and retrying notifications impossible.
+* Few supported transports (email and sms?)
+* Missing easy to use templating with multi-language support.
+
+== DESIGN MEETING
+
+* Event - predefined types - do we need custom event types?
+** What is relation to notification hooks?
+
+* Persistent notifications? Yes, eventually.
+** This also allows aggregation/digests.
+** When aggregated, should the new notification be created? (Probably yes, it still has lifecycle.)
+Also, can it replace previous notifications, or just somehow reference them.
+* Notification per recipient or for multiple recipients? NO.
+It's simpler to have notification per recipient (state/delivery management).
+* If so, as what structure? (data model)
+* Templates - now defined as bodyExpression (and other expressions) - how to structure it for various channels?
+** Probably also separate from notification mechanism - perhaps `MessageTemplate`.
+** Alternative - function library?
+It would be awkward to create GUI for it.
+** IMPL IDEA: Let's start with `messageExpression` that returns `Message` (optionally with addressing info).
+*** This replaces existing content expresions (body, subject) and optionally recipient expressions too.
+*** Currently, expressions are evaluated per transport and transport can be used inside (conditions).
+This is not necessarily the nicest solution, but flexible.
+Alternatively, we need to add expression inside referencing transport element.
+* Configuration redesign, e.g. for additional transports types or two transports of the same type.
+** Should transport configuration be primarily in Notification configuration?
+It may be useful/better to have it out of notifications and share it with reporting, etc.
+(Note, that currently reporting uses notifications to send messages anyway.)
+* Configuration convenience, how much we can do on UI?
+* Attachments, currently file is referenced, requires OS/system administrator.
+* Push vs pull notifications (query) - this is relevant for UI notifications too.
+* Links from notifications (nonce?).
+** If nonce is used, each recipient must have unique nonce - that is unique notification?
+
+LATER:
+What is Notification in Prism world? Object or Container or what?
+
+== Configuration example
+
+Example below shows:
+
+* Transport configuration separated from notifications.
+* How transports are declared and referenced in notifications (by name).
+* Address can be resolved from recipient with `recipientAddressExpression`, or directly specified as value.
+* New `messageExpression` that is used before other expressions to create the `Message` object,
+function library is used to obtain the message here.
+* Recipient can be a User object or a list of addresses.
+* UI notification works only when User object is known.
+Recipient can be implicit depending on the notifier type.
+* Comments on `forked` and `chained` elements that are deprecated in 4.5.
+
+.SystemConfiguration object
+[source,xml]
+----
+<systemConfiguration>
+    ...
+    <!-- Proposed notification configuration, not conforming to 4.4 schema -->
+    <notificationConfiguration> <!-- this is Container, but order of handlers inside does not matter -->
+        <!-- Implementation notes for chained/forked -->
+        <handler> <!-- changed to containerable in 4.5 -->
+            <name>just for inf</name>
+            <description>
+                Describing the messy configuration below, what filters how, motivation, etc.
+                Especially the motivation and goals.
+            </description>
+            <!--
+            Top level filters in handler directly - they work, but the handler is consulted for all
+            events, e.g. operations on non-interesting objects (like SysConfig for notifiers below).
+            -->
+            <category>modelEvent</category>
+            <status>alsoSuccess</status>
+
+            <!--
+            Unclear whether this is forked or chained, it is executed by AggregatedEventHandler#processEvent,
+            so it seems like chained, but AbstractGeneralNotifier#processEvent returns true (for common notifiers like those below), so it is effectively "forked" (although not parallel). -->
+            <passwordResetNotifier> <!-- PasswordResetNotifierType extending from EventHandlerType -->
+                <!--
+                Even for simple notifiers the filters are processed by aggregatedEventHandler.processEvent
+                called from AbstractGeneralNotifier#processEvent.
+                -->
+                <filterExpression>...</filterExpression>
+                <!--
+                What if the filters are only on <handler> element? This seems to be cleaner, but also means
+                that these filters are consulted for all events - while concrete notifier uses "quick check" first.
+                Also, many filters (e.g. operation) has more semantic meaning inside the notifier.
+                -->
+            </passwordResetNotifier>
+            <!-- more concrete handlers -->
+            <userPasswordNotifier>
+                ...
+            </userPasswordNotifier>
+        </handler>
+
+        <handler>
+            <!-- Handler using messageExpression to call function library, returns Message -->
+            <simpleUserNotifier>
+                <!-- Creates the whole message object, also used for UI notification. -->
+                <messageExpression>
+                    <function>
+                        <!--notifications-->
+                        <libraryRef oid="a1fd1ad6-6dc6-40c9-87c8-2b8b2705f14f" type="FunctionLibraryType"/>
+                        <name>simpleUserMessage</name>
+                        <!-- Are params necessary? Shouldn't they be implicit here? -->
+                        <parameter>
+                            <name>event</name>
+                            <expression>
+                                <path>$event</path>
+                            </expression>
+                        </parameter>
+                    </function>
+                </messageExpression>
+                <!-- This implies <transport>bar</transport> NOT implemented in 4.5 yet-->
+                <transportConfig>
+                    <name>bar</name>
+                    <!-- Using different message function for bar transport. -->
+                    <messageExpression>
+                        <function>
+                            <libraryRef oid="a1fd1ad6-6dc6-40c9-87c8-2b8b2705f14f" type="FunctionLibraryType"/>
+                            <name>simpleUserMessageBar</name>
+                            <!-- params, etc. -->
+                        </function>
+                    </messageExpression>
+                    <!-- Things like logToFile overrides are probably overkill here. -->
+                </transportConfig>
+            </simpleUserNotifier>
+        </handler>
+        <handler>
+            <customNotifier>
+                <!-- Class implementing EventHandler. -->
+                <type>com.example.midpoint.custom.CustomNotifierHandler</type>
+            </customNotifier>
+        </handler>
+        <handler>
+            <!--
+            Currently one handler returns one recipient with potentially multiple addresses.
+            Do we want to keep one recipient per handler (addresses are resolved in transport)?
+            One recipient means one notification per event is generated by the handler.
+            Multiple recipients means multiple notifications - but would they have the same text?
+            -->
+            <simpleWorkflowNotifier>
+                <!--
+                Currenlty "expressionFilter", but everything else is *Expression as well.
+                NOT changing this right now, unless supporting both (but only one of them used at the same time).
+                -->
+                <filterExpression>
+                    <script>
+                        <code>event.requesteeIsUser()</code>
+                    </script>
+                </filterExpression>
+                <!-- In 4.5 it is possible to return focus as well (or address as before). -->
+                <recipientExpression>
+                    <script>
+                        <code>requestee</code>
+                    </script>
+                </recipientExpression>
+
+                <!-- Template by reference -->
+                <messageTemplateRef .../>
+
+                <transport>mail</transport>
+            </simpleWorkflowNotifier>
+        </handler>
+
+        <!--
+        This section allows notification specific configuration for transports.
+        Transports must still be declared in messageTransportConfiguration!
+        -->
+        <transportConfig>
+            <name>mail</name>
+            <logToFile>mail-notification.log</logToFile>
+        </transportConfig>
+        <transportConfig>
+            <name>sms</name>
+            <!-- not used by default -->
+            <enabled>false</enabled>
+            <!-- but furher configured if enabled per handler -->
+            <redirectToFile>sms-notification.log</redirectToFile>
+        </transportConfig>
+    </notificationConfiguration>
+    <messageTransportConfiguration>
+        <mail>
+            <!-- Unique name among all transports -->
+            <name>mail</name>
+            <server>
+                <host>10.0.0.1</host>
+                <port>25</port>
+                <username>mail</username>
+                <password>password</password>
+            </server>
+            <recipientAddressExpression>
+                <!-- Here always called recipient; not what it was in notifier. -->
+                <script><code>recipient.emailAddress</code></script>
+            </recipientAddressExpression>
+        </mail>
+        <customTransport>
+            <name>bar</name>
+            <type>com.example.midpoint.custom.CustomBarTransport</type>
+            <property>
+                <key>url</key>
+                <value>bar://10.0.0.47:1025/midpoint</value>
+            </property>
+            <!-- more properties... or, if we can support more fluid alternative: -->
+            <properties>
+                <url>bar://10.0.0.47:1025/midpoint</url>
+                <!-- more properties with key in element name -->
+            </properties>
+            <recipientAddressExtractor>
+                <script><code>recipient.telephoneNumber</code></script>
+            </recipientAddressExtractor>
+            <!-- All messages are redirected to file (e.g. transport not working yet). -->
+            <redirectToFile>bar-messages.log</redirectToFile>
+        </customTransport>
+        <sms>
+            <name>sms</name>
+            <!-- more config -->
+        </sms>
+    </messageTransportConfiguration>
+</systemConfiguration>
+----
+
+Example of typically used `chained` from `midpoint` tests (there is no forked/chained in our samples):
+
+[source,xml]
+----
+<handler>
+    <chained>
+        <operation>delete</operation>
+    </chained>
+    <chained>
+        <simpleUserNotifier>
+            <recipientExpression>
+                <value>recipient@evolveum.com</value>
+            </recipientExpression>
+            <transport>dummy:simpleUserNotifier-DELETE</transport>
+        </simpleUserNotifier>
+    </chained>
+</handler>
+----
+
+But this can be expressed by inlining the filter into the notifier itself:
+
+[source,xml]
+----
+<handler>
+    <simpleUserNotifier>
+        <operation>delete</operation>
+        <recipientExpression>
+            <value>recipient@evolveum.com</value>
+        </recipientExpression>
+        <transport>dummy:simpleUserNotifier-DELETE</transport>
+    </simpleUserNotifier>
+</handler>
+----
+
+== Open questions
+
+* How to customize various templates? (First GUI added in 4.5.)
+* How to represent changes, e.g. deltas, in them?
+* What notification states are necessary to support both GUI and various outbound transports?
+* What types of notifications are needed for various use cases, e.g. confirmation notification, governance-related notifications, error related notifications...?
+What are their specifics?
+* Do we want some notification priorities?
+Should it be explicit or implicit, e.g. by notification type?
+* Do we want notification log?
+If notifications are persisted, should that be the log as well?
+* If persisted, should notification (current `Event`) be a container, an object or something else altogether?
+If containers, do they belong to someone (part of other object aggregate) or are they standalone (e.g. like audit records)?
+Do they belong to the recipient of the notification?
+What to do when there are multiple recipients?
+* May notification be confirmed somehow?
+E.g. marking them as _read_ would be possible for GUI, perhaps even for some chat-delivered notifications.
+Fire and forget is obviously easier, but even there we want to be sure that it was at least sent/written somehow.
+* How to support other types of transport?
+Can they be implemented with overlays?
+* Do we want to support multiple transports of the same type, e.g. two different mail servers?
+** Currently, multiple servers are supported, but only as a high-availability solution, trying one after another.
+These are not really different channels with the same transport type.
+* Should the template management be part of notification handler?
+How should the template be structured?
+Currenlty, it's a midPoint expression, but separate for subject and body - should it be somehow different?
+If defined separately, are they objects?
+* Where to manage binary resources, like pictures and attachments?
+Are these objects or parts of the template or referenced files?
+** Files have their own problems, how to distribute them, etc.
+** Also, we want to stay true to Prism structures, so even if standalone, they must be at least containers and identified.
+** But if identified, OID is better, so perhaps light-weight objects.
+But how to access the content efficiently, isn't current `getObject` still too heavy-weight?
+Do we want some light-weight get without full object, only reading OID + BLOB from a column?
+
+== Known gaps
+
+* Simple UI based notification administration, e.g. simple copy/paste of HTML template without the need to escape it.
+** Currently, this needs to be copied to the system configuration object XML.
+** xref:/midpoint/reference/misc/notifications/velocity/[Velocity templating] is already available,
+which is often simpler and cleaner compared to Groovy, altough Groovy multi-line strings are also possible.
+* Template override for different transport (channel) without the need to create new notification handler.
+* Template management with multi-language support.
+* Scoping template for org units, also different org units (or other criteria) can have different notification targets and channels.
+** This is currently possible with different handlers, what is the problem with that?
+Especially when different template and/or channel and/or recipient is to be used, it is already the bulk of the handler configuration.
+* Attachments like pictures are necessary too.
+* Quick global notification redirection, e.g. for test or debug purposes, preferably in UI.
+** E.g. using file debug only instead of the real transport.
+* Actionable links in the notifications, like approve/deny, ideally without any need to log in.
+(Currently, password reset uses nonce for this, so there is a precedens.)
+
+== Implementation notes
+
+* Why are transports registering themselves?
+What is the difference between `transportRegistry.registerTransport(NAME, this)` and `NotificationManagerImpl.registerTransport`
+(which eventually uses the first call) usages?
+* Element `handler` (under `notificationConfiguration`) is of type `EventHandlerType`, and so are many of the nested
+elements, e.g. `simpleUserNotifier`.
+** Reportedly, there is a kind of "pipes and filters" pattern - but is it this nesting?
+There is also a xref:/midpoint/reference/misc/notifications/#special-kinds-of-handlers[handler chain],
+but that one is a sequence of handlers, not nested handlers.
+I guess, it doesn't make sense to nest stuff like `accountPasswordNotifier` inside each other?
+In any case, auto-complete in Studio is rather a mess inside the handlers.
+* What is `alsoSuccess` and how is it used?
+* Remove empty `NotificationFunctions`?
+
+=== NotificationManager method usage
+
+* `registerTransport` is used only in `DummyTransport` (`model-test`), everything else is registered
+in `notifications-impl` using `TransportRegistry#registerTransport`.
+* `processEvent` without event handler type is the only method used out of tests and notifications-impl itself:
+** Its only usage outside `notifications-impl` is in `NotifyExecutor` implementing `ActionExecutor.execute`, called only from `ScriptingExpressionEvaluator`.
+** Usages in `notifications-impl` module are in:
+*** `AccountOperationListener` implelementing `ResourceOperationListener` from `provisioning-api`
+*** `EventHelper` component further used by `CertificationListener` (implementing `AccessCertificationEventListener` from `certification-api`) and `WorkflowListenerImpl` (iplementing `WorkflowListener` from `workflow-api`)
+*** `NotificationHook` implementing `ChangeHook` from `model-api
+*** `NotificationTaskListener` implementing `TaskListener` from `task-api`
+* `processEvent` version with `EventHandlerType` is only used in the `notifications-impl` module
+and only by internal classes, also called from implementation of the first `processEvent` method.
+This is a questionable usage.
+* Both `disabled` methods are currently used for testing only:
+** `setDisabled` used only in tests in modules `model-intest`, `model-test`, `story` and `workflow-impl`
+** `isDisabled` used in `model-intest` and in `notifications-impl`
+
+Summary: Only first `processEvent` seems to be a core method, the rest is for testing only
+(`disabled`, but that's OK), underused (`registerTransport`) or perhaps should be hidden (second `processEvent`).
+
+=== Dependencies
+
+notification-api:
+
+* com.evolveum.commons:util
+* com.evolveum.prism:prism-api
+* com.evolveum.midpoint.infra:schema
+* com.evolveum.midpoint.model:model-api
+* com.evolveum.midpoint.provisioning:provisioning-api
+* com.evolveum.midpoint.repo:task-api
+
+notification-impl (witout test):
+
+* com.evolveum.commons:util
+* com.evolveum.prism:prism-api
+* com.evolveum.midpoint.infra:common
+* com.evolveum.midpoint.infra:schema
+* com.evolveum.midpoint.model:certification-api
+* com.evolveum.midpoint.model:model-api
+* com.evolveum.midpoint.model:model-common
+* com.evolveum.midpoint.model:model-impl - do we want this?
+* com.evolveum.midpoint.model:notifications-api
+* com.evolveum.midpoint.model:report-api
+* com.evolveum.midpoint.model:workflow-api
+* com.evolveum.midpoint.provisioning:provisioning-api
+* com.evolveum.midpoint.repo:repo-api
+* com.evolveum.midpoint.repo:repo-common
+* com.evolveum.midpoint.repo:task-api
+
+== Existing notification documentation
+
+* xref:/midpoint/reference/misc/notifications/[Notifications] and subpages: xref:/midpoint/reference/misc/notifications/configuration/[Configuring Notifications], xref:/midpoint/reference/misc/notifications/sending-custom-notifications/[Sending custom notifications HOWTO], xref:/midpoint/reference/misc/notifications/general/[General notification - role assignment example], etc.
+
+* Notes in xref:/midpoint/devel/design/efficient-deployment-ideas/[Efficient deployment ideas]:
+** How to resend failed e-mail notifications?
+** In-app notifications?
+** Notification log?
+
+* xref:/midpoint/reference/misc/notifications/task-notifications/[Task Notifications]
+
+* xref:/midpoint/reference/roles-policies/certification/notifications/[Access Certification Notifications]
+** Mentioned as a possible timed action in xref:/midpoint/reference/roles-policies/certification/escalation/[Escalation in Certification Campaigns]
+** Similar for cases: xref:/midpoint/reference/cases/escalation/[Escalation in Approval Processes]
+
+* xref:/midpoint/reference/cases/workflow-3/workflow-notifications/[Worfklow notifications] and briefly on various workflow pages (how up-to-date are those docs?)
+
+* Mentioned in xref:/iam/iga/workflow/[IGA Capability: Identity Workflow Automation] (Identity Governance and Administration)
+
+* Possible action in xref:/midpoint/reference/misc/bulk/#actions[bulk actions], also
+xref:/midpoint/reference/misc/bulk/actions/[in experimental version for 4.2]
+
+* xref:/midpoint/reference/misc/self-registration/#email-notifications[Self-registration] has notifications, so does xref:/midpoint/reference/security/credentials/password-reset/[Password Reset]
+
+* xref:/midpoint/reference/upgrade/migration-from-sun-idm/#notifications[Migration from Sun IdM]
+
+* Mentioned in xref:/midpoint/devel/design/parallel-and-asynchronous-provisioning/[Parallel and Asynchronous Provisioning]
+
+* xref:/midpoint/reference/misc/notifications/sending-custom-notifications/[Sending Custom Notifications]
+
+* xref:/midpoint/devel/testing/test-scenarios/#notifications[Test Scenarios] for notifications (are they up to date?)
+
+Change notifications mentioned in the provisioning context are mostly irrelevant to these Notifications.
+
+== High-level design notes for the future
+
+Currently, the *event* works only for *notification* mechanism - is this good?
+Event results in multiple messages (which is the actual notification).
+What if events are separate from notifications and notification mechanism is only one of possible consumers of the events?
+
+There are other events, some perhaps too internal, but they could all be handled with the same
+top-level interface with possible specific event handler subclasses.
+Also, should be all event handlers synchronous?
+How would asynchronous play with our operation results?
+Perhaps the handlers should be fast and postpone longer actions later (e.g. sending an email).

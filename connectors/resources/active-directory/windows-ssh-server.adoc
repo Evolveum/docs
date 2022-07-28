@@ -5,8 +5,9 @@
 :page-wiki-metadata-create-user: semancik
 :page-wiki-metadata-create-date: 2020-10-26T15:52:02.362+01:00
 :page-wiki-metadata-modify-user: kjires
-:page-wiki-metadata-modify-date: 2020-11-03T14:56:21.792+01:00
-
+:page-wiki-metadata-modify-date: 2021-11-03T19:08:11.792+01:00
+:toc:
+:toclevels: 5
 
 == Native Feature of Windows
 
@@ -15,14 +16,19 @@ The openssh functionality is delivered in two independent features - client and 
 The main benefit for the user is a complex implementation covering the PowerShell module or the Firewall rule.
 Other important benefit is delivering updates directly over the system update system.
 
-In previous version you could achieve the SSH access by installing the independent build of openssh but this scenario is not covered in this page.
-
 Installation / enabling the service
 
 You can use GUI to enable the feature but there is not one place where all the stuff would be done.
-Enabling the Feature (Windows 10) or Capability (Windows 2019) is a first step but there is also a need of enabling and starting the system service.
+Enabling the Feature (Windows 10) or Capability (Windows 2019) is a first step but there is also a need to enable and start the system service.
 Optionally the firewall rule could be checked.
 
+[NOTE]
+====
+The development of the capability started with Windows 7 so the development version can be downloaded and installed even for e.g. Windows Server 2016.
+For Windows server 2016 the firewall related command is the same as for newer version (powershell based).
+In case you need to install it on older version of windows system ( which is already unsupported) the firewall related commands are a little bit different. +
+Reference can be found directly on the link:https://github.com/PowerShell/Win32-OpenSSH[powershell/Win32-Openssh] project site or link:https://github.com/Evolveum/docs/blob/9d257f748750f003ac990d9779d5b003cef06887/connectors/resources/active-directory/windows-ssh-server.adoc[older version] of this site.
+====
 
 === PowerShell
 
@@ -45,28 +51,85 @@ Name  : OpenSSH.Server~~~~0.0.1.0
 State : NotPresent
 ----
 
-==== OpenSSH  - server
+:sectnums:
+== OpenSSH - server
+
+=== install capability / the application
+
+The installation process consists of 
+
+[%interactive]
+* [ ] install the application / capability / feature
+* [ ] check / enable / create firewall rule
+* [ ] enable autostart of the service
+* [ ] start application
+
+==== Windows 10 / Windows server 2019 and above ( native capability )
 
 .Install OpenSSH - server
 [source,powershell]
-----
-# Install the Capability
 Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
 
-# enable the service (so far not starting just to set the autostart option)
-Set-Service -Name sshd -StartupType 'Automatic'
-Set-Service -Name ssh-agent -StartupType Automatic
+==== Windows where it is not a native capability yet
 
-# start the service now
+There is repository with the source code on link:https://github.com/PowerShell/Win32-OpenSSH[github].
+In case you don't want to build it you can download some binary form of released versions from the link:https://github.com/PowerShell/Win32-OpenSSH/releases[release] section on github.
+To use the binary file download OpenSSH-Win64.zip file.
+
+===== Download externally
+
+In case you want to download it out of the server (or you have it already downloaded) the file share feature may be useful.
+There is "default" share set for whole C: as *C$*.
+You can access the share as Administrator at the *\\<srv_ip>\C$\Program Files\*.
+To access the server you have to allow the service (the port) on the firewall.
+
+.Enable file share port on firewall
+[source,powershell]
+Set-NetFirewallRule -DisplayGroup "File And Printer Sharing" -Enabled True -Profile Any
+
+===== Installation
+
+The content of the file is recommended to be placed in the *C:\Progam Files\OpenSSH* by default.
+In case you will simply extract to the *C:\Program Files* the extracted folder will have name *OpenSSH-Win64*.
+This folder name can be kept.
+The permission should be set (by default) to write for SYSTEM and Administrator groups and to read & Execute to Authneticated users.
+
+Once the files are ready you can run the installation process:
+
+.Install the services
+[source,powershell]
+powershell.exe -ExecutionPolicy Bypass -File install-sshd.ps1
+
+The service is now ready.
+
+=== Common setting
+
+To access it we need to open the port on firewall.
+
+.Check the firewall rule installed by the "native capability way"
+[source,powershell]
+Get-NetFirewallRule -Name *ssh*
+
+.Enable the SSH port (TCP/22) on the firewall
+[source,powershell]
+New-NetFirewallRule -Name sshd -DisplayName 'OpenSSH Server (sshd)' -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22
+
+.Enable the service for the autostart (to stay up after restart)
+[source,powershell]
+----
+Set-Service -Name sshd -StartupType Automatic
+Set-Service -Name ssh-agent -StartupType Automatic
+----
+
+With the installation there is not installed the SSH server keys, which have to be unique per installation.
+During the start these are checked for existence and if missing, it will be autogenerated.
+To Finish installation, we need to start it - the first start may take a little bit more time than the next ones.
+
+.Start the service
+[source,powershell]
+----
 Start-Service sshd
 Start-Service ssh-agent
-
-# Optionally you can check the firewall rule
-Get-NetFirewallRule -Name *ssh*
-# There should be a firewall rule named "OpenSSH-Server-In-TCP", which should be enabled
-
-# Just in case the rule is not there you can add it running
-New-NetFirewallRule -Name sshd -DisplayName 'OpenSSH Server (sshd)' -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22
 ----
 
 The default shell is *cmd.exe* but it is possible to change it to the PowerShell.
@@ -78,54 +141,43 @@ The default shell is *cmd.exe* but it is possible to change it to the PowerShell
 New-ItemProperty -Path "HKLM:\SOFTWARE\OpenSSH" -Name DefaultShell -Value "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe" -PropertyType String -Force
 ----
 
-.Remove OpenSSH - server
-[source,powershell]
-----
-# Uninstall the OpenSSH Server
-Remove-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
-----
+[NOTE]
+Once the service is installed and started all other setting can be done over ssh connection (may be useful for better clipboard utilization).
+Before the powershell as default shell is set the cmd (Command Line) is used as default.
+In that case the first command should be *C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe* to enter powershell environment.
 
+[TIP]
+Based on the default shell setting the midpoint's SSH connector should be properly set to handle variables.
+With the powershell as default shell the *argumentStyle* should be set to *variables-powershell*.
+For more information see the information related to the SSH connector on link:https://github.com/Evolveum/connector-ssh/blob/main/README.adoc[github].
 
-==== OpenSSH - client
+=== Config file location
 
-.install OpenSSH - client
-[source,powershell]
-----
-Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0
-----
-
-.Remove OpenSSH - client
-[source,powershell]
-----
-Remove-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0
-----
-
-
-=== OpenSSH config
-
-
-==== Common configuration
-
-The global system configuration ( in *nix system ususally located /etc/ssh ) can be found %programdata%/ssh/ ( c:\ProgramData\ssh\ ). There is located configuration file and also the keys (used for the secure communication on server side)
+The global system configuration ( in *nix system usually located /etc/ssh ) can be found %programdata%/ssh/ ( c:\ProgramData\ssh\ ). There is located configuration file and also the keys (used for the secure communication on server side)
 
 * sshd_config
-
 * *_key
 
 For our purpose we don't need to cover all the options available for openssh.
-As the build has been customized for the purpose of the integration into the windows system there are some options which can't be used in sshd_config the same way as in the linux system.
+As the build has been customized for the purpose of the integration into the windows system, there are some options which can't be used in sshd_config the same way as in the linux system.
 To see more details please see link:https://docs.microsoft.com/en-us/windows-server/administration/openssh/openssh_server_configuration[Microsoft Docs page].
 
+=== User keys (key authentication)
 
-===== User keys (key authentication)
-
-Default location is in user's home directory in the .ssh folder ( %HOME%\.ssh\authorized\_keys ).
+Default location is in user's home directory in the .ssh folder ( %HOME%\.ssh\authorized_keys ).
 
 [TIP]
 .administrator access (SSH Keys)
 ====
 In case the user is a member of the administrator group the key should be placed in the common location instead of user home directory.
-In this case the location is %programdata%\ssh\administrators\_authorized\_keys (C:\ProgramData\ssh\administrators\_authorized\_keys).
+In this case the location is *%programdata%\ssh\administrators_authorized_keys*.
+To add the content to the file you can use following command:
+
+_Add-Content -Path C:\ProgramData\ssh\administrators_authorized_keys_
+
+Without *-Value* parameter you will be asked for the content.
+The empty line ends the process of entering the content.
+In case the file does not exist it will be created.
 ====
 
 To set the proper permission for the file you can use following PowerShell script.
@@ -147,14 +199,62 @@ $acl.SetAccessRule($systemRule)
 $acl | Set-Acl
 ----
 
+=== Uninstall
 
+The uninstallation process consists of 
+
+[%interactive]
+* [ ] stop application
+* [ ] remove the service or at least disable autostart
+* [ ] disable / remove firewall rule
+* [ ] (optionally) remove the application / capability / feature
+
+==== Native Capability (Win 10 / Win Server 2019 and above)
+
+.Remove OpenSSH - server
+[source,powershell]
+Remove-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
+
+Firewall rule should be handled by the capability handling.
+
+.To check the state of firewall rule
+[source,powershell]
+Get-NetFirewallRule -Name *ssh*
+
+==== Manual installation
+
+.Uninstall the OpenSSH
+[source,powershell]
+----
+# In case you have install to OpenSSH-Win64 follow the used path
+Set-Location -Path "C:\Program Files\OpenSSH"
+powershell.exe -ExecutionPolicy Bypass -File uninstall-sshd.ps1
+----
+
+.Remove Firewall rule
+[source,powershell]
+Remove-NetFirewallRule -Name sshd
+
+== OpenSSH - client
+
+.install OpenSSH - client
+[source,powershell]
+Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0
+
+.Remove OpenSSH - client
+[source,powershell]
+Remove-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0
+
+:sectnums!:
 == External Link
 
 * link:https://www.openssh.com/[OpenSSH]
+
+* link:https://github.com/PowerShell/Win32-OpenSSH/releases[development version @ github]
 
 * link:https://docs.microsoft.com/en-us/windows-server/administration/openssh/openssh_overview[OpenSSH @ Microsoft Docs]
 
 
 == See Also
 
-* wiki:SSH+Connector[SSH Connector]
+* xref:/connectors/connectors/com.evolveum.polygon.connector.ssh.SshConnector/[SSH Connector]

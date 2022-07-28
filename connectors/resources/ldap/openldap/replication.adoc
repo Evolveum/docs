@@ -14,13 +14,46 @@ WARNING: This page is incomplete
 
 Activate `syncprov` overlay:
 
-[source]
+[source,bash]
 ----
 slapdconf add-module syncprov
 slapdconf add-overlay dc=example,dc=com syncprov olcSyncProvConfig
 ----
 
-TODO: replication manager user, ACIs, limits
+Set server ID (every master in topology needs to have unique ID):
+
+[source,bash]
+----
+slapdconf set-server-prop olcServerID:100
+----
+
+Set up replication manager user:
+
+[source,ldif]
+----
+dn: cn=replication manager,ou=Administrators,dc=example,dc=com
+objectclass: top
+objectclass: simpleSecurityObject
+objectclass: organizationalRole
+cn: replication manager
+description: Replication Manager
+# password: rsecret
+userPassword: {SSHA}iQhyb3i0v3mMdBBQQxgfpbPXSV2Gkksi
+----
+
+Apply ACIs, allowing access for replication manager to read all data:
+
+[source]
+----
+to attrs=userPassword,shadowLastChange by dn="cn=idm,ou=Administrators,dc=example,dc=com" write by dn="cn=admin,dc=example,dc=com" write by dn.exact=gidNumber=0+uidNumber=0,cn=peercred,cn=external,cn=auth write by dn="cn=replication manager,ou=Administrators,dc=example,dc=com" read by anonymous auth by self write by * none
+to dn.base="" by * read
+to dn.subtree="ou=people,dc=example,dc=com" by dn="cn=idm,ou=Administrators,dc=example,dc=com" write by dn="cn=admin,dc=example,dc=com" write by dn="cn=replication manager,ou=Administrators,dc=example,dc=com" read
+to dn.subtree="ou=groups,dc=example,dc=com" by dn="cn=idm,ou=Administrators,dc=example,dc=com" write by dn="cn=admin,dc=example,dc=com" write by dn="cn=replication manager,ou=Administrators,dc=example,dc=com" read
+to * by dn.exact=gidNumber=0+uidNumber=0,cn=peercred,cn=external,cn=auth write by dn="cn=admin,dc=example,dc=com" write by dn="cn=idm,ou=Administrators,dc=example,dc=com" read by dn="cn=replication manager,ou=Administrators,dc=example,dc=com" read by self read by * none
+----
+
+
+TODO: limits?
 
 
 == Replication Consumer (Replica)
@@ -51,3 +84,29 @@ TODO: switch to replication manager user
 Therefore it might be necessary to turn off client-side certificate validation using `tls_reqcert=allow` at the end of the oclSyncRepl line.
 
 ====
+
+== Multi-Master Configuration (Mirror Mode)
+
+Add replication agreements on both masters, specifying the _other_ master as provider.
+Use `ldapmodify -Y EXTERNAL -H ldapi:///` to apply this configuration.
+
+[source,ldif]
+----
+dn: olcDatabase={1}mdb,cn=config
+changetype: modify
+add: olcSyncRepl
+olcSyncRepl: rid=001
+  provider=ldap://ldapmaster2.example.com:389/
+  bindmethod=simple
+  binddn="cn=replication manager,ou=Administrators,dc=example,dc=com"
+  credentials=rsecret
+  searchbase="dc=example,dc=com"
+  scope=sub
+  schemachecking=on
+  type=refreshAndPersist
+  retry="30 5 300 3"
+  interval=00:00:05:00
+-
+add: olcMirrorMode
+olcMirrorMode: TRUE
+----

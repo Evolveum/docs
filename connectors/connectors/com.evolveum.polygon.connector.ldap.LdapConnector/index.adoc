@@ -70,7 +70,6 @@ Use `ri:entryUUID` instead of `icfs:uid`.
 
 |===
 
-
 == Interoperability
 
 In theory the connector should work with any LDAPv3 compliant LDAP server.
@@ -244,7 +243,7 @@ It should be used only as a last resort, if no other method is available.
 | 17th April 2019
 | 1.4.2.18
 | none
-| wiki:Security+Advisory:+AD+and+LDAP+connectors+do+not+check+certificate+validity[Fix of security vulnerability: missing check of certificate validity.]
+| xref:/midpoint/reference/security/advisories/004-ad-and-ldap-connectors-do-not-check-certificate-validity/[Fix of security vulnerability: missing check of certificate validity.]
 
 | 2.0
 | Evolveum
@@ -267,7 +266,7 @@ Additional search filter support.
 | OpenLDAP access log synchronization (contributed by Jonathan Gietz) +
 Object class handling improvements (contributed by Matthias Wolf) +
 Experimental support for "language-tagged" attributes. +
-wiki:Security+Advisory:+AD+and+LDAP+connectors+do+not+check+certificate+validity[Fix of security vulnerability: missing check of certificate validity.]
+xref:/midpoint/reference/security/advisories/004-ad-and-ldap-connectors-do-not-check-certificate-validity/[Fix of security vulnerability: missing check of certificate validity.]
 
 | 2.2
 | Evolveum
@@ -347,6 +346,43 @@ Upgraded Directory API to Evolveum version 2.0.1e1, which fixes file descriptor 
 Slightly improved logging +
 includeObjectClassFilter set to true by default
 
+| 3.3
+| Evolveum
+| link:https://nexus.evolveum.com/nexus/repository/releases/com/evolveum/polygon/connector-ldap/3.3/connector-ldap-3.3.jar[download jar]
+| link:https://github.com/Evolveum/connector-ldap/tree/v3.3[GitHub]
+| 8th October 2021
+| 1.5.0.0
+| 4.4
+| Fixed problem with excessive abandons +
+Several fixes and improvements related to timeouts and unbind operations +
+Support for TCP keepalive +
+Connection logging (terse format) +
+Smarter handling of root DSE fetches +
+Finer-grained timeouts +
+Root DSE fetch option for checkAlive +
+SHA-2 hash support (contribution, untested)
+
+| 3.3.1
+| Evolveum
+| link:https://nexus.evolveum.com/nexus/repository/releases/com/evolveum/polygon/connector-ldap/3.3.1/connector-ldap-3.3.1.jar[download jar]
+| link:https://github.com/Evolveum/connector-ldap/tree/v3.3.1[GitHub]
+| 22nd December 2021
+| 1.5.0.0
+| N/A
+| Fixing AD "range" mechanism (used for large AD groups)
+
+| 3.4
+| Evolveum
+| link:https://nexus.evolveum.com/nexus/repository/releases/com/evolveum/polygon/connector-ldap/3.4/connector-ldap-3.4.jar[download jar]
+| link:https://github.com/Evolveum/connector-ldap/tree/v3.4[GitHub]
+| 25th March 2022
+| 1.5.0.0
+| 4.5
+| Fail-over support.
+Improved error messages.
+Minor bugfixes.
+
+
 |===
 
 
@@ -366,7 +402,7 @@ The old LDAP and AD connectors are now deprecated and they are no longer support
 == Support
 
 LDAP connector is bundled with midPoint distribution.
-Support for LDAP connector is included in standard midPoint support service (a.k.a. link:https://wiki.evolveum.com/display/midPoint/Bundled+Support[bundled support]) - however, there are limitations.
+Support for LDAP connector is included in standard midPoint support service (a.k.a. xref:/support/bundled-support/[bundled support]) - however, there are limitations.
 This "bundled" support only includes operations of LDAP connector that 100% compliant with LDAP standards.
 Any non-standard functionality is explicitly excluded from the bundled support.
 
@@ -393,10 +429,10 @@ These connectors are specializations of the LDAP connector and support the LDAP 
 
 [WARNING]
 ====
-We strongly recommend to disable all the handlers when working with well-designed connectors in general and when working with our LDAP or wiki:Active+Directory+Connector+(LDAP)[AD/LDAP] connectors in particular.
+We strongly recommend to disable all the handlers when working with well-designed connectors in general and when working with our LDAP or xref:/connectors/connectors/com.evolveum.polygon.connector.ldap.ad.AdLdapConnector/[AD/LDAP] connectors in particular.
 ====
 
-Those "result handlers" are an artifact of an original wiki:ICF+Issues[original Identity Connector Framework over-engineering]. The handlers are supposed to assist connectors by implementing "mechanism" that the connector or resource does not support - such as search result filtering, data normalization and so on.
+Those "result handlers" are an artifact of an original xref:/connectors/connid/1.x/icf-issues/[original Identity Connector Framework over-engineering]. The handlers are supposed to assist connectors by implementing "mechanism" that the connector or resource does not support - such as search result filtering, data normalization and so on.
 However, those handler are generic and they know nothing about the particulars of the resource that the connector connects to.
 Therefore in vast majority of cases those handlers just get into the way and they distort the data.
 Good connectors usually do not need those handlers at all.
@@ -431,7 +467,6 @@ The `native` time representation was not possible.
 ConnId framework was representing date/time information as (long) integers in UNIX timestamp format.
 For these cases there are options to represents time as long integer or string.
 This is mostly a historical feature now.
-
 
 === ObjectClass Filters
 
@@ -480,13 +515,84 @@ The easiest practical way to get rid of the messages is to set levels for partic
 Setting Directory API loggers to these levels should still be safe.
 In case of any major problem the connector itself should log appropriate error message.
 
+=== Fail-over [[failover]]
+
+Since version 3.4 of the connector, LDAP connector has a support for fail-over functionality.
+Several LDAP servers can be configured in LDAP connector.
+The connector will fail over to a secondary server(s) in case that the primary server fails.
+This can be configured using the `servers` configuration property:
+
+[source,xml]
+----
+    <connectorConfiguration>
+        <configurationProperties>
+            <host>primary.ldap.example.com</host>
+            <baseContext>dc=evolveum,dc=com</baseContext>
+            <servers>host=secondary.ldap.example.com</servers>
+            ...
+        </configurationProperties>
+    </connectorConfiguration>
+----
+
+The _main_ LDAP server configured using the usual configuration properties (`host`, `port` and similar) is considered a _primary_ server.
+Secondary servers can be configured using `servers` configuration property.
+The example above is a configuration of two LDAP servers:
+
+* Server `primary.ldap.example.com` as a _primary_ LDAP server for base context `dc=evolveum,dc=com`.
+
+* Server `secondary.ldap.example.com` as a _secondary_ LDAP server.
+Base context, port, bind DN and password, connection security settings and all other connection details are "inherited" from primary server definition.
+
+There are several requirements, assumptions and limitations to this functionality:
+
+* All LDAP servers (primary and secondary) are expected to be homogeneous and replicated in a *multi-master* (mirror) way.
+I.e. the servers should have exactly the same configuration and the same data.
+The connector will try to execute the same operations on the servers, regardless of whether it is primary or secondary.
+Therefore schema, indexes, optional features (supported controls and extensions, such as VLV), access control and data must be the same on all servers.
+Deployments with partial replication, read-only replicas or any other non-homogeneous configurations are not supported.
+
+* This feature is designed for *fail-over*, not load balancing.
+The connector will try to access the primary server if it is available.
+The communication will be switched to secondary server only in case primary server is not available.
+The connector will switch back to primary server as soon as possible (with short _switch-back interval_, to avoid too many failed connection attempt to primary).
+Which means that most of the load is still placed on primary server.
+Even if the connector switches to secondary server, it will remain focused on a single secondary server as long as it work, not using other secondary servers.
+The reason for this "sticky" behavior is to reduce data consistency risks.
+
+* The connector no longer support LDAP referrals.
+All LDAP referrals are ignored, regardless of the (legacy) referral configuration in the connector.
+Fail-over functionality is supposed to replace the need for referrals, that never really provided any practical solution anyway.
+
+* The fail-over functionality is designed for use with LDAPv3 standard-compliant (to applicable degree) servers.
+It is not designed for use with non-standard LDAP servers, such as Active Directory, eDirectory and similar servers.
+
+* There is a theoretical possibility to define servers for LDAP base contexts that are different than the base context of the main server, thus supporting a _hierarchy_ of LDAP servers (also known as _delegation_ or _distributed directory_).
+However, this functionality is considered *experimental*, it is not officially supported.
+Only configuration that use the same base context for all servers is officially supported.
+
+* The main server (the one configured with `host`, `port` and similar properties) is always considered to be primary.
+In theory, other servers defined in the `servers` property can be marked as primary.
+However, this configuration is not supported.
+There must be exactly one primary server for each base context.
+
+LDAP replication functionality is quite common in LDAP server implementations.
+The fail-over functionality of LDAP connector takes advantage of this functionality.
+However, LDAP servers generally implement only weak consistency guarantees for replicated directory topologies, which is somehow given by the design of LDAP protocol and directory data structures.
+Weak consistency has its significant advantages, yet it has also disadvantages.
+When it comes to operation of LDAP connector, perhaps the most problematic is a read-after-write scenario.
+The connector may write data to primary server, then the primary server goes down, connector fails over to the secondary server, which means that subsequent read gets outdated data from a secondary server.
+As the fail-over happens transparently in the connector, the application (midPoint) is not aware that fail-over took place, it has no idea that the data may be out of date.
+This may cause temporary fluctuations, where old data may be presented as current data for a limited period of time.
+However, both LDAP servers and midPoint are built for _eventual consistency_, converging data values _eventually_.
+However, data consistency has to be kept in mind, and proper method should be employed both at the LDAP side (e.g. replication failure recovery) and midPoint side (e.g. regular reconciliation) to make the entire system _eventually consistent_.
+
 == Resource Examples
 
-* wiki:OpenLDAP[OpenLDAP]
+* xref:/connectors/resources/ldap/openldap/[OpenLDAP]
 
-* wiki:OpenDJ[OpenDJ]
+* xref:/connectors/resources/ldap/opendj/[OpenDJ]
 
-* wiki:Directory+Server+Enterprise+Edition[Directory Server Enterprise Edition]
+* xref:/connectors/resources/ldap/dsee/[Directory Server Enterprise Edition]
 
 == See Also
 

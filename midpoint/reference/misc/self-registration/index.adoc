@@ -9,6 +9,11 @@
 :page-since: "3.5"
 :page-upkeep-status: yellow
 
+[TIP]
+.MidPoint 4.6 and later
+
+This configuration is valid in midPoint 4.6 and later. For configuration before 4.6 please see xref:./configuration-before-4-6/[Self Registration Configuration before 4.6].
+
 Self registration in midPoint provides possibility for unauthenticated user to enroll to midPoint and request assignments.
 By default, self registration is disabled.
 Following text describes how to enable self registration in midPoint.
@@ -32,22 +37,14 @@ After this, self registration process is enabled globally (in the multi-tenant e
     ....
    <globalSecurityPolicyRef oid="28bf845a-b107-11e3-85bc-001e8c717e5b" type="c:SecurityPolicyType"/>
     ....
-   <defaultHostname>http://localhost:8080/midpoint</defaultHostname>
+   <publicHttpUrlPattern>http://localhost:8080/midpoint</publicHttpUrlPattern>
     ....
 </systemConfiguration>
 ----
 
 In the example above, you can see globalSecurityPolicyRef which refers to the security policy which will be used and checked if the self registration is enabled.
-The above example also works with *defaultHostname* attribute.
+The above example also works with *publicHttpUrlPattern* attribute.
 This value is used while generating confirmation link for self registration verification process.
-
-
-[WARNING]
-.Change from 4.1
-====
-From 4.1 please you use _publicHttpUrlPattern_ instead of _defaultHostname_.
-====
-
 
 == Configuring Security Policy
 
@@ -74,7 +71,7 @@ The configuration for self registration can look like following:
          <name>selfRegistration</name>
          <initialLifecycleState>draft</initialLifecycleState>
          <displayName>Self Registration</displayName>
-         <additionalAuthenticationName>confirmationLink</additionalAuthenticationName>
+         <additionalAuthenticationSequence>confirmationLink</additionalAuthenticationSequence>
          <defaultRole oid="00000000-0000-0000-0000-000000000008" type="c:RoleType"/>
       </selfRegistration>
    </registration>
@@ -84,7 +81,6 @@ With the configuration above, after user submits the registration form, a new us
 For this newly created user, lifecycle state is set to the draft.
 Until user doesn't confirm his/her registration it cannot do anything, it is disabled and no roles are assigned.
 After confirmation, specified default roles are assigned to the user.
-
 
 == Self Post-Registration (or Invite) For Existing Users in MidPoint
 
@@ -115,7 +111,7 @@ For such scenarios, the configuration can look like following:
          <initialLifecycleState>proposed</initialLifecycleState>
          <requiredLifecycleState>draft</requiredLifecycleState>
          <displayName>Self Registration</displayName>
-         <additionalAuthenticationName>confirmationLink</additionalAuthenticationName>
+         <additionalAuthenticationSequence>confirmationLink</additionalAuthenticationSequence>
          <defaultRole oid="00000000-0000-0000-0000-000000000008" type="c:RoleType"/>
       </selfRegistration>
    </registration>
@@ -126,27 +122,43 @@ The lifecycle state which is required to successfully register the user is speci
 This is to support situations, where all potential users are pre-created/pre-registered by administrators (but  they are not active until they don't  register and confirm the registration).
 After user fills in registration form and submits it, existing user is modified in midPoint with the configured lifecycle state (initialLifecycleState attribute).
 This newly created user is disabled and doesn't have any roles assigned until he/she confirms the registration.
-Confirmation of registration is configurable using additionalAuthenticationName attribute.
+Confirmation of registration is configurable using additionalAuthenticationSequence attribute.
 After user successfully confirms the registration, default roles are assigned to him/her - default roles are configured using defaultRole attribute.
 
 
 === Authentication Part
 
-[source,xml]
+[source, xml]
 ----
-   <authentication>
-      <mailAuthentication>
-         <name>confirmationLink</name>
-         <displayName>Additional mail authentication</displayName>
-         <mailNonce>mailNonce</mailNonce>
-      </mailAuthentication>
-   </authentication>
+<authentication>
+    <modules>
+    ...
+        <mailNonce>
+            <name>MailNonce</name>
+            <description> Authentication based on mail message with a nonce. Used for user registration.</description>
+            <credentialName>mailNonce</credentialName>
+        </mailNonce>
+     </modules>
+     ...
+     <sequence>
+        <name>selfRegistrationAuth</name>
+        <description>Just a nonce mail to validate e-mail address.</description>
+        <channel>
+            <channelId>http://midpoint.evolveum.com/xml/ns/public/common/channels-3#selfRegistration</channelId>
+            <urlSuffix>selfReg</urlSuffix>
+        </channel>
+        <module>
+            <name>MailNonce</name>
+            <order>10</order>
+            <necessity>sufficient</necessity>
+        </module>
+     </sequence>
+</authentication>
 ----
 
-Authentication part contains configuration for the method used for registration confirmation.
-Example above uses mail authentication which means that the user receives the mail with the confirmation link.
-After clicking on the link in the mail midPoint tries to confirm the user, confirmation rules are configured using attribute mailNonce.
-
+Authentication part contains configuration for the sequence used for registration confirmation.
+Examples above uses mailNonce authentication sequence which means that the user receives the mail with the confirmation link.
+After clicking on the link in the mail midPoint tries to confirm the user.
 
 === Credentials Part
 
@@ -170,7 +182,7 @@ Max age is the time how long is the nonce valid and valuePolicyRef is reference 
 == Self-Registration And Custom Form
 
 It is (probably) more than welcome to support definition of custom form when talking about self-registration process.
-With introducing wiki:Custom+forms[custom forms] in midPoint they can be also used with the self-registration.
+With introducing xref:/midpoint/reference/admin-gui/custom-forms/[custom forms] in midPoint they can be also used with the self-registration.
 All what is needed is to reference to the concrete form in the self-registration configuration as in the example below
 
 .Self registration with custom form
@@ -235,7 +247,7 @@ Configuration looks as follows:
                         plainTextPassword = midpoint.getPlaintextUserPassword(userType);
 
                         bodyMessage = "Dear " + userType.getGivenName() + ",\n\n" +
-                            "your account was successfully created. To activate your account click on the confirmation link bellow in the                     email." +
+                            "your account was successfully created. To activate your account click on the confirmation link below in the                     email." +
                             "\n" +
                             "After your account is activated, use following credentials to log in: \n" +
                             "username: " + userType.getName().getOrig() + "\n" +
@@ -293,7 +305,7 @@ Configuration looks as follows:
         userType = newUser.asObjectable();
         link = midpoint.getDefaultHostname() + "/registration?user=" + userType.getOid();
               bodyMessage = "Dear " + userType.getGivenName() + ",\n\n" +
-                            "your account was successfully created. To register and activate your account please click on the registration link bellow in the email." +
+                            "your account was successfully created. To register and activate your account please click on the registration link below in the email." +
                             "\n" +
                             "The registration link: \n" +
                                 link;
@@ -324,7 +336,7 @@ Configuration looks as follows:
 The important setting for the notifier is attribute <confirmationMethod>.
 According to the value for the confirmation method, confirmation link/pin is generated to verify user.
 Other parts of configuration are same as for other notifiers.
-Details for notification configuration are described wiki:Configuring+notifications[here].
+Details for notification configuration are described xref:/midpoint/reference/misc/notifications/configuration/[here].
 
 
 == How it works
@@ -362,6 +374,8 @@ image::confirmation-success.png[]
 
 == See also
 
-* wiki:Custom+forms[Custom Forms]
+* xref:/midpoint/reference/admin-gui/custom-forms/[Custom Forms]
 
-* wiki:Password+Policy[Password Policy]
+* xref:/midpoint/reference/security/credentials/password-policy/[Password Policy]
+
+* xref:/midpoint/reference/security/authentication/flexible-authentication/configuration/[Flexible Authentication]

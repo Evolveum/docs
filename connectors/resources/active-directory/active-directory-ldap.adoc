@@ -46,7 +46,43 @@ We have successfully tested both provisioning and synchronization of users with 
 
 * Read all inetOrgPerson information
 
-For LiveSync, you also need "Replicating Directory Changes" permission (please refer to link:https://support.microsoft.com/en-us/help/303972[https://support.microsoft.com/en-us/help/303972] and link:https://support.microsoft.com/en-ae/help/891995/how-to-poll-for-object-attribute-changes-in-active-directory-on-window[https://support.microsoft.com/en-ae/help/891995/how-to-poll-for-object-attribute-changes-in-active-directory-on-window]).
+[NOTE]
+In the new versions of windows the option *Create, delete and manage groups* disappear from the list to select.
+Without this permission the proper provision is not possible.
+The successful tests has been reached with the *Domain admin* membership for the account used by the midpoint to access the AD.
+
+.Powershell command to add the account *midpoint* to Domain admin group
+[source,powershell]
+----
+Add-ADGroupMember -Identity 'CN=Domain Admins,CN=Users,DC=ad2019,DC=lab,DC=evolveum,DC=com' -Members 'CN=MidPoint,CN=Users,DC=ad2019,DC=lab,DC=evolveum,DC=com'
+----
+
+For LiveSync, you also need "Replicating Directory Changes" (DS-Replication-Get-Changes) permission (please refer to link:https://support.microsoft.com/en-us/help/303972[https://support.microsoft.com/en-us/help/303972] and link:https://support.microsoft.com/en-ae/help/891995/how-to-poll-for-object-attribute-changes-in-active-directory-on-window[https://support.microsoft.com/en-ae/help/891995/how-to-poll-for-object-attribute-changes-in-active-directory-on-window]).
+
+[NOTE]
+All the permissions in AD have own GUID which is unique ID used for the assignment.
+In case of DS-Replication-Get-Changes permission it is 1131f6aa-9c07-11d1-f79f-00c04fc2dcd2 (https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-adts/1522b774-6464-41a3-87a5-1e5633c3fbbb).
+
+.Powershell command to assign *DS-Replication-Get-Changes* permission
+[source,powershell]
+----
+#############
+# Module ActiveDirectory is needed to be loaded just once.
+# In case of AD: "prefix" the module is not loaded automatically.
+#############
+Import-Module ActiveDirectory
+
+$path = "AD:DC=ad2019,DC=lab,DC=evolveum,DC=com"
+$acl = Get-Acl -Path $path
+$ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+	[System.Security.Principal.IdentityReference] (get-aduser -identity midpoint).SID,
+	[System.DirectoryServices.ActiveDirectoryRights] 'ExtendedRight',
+	[System.Security.AccessControl.AccessControlType] 'Allow',
+	(new-object Guid '1131f6aa-9c07-11d1-f79f-00c04fc2dcd2')
+)
+$acl.AddAccessRule($ace)
+Set-Acl -Path $path -AclObject $acl
+----
 
 
 == Recommended Connector
@@ -72,10 +108,10 @@ However, there are many things that needs to be taken into account when configur
 * `instanceType`, `nTSecurityDescriptor` and `objectCategory` are formally defined as mandatory attributes in the `top` object class (!!!). This means they are (formally) mandatory for all objects accessed using LDAP connection.
 But the reality is different.
 It seems to be OK to create an object without these attributes.
-Therefore for a proper operation of midPoint we recommend to modify the schema using the `limitations` mechanism in midPoint wiki:Resource+Schema+Handling[Resource Schema Handling] by setting `minOccurs=0`. (This is already done in the sample referenced below.)
+Therefore for a proper operation of midPoint we recommend to modify the schema using the `limitations` mechanism in midPoint xref:/midpoint/reference/resources/resource-configuration/schema-handling/[Resource Schema Handling] by setting `minOccurs=0`. (This is already done in the sample referenced below.)
 
 * The objects can easily have attributes that are not defined in any object classes that they have.
-E.g. a normal user (the `user` object class) may have attribute `info`. If such extra attributes are used in your AD instance then the best way is to configure them as operational attributes in the connector configuration and define them explicitly in wiki:Resource+Schema+Handling[Resource Schema Handling] (see bug:MID-3379[]).
+E.g. a normal user (the `user` object class) may have attribute `info`. If such extra attributes are used in your AD instance then the best way is to configure them as operational attributes in the connector configuration and define them explicitly in xref:/midpoint/reference/resources/resource-configuration/schema-handling/[Resource Schema Handling] (see bug:MID-3379[]).
 ====
 
 === Resource Configuration Example
@@ -116,17 +152,14 @@ However the underlying LDAP library may complain about the schema issues.
 It is usually safe to ignore these warnings.
 
 
-== Notes
+== Recommendation and Notes
 
-[TIP]
-====
-Note: to avoid clear-text password visible in the repository, please refer to link:http://wiki.evolveum.com/display/midPoint/String+to+ProtectedString+Connector+Configuration[String to ProtectedString Connector Configuration].
-====
+=== Passwords
 
+To avoid clear-text password visible in the repository, please refer to xref:/midpoint/reference/resources/resource-configuration/string-to-protectedstring-connector-configuration/[String to ProtectedString Connector Configuration].
 
-[NOTE]
-.Full Active Directory Schema
-====
+=== Full Active Directory Schema
+
 Active Directory has huge schema.
 The schema when encoded in XSD has several megabytes.
 This might take several hundreds of megabytes of memory when processed.
@@ -145,13 +178,9 @@ The impact of AD schema can be limited by reducing the number of object classes 
 
 See also bug:MID-2716[]
 
-====
+=== Explicit Referential Integrity
 
-
-[NOTE]
-.Explicit Referential Inrtegrity
-====
-We recommend to turn off explicitReferentialIntegrity for associations with groups.
+We recommend turning off explicitReferentialIntegrity for associations with groups.
 Active Directory will maintain the group membership after account rename automatically.
 
 Example:
@@ -174,21 +203,51 @@ Example:
 ...
 ----
 
-====
+=== National Characters
 
+Although LDAP protocol and data structures are designed to be safe for use with national characters,
+Active Directory obviously leaves a large room for improvement in this area.
+For example, although LDAP specification states that DNs using different national characters should be considered different identifiers, Active Directory might consider them to be the same (see bug:MID-7355[]).
 
+Therefore, we *strongly recommend* to avoid use of national characters in Active Directory, especially in the identifiers (`dn` and hence also `cn`).
+MidPoint xref:/midpoint/reference/concepts/polystring/[polystring] functionality is designed especially for this purpose.
+Following mapping may help create identifier without national characters:
+
+[source,xml]
+----
+<attribute>
+    <ref>ri:dn</ref>
+    <outbound>
+        <source>
+            <path>givenName</path>
+        </source>
+        <source>
+            <path>familyName</path>
+        </source>
+        <expression>
+            <script>
+                <code>
+                    'CN=' + basic.concatName(familyName.getNorm(), givenName.getNorm()) + iterationToken + ',OU=Users,DC=example,DC=com'
+                </code>
+            </script>
+        </expression>
+    </outbound>
+</attribute>
+----
+
+An equivalent mapping would be probably needed for `cn` attribute as well.
 
 == See Also
 
-* wiki:Active+Directory+Connector+(LDAP)[Active Directory Connector (LDAP)]
+* xref:/connectors/connectors/com.evolveum.polygon.connector.ldap.ad.AdLdapConnector/[Active Directory Connector (LDAP)]
 
-* wiki:Active+Directory+Tips&Tricks[Active Directory Tips&Tricks]
+* xref:/connectors/resources/active-directory/tips-tricks/[Active Directory Tips&Tricks]
 
-* wiki:Active+Directory+Multi-Domain[Active Directory Multi-Domain]
+* xref:/connectors/resources/active-directory/multidomain/[Active Directory Multi-Domain]
 
-* wiki:Active+Directory+with+the+legacy+.NET+connector[Active Directory with the legacy .NET connector]
+* xref:/connectors/resources/active-directory/legacy-net-connector/[Active Directory with the legacy .NET connector]
 
-* wiki:AD+Connector+Design+Notes[AD Connector Design Notes]
+* xref:/midpoint/devel/design/ad-connector-design-notes/[AD Connector Design Notes]
 
 
 == External links

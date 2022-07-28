@@ -1,301 +1,34 @@
 = Report Configuration
-:page-wiki-name: Report Configuration
-:page-wiki-id: 17761609
-:page-wiki-metadata-create-user: katkav
-:page-wiki-metadata-create-date: 2015-07-06T10:16:32.230+02:00
-:page-wiki-metadata-modify-user: mmacik
-:page-wiki-metadata-modify-date: 2020-12-04T09:35:19.721+01:00
-:page-upkeep-status: orange
+:page-since: "4.4"
 :page-toc: top
-
-This guide is only for small customization which can be done directly in midPoint.
-In the case you need more complex customization it is maybe better to create new report template or customize existing one with Jaspersoft Studio.
-How to work with Jaspersoft Studio using live midPoint can be found wiki:Jaspersoft+Studio+-+midPoint+integration+HOWTO[here].
-
-
-== Report customization using midPoint
-
-After listing reports in midPoint (Reports -> List Reports) and clicking on the configure button you are able to modify some basic report attributes.
-As the picture bellow shows there are three tabs.
-Each of them is related to different part of report which can be configured.
-In the first tab 'Basic configuration' you can configure name of the report and export format.
-The second tab 'Jasper template' can be used to customize existing template, e.g. you can add/remove parameters, modify query etc.
-The last tab 'Jasper template style' is used as a style for the report.
-You can change it according to your needs (e.g. font size, font family, ...)
-
-image::report-config.png[]
-
-
-
-
-=== Customizing Jasper template
-
-In the midPoint's GUI you have available all the jasper template so it is possible to update it directly with midPoint.
-But, as I stated before, I don't recommend to do complex modifications in the midPoint.
-midPoint is not a reporting tool and for this purpose we decided to use Jasper Report framework.
-I recommend to do only small modification in queries or parameters in midPoint.
-
-
-. Report parameters - you can add/remove or modify report parameters.
-Support for multi-value parameters exists since 3.6. If you check 'For prompting' attribute, it means that this parameter is shown in the pop-up panel when you run report.
-Report parameters are used as input values to the query.
-+
-image::Screenshot-2017-04-07-16.14.10.png[]
-
-
-
-.. There is a special column Properties.
-After clicking on the Configure link, new popup is shown.
-In this popup you can define additional properties describing the parameters.
-These properties are then used for customization of run popup such as lookup tables.
-+
-image::Screenshot-2017-04-07-15.53.08.png[]
-
-
-
-
-
-. Report fileds - you can add/remove or modify report fields.
-But be aware that if you make any change to the report field, you have to seek for the original filed definition throughout  the whole jasper report definition and replace old filed with the new one defined.
-+
-image::Screenshot-2017-04-07-10.24.21.png[]
-
-
-. Report query - customize query according to you needs.
-E.g. you can add filter to search only enabled user or user in some organization etc.
-The query language is 'mql' which is a shortcut for MidPoint Query Language.
-You can use the same query syntax as everywhere else (e.g. correlation rule).
-It is also possible to define script instead of query.
-All the existing midPoint function are available (wiki:Script+Expression+Functions[Basic, midpoint, report]).
-
-** Queries must be wrapped in <filter> element
-
-** Scripts must be wrapped in <code> element
-
-image::Screenshot-2017-04-07-10.24.35.png[]
-
-
-
-
-=== lookupAdding auto-complete to input parameters
-
-image::image2015-10-6-22-1-3.png[]
-
-
-
-MidPoint can visualize report input parameter as select box with auto-complete ability.
-The optional auto-complete can be used for input parameters with limited set of values - e.g. whispering all available users, resources or organizations.
-Normally non-enum parameters are displayed as text input fields.
-If you wish midPoint to render parameters as select boxes with auto-complete, you need to specify these three parameter properties:
-
-* key - property path to target attribute that will be passed to Jasper query as parameter value (e.g. name, oid)
-
-* label - property path to target attribute that will be displayed as label in auto-complete box (e.g. name, fullName, oid)
-
-* targetType - full class name of target type that will be populated into auto-complete box (UserType, RoleType, OrgType...)
-
-This example populates auto-complete with all roles in midPoint:
-
-[source]
-----
-<parameter name="role" class="java.lang.String">
-	<property name="key" value="oid"/>
-	<property name="label" value="name"/>
-	<property name="targetType" value="com.evolveum.midpoint.xml.ns._public.common.common_3.RoleType"/>
-</parameter>
-----
-
-
-Limitations:
-
-* "key" and "label" properties can only reference prism properties of target object, not complex values like containers or references
-
-* "key" and "label" properties can only reference single-value properties, not multi-value
-
-
-=== multivalueConfiguring multi-value input parameters
-
-++++
-{% include since.html since="3.6" %}
-++++
-
-Sometimes you need to specify report query using more than one value for the attribute, e.g you want to search users with employeeType=contractor and employeeType=fulltime.
-To prevent defining two different reports - one for employeeType = contractor and second one for employeeType=fulltime the support for multi-value parameters was added in midPoint 3.6. To enable this feature, you need to configure parameter class as a java.util.List and than nested class with the real value of items which will be filled into the list.
-However, be aware that after the parameter is changed to multi-value it is also needed to update the report query and (maybe) other jasper report parts.
-
-image::Screenshot-2017-04-07-16.14.10.png[]
-
-
-
-In the picture above, there are two attributes defined as multivalue - eventType and eventStage.
-As you can see, both of these attributes parameter class is set to java.util.List and the nested class then contains concrete type which will be in the list.
-
-
-=== Performance and run-time settings
-
-image::image2015-10-6-22-40-5.png[]
-
-
-
-
-==== Virtualizers
-
-Jasper report has ability to utilize so-called virtualizers that can optimize memory usage.
-Virtualizers come handy when you *generate very large reports* of hundreds to thousands+ pages.
-In these situations memory consumption can become crucial and you may run out of Java heap space.
-Currently there are 3 virtualizers available in Jasper and what they basically do is they save memory consumption on account of consuming little more CPU or disk space.
-
-Detailed virtualizers description can be found here: link:http://community.jaspersoft.com/wiki/virtualizers-jasperreports[http://community.jaspersoft.com/wiki/virtualizers-jasperreports]
-
-MidPoint offers these two settings in report configuration to set Jasper virtualizer:
-
-* Jasper virtualizer - select one of three prebuilt virtualizers or select none to disable feature.
-
-** Recommended setting: JRSwapFileVirtualizer
-
-** Both file virtualizers save temporary data into <midPoint_home>/tmp directory.
-
-
-
-* Virtualizer's pages kick-on - only effective when virtualizer is selected. It defines number of report pages after virtualizer "kicks on". The more memory you have (Java Xmx), the higher number can be. Reports that do not reach the specified number of pages will not utilize any virtualizer.
-
-** Recommended setting: 300
-
-
-
-Limitation: Maximum size of object being stored in any virtualizer is 65K.
-That equals massive number of text in one cell (one column X one row).
-If you encounter "Error virtualizing object link:http://java.io[java.io].UTFDataFormatException" or other problems, you should disable virtualizer.
-
-
-==== Governors
-
-Another mechanism to control the Jasper report runtime are so-called governors.
-Governors can *limit number of pages and/or execution time* of report.
-MidPoint has two settings for this, but please be aware that Jasper enforces these limits little unintuitively and practically limits are enforced some time/pages after threshold value has been reached.
-When limit is reached, report is cancelled without being generated.
-Using governors can *increase robustness of reporting engine *and prevent overloading of midPoint's resources.
-We strongly recommend using them.
-
-* Maximum number of pages - maximum number of report pages after execution is cancelled.
-
-* Execution timeout [ms] - maximum number of report execution time in miliseconds after report is cancelled. Please note that this time specifies only portion of total execution time - total execution time might be little longer than governor setting.
-
-Set value to empty or 0 to disable governor.
-
-
-
-==== Changing delimiter in CSV export
-
-To change delimiter in CSV export you have to define it in jasper template for any report :
-
-* Example
-
-<property name="net.sf.jasperreports.export.csv.field.delimiter" value=";"/>
-
-
-==== Removing names of fields on all pages except the 1st page in CSV export
-
-To remove names of fields on all report pages except the 1st page in CSV report you have to define "printWhenExpression" in jasper template
-
-* Example
-
-<columnHeader> +
-             <band height="24" splitType="Stretch"> +
-                         <printWhenExpression><![CDATA[$V{PAGE\_NUMBER}==1]]></printWhenExpression>  +
-                         <frame> +
-                                 <reportElement style="Column header" mode="Transparent" x="0" y="1" width="1000" height="19" isRemoveLineWhenBlank="true" uuid="3e8fdd6d-a6ff-4407-9a1e-5d6b4706300a"/> +
-                                 <staticText> +
-                                              <reportElement style="Column header" x="0" y="0" width="300" height="18" uuid="86c74beb-bddd-48cc-945a-167b261b1e0b"/> +
-                                              <textElement textAlignment="Center" verticalAlignment="Middle"/> +
-                                              <text><![CDATA[Name]]></text> +
-                                 </staticText> +
-                         </frame> +
-            </band> +
-</columnHeader>
-
- +
-
-
-
-== Security Of Report Expressions
-
-Reports often use wiki:Mappings+and+Expressions[expressions]. Expressions allow to customize midPoint behavior and they are essential for the success of midPoint deployments.
-However, the expressions are very powerful and they may even be too powerful for some use cases.
-The expressions can use general-purpose scripting languages such as Groovy or JavaScript.
-Therefore such expressions have almost unlimited capabilities.
-Which means that the expressions can damage the system or compromise security of the system.
-*Use the expressions with utmost care.*
-
-Currently, there are very little restraints for expression execution.
-The wiki:Script+Expression+Functions[expression functions] provided by midPoint usually check for proper authorizations.
-But as the expressions can use general-purpose languages, there is no obligation for the expressions to use those libraries.
-The expression can easily circumvent those weak protections.
-Therefore do not let any unauthorized user to set up any kind of expression in midPoint.
-*Allowing the right to edit any expression may lead to compromise of system security.*
-
-Some expression security can be achieved by using wiki:Expression+Profiles[expression profiles].  Expression profiles can be used to limit the capabilities of report expressions, e.g. to limit them to safe operations that just manipulate strings and basic data structures.
-This seems to work reasonably well for ordinary object-based reports.
-However, when it comes to audit reports, this solution may not be sufficient.
-wiki:Auditing[Audit records] are *not*  midPoint objects, they are just rows in ordinary relational table.
-Therefore the usual midPoint mechanisms do not apply to them.
-E.g. they cannot be queries by using midPoint query mechanisms.
-There is a way how a "safe" expression can construct a string query for audit table.
-However, there is no protection against SQL injection or similar attacks.
-Major improvement to auditing capabilities of midPoint would be needed for that purpose.
-
-An example of such an audit report can be found in midPoint tests: link:https://github.com/Evolveum/midpoint/blob/master/model/report-impl/src/test/resources/reports/report-audit-csv.xml[https://github.com/Evolveum/midpoint/blob/master/model/report-impl/src/test/resources/reports/report-audit-csv.xml] +
-However, this is just an example.
-It may not be complete, it may not be secure.
-There are no guarantees.
-Use at your own risk.
-
-In case that a secure audit reports are needed, the current recommendation is to make such reports outside of midPoint.
-The wiki:Auditing[structure of an audit table is documented] and it can be used for integration with data warehouse and/or SIEM systems.
-MidPoint is neither of those systems and it has no ambition to become one.
-Therefore such integration is likely to be required anyway to construct a complete information security solution.
-
-See wiki:Security+Guide[Security Guide] for more detail regarding security-related functionality of midPoint.
-
-
-== New report
-
-[WARNING]
-.IN PROGRES
-====
-This is a features in progress. It means that it is not intended for production use.
-The feature is not finished.
-It is not stable.
-The implementation may contain bugs, the configuration may change at any moment without any warning and it may not work at all.
-Use at your own risk.
-
-====
-
- +
 
 
 [TIP]
-.MidPoint 4.2 and later
-====
-This feature is available only in midPoint 4.2 and later.
+.MidPoint 4.4 and later
 
-====
+This feature is available only in midPoint 4.4 and later. For configuration before 4.4 please see xref:../configuration-before-4-4/[Report Configuration before midPoint version 4.4].
 
-New reports are intended to be native reporting mechanism for midPoint.
-The aim is to use what midPoint provides without the need for Jasper framework.
-Using Jasper framework as an engine is still possible, but it is deprecated and not recommended anymore.
-It is recommended to use reports based on midPoint concepts, namely dashboards or objectCollection.
-Current implementation support exporting reports to CSV and HTML file, other formats such as XSLX are planned to be added later.
-Configuration attributes of report:
+Native reports are intended to be native reporting mechanism for midPoint. The aim is to use what midPoint provides without the need for Jasper framework. Jasper framework was removed in midPoint 4.4. It is recommended to use reports based on midPoint concepts, namely dashboards or objectCollection. Current implementation supports exporting reports to CSV and HTML file, other formats such as XSLX are planned to be added later.
+
+One of the requirements for _Native reports_ was supporting multithreading and bucketing. Since 4.4, multithreading is fully supported for all possible kinds of reported objects such as containers, objects and audit records. Bucketing is supported for objects and audit records, because currently bucketing of task  don't support containers.
+
+Every report output is stored in _export_ directory in `midPoint.home`. It is possible to send generated reports via email using notifier handler.
+
+Every report object consists of configuration of three basic parts:
+
+* `behavior` - represents the direction of the report. There are two possible types of `behavior`: _export_ and _import_.
++
+_Export_ behavior represents basic reporting mechanism, where the file with reported objects is generated. This behavior is default and was common also in versions before 4.4.
++
+_Import_ behavior can be used in situations, when the objects need to be imported to the midPoint from external file. Supported format is the CSV. Import behavior is experimental.
+* `engine` - defines the report generation base. There are two supported options, reports based on object collections and reports based on dashboard. Only one can be defined at the same time.
+* `fileFormat` - represents format of the generated report file. Supported formats for now are CSV and HTML. Default format for the dashboard-based reports is HTML and for object collection based reports is CSV.
+
+All configuration attributes of report:
 
 [%autowidth]
 |===
 | Name | Type | Description
-
-| _reportEngine_
-| *ReportEngineSelectionType*
-| Selects which report engine should be used to render this report.
-Possible value _jasper, dashboard_ and _collection._
 
 
 | _fileFormat_
@@ -303,22 +36,14 @@ Possible value _jasper, dashboard_ and _collection._
 | Define report output file format.
 
 
-| _jasper_
-| *JasperReportEngineConfigurationType*
-| Configuration for jasper-based reports.
-Only applicable if reportEngine=jasper.
-
-
 | _dashboard_
 | *DashboardReportEngineConfigurationType*
-| Configuration for dashboard-based reports.
-Only applicable if reportEngine=dashboard.
+| Configuration for dashboard-based reports. When defined, dashboard engine is used to generate reports.
 
 
 | _objectCollection_
 | *ObjectCollectionReportEngineConfigurationType*
-| Configuration for object collection-based reports.
-Only applicable if reportEngine=collection.
+| Configuration for object collection-based reports. When defined, object collection engine is used to generate report.
 
 
 | _defaultScriptConfiguration_
@@ -334,10 +59,10 @@ Output filename will be passed to the script as the "file" argument.
 
 |===
 
-
-=== Export
+== Export behaviour
 
 For now, export to CSV and HTML is supported.
+
 Configuration attributes:
 
 [%autowidth]
@@ -347,7 +72,7 @@ Configuration attributes:
 | _type_
 | *FileFormatTypeType*
 | Report data type.
-Possible _csv_ and _html_.
+Possible values: _csv_ and _html_.
 
 
 | csv
@@ -362,15 +87,13 @@ Possible _csv_ and _html_.
 
 |===
 
+=== HTML
 
-==== HTML
+Configuration for HTML file format doesn't contain any other attributes.
 
-Configuration of html file format doesn't contain any other attributes.
+=== CSV
 
-
-==== CSV
-
-Configuration to CSV file contains attributes:
+Configuration for CSV file format contains attributes:
 
 [%autowidth]
 |===
@@ -378,13 +101,13 @@ Configuration to CSV file contains attributes:
 
 | _multivalueDelimiter_
 | *string*
-| Delimiter for multivalue property.
+| Multi-value delimiter.
 | ,
 
 
 | _fieldDelimiter_
 | *string*
-| Delimiter for field of csv file.
+| Field delimiter.
 | ;
 
 
@@ -441,38 +164,25 @@ Possible values is _all, allNonNull, minimal, nonNumeric_ and _none._
 
 *QuoteModeType*
 
-* all - Quotes all fields.
+* `all` - Quotes all fields.
 
-* allNonNull - Quotes all non-null fields.
+* `allNonNull` - Quotes all non-null fields.
 
-* minimal - Quotes fields which contain special characters such as a the field delimiter, quote character or any of the characters in the line separator string.
+* `minimal` - Quotes fields which contain special characters such as the field delimiter, quotes character or any of the characters in the line separator string.
 
-* nonNumeric - Quotes all non-numeric fields.
+* `nonNumeric` - Quotes all non-numeric fields.
 
-* none - Never quotes fields.
+* `none` - Never quotes fields.
 When the delimiter occurs in data, the printer prefixes it with the escape character.
 If the escape character is not set, format validation throws an exception.
 
+== Report engine
 
-=== Report engine
+Report engine is defined with the configuring either `objectCollection` or `dashboard` element in report.
 
-Report engine define type of report.
+=== Collection report
 
-
-==== Jasper
-
-Jasper is old deprecated type of reports.
-We can use attribute jasper and in it we can use all attributes for jasper report.
-
-
-==== Dashboard
-
-For configuration of dashboard report, please see wiki:Dashboard+configuration#Dashboardconfiguration-Report[Dashboard configuration-Report].
-
-
-==== Collection
-
-We can use following attributes:
+Collection reports generate reports based on Object collection configuration. Collection reports support audit records, containers and objects, such as users, roles, organizations and so on. Basic part of configuration for Collection reports are query, columns, parameters, sub-reports and condition.
 
 [%autowidth]
 |===
@@ -480,21 +190,21 @@ We can use following attributes:
 
 | _collection_
 | *CollectionRefSpecificationType*
-| Specification of an explicit or implicit object collection that will be used to select objects in report.
+| Specification of an explicit or implicit object collection that will be used to select objects for report.
 
 
 | _view_
 | *GuiObjectListViewType*
-| Specifies a view of an object collection that is be reported.
+| Specifies a view of an object collection that is reported.
 
 
 | _useOnlyReportView_
 | *boolean*
-| Specifies that during creating of report will be used only view in report without merging with other view.
+| Specifies that during report creation, only view defined in report will be used. No other views defined outside the report will merger or considered.
 
 | _condition_
 | *ExpressionType*
-| Condition for the searched objects. Searched object will be shown if the condition evaluates to true. This condition use only for reports and as last option because of performance.
+| Condition for the searched objects. Generated report will contain only objects satisfying the condition. Condition is used only for generated reports. Use wisely, performance might suffer.
 
 | _parameter_
 | *SearchFilterParameterType*
@@ -506,22 +216,22 @@ We can use following attributes:
 
 |===
 
-View defines columns in report (order, name, ... ). View is merged from default view in collection or base collection with view in report.
-When attribute _useOnlyReportView _is true, only the view from report configuration is used.
-For collection report we can use object collection or filter and base object collection.
+==== Objects to be reported
 
+Objects to be reported for object collection based reports are defined using `collection` configuration property. There are three possibilities how the `collection` can be defined:
 
-===== Object collection
+* using reference to the existing collection,
+* writing filter directly in collection attribute without reference to base collection,
+* combination of previous two options, and so writing filter directly in collection attribute and using reference to existing collection.
 
-When we want to use object collection easy use oid of collection in report.
-For example:
+Following are the examples for what the collection definition might look like.
 
-.Object collection report with object collection reference
+.Object collection report with object collection reference.
 [source,xml]
 ----
 <report>
-	<name>Collection report 1</name>
-	<reportEngine>collection</reportEngine>
+    <name>Collection report 1</name>
+    <reportEngine>collection</reportEngine>
     <objectCollection>
         <collection>
             <collectionRef oid="---COLLECTION_OID---" type="ObjectCollectionType"/>
@@ -530,36 +240,53 @@ For example:
 </report>
 ----
 
-
-===== Filter
-
-We can use only filter with base collection or view where we define object type.
-Example with base collection.
-
-.Object collection report with filter
+.Object collection report with filter.
 [source,xml]
 ----
 <report>
-	<name>Collection report 2</name>
-	<reportEngine>collection</reportEngine>
+    <name>Collection report 2</name>
+    <reportEngine>collection</reportEngine>
     <objectCollection>
         <collection>
-			<filter>
-				<all/>
-			</filter>
-			<baseCollectionRef>
-            	<collectionRef oid="---COLLECTION_OID---" type="ObjectCollectionType"/>
-			</baseCollectionRef>
+            <filter>
+                <all/>
+            </filter>
+            <baseCollectionRef>
+                <collectionRef oid="---COLLECTION_OID---" type="ObjectCollectionType"/>
+            </baseCollectionRef>
         </collection>
     </objectCollection>
 </report>
 ----
 
-===== Parameters
-When we want run some report, sometimes we need define some information for input for example role, organization, resource, etc.
-For this situation we can define parameter, which user set before running of the report. For example we want report of all user
-who have accounts on concrete resource. We won't create one report for each resource with different filter but use parameter
-which define resource in filter and we set it before run of report. We can see example of this report below.
+If `collection` contains reference to existing collection and custom filter, midPoint has two filters for report, one from report and one from base collection. MidPoint makes the conjunction with the filters. Let's have an example where the first filter says that we want to see users with membership in Organization Evolveum. The second filter is for users with role End user. As the result we will see users that have memberships in organization Evolveum and role 'End user' at the same time.
+
+image::collection-query.png[]
+
+==== Columns
+
+Columns are defined using `view`. Configuration for `view` can be used at more places in midpoint, such as configuration in `adminGuiConfiguration`. For reports, there might be a view defined in report and view defined in object collection. When the view is defined in both places, merging of these two definitions is performed.
+
+For example, let's have a view defined for report and also view defined for object collection used to generate the report. Report view contains definition for _Name_ and _Email_ column, while view in object collection contains definition for _Given name_ and _Family name_ columns. The report generated based on this configuration will contain columns for _Name_, _Email_, _Given name_ and _Family name_.
+
+image::collection-columns.png[]
+
+Of course when we want to use only view in report it is possible by attribute `useOnlyReportView`.
+
+Defining columns can be skipped when report in meant for audit records or any of the midPoint objects (such as `UserType`, `RoleType`, `ServiceType`,...). If no custom columns are defined for report, midPoint will use default (system defined) view for specific type of object. However, then the report is defined for containers, the columns definition cannot be omitted.
+
+==== Parameters
+
+There are situation when we want to run report with slightly different settings.
+In such cases, we don't want to define the report for each case separately.
+Rather, we want to have one report definition and run the report with different parameters.
+Imagine that you need to report all users who have account on specific resources.
+In such a case, _resource_ will be a parameter to the report, so we don't need to prepare report definition for each resource.
+The resource parameter will be set before the report is run.
+
+Usage of the parameter is very simple. We just use the name of the parameter in expression of query.
+
+image::collection-parameters.png[]
 
 .Object collection report with parameter
 [source,xml]
@@ -571,8 +298,8 @@ which define resource in filter and we set it before run of report. We can see e
 	<reportEngine>collection</reportEngine>
     <objectCollection>
         <collection>
-			<filter>
-				<q:ref>
+            <filter>
+                <q:ref>
                     <q:path>assignment/construction/resourceRef</q:path>
                     <expression>
                         <queryInterpretationOfNoValue>filterAll</queryInterpretationOfNoValue>
@@ -594,7 +321,7 @@ which define resource in filter and we set it before run of report. We can see e
                         </script>
                     </expression>
                 </q:ref>
-			</filter>
+            </filter>
         </collection>
         <view>
             <type>UserType</type>
@@ -638,7 +365,7 @@ We can use following attributes for parameter:
 
 | _allowedValuesLookupTable_
 | *ObjectReferenceType*
-| Reference of Lookup Table, which define possible values of parameter.
+| Reference of Lookup Table which defines possible values of parameter.
 
 | _allowedValuesExpression_
 | *ExpressionType*
@@ -646,9 +373,19 @@ We can use following attributes for parameter:
 
 |===
 
-===== Subreports
-Subreport defines some object, which we can get from expression. Next we can use this object in column expression,
-so we don't have to search this object in every column expression. For example we need report with accounts(shadows) but we need some columns with attributes from owner of account, so we use subreport where in expression we define search of owner. Next in columns expressions we use owner and we get attributes from it.
+==== Subreports
+
+Subreport is defined by expression and can be used in situations when we need to collect additional information for the processed object (row).
+To avoid performing expensive operations (such as search) for each column, there is a possibility to define it once per row and use it later in the column expression as in the example below.
+
+image::collection-subreport.png[]
+
+In the example above, we have the report, where for each shadow (row) we want to search for the owner of the shadow.
+Therefore, the subreport is defined with the expression to look for the shadow owner.
+The result of the expression is stored to the property called `user` and later used in the column expression to pull the desired information.
+In this case, we need to get the e-mail address of the user.
+
+The return from the expression in subreport is represented by the collection.
 
 We can use following attributes for subreport:
 
@@ -672,17 +409,182 @@ We can use following attributes for subreport:
 
 |===
 
+==== Example of generated report
+
+In the picture below we can see example of generated HTML report of all users in midPoint.
+Report contains columns for Name, Full Name, Administrative status, Roles, Organizations and Accounts of every user.
+
+image::collection-example.png[]
+
+=== Dashboard Report
+
+Dashboard engine generates reports by dashboard object. Dashboard object can be shown in GUI. Dashboard contains widgets, which showed actual state of midpoint. Documentation for dashboard configuration can be found in xref:/midpoint/reference/admin-gui/dashboards/configuration/[Dashboard configuration].
+
+Dashboards support both currently supported file formats, but there is a difference. CSV contains only table of widget with basic message and status, unlike HTML, which as default showing table for widgets and one table for every widget with objects which meet the condition in widget. We can turn off this default behaviour via attribute _showOnlyWidgetTable_ and show only table of widgets.
+
+Following code shows basic configuration of dashboard report.
+
+[source,xml]
+----
+<report>
+    <name>System Status Dashboard report</name>
+    <reportEngine>dashboard</reportEngine>
+    <dashboard>
+        <dashboardRef oid="--OID OF DASHBOARD--" >
+        </dashboardRef>
+        <showOnlyWidgetsTable>false</showOnlyWidgetsTable>
+    </dashboard>
+</report>
+----
+
+Configuration for dashboard report contains definition for _view_, _view_ attribute in dashboard report is multivalue. We can configure view for every type of objects, which are showed via widgets. View defines columns of table in report.
+
+image::dashboard-view.png[]
+
+For example in our example it is first line under screenshot. We can see views for types `ResourceType`, `AuditEventRecordType` and `TaskType`.
+
+The final view of widget is merged from three levels of view. View in report for type of object, view in dashboard for widget and from view in object collection which contains configuration for widget. Columns from views are merged in a same way as in Collection report. Also, we can use attribute `useOnlyReportView` for using only view defined by report.
+
+When we don't use view, report will be contained default columns.
+In expression of column you can use variable 'object' which represent searched object or object defined in tag _path_. For more information about view configuration please see xref:/midpoint/reference/admin-gui/collections-views/configuration/#views[Views].
+
+.Example of view for RoleType
+[source,xml]
+----
+                <presentation>
+                        ...
+                        <view>
+                            <column>
+                                <name>nameColumn</name>
+                                <c:path>name</c:path>
+                                <display>
+                                    <label>Name</label>
+                                </display>
+                            </column>
+                            <column>
+                                <name>members</name>
+                                <display>
+                                    <label>Members</label>
+                                </display>
+                                <previousColumn>nameColumn</previousColumn>
+                                    <export>
+                                        <expression>
+                                            <script>
+                                                <code>
+import com.evolveum.midpoint.prism.query.*
+import com.evolveum.midpoint.xml.ns._public.common.common_3.*
+
+query = prismContext.queryFor(UserType.class).item(AssignmentHolderType.F_ROLE_MEMBERSHIP_REF).ref(object.getOid()).build();
+
+objects = midpoint.searchObjects(UserType.class, query)
+return objects.size();
+                                                </code>
+                                            </script>
+                                        </expression>
+                                    </export>
+                            </column>
+                    </view>
+                </presentation>
+----
+
+.Example of view in Report
+[source,xml]
+----
+<report>
+    ...
+    <dashboard>
+        ...
+        <view>
+            <column>
+                <name>givenNameColumn</name>
+                <c:path>givenName</c:path>
+                <display>
+                    <label>Given name</label>
+                </display>
+            </column>
+            <type>UserType</type>
+        </view>
+        <view>
+            <column>
+                <name>nameColumn</name>
+                <c:path>name</c:path>
+                <display>
+                    <label>Name</label>
+                </display>
+            </column>
+            <type>RoleType</type>
+        </view>
+    </dashboard>
+</report>
+----
+
+==== Report for asynchronous widget
+
+Dashboard report has two kinds of output. Common case is to generated output file with reported data. However, it is also possible to save results of report to dashboard which configuration was used for generating report. Maybe you ask why? It is very simple, when we click in GUI for showing dashboard, midpoint synchronously send requests to repository for objects because of generating widget on screen. It is all right if we do not have many objects and requests are quick. But when we have to wait very long for showing page with widgets we can use saving result of report to dashboard and next configure dashboard in order to show this value.
+
+Configuration of Dashboard report contains attribute _storeExportedWidgetData_, and using it you can define whether result of report will be save to file, widget or both.
+
+[%autowidth]
+|===
+| Name | Description
+
+| `onlyWidget`
+| Exported widget data will be stored only in element of widget.
+
+| `onlyFile`
+| Exported widget data will be stored only in file.
+
+| `widgetAndFile`
+| Exported widget data will be stored only in element of widget and file.
+
+|===
+
+==== Example of generated report
+
+On screenshot we can see example generated report of Dashboard report in HTML format. On top we see table of widgets with name, message and status. Under table of widgets, report continue with one table for every widget.
+
+image::dashboard-example.png[]
+
 == Creating of report
 
-Simple way how to create report is to click on 'Create report' under table on object list pages (e.g. All users page).
+We have two choices for it. One of the choices is using classical flow for creating new object, so we find Report menu item on left side of screen and select new Report
+
+Second simplify way how to create report is to click on 'Create report' under table on object list pages (e.g. All users page).
 
 image::users.png[]
 
 After click you will be redirected to Create report page with predefined filter from search panel over object table and columns from previous table.
 
-== 'Import report'
+== Tasks for reports
 
-Since version 4.2, midPoint supports 'import report'/'reverse report'. This feature is *wiki:Experimental+Functionality[experimental]*.
+If we create new report via GUI in 4.4. Midpoint create task with work definition of activity with 'classcal' way for actual kind of report. We know three kind of activities for reports.
+
+=== ClassicReportExportWorkDefinitionType 'reportExport'
+
+Exports any report in a "classical" way. Supports multithreading but not bucketing (multi-node mode). Support objects, containers and audit reports.
+Contains two parameter 'reportRef' and 'reportParam'. 'reportRef' represent reference to report object. 'reportParam' represent parameters for report, which are defined via GUI.
+
+=== ClassicReportImportWorkDefinitionType 'reportImport'
+
+Imports a report in a "classical" way. Supports multithreading but not bucketing (multi-node mode).
+Contains only one parameter 'reportRef'.
+
+=== DistributedReportExportWorkDefinitionType 'distributedReportExport'
+
+Exports report of repository objects or audit reports. Supports bucketing (multi-node mode) and multithreading.
+Contains two parameter 'reportRef' and 'reportParam'. 'reportRef' represent reference to report object. 'reportParam' represent parameters for report, which are defined via GUI.
+
+=== Convert ClassicReportExportWorkDefinitionType to DistributedReportExportWorkDefinitionType
+
+If we running report via GUI, then the task with classic report export definition will be created. If we are running report for objects or audit records and Midpoint is running in clustered mode, then we can convert the 'classical' way to distributed. We can rewrite it by modifying its xml configuration. In the configuration of task in raw mode we change 'reportExport' to 'distributedReportExport'. We change archetype from 'Report export task' to 'Distributed report export task', by changing oid for assignment, that define archetype. Next we remove current arhetypeRef and rolememberRef attributes for old archetype. And finally we add configuration for xref:/midpoint/devel/design/multi-node-partitioned-and-stateful-tasks/[Bucket-based work state management].
+
+image::report-task-converting.png[]
+
+Also we can create new task with distributed report export definition and set reference to our report.
+
+== Import behaviour 'Import report'
+
+Since version 4.2, midPoint supports 'import report'/'reverse report'. This feature is *xref:/midpoint/versioning/experimental/[experimental]*.
 Report output generated by midPoint can also be used in reverse way - you can import it back to midPoint.
 In addition, it is also possible to import custom defined report output.
 Midpoint support two kind of import configuration .  Configuration for Object import and Import script.
@@ -705,9 +607,8 @@ Example of imported file:
 "testUser02";"enabled";"2020-07-07T00:00:00.000+02:00";"NICK2";;
 ----
 
-
 ....
-Example bellow shows report (ReportType) configuration for importing CSV file with header and two records above.
+Example below shows report (ReportType) configuration for importing CSV file with header and two records above.
 ....
 
 .Report-JSON
@@ -777,7 +678,6 @@ Example bellow shows report (ReportType) configuration for importing CSV file wi
   }
 }
 ----
-
 
 .Report-XML
 [source,xml]
@@ -878,10 +778,9 @@ Example bellow shows report (ReportType) configuration for importing CSV file wi
 
 ----
 
-
 ==== Behaviour and Options
 
-We need define that this report is import and not export, for this we need define element _behavior.__Behavior_  contains direction _Import_ or _Export_. Also _behavior_ contains _importOptions_, which contains next elements:
+We need define that this report is import and not export, for this we need define element _behavior_. _Behavior_  contains direction _Import_ or _Export_. Also _behavior_ contains _importOptions_, which contains next elements:
 
 [%autowidth]
 |===
@@ -979,13 +878,11 @@ Name is obtained from _Label_ of _DispalyType_ for column, when _Label_ is empty
 
 
 Definition of column also contains _import/expression_ which can define script for generating items.
-Script have to return real value for example _String_ or _List_ of values for multivalue items for example _List<AssignmentType>. _Script get _input_ variable which is _String_, when item is singlevalue, or _List<String>_, when item is multivalue.
-
-
+Script have to return real value for example _String_ or _List_ of values for multivalue items for example _List<AssignmentType>_. Script get _input_ variable which is _String_, when item is singlevalue, or _List<String>_, when item is multivalue.
 
 === Import script
 
-We can define _importScript_ in element _behaviour. _Import script is_ExecuteScriptType _type, so we can define more actions.
+We can define _importScript_ in element _behaviour_. Import script is _ExecuteScriptType_ type, so we can define more actions.
 Script contains variables with same name as headers of imported CSV file.
 For example from next file will be created variables with names _username, role_name, action, valid_from_ and _valid_to_.
 
@@ -1165,7 +1062,6 @@ Target of assignment define via name of role variable _role_name_.  Variables _v
 
 ----
 
-
 .Example of Import script - JSON
 [source,json]
 ----
@@ -1224,9 +1120,50 @@ Target of assignment define via name of role variable _role_name_.  Variables _v
 }
 ----
 
+== Security Of Report Expressions
+
+Reports often use xref:/midpoint/reference/expressions/[expressions].
+Expressions allow to customize midPoint behavior and they are essential for the success of midPoint deployments.
+However, the expressions are very powerful and they may even be too powerful for some use cases.
+The expressions can use general-purpose scripting languages such as Groovy or JavaScript.
+Therefore such expressions have almost unlimited capabilities.
+Which means that the expressions can damage the system or compromise security of the system.
+*Use the expressions with utmost care.*
+
+Currently, there are very little restraints for expression execution.
+The xref:/midpoint/reference/expressions/expressions/script/functions/[expression functions] provided by midPoint usually check for proper authorizations.
+But as the expressions can use general-purpose languages, there is no obligation for the expressions to use those libraries.
+The expression can easily circumvent those weak protections.
+Therefore do not let any unauthorized user to set up any kind of expression in midPoint.
+*Allowing the right to edit any expression may lead to compromise of system security.*
+
+Some expression security can be achieved by using xref:/midpoint/reference/expressions/expressions/profiles/[expression profiles].  Expression profiles can be used to limit the capabilities of report expressions, e.g. to limit them to safe operations that just manipulate strings and basic data structures.
+This seems to work reasonably well for ordinary object-based reports.
+However, when it comes to audit reports, this solution may not be sufficient.
+xref:/midpoint/reference/security/audit/[Audit records] are *not*  midPoint objects, they are just rows in ordinary relational table.
+Therefore the usual midPoint mechanisms do not apply to them.
+E.g. they cannot be queries by using midPoint query mechanisms.
+There is a way how a "safe" expression can construct a string query for audit table.
+However, there is no protection against SQL injection or similar attacks.
+Major improvement to auditing capabilities of midPoint would be needed for that purpose.
+
+An example of such an audit report can be found in midPoint tests: link:https://github.com/Evolveum/midpoint/blob/master/model/report-impl/src/test/resources/reports/report-audit-csv.xml[https://github.com/Evolveum/midpoint/blob/master/model/report-impl/src/test/resources/reports/report-audit-csv.xml] +
+However, this is just an example.
+It may not be complete, it may not be secure.
+There are no guarantees.
+Use at your own risk.
+
+In case that a secure audit reports are needed, the current recommendation is to make such reports outside of midPoint.
+The xref:/midpoint/reference/security/audit/[structure of an audit table is documented] and it can be used for integration with data warehouse and/or SIEM systems.
+MidPoint is neither of those systems and it has no ambition to become one.
+Therefore such integration is likely to be required anyway to construct a complete information security solution.
+
+See xref:/midpoint/reference/security/security-guide/[Security Guide] for more detail regarding security-related functionality of midPoint.
 
 == See Also
 
-* wiki:Expression+Profiles[Expression Profiles]
+* xref:/midpoint/reference/misc/reports/examples/[Report Examples]
 
-* wiki:Security+Guide[Security Guide]
+* xref:/midpoint/reference/expressions/expressions/profiles/[Expression Profiles]
+
+* xref:/midpoint/reference/security/security-guide/[Security Guide]

@@ -1,0 +1,393 @@
+= IGA Use Cases: Visibility and Reports
+:page-nav-title: Visibility and reports use-cases
+:page-display-order: 500
+:page-toc: top
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 3
+
+WARNING: This page is a work in progress.
+
+The IGA system should provide useful IGA information from the data. Especially for external customers (auditors / security officers / business).
+
+NOTE: The IGA reporting is designed in detail xref:../reporting/index.adoc[here]. The pages are not yet synchronized and not all use-cases are covered. This is work in progress.
+
+== Reporting technology
+
+[#_analyze_reports_in_database]
+=== Analyze reports in database
+
+Scenario::
+User wants to utilize known analytical tool for analysis of prepared reports. He wants to analyze the data in the reports and potentially combine the data or enhance it with additional data from outside.
++
+He does not want to repeat each time operation of importing new report from csv file. Just want to have environment prepared and refresh it with the data from new report.
+
+Actors::
+Reports are configured by IGA engineer or IGA administrator - he can be called as _report designer_ for this use-case.
++
+Typical user of the report for such analysis is Role manager or IGA administrator/IGA engineer from internal IGA team. From external environment, the Security officer or IT Auditor are the users for this scenario.
+
+Motivation::
+All data shall be exportable to csv or created into a reporting database (tables / materialized views) - where the data may be analyzed.
++
+The reporting database is useful solution for preparing pre-computed information out of the data in IGA solution. Authorized users then can use their analytical tools to obtain results they know and need in efficient and repeatable way. They can avoid daily repeating preparation of data from csv files.
++
+Working with reports require computing power too. Having the reports saved in independent database will save resources for provisioning and self-service operations and avoid affecting overall midpoint performance.
+
+User Story::
+* Report designer configures the report to provide results to _reporting database_ - e.g. by creating table or refreshing materialized view for the report.
+** He can schedule it to run in specified times.
+** He defines access to the report data.
+* User configures his analytical tool to connect to reporting database and open the report results.
+* User perform analysis of the report to get information out of data in the report. If necessary, enhances the report data with additional computation. Saves the configuration.
+* Next time, the user, just opens the analytical tool and refreshes it with the actual data. No load from csv, no data preparation is needed.
+
+Note: Analytical tools may start with Excel connected to the reporting database via ODBC, or it can be any other BI tool - just depends on user needs and options.
+
+[#_scheduled_reports]
+=== Scheduled reports
+
+Scenario::
+* Report user doesn't want to wait for preparation of the report.
+* Report user need to have reports from the same time each day to have comparable results.
+* Report user needs to have consistent reports from each day (week) for analysing trends over time.
+* Multiple users are using the same report - it is better use one report than building individual report for each user.
+
+Actors::
+_Report user_ could be Role manager, Security manager, any business manager or IGA administrator. Any user, that should have access to reports.
+_Report designer_ is typically IGA engineer or IGA administrator.
+
+Motivation::
+Computing of report results may take time and resources - especially in large environments. User does not want to wait to the report to be finished.
++
+Users often prefer to have data from specific time over last minute data - e.g. when comparing results of reports over time.
++
+If reports are used by multiple users, then the preparing reports for all of them can significantly save system resources over running the report for each user.
++
+On the other hand, scheduling and precomputing all reports even when these are not used could waste the resources. The IGA engineer should decide which reports to schedule and when.
+
+User Story::
+* The report designer configures report to be run in specified times and provide results.
+** He defines whether all data to be replaced or new data will be added (e.g. new csv file or added rows to reporting results)
+
+[#_option_to_run_sql_in_reports]
+=== Option to run SQL in reports
+
+Scenario::
+An report designer needs to prepare report that is not supported by actual midpoint capabilities, or is being performed over large sets of data and could not be computed in acceptable time.
+
+Actors::
+_Report designer_ is typically skilled IGA engineer.
+
+Motivation::
+For some specific reports and specific environments it would be usefull if an report designer can design a report just as a SQL select over the internal midpoint structures.
++
+Such reports may not be using standard midpoint design (collection), but bypassing internal processing of midpoint structures may increase speed of report generation and move some reports over large data sets from _impossible_ to possible area.
++
+Such type of report generation should relate only for "normal reports", not _import reports_. No data modification may be allowed on database level below midpoint's referential integrity checks.
+
+User Story::
+This situation may be solved in 2 different way - within midpoint, or via external SQL query.
++
+*Using midpoint methods*, the _report designer_ prepares new report definition and configures the query not via collection, but using SQL query. The report is set up to perform output to database (see use-case xref:#_analyze_reports_in_database[Analyze reports in database]).
++
+If the report is configured *via external SQL query* (e.g. preparing materialized view or table in reporting database), then the query may be scheduled to run in specified time. The configuration is performed outside midPoint.
++
+In both cases, the report results are the same - the table or materialized view in reporting database. End users are using their analytical tools to analyze the report data.
+
+== Visibility of single objects
+
+UI should also display the details of individual objects in business language. Following use-cases should be implemented:
+
+[#_role_content_in_business_readable_form]
+=== Role content - in business readable form
+
+Scenario::
+* Helpdesk operator wants to know what the specific application role does. What objects it is managing. e.g. He needs to verify that the role manages specific group in LDAP, or whether the role provides access to the application he thinks.
+* Application engineer wants to review the roles that are managing access to "his" application. He just want to open the role and check "what the role does".
+
+Actors::
+Application engineers, helpdesk operators, security officers, auditors, ... - the "technical users".
+
+Motivation::
+Display the role definition to application engineers, helpdesk operators, security officers, auditors, ... - the "technical users" who have knowledge about identity management, provisioning, roles or technology infrastructure, but don't know specific midpoint terminology.
++
+Provide the role configuration for fast review.
+
+
+User story::
+* Technical user opens the role in UI, switches e.g. in "business summary tab", and can see the configuration of the role in easily readable form.
+
+** Application role can have the configuration display divided to "business attributes" visible to end users and its technical configuration that is available to the "technical users".
+
++
+Example for displaying the content and functionality of the roles to business users can be found in definition of xref:../iga-and-access/objects-and-midpoint/app-role-design/index.adoc[application role] and xref:../iga-and-access/objects-and-midpoint/business-role-design/index.adoc[business role].
+
+[#_users_history_in_business_readable_form]
+=== User's history - in business readable form.
+
+Scenario::
+IGA administrator or Helpdesk operator is troubleshooting some issue with an user. He is looking for information what happened to the user and when. He needs to get fast overview _what_ happened to the user directly from the view.
++
+The fast overview saves time because the admin does not need to open each delta one-by-one.
+
+Actors::
+IGA administrators, helpdesk operators. Sometimes even user himself.
+
+Motivation::
+We have user's history, but it is hard to get information out of it.
+From the view we can see just that the user was created or updated in particular time + channel and outcome of the operation.
+Each event must be opened and reviewed to see what happened to the user. This is inconvenient and time-consuming particularly if there were many modify operations on the user.
++
+Operator needs to get better information what happened in each operation directly from the view.
+
+User Story::
+
+* Operator opens the user history, selects the time constraints, and can see each event enhanced with its business description.
+The history view contains additional columns for:
+
+** operation - e.g. Created / Modified / Disabled / Enabled / New assignment(s) / Assignment(s) removed / Assignment(s) modified
+** attributes - it would be nice if we can see list of attributes that were updated (this must be handled carefully - maybe just list 3-4 and if more was updated, then just display "multiple attributes were updated"). The same should be displayed for assignments.
++
+Operational attributes should not be included here, or included on request/checkbox.
+
+** attribute values (optional ?) - this needs to be carefully considered - not to blow out the view by large amount of data - the view must still stay readable. Detail data are still in deltas.
+
+** assignments - here names of assignments that were added or removed or updated. Constrains are the same as with attributes (not to display too many - view must stay to be readable).
+
+* Reader can search in the history -  somehow easily. It would be ideal, if the user could be able to find when particular attribute was changed to/from particular value using AXIOM and the same for assignments.
++
+Of course, this level will require advanced users, but when the operator or admin knows the query, he can be very efficient.
+
+NOTE: This may require some global definiton of priority user attributes that will be displayed in the view.
+
+[#_what_is_the_access_of_the_user]
+=== What is the access of the user ?
+
+Scenario::
+IGA user wants to see where (to which application) the particular user has access. IGA user may try to check whether the particular user has access to particular applications. For better understanding he needs also the information why the user has the particular access.
+
+Actors::
+Anybody who need to see access of the particular user. It may be the end-user himself, the user's manager, IGA or helpdesk operator, security officer, ...
+
+Motivation::
+Users of IGA solution need business view of the particular user access.
++
+This should be the basic description of the user access - displayed both in flat (user -> applications) and in hierarchy with more structure for better analysis.
++
+This is the subset of the report "who has access where and why" - limited to the particular user. It should be visible directly from UI.
++
+As there may be hundreds of roles and applications assigned (directly or indirectly) the functionality to easily review and search or filter the displayed data in UI is needed for good user experience.
+
+User Story::
+In the user detail (e.g. user access page) midPoint displays additionally to list of assignments also list of services that are linked to the user (representing user access to application).
++
+Both directly and indirectly assigned roles and applications should be displayed.
++
+An inspiration for displaying user access can be found in the xref:../iga-and-access/index.adoc[IGA and User access document]. The access may be displayed in the form of view in midpoint (the graphics in the page is just display the structure).
+
+* xref:../iga-and-access/index.adoc#_picture3_where_the_user_has_access[List of application roles and applications the user can access] - provides fast review where the user has access. Easy to search for application and role.
+* xref:../iga-and-access/index.adoc#_picture6_why_the_user_has_access[All assignments with structure] - Full structure display of the user access. User can see what business role or organization unit provided access to the particular application.
+
+IGA user has possibility to sort the assignments and search among them and applications to find particular role or application. It would be great if AXIOM search is available for IGA operators and advanced users to search in the assignments.
+
+It would be great if some assignment details are visible in the view (e.g. activation status, creation date, expiration dates, request case) configured by IGA engineer. Other details should be visible in the assignment details.
+
+[#_who_has_access_to_the_application_and_why]
+=== Who has access to the application and why ?
+
+Scenario::
+Application owner wants to know who has access to his application. For the users he would like to know by which roles it was assigned - what is their level of access.
++
+Security officer analysing application access needs to see users.
+
+Actors::
+Application owner or engineer, security officer during investigation of some security incident. IGA operator supporting application engineers while some app reconfiguration.
+
+Motivation::
+
+This is the opposite direction as in the previous use-case. We need to list users and roles on the application object.
+Just this is not enough. For better analysis, IGA user should know also _why_ each user has the application. The _why_ means by which application role the application (service) was assigned.
+
+// Toto je podmnozina reportu TODO - pozriet, ktory report.
+
+User Story::
+IGA user opens the application object, and can list users that have this application (service) assigned.
+This view can display just users.
+Additional view should display also relation _user -> application role_ to identify also level of access for the user.
++
+Also he can see the list of application roles that enable access to this application. This list may be just list of application roles related to the application.
++
+As in previous use-case, the view should be searchable to find users directly from the view.
+
+[#_where_is_this_role_included]
+=== Where is this role included ?
+
+IGA user wants to know all business roles in which is the specified application role included (as an inducement or assignment).
+This is bottom-up traversal through roles.
+
+This information should be displayed in UI. E.g. in role object detail.
+
+Motivation::
+Finding all business roles that contains specified application role is needed while analysis of access of the application.
+It is useful also during some reconstruction of access of particular application.
+
+== Big picture over assignments
+
+IGA users need to have good overview of the data in the system. This overview is provided by reports.
+
+[#_who_has_access_where_and_why]
+=== Who has access where and why ? / Main IGA report (assignments report)
+
+The basic information that IGA environment should provide is to show who has access where. And what is the reason that this access is assigned.
+This information should be provided in the form of report.
+
+In this report the IGA user may see all assignments (direct+indirect) of defined set of users. All together with application access specification and possible with some constrains.
+It is report version of the use-case xref:#_what_is_the_access_of_the_user[What is the access of the user].
+
+This main IGA report is described xref:../reporting/www-report.adoc[in this page].
+
+[#_who_are_the_high_risk_privileged_users]
+=== Who are the high risk / privileged users ?
+
+NOTE: This use-case needs more detail work. Will be developer later.
+
+Scenario::
+Security officer or auditor wants to list privileged users od identify users whose access represent high risk (their access is very broad or are having access to .
+
+Actors::
+Role manager, security officer or auditor - the actors who should involve risk of users (risk of their access).
+
+Motivation::
+In risk based security approach, the security officers define and implement security controls adequately to the risk.
+If the roles can quantitatively set the risk of individual roles, then midPoint can calculate overall access risk of the user and can provide such users to the IGA user.
++
+If the role can qualitatively explain that the access defined is _privileged_, then midPoint can calculate overall value of the user - whether he is privileged or not privileged.
+
+User Story::
+IGA user can filter users based on the risk value computed by algorithm (e.g. just sum) of the risk of all roles the user has assigned - directly or indirectly.
++
+The list of privileged users can be provided by report or just by selection in the users view.
+
+[#_compare_roles_orgs]
+=== Compare roles / orgs
+
+IGA user (e.g. application engineer, IGA operator, role manager, helpdesk operator) wants to compare content of two or multiple roles and correct them accordingly.
+
+The display of two roles in UI is useful during role cleanup procedures, or troubleshooting of some operational issue.
+The report of multiple roles can be universally
+
+User Story::
+For the 2 roles comparison, the IGA user can display the roles side-by-side, or in two browser tabs and compare them.
++
+If the IGA user wants to _compare multiple roles_, then the report may be provided with displaying the attributes, as well with assignments, entitlements and role members.
+The IGA user can select whether he wants to compare just attributes or additionally assignments, inducements or members of the roles in the report.
+
+The same solution should be implemented for comparison of orgs.
+
+== Big picture over roles
+
+[#_role_identification_in_each_line_of_the_report]
+=== Role identification in each line of the report
+
+When all assignments, inducements or role members are reported, then each assignment, inducement or role member should be in individual line of the report. The line should be contain identification of the role.
+
+This report configuration allows easier data analysis.
+
+[#_hierarchy_of_roles__the_role_model]
+=== Hierarchy of roles - the role model
+
+Role manager needs to see roles in *hierarchy of roles based on inducements*. To understand the structure and whole role model.
+
+For particular roles he needs answers to following questions:
+
+* What is assigned by the roles ? - Show roles and all their descentants (roles in inducements)
+* Where is the role included ? - Show roles and orgs, that this role is in the inducement
+* What application can be accessed by the role ?
+
+Structuring of the roles from top level business roles, through application roles to detail metaroles is useful for Role manager for analysis of the role structure and organization.
+It is also useful for auditors or security officers for review of access that particular role or list of roles can provide.
+
+This view (or report) should display the roles starting from top level business roles and including all levels of inducements.
+The roles may be duplicated in the role model display. It is natural as one application role may be included in multiple business roles.
+
+Example of role model display::
+
+* Business role 1
+** Application role 1   -> Access to application 1
+*** Metarole X
+** Application role 2   -> Access to application 2
+*** Metarole X
+* Business role 2
+** Business role 3
+*** Application role 1  -> Access to application 1
+**** Metarole X
+** Application role 4   -> Access to application 4
+
+Also some additional information may be displayed for each role - role archetype, owner, count of members, ...
+
+The information may be result of some report - it may be quite expensive to compute such information each time in GUI.
+
+NOTE: We have already role catalog displayed by org tree. It is useful in some situation, but this catalog does not display the hierarchy of the roles according the inducements.
+
+[#_roles_in_organization_units]
+=== Roles in organization units
+
+Additionally to the role model, the display of all organization units (orgs) that have roles induced should be helpful. It displays list of *Role assignment rules* - what roles are assigned to members of the organizational units.
+
+Therefore, this should be displayed in individual view/report and not to mixed together with the role mode.
+
+[#_what_accounts_are_created_by_roles_what_entitlements_are_managed_by_roles]
+=== What accounts are created by roles? / What entitlements are managed by roles?
+
+Scenario::
+A user wants to know on what resources are accounts created by assignment of the role. Or what roles are creating accounts on specific resources.
+
+Actors::
+IGA administrator, Role manager
+
+Motivation::
+The information may be needed during some troubleshooting or during analysis of roles. Examples:
+
+* IGA administrator is troubleshooting some issue with accounts on some resources and wants minimize the scope to specific roles acting with the resource
+* Role manager wants to organize the roles and identify overlapping roles (the roles that perform the same operations).
+
+User Story::
+The users should run a report listing all (or specified set of) roles and collecting information of accounts and entitlements that are managed by the roles. The user then analyzes the report by his own means.
+
+[#_identification_of_loops_in_role_structure]
+=== Identification of loops in role structure
+
+There is possibility to define loops in role structure. Direct (Role A-> Role B -> Role A) or indirect (Role A -> Role B -> Role C -> Role A).
+
+Such design is a logical error in role structure. Midpoint can handle it internally, but it is useful to identify such loops to correct the model.
+
+This role design error may generate an infinite loop in displaying role structures or some other operations.
+
+
+== Other big picture views and reports
+
+[#_comparison_of_role_assignments]
+=== Comparison of role assignments (what should be) and actual representation on managed objects (what is)
+
+This comparison should show the discrepancies among (specific) attributes or assignments of the users and their actual representation. It _should not_ be automatically resolved - the discrepancies should be displayed in report.
+
+The scope of the comparison may be defined by the resource, set of users or set of roles.
+For resources it may be implemented as the "reconciliation report".
+
+If possible, this report  be designed to resolve the missing feature of xref:../missing-features.adoc#_differential_resources[Differential resources].
+
+Business reason of this report::
+
+. In some environments the IGA solution may not be able to manage all systems (resources), these resources are to be managed manually. This report defines scope of work to review and correct the discrepancies.
+. Automatic reconciliation and removal of the data may generate business issues. The report can provide details for preparation what will be changed and who will be affected for support staff.
+
+
+[#_what_objects_we_are_not_managing_on_the_particular_resource]
+=== What objects we are (not) managing on the particular resource
+
+IGA user should see the set of objects that are managed or not managed on the resource - to define the scope IGA.
+This relates to users as well as entitlements.
+
+Example::
+On LDAP system, the IGA system is managing all users except 5 listed and is managing membership of 100 listed groups out of 1000 group in the LDAP. The report should provide such information with lists of managed/ not managed objects.

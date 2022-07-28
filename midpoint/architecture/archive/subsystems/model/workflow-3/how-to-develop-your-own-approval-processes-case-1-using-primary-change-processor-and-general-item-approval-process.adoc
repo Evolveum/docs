@@ -6,10 +6,11 @@
 :page-wiki-metadata-modify-user: mederly
 :page-wiki-metadata-modify-date: 2014-03-11T20:14:06.331+01:00
 :page-archived: true
-:page-obsolete: true
+:page-outdated: true
 :page-toc: top
 
-
+[NOTE]
+This page talks about old WF and the code/classes mentioned here do not exist.
 
 == Introduction
 
@@ -27,8 +28,8 @@ For example, although midPoint out-of-the-box supports approvals for assigning n
 * and so on.
 
 In this text we will describe how to create a *primary-stage approval process*, i.e. process that executes during primary stage of model operation.
-We will use the link:https://fisheye.evolveum.com/browse/midPoint-git/model/workflow-impl/src/main/java/com/evolveum/midpoint/wf/processors/primary/PrimaryChangeProcessor.java?hb=true[PrimaryChangeProcessor] to do that, because it implements a lot of technical code, allowing you to concentrate on your business.
-Moreover, we will use existing general link:https://fisheye.evolveum.com/browse/midPoint-git/model/workflow-impl/src/main/resources/processes/ItemApproval.bpmn20.xml?hb=true[ItemApproval] BPMN process.
+We will use the https://github.com/Evolveum/midpoint/blob/master/model/workflow-impl/src/main/java/com/evolveum/midpoint/wf/impl/processors/primary/PrimaryChangeProcessor.java[PrimaryChangeProcessor] to do that, because it implements a lot of technical code, allowing you to concentrate on your business.
+Moreover, we will use existing general ItemApproval BPMN process.
 This option is strongly recommended, because it frees us from many annoying technical details related to BPMN and supporting Java code.
 
 Just to provide the whole picture, there are other options, namely:
@@ -41,7 +42,8 @@ Just to provide the whole picture, there are other options, namely:
 
 You can read about these approaches in respective parts (2, 3 and 4) of this document.
 
-Now, if you have not done so, please read the document about the wiki:Workflow+Management[workflow module architecture]. The part most important for you is the PrimaryChangeAspect interface.
+Now, if you have not done so, please read the document about the xref:/midpoint/architecture/archive/subsystems/model/workflow-3/[workflow module architecture].
+The part most important for you is the PrimaryChangeAspect interface.
 It deals with a given (elementary) kind of primary-stage change, and has the following duties:
 
 . When a change arrives - change aspect tries to recognize whether the change contains relevant delta(s); if so, it prepares instruction(s) to start related workflow approval process(es).
@@ -52,18 +54,15 @@ It deals with a given (elementary) kind of primary-stage change, and has the fol
 
 .. provides a list of approvers that is to be stored in modified object's metadata.
 
-
-
 . When a user wants to work on his task, the change aspect prepares a form to be presented to the user.
 
 . When a user asks about the state of process instance(s), the change aspect prepares that part of the answer that is specific to individual process.
-
 
 == Starting workflow process instances
 
 First of change aspect's duties corresponds to the method *prepareJobCreationInstructions*. Its goal is to tell which wf-related jobs to start, and how to change original object delta.
 So, for example, if you build an aspect that manages approvals for a specific security-sensitive user attribute A, in this method you would look for any changes related to this attribute.
-If you would find one, you would *remove* it from the original delta and start a workflow process to approve such a change.
+If you find one, you would *remove* it from the original delta and start a workflow process to approve such a change.
 
 Preparation of a wf-related job start is a quite complex task; fortunately, midPoint provides a couple of helpful methods there.
 An example code how to use them follows (taken from AddRoleAssignmentAspect):
@@ -119,12 +118,12 @@ ItemToApprove can be anything - the only condition is that it should be serializ
 For a real example, have a look at AddRoleAssignmentAspect and see how prepareJobCreationInstructions is implemented there.
 You might notice that there is a method named* getAssignmentToApproveList* that looks for role assignment creations.
 It separately treats cases of user addition and user modification.
-In both cases it looks for assignments of abstract roles that are "sensitive" (in a sense they have defined an approver or more complex approval schema), removes them from the add/modify request, and for each such assignment creates an link:https://fisheye.evolveum.com/browse/midPoint-git/model/workflow-api/src/main/java/com/evolveum/midpoint/wf/processes/itemApproval/ApprovalRequest.java?hb=true[ApprovalRequest]. As mentioned above, ApprovalRequest is a simple data structure describing what has to be approved (itemToApprove) and by which means (approvalSchema).
+In both cases it looks for assignments of abstract roles that are "sensitive" (in a sense they have defined an approver or more complex approval schema), removes them from the add/modify request, and for each such assignment creates an `ApprovalRequest`.
+As mentioned above, ApprovalRequest is a simple data structure describing what has to be approved (itemToApprove) and by which means (approvalSchema).
 It is a part of general item approval process (com.evolveum.midpoint.wf.processes.itemApproval).
 
 Please note that other jobs (root job, task0) are created automatically by the primaryChangeProcessor.
-Also the execution strategy ("execute all afterwards", "execute all immediately", "mixed mode") is determined automatically within instruction.prepareCommonAttributes(...) method, by looking at respective option in the model context.
-
+Also, the execution strategy ("execute all afterwards", "execute all immediately", "mixed mode") is determined automatically within instruction.prepareCommonAttributes(...) method, by looking at respective option in the model context.
 
 == Finishing workflow process instance
 
@@ -135,7 +134,6 @@ This information is then stored in the task by the wf module, and eventually fet
 
 The default implementations provided by PrimaryChangeAspectHelper class (to whom they are delegated by BasePrimaryChangeAspect, a suggested superclass of all primary change aspect classes), delegates these duties to ProcessMidPointInterface instance of the BPMN process used.
 In our case, the item approval process fully covers required functionality, so we have to do nothing special.
-
 
 == User interaction
 
@@ -197,7 +195,8 @@ When a work item is being approved, the following information is shown to the us
 
 
 
-What you, as an implementer, have primarily to provide, is the second item in the above list: *specific information about a request*. We call it QuestionForm.
+What you, as an implementer, have primarily to provide, is the second item in the above list: *specific information about a request*.
+We call it QuestionForm.
 In order to do that, you have to implement *prepareQuestionForm* method:
 
 [source]
@@ -259,7 +258,6 @@ public PrismObject<? extends ObjectType> prepareRelatedObject(org.activiti.engin
 (We utilize approvalRequest variable here, which is specific to the generic itemApproval process that we use in this case.
 The itemToApprove member of the request contains OID of the role to be added.)
 
-
 === Displaying the state of the approval process
 
 When displaying the state of an approval process, there are some items common to all processes (e.g. instance name, instance id, start and finish timestamp, midPoint task oid), but the most useful information is specific to a particular BPMN process.
@@ -267,7 +265,6 @@ In order to ensure most effective display of such information we require workflo
 The code itself has to reside in GUI module, but the change aspect has to provide a reasonably well-structured data to it.
 
 Default implementation delegates this duty to ProcessMidPointInterface again; so we have nothing to do here.
-
 
 == Conclusion
 

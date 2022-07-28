@@ -1,0 +1,168 @@
+= IGA Capability: Synchronization
+:page-nav-title: Synchronization
+:page-display-order: 130
+:page-keywords: [ 'IGA' ]
+:page-upkeep-status: green
+
+== Alternative names
+
+* Reconciliation
+
+* Correlation
+
+== Synchronization Functions
+
+* *Data feed management*.
+Management of (inbound) data feeds from source systems to IGA platform.
+Real-time or almost-real-time detection and processing of changes.
+Handling of multiple data sources, making sure that information is properly merged.
+
+* *Reconciliation*.
+Comparing real state of things (in source/target systems) with the data and policies in IGA platform.
+Checks that fulfillment works (especially manual fulfilment), detection of account existence, attribute value checks, entitlement checks.
+Support for reconciliation of diverse identity types (users, applications, orgs, roles).
+
+* *Data consistency management*.
+Maintenance of data (eventual) consistency.
+Detection of discovered data inconsistencies, discovered by various methods (data feed, reconciliation, opportunistic discovery).
+Reaction to discovered inconsistencies, with an aim to correct them.
+
+* *Identity correlation*.
+Detection of data structures (accounts, entitlements) that represent the same identity.
+Execution of correlation rules or queries, probabilistic correlation and so on.
+
+* *Orphan detection*.
+Detection of accounts (and other data) without an owner or equivalent responsible entity.
+Reaction to such situations, usually leading to establishing an owner or deletion/disable of the account.
+
+== Overview
+
+Synchronization capability provides functions that keep identity data consistent across all the connected systems.
+While fulfilment can make sure that the account is created in accord with the policy, it is synchronization that makes sure that it stays compliant with the policy all the time.
+This makes synchronization perhaps the most important infrastructural capability of any IGA platform.
+
+Synchronization also provides the means to feed data into the IGA platform.
+There is often at least one authoritative data source, in enterprise scenarios usually provided by the human resource (HR) system.
+Such data source provides authoritative information regarding legal data and employment status of a user.
+However, comprehensive IGA deployments need much more data than just the basic information provided by the HR system.
+Therefore, even in relatively simple deployments there are often many data sources with varied levels of authoritativeness.
+Such data sources often provide additional details, such as contact information, organizational structure assignment and so on.
+Several data feeds are often used to populate IGA platform with data on non-person identities, such as organizational structure, partner organizations, security tokens, devices and "things".
+Such "automatic" data sources are often supplemented with data that are maintained manually, usually maintained in form of spreadsheets and manually imported into the IGA system.
+It is not unusual that some identity types are maintained manually in an IGA platform as an authoritative source.
+
+There are usually several sources feeding data to IGA system.
+Each of the sources is likely to have its own schema, data formats, codes and other specific characteristics.
+Such a diverse data need to be mapped and transformed into a form consistent with the identity model of the IGA system.
+Moreover, records that describe the same identity have to be _correlated_ and merged.
+Correlation is not a completely reliable process, even in enterprise scenarios where some correlation identifiers (such as employee number) are readily available.
+The source data were most likely maintained manually, there is relatively high probably of data errors and inconsistencies.
+As the IGA system is the system where the data meet for the first time, it is likely that there will be correlation failures and mis-matches that need to be handled manually.
+Correlation is even harder in case there is no reliable correlation identifier, or if there are several semi-reliable correlation attributes.
+Probabilistic correlation (a.k.a. _identity matching_) can be used in that case.
+However, such correlation almost always requires human intervention, resulting in semi-automatic process.
+Most of the correlation effort is expected at the time when IGA platform is deployed, or when a new system is connected to IGA platform.
+However, the source data are changing all the time, user groups grow and fluctuate.
+Therefore identity correlation is a continuous process, a part of day-to-day identity management routine.
+
+There are two fundamental model of continuous data feed from data sources to IGA system:
+
+* *Pull model* (polling): IGA platform is periodically polling for new data.
+For example, IGA system may be looking for database rows that were changed since the last poll.
+Polling intervals are relatively short, usually in order of minutes.
+Therefore, this approach can provide "near-real-time" synchronization, which is sufficient for many common cases.
+Pull-based synchronization is usually simple to deploy and maintain, as long as there is a suitable change identifier (change serial number, timestamp, sequence number or similar).
+However, there is an inherent synchronization delay (polling interval).
+Also, the source system need to keep additional state (change timestamps, change log or similar).
+Perhaps the most painful drawback of pull-based mechanisms is detection of deleted objects.
+This especially impacts timestamp-based polling mechanisms, where objects are deleted without a trace.
+Timestamp-based polling mechanism cannot detect deleted objects in such cases.
+
+* *Push model* (messaging): Source system is actively notifying IGA platform about data updates.
+Message-based systems are often used to implement push-based synchronization feeds.
+Such feeds can provide synchronization that is very close to real time, given that the circumstances are ideal (low volume of changes, fast processing of changes).
+Moreover, push-based synchronization allows moving of state-keeping functions to a dedicated intermediary (message broker), de-coupling source system from IGA platform.
+However, this approach usually adds additional components and indirection into the data pathway, increasing complexity of the solution.
+It is not clear whether synchronization based on message brokers is an advantage, as it still does not cover all the border cases of message loss (e.g. full message queue, bugs, misconfiguration).
+The sender (source system) and/or the receiver (IGA platform) still need additional mechanisms for full reliability of message-based communication.
+
+Clearly, there is no single universal and reliable synchronization mechanism.
+The situation needs to be considered on case-by-case basis, which complicated IGA deployments.
+
+Synchronization is meant to enforce continuous consistency of data in all the connected systems.
+However, this task is much harder than it may seem.
+IGA platform is interconnecting several _independent_ systems, each of them maintaining a database with various data models, access protocols, operational characteristics and consistency constraints.
+There is no universal mechanism that can be used to make sure that the data remain consistent even during one simple operation.
+Transactional mechanism can be used only for some systems (usually relational databases), and even there the details vary significantly to make such mechanism all but useless for universal cross-system data consistency.
+Many systems are based on REST interfaces (APIs), and not provide any data consistency guarantees at all.
+The data may change shortly after an operation is completed, or even during execution of an operation.
+In such environment, short-term data consistency is definitely a significant challenge.
+Long-term data consistency is a colossal task.
+
+Most IGA platforms seem to acknowledge the reality and adopt an _eventual consistency_ approach.
+In this paradigm, the data may be inconsistent at some point in time, yet the data will become consistent eventually.
+Eventual consistency is achieved by a combination of several mechanisms, while _reconciliation_ is perhaps the most widespread and universal one.
+
+_Reconciliation_ is a process of comparing data stored in IGA platform with the data in target systems.
+There are various forms of reconciliation.
+The most lightweight reconciliation processes simply look at account existence, ignoring all the attributes and entitlements.
+The most heavyweight processes are running a full policy evaluation for each user, checking account status, all the attribute values and entitlements.
+All forms of reconciliation can usually detect _orphaned accounts_.
+Orphaned accounts are accounts that do not have matching identity in IGA database.
+These are usually accounts that should have been deleted, but remained in the system.
+The account was not deleted due to human error, because of a bug in the connector code, it might have been manually created by system administrator, perhaps as a testing account, it may be an artefact of disaster recovery, restoring data from an older back-up, or there may be numerous other reasons that the account was overlooked.
+Orphaned accounts are often a major security risk, therefore detection and clean-up of orphaned accounts is a critical functionality of IGA deployment.
+However, detection of orphaned accounts alone is not sufficient to maintain continuous security level.
+Reconciliation have to detect wrong account status, wrong attribute values and wrong entitlements to maintain data consistency and hence security.
+This can be achieved by full reconciliation process that checks consistency of information end-to-end: from the data sources, through the IGA platform, all the way to the target systems.
+Full reconciliation is a demanding, slow and long-running process.
+Yet it is a necessary process.
+Full reconciliation is usually the only practical mechanism to make sure that the data are consistent, and remain consistent in the long term.
+It should be running periodically.
+
+Reconciliation is often seen as an "auditing" mechanism, making sure that the accounts were provisioned correctly and checking for orphaned accounts.
+However, reconciliation is much more than that.
+Reconciliation is an essential data consistency mechanism, it is critical for correct operation of the entire IGA platform.
+Reconciliation has to be used both on _target_ as well as _source_ sides of the data flows.
+As "real-time" synchronization mechanisms are unreliable, reconciliation of data sources is the only practical way to make sure that IGA works with fresh and valid data.
+All in all, reconciliation is a crucial failsafe mechanism.
+It should be used for all systems and data feeds connected to IGA platform.
+
+Synchronization is an essential tool especially at times when there is a need to connect new system to IGA platform.
+New system is likely not to be that new after all.
+The system may be running for years, before it is connected to IGA platform.
+Therefore there are almost always existing data in the system, that needs to be correlated and reconciled with the data in the IGA platform.
+Synchronization is the right tool for this job.
+It may look like this functionality will not be needed too often.
+However, the reality is quite different.
+New systems are added and decommissioned all the time, especially in the era of flexible cloud services.
+Synchronization capabilities are used more often than expected, through all the lifetime of IGA deployment.
+
+Synchronization is not just about receiving data feed and comparing data in long-running reconciliation processes, it is an essential capability permeating the entire IGA platform.
+Synchronization events may be triggered by unexpected "discoveries" made by IGA platform.
+For example, IGA platform may try to modify an account, however the account is no longer there.
+Or perhaps the IGA platform tries to create an account, and discovers that an unknown account with a conflicting identifier is already created.
+Situation such as these may trigger ad-hoc synchronization events, often leading to automatic remediation of the situation.
+
+Identity management is no longer just about users and accounts.
+There are numerous identity types, many of them are non-person identities such as (application) roles, organizational units and services.
+Synchronization must be able to handle such identities in much the same way as it handles person identities.
+In a slightly counter-intuitive way, non-person identities are often synchronized _from_ systems that are traditionally considered to be _target_ systems.
+E.g. IGA platform may automatically create application role for each Active Directory group, allowing proper governance of the privilege (access requests, ownership, certification).
+This means that a traditional role of _source_ and _target_ systems is no longer strictly separated, mixed approach is becoming a norm.
+
+Synchronization capability is often implemented by using _identity connectors_, the same connectors that are used for fulfilment.
+This makes perfect sense, as the synchronization mechanisms and protocols depend on the systems that we are connecting to.
+
+Synchronization is often an overlooked capability.
+It is usually dismissed by the analysts, included in fulfillment or "auditing" without any deeper interest.
+This may make sense from the business point of view, as synchronization is often hidden.
+When synchronization operates correctly, it is almost entirely invisible to the users.
+However, the reality cannot be made invisible, it will always hit back.
+Synchronization is essential for reliable operation of all connected systems, and it is absolutely critical for information security.
+Synchronization cannot be an after-thought, a mere extension to the IGA platform.
+It has to be built into the very core of the platform, as it permeates everything.
+
+== See Also
+
+* xref:/iam/iga/[]

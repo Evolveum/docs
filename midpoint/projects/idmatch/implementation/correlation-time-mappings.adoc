@@ -1,0 +1,199 @@
+= Correlation-Time Mappings
+
+== Before 4.5
+
+Before 4.5, the correlation expressions used to look like this:
+
+.Listing 1. Typical pre-4.5 correlation expression
+[source,xml]
+----
+<correlation>
+    <q:equal>
+        <q:path>employeeNumber</q:path>
+        <expression>
+            <path>$account/attributes/ri:hrId</path>
+        </expression>
+    </q:equal>
+</correlation>
+----
+
+This expression means that we want to correlate `hrId` attribute of an account to the `employeeNumber` property
+of an existing user, i.e. we are looking for a user with `employeeNumber` property being equal to `hrId` property
+of the shadow being correlated.
+
+Usually, such correlation rule is accompanied by an inbound mapping that transfers the value of `hrId` attribute
+to user `employeeNumber` property, after the correlation is done (either providing the value for a new user, or updating
+the value for existing one). Like this:
+
+.Listing 2. Inbound mapping that fills-in `employeeNumber` from the value of `hrId`
+[source,xml]
+----
+<attribute>
+    <ref>ri:hrId</ref>
+    <displayName>HR Identifier</displayName>
+    <inbound>
+        <strength>strong</strength>
+        <target>
+            <path>employeeNumber</path>
+        </target>
+    </inbound>
+</attribute>
+----
+
+The problem with this approach is that the information about the relation between `hrId` and `employeeNumber`
+has to be maintained at two distinct places. They are usually not even physically close to each other.
+
+And the situation starts to be much worse if there are non-trivial transformations to be done there. For example,
+let us assume that the `employeeNumber` should contain the string after 3rd character if HR ID starts with `A`,
+and the string after 5th one, otherwise. The mapping would be:
+
+.Listing 3. Inbound mapping that fills-in `employeeNumber` from the value of `hrId` (with more complex computation)
+[source,xml]
+----
+<attribute>
+    <ref>ri:hrId</ref>
+    <displayName>HR Identifier</displayName>
+    <inbound>
+        <strength>strong</strength>
+        <expression>
+            <script>
+                <code>
+                    input.startsWith('A') ? input.substring(3) : input.substring(5)
+                </code>
+            </script>
+        </expression>
+        <target>
+            <path>employeeNumber</path>
+        </target>
+    </inbound>
+</attribute>
+----
+
+And the correlation expression:
+
+.Listing 4. A condition that finds an owner for an account based on a relation between `hrId` and `employeeNumber`
+[source,xml]
+----
+<correlation>
+    <q:equal>
+        <q:path>employeeNumber</q:path>
+        <expression>
+            <script>
+                <code>
+                    hrId = basic.getAttributeValue(account, 'hrId')
+                    hrId.startsWith('A') ? hrId.substring(3) : hrId.substring(5)
+                </code>
+            </script>
+        </expression>
+    </q:equal>
+</correlation>
+----
+
+This is obviously not very maintainable in the long run: When the code for deriving the `employeeNumber` from `hrId`
+changes, _both_ places have to be updated. Otherwise, the correlation will not work correctly.
+
+== New Options
+
+Starting with midPoint 4.5 it is possible to eliminate this duplication. The same inbound mapping can be used to
+prepare data for correlation as well as to provide data to be put into the user object.
+
+Using our previous example, we are now able to write the correlation rule like this:
+
+.Listing 5. A condition that finds an owner for an account based on the value of `employeeNumber` computed by a mapping
+[source,xml]
+----
+<correlation>
+    <q:equal>
+        <q:path>employeeNumber</q:path>
+        <expression>
+            <path>$focus/employeeNumber</path> <!--1-->
+        </expression>
+    </q:equal>
+</correlation>
+----
+<1> `$focus` refers to the object computed by inbound mappings.
+
+The `$focus/employeeNumber` is the employee number that was mapped by the inbound mapping from the `hrId` attribute.
+So, the knowledge that `hrId` maps to `employeeNumber` (and how exactly) has to be now present at a single place only: in the mapping.
+
+By default, inbound mappings are _not_ evaluated for correlation (yet). Therefore, one has to explicitly enable this.
+It can be done for all the mappings in given object type:
+
+.Listing 6. Setting the default execution phases of all inbound mappings for given object type
+[source,xml]
+----
+<schemaHandling>
+    <!-- ... -->
+    <objectType>
+        <!-- ... -->
+        <mappingsEvaluation>
+            <inbound>
+                <defaultEvaluationPhases>
+                    <phase>beforeCorrelation</phase>
+                    <phase>clockwork</phase>
+                </defaultEvaluationPhases>
+            </inbound>
+        </mappingsEvaluation>
+    </objectType>
+</schemaHandling>
+----
+
+The `defaultEvaluationPhases` setting specifies that - by default - all inbound mappings for this object type
+are evaluated _both_ before correlation (if correlation is needed), and during standard processing (in so-called clockwork).
+
+If not specified, the default setting is clockwork-only execution, i.e. the same behavior as in midPoint 4.4 and earlier.
+
+The phases can be specified also at the level of individual mapping, e.g. like this:
+
+.Listing 7. Setting the execution phases for a given mapping only
+[source,xml]
+----
+<attribute>
+    <ref>ri:hrId</ref>
+    <displayName>HR Identifier</displayName>
+    <inbound>
+        <strength>strong</strength>
+        <expression>
+            <script>
+                <code>
+                    input.startsWith('A') ? input.substring(3) : input.substring(5)
+                </code>
+            </script>
+        </expression>
+        <target>
+            <path>employeeNumber</path>
+        </target>
+        <evaluationPhases>
+            <include>beforeCorrelation</include>
+        </evaluationPhases>
+    </inbound>
+</attribute>
+----
+
+You can specify both `include` and `exclude` keywords here. The former adds a phase or phases to the default list of phases,
+whereas the latter removes the specified phase or phases from the default list of phases.
+
+NOTE: During execution, the mapping is currently executed twice, i.e. results of the execution before correlation
+are not re-used during clockwork execution. (The execution environments can differ in subtle ways.) This may change
+in the future.
+
+[NOTE]
+====
+As an _experimental_ feature, the following simplified syntax of correlation expression can be used as well:
+
+.Listing 8. Correlating on `employeeNumber` (experimental feature)
+[source,xml]
+----
+<correlationDefinition>
+    <correlators>
+        <items>
+            <item>
+                <path>employeeNumber</path>
+            </item>
+        </items>
+    </correlators>
+</correlationDefinition>
+----
+
+This is equivalent to the condition `employeeNumber` = `$focus/employeeNumber` with the additional treatment of `null` values.
+====

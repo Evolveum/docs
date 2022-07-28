@@ -1,0 +1,92 @@
+= Changes in Resource-Related Definitions in 4.5
+
+NOTE: This is an early draft of the document. E.g. no figures yet. Unorganized, just a bunch of information.
+
+Definitions related to resource objects: resource schemas, object classes, object types, and attributes
+were completely restructured.
+
+Instead of "resource", "refined" and "layered" definitions we how have only a single set of definitions:
+
+- `ResourceAttributeDefinition` (and `ResourceAssociationDefinition`)
+- `ResourceObjectDefinition` (for object classes and object types)
+- `ResourceSchema`
+
+They can contain both "raw" and "refined" definitions.
+
+The `ResourceObjectClassDefinition` and `ResourceObjectTypeDefinition` are now non-interchangeable types,
+because they represent different concepts. _Object class_ is a set of objects known to the resource
+(or, more precisely, the resource connector). It is identified by a qualified name, like
+`ri:inetOrgPerson`. _Object type_ is a midPoint concept, corresponding to a section in `schemaHandling`
+part of the resource definition. It is identified by kind/intent pair, like `ACCOUNT`/`default`.
+
+[%header]
+[%autowidth]
+|===
+| Old type | New type | Note
+| `ResourceAttributeDefinition`
+| `ResourceAttributeDefinition`
+| (partly `RawResourceAttributeDefinition`)
+
+| `RefinedAttributeDefinition`
+| `ResourceAttributeDefinition`
+|
+
+| `ObjectClassComplexTypeDefinition`
+| `ResourceObjectClassDefinition` / `ResourceObjectDefinition`
+|
+
+| `RefinedObjectClassDefinition`
+| `ResourceObjectTypeDefinition`
+| In 4.4, some raw object class definitions were wrapped into `RefinedObjectClassDefinition`
+(created using fake kind/intent information).
+
+| `ResourceSchema`
+| `ResourceSchema`
+| In 4.4 the `ResourceSchema` was purely the raw schema. In 4.5 it can be raw or complete.
+
+| `RefinedResourceSchema`
+| `ResourceSchema`
+|
+
+|===
+
+#TODO#
+
+== Other changes
+
+- Schemas for resource (both raw and complete) are now obtained using `ResourceSchemaFactory` class
+(`getRawSchema` and `getCompleteSchema` methods). In 4.4 there were methods like
+`RefinedResourceSchema.getResourceSchema` (the raw version)and `RefinedResourceSchema.getRefinedSchema`
+(the complete ~ refined version).
+
+- `findAttributeDefinition` are no longer "type-adaptable" (like `<X> ResourceAttributeDefinition<X> findAttributeDefinition(...)`).
+They now return `ResourceAttributeDefinition<?>` and it's the caller's responsibility to correctly cast them - if needed.
+
+- Namespace for resource schema is now fixed to "ri:". (The configuration flexibility was removed already in 4.4. Now the code
+benefits from this simplification as well.)
+
+- The idea of "default" object class/type was reviewed. See
+`ResourceObjectClassDefinition#isDefaultAccountDefinition`,
+`ResourceObjectTypeDefinition#isDefaultForKind`,
+`ResourceObjectTypeDefinition#isDefaultForObjectClass`.
+
+- The algorithms for finding object class/type definition
+for given kind/intent/OC name were reworked. They are in some aspects
+more strict (e.g. not allowing specifying intent without kind),
+or not allowing "unknown" kind/intent values at some places.
+Some incompatibilities may stem from this. #TODO describe in more details#
+
+- `ResourceShadowDiscriminator` was split into `ResourceShadowCoordinates` and `ResourceShadowDiscriminator`.
+(This was planned for a long time.)
+
+- The `task` is now obligatory parameter in provisioning API as well as in UCF.
+
+- Resource and object type/class definition is now resolved in `ProvisioningContext` during the context
+creation, not lazily. (In the majority of cases it was done right after creation, anyway.) This simplifies
+the code, as e.g. `getResource` method does not throw a long list of checked exceptions.
+
+- Many methods like `findAttributeDefinition`, `findObjectTypeDefinition` etc have their `...Required`
+variants. This eliminates a lot of null-checking in the client code. However, we'd need some conventions
+to e.g. pass a context description to these methods, in order to correctly report the exceptions.
+
+- `StateReporter` is now gone. For UCF calls, `UcfExecutionContext` was created.

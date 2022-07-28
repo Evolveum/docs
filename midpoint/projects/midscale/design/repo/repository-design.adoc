@@ -1,6 +1,11 @@
 = Repository Design
 :page-toc: top
 
+[NOTE]
+This page is part of MidScale project documentation and was freezed at the end of the project.
+See xref:/midpoint/reference/repository/native-postgresql/design-and-implementation.adoc[Design and Implementation]
+and xref:/midpoint/reference/repository/native-postgresql/db-maintenance.adoc[DB maintenance] for current pages.
+
 == Basic considerations
 
 * Capacity
@@ -10,7 +15,7 @@
 ** If it's optimized for PG, tests must be run against PG as well, H2 will not cover the new repo at all.
 ** Primary goal is PG, but let's not close the door for Oracle too soon.
 
-== Current design assumptions
+== Initial design assumptions
 
 * Focus on PostgreSQL only, without necessarily making Oracle usage impossible.
 * New repository will be SQL/JDBC based with http://www.querydsl.com/[Querydsl library] used for
@@ -21,6 +26,7 @@ Reasons are:
 ** We need more control over query construction without switching between HQL (or JPQL) and native SQL.
 ** We need dynamic columns for extensions or audit custom attributes.
 This is generally impossible with JPA/ORM solutions.
+(Alternatively we can use JSONB type in PostgreSQL.)
 ** Unit of work pattern (Hibernate "session" or JPA "persistence context") is not beneficial for
 a repository clearly separated from midPoint model.
 There is no direct mapping of object model to the repository, repository is more operation oriented,
@@ -30,7 +36,7 @@ This is another reason why "unit of work" is meaningless in midPoint.
 ** Without "unit of work" repository should be more memory efficient (no implicitly held data in session)
 and CPU efficient (no dirty checking, all modifications will be explicit).
 * We will start with DB objects close to existing repository, but
-https://www.postgresql.org/docs/13/ddl-inherit.html[table inheritance] will be used for `m_object`
+https://www.postgresql.org/docs/current/ddl-inherit.html[table inheritance] will be used for `m_object`
 and related tables.
 * Because `m_shadow` is also object and declarative paritioning can't be combined with inheritance,
 we will use "application managed partitioning" (implemented with inherited tables) for `m_shadow`
@@ -52,7 +58,7 @@ or separate OID-pool table - the latter was used for reasons described lower in 
 
 * Scalability, table hierarchy, relations:
 ** Separate oid table for all objects - yes, this is used to keep OID unique index on a single place.
-This is, however, not the part of a `m_object` hierarchy and can be completely ignored even by the application.
+This is, however, not the part of an `m_object` hierarchy and can be completely ignored even by the application.
 ** `full_object` LOB will always be placed in concrete tables (even if defined in "abstract" table).
 Old-repo solution with `full_object` on a single table causes heavy contention on `M_OBJECT`.
 ** What about search for supertype (like any focus with some attribute equals to...)?
@@ -78,7 +84,7 @@ Replacing core repository should not have impact on `task-quartz-impl` module.
 == Extension attributes, DB schema extensions
 
 * Extensions:
-** Currently both single- and multi-values stored in tables (per data type), multi-values as multiple lines.
+** Currently, both single- and multi-values stored in tables (per data type), multi-values as multiple lines.
 *** There are separate sets of tables for "object extensions" and "assignment extensions".
 ** Possible solution:
 *** Single valued extensions directly in the owning table.
@@ -87,8 +93,8 @@ Can indexable JSON array be solution?
 ** Shadow is a bit different, there are various attributes depending on resource schema.
 Normally we don't cache attributes, in that case there is no problem, but what if we want to?
 There are still identifiers, primary is in `M_SHADOW`, we don't have secondary/tertiary.
-Problem also describe on the https://wiki.evolveum.com/display/midPoint/Identifier+Theory[Identifier Theory wiki page].
-** https://wiki.evolveum.com/display/midPoint/Advanced+Hybrid+RBAC[Parametric roles]
+Problem also describe on the xref:/midpoint/devel/design/identifier-theory/[Identifier Theory page].
+** xref:/midpoint/reference/roles-policies/rbac/[Parametric roles]
 can/will contain definition of extended attributes, how to apply these to DB schema?
 *** Assignment parameters are more like "shadow attributes" while schema extensions are global.
 ** Ability to apply necessary DB schema changes without the restart would be nice,
@@ -182,7 +188,7 @@ Unused Hibernate entities for audit tables are still used for automatic DB creat
 
 * Testing considerations for automated TestNG tests:
 ** We want to develop tests that will be run on both 4.2 version (support branch) and in master.
-** See link:/midpoint/projects/midscale/design/testing-design/[Testing design] for more.
+** See xref:/midpoint/projects/midscale/design/testing-design/[Testing design] for more.
 
 * How to get to minimum viable product (MVP) as soon as possible?
 ** In 4.3 we'd like to have rough implementation of `repo-api` (`RepositoryService`).
@@ -192,7 +198,7 @@ Testing on SQL level with many rows, etc.
 == Schema to repository mapping
 
 Table shows only descendands of `ObjectType`, not other containers, assignments, etc.
-See also https://wiki.evolveum.com/download/attachments/4424005/midpoint-db-4.2.png[schema diagram for midPoint 4.2].
+See also image::/midpoint/reference/repository/generic/midpoint-db-4.2.png[schema diagram for midPoint 4.2].
 
 |===
 | Schema type | Repo Q-type | Rows (expected max or typical for smaller tables)
@@ -256,7 +262,7 @@ This was reasonably fast, each table had its own OID index, but with more inheri
 it was definitely slower than a single index check (see the table below).
 * This solution did not allow for FK against OID on the parent tables.
 
-Unique OID was assured by the following https://www.postgresql.org/docs/13/plpgsql-trigger.html[trigger]
+Unique OID was assured by the following https://www.postgresql.org/docs/current/plpgsql-trigger.html[trigger]
 based on http://blog.ioguix.net/postgresql/2015/02/05/Partitionning-and-constraints-part-1.html[this article]:
 
 [source,sql]

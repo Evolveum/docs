@@ -474,6 +474,80 @@ Permissive modify is supported.
 
 |===
 
+== Distinguished Names
+
+_Distinguished name_ (DN) is primary object identifier in LDAP.
+The look like this:
+
+[source]
+----
+uid=semancik,ou=People,dc=Example,dc=com
+----
+
+Surely, they are not the prettiest or shortest kind of identifier out there.
+However, this is just a cosmetics compared to other problems.
+
+Firstly, the identifier depends on a _location_ of an object in a directory.
+Which means that the identifier is going to change when the object is moved.
+
+Secondly, the identifier often contains name of the object, such as username or common name.
+Which means that the identifier is going to change when the object is renamed.
+
+DN is the _primary_ identifier in LDAP, which is required for almost all LDAP operations to work.
+And yet, it is not exactly stable.
+This means that many operational procedures of LDAP directories are designed to minimize moving and renaming of objects.
+Which is a serious limitations for LDAP directories.
+
+Yet, this gets even worse.
+The real nightmare starts when DNs are compared.
+For example, are the following DNs all the same, or are they different?
+
+[source]
+----
+uid=semancik,ou=People,dc=Example,dc=com
+uid=semancik,ou=people,dc=example,dc=com
+UID=Semancik,OU=People,DC=example,DC=com
+UID=semancik,OU=People,DC=ExAmPLE,DC=COM
+----
+
+By now you should not be surprised by the answer.
+The answer is "it depends", of course.
+To be exact, it depends on the _schema_.
+Whether specific value is compared in case-sensitive or case-ignore way depends on definition of the attribute type.
+If a specific attribute is defined as case-sensitive, that part of DN has to be compared in case-sensitive way.
+If an attribute is defined as case-ignore, then that specific part should be compared in case-insensitive way.
+Unless you have complete schema information, you cannot decide whether DNs are same or different.
+Isn't that cute?
+
+Luckily, most commonly-used LDAP attributes are defined as case-ignore strings.
+Therefore, many LDAP implementation (especially the clients) just assume that DNs are completely case-insensitive, and compare them in case-ignore way.
+Which is, strictly speaking, not correct.
+But it is the only practical way to keep your sanity.
+Trust me.
+I have spent several days on a futile attempt to implement correct comparison algorithm that would work with at least two common LDAP servers.
+Did not work.
+The algorithm is very fragile, even small deviations from standard schema could ruin it completely.
+It is not worth trying.
+
+=== What To Do About It?
+
+When you are doing anything serious with LDAP, do not rely on DNs.
+Use other identifiers, such as `entryUUID` or its proprietary equivalents (such as GUID in Active Directory).
+Oh yes, this is going to be painful, as now you need to translate your `entryUUID` to DN for a lot of LDAP operations.
+Welcome to the LDAP land.
+
+However, many applications do rely on DNs.
+If you move or rename an object, such clients wil not be able to find it.
+Therefore, design your directory structure to avoid moving and renaming objects.
+Avoid hierarchy.
+Put all your users into a single OU.
+Do not user full names in DN.
+Avoid using any attribute that is likely to change.
+
+As for the DN comparison, just cut your losses and use case-ignore comparison for all DNs.
+This is what many implementation are doing anyway, therefore it became a _de facto_ standard.
+Which means that you should never use a case-sensitive attribute in your DNs.
+Your clients will treat that as case-ignore value anyway.
 
 == OIDs
 
