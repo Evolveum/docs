@@ -36,6 +36,7 @@ Working with reports require computing power too. Having the reports saved in in
 
 User Story::
 * Report designer configures the report to provide results to _reporting database_ - e.g. by creating table or refreshing materialized view for the report.
+** He defines whether all data to be replaced or new data will be added (e.g. new csv file or added rows to reporting results)
 ** He can schedule it to run in specified times.
 ** He defines access to the report data.
 * User configures his analytical tool to connect to reporting database and open the report results.
@@ -64,11 +65,10 @@ Users often prefer to have data from specific time over last minute data - e.g. 
 +
 If reports are used by multiple users, then the preparing reports for all of them can significantly save system resources over running the report for each user.
 +
-On the other hand, scheduling and precomputing all reports even when these are not used could waste the resources. The IGA engineer should decide which reports to schedule and when.
+On the other hand, scheduling and precomputing all reports even when these are not used could waste the resources. The IGA engineer / IGA administrator should decide which reports to schedule and when.
 
 User Story::
-* The report designer configures report to be run in specified times and provide results.
-** He defines whether all data to be replaced or new data will be added (e.g. new csv file or added rows to reporting results)
+* The report designer configures new or existing report to be run in specified times - via UI during report configuration.
 
 [#_option_to_run_sql_in_reports]
 === Option to run SQL in reports
@@ -122,6 +122,9 @@ User story::
 
 +
 Example for displaying the content and functionality of the roles to business users can be found in definition of xref:../iga-and-access/objects-and-midpoint/app-role-design/index.adoc[application role] and xref:../iga-and-access/objects-and-midpoint/business-role-design/index.adoc[business role].
+
+Inducements of services may have defined relations. These relations represent business description of the access in the service (application or application resource). +
+The relation of the inducement should be visible too. This is missing: xref: https://jira.evolveum.com/browse/MID-8034[MID-8034], but in business display it may be displayed in different way.
 
 [#_users_history_in_business_readable_form]
 === User's history - in business readable form.
@@ -209,8 +212,6 @@ Motivation::
 This is the opposite direction as in the previous use-case. We need to list users and roles on the application object.
 Just this is not enough. For better analysis, IGA user should know also _why_ each user has the application. The _why_ means by which application role the application (service) was assigned.
 
-// Toto je podmnozina reportu TODO - pozriet, ktory report.
-
 User Story::
 IGA user opens the application object, and can list users that have this application (service) assigned.
 This view can display just users.
@@ -220,17 +221,36 @@ Also he can see the list of application roles that enable access to this applica
 +
 As in previous use-case, the view should be searchable to find users directly from the view.
 
+[#_what_is_assigned_by_this_role]
+=== What is assigned by this role ?
+
+Scenario::
+IGA user opens the business role and wants to know all roles and applications that will be assigned by assignment of this business role. Not only "directly" but also "indirectly".
++
+This information should be displayed in UI. Something like "All direct/indirect inducements".
+
+Motivation::
+This is partial display of role hierarchy (use-case xref:#_hierarchy_of_roles__the_role_model[hierarchy of roles - the role model]) just for the one opened role. It is top-down traversal through role inducements.
++
+As services may be induced in the roles too, the same information should be provided also for services.
+
+NOTE: It should be configurable what role archetypes will be displayed for different types of users. E.g. metaroles will not be displayed for end-users.
+
 [#_where_is_this_role_included]
 === Where is this role included ?
 
-IGA user wants to know all business roles in which is the specified application role included (as an inducement or assignment).
-This is bottom-up traversal through roles.
-
-This information should be displayed in UI. E.g. in role object detail.
+Scenario::
+IGA administrator or role manager wants to know all (business) roles where the specified (application) role is included as an inducement.
+E.g. while decommissioning or modification of an application role, he wants to know what roles will be affected by the role removal ro modification.
 
 Motivation::
-Finding all business roles that contains specified application role is needed while analysis of access of the application.
-It is useful also during some reconstruction of access of particular application.
+Finding all business roles that contains specified application role is useful in some role or application maintenance tasks.
+This information should be displayed in UI.
++
+This is partial display of role hierarchy (use-case xref:#_hierarchy_of_roles__the_role_model[hierarchy of roles - the role model]) just for the one opened role. It is bottom-up traversal through role inducements.
++
+As also services may be induced in the roles, the same information should be provided also for services.
+
 
 == Big picture over assignments
 
@@ -275,13 +295,18 @@ The list of privileged users can be provided by report or just by selection in t
 IGA user (e.g. application engineer, IGA operator, role manager, helpdesk operator) wants to compare content of two or multiple roles and correct them accordingly.
 
 The display of two roles in UI is useful during role cleanup procedures, or troubleshooting of some operational issue.
-The report of multiple roles can be universally
+
+The report of multiple roles can be universally used while role configuration or data cleanup.
 
 User Story::
-For the 2 roles comparison, the IGA user can display the roles side-by-side, or in two browser tabs and compare them.
+For the 2 roles comparison, the IGA user can display the roles side-by-side, or in two browser tabs and compare them. The display of the roles may be in xref:#_role_content_in_business_readable_form[business readable form] or in actual display in UI.
 +
 If the IGA user wants to _compare multiple roles_, then the report may be provided with displaying the attributes, as well with assignments, entitlements and role members.
 The IGA user can select whether he wants to compare just attributes or additionally assignments, inducements or members of the roles in the report.
++
+For the comparison report, the report user should define the roles to compare and what components of the roles to compare. Then the report should display the components of the role. Each column represents one element, each line represents role - or, when comparing assignments, inducements or role membership - each xref:#_role_identification_in_each_line_of_the_report[line represents one assignment, inducement or role membership].
++
+In comparing assignments, inducements or role membership - only one such role component may be defined to avoid cartesian product of the lines.
 
 The same solution should be implemented for comparison of orgs.
 
@@ -290,12 +315,66 @@ The same solution should be implemented for comparison of orgs.
 [#_role_identification_in_each_line_of_the_report]
 === Role identification in each line of the report
 
-When all assignments, inducements or role members are reported, then each assignment, inducement or role member should be in individual line of the report. The line should be contain identification of the role.
+When all assignments, inducements or role members are reported, then each assignment, inducement or role member should be in individual line of the report. The line should contain identification of the role.
 
 This report configuration allows easier data analysis.
 
+Motivation::
+Data in reports are often source for further analysis.
++
+Old way of providing reports is that report should be well-defined before, then prepared in source system and provided in the form nice for view and reading by end-user. Often in pdf format.
+The reports are easy to read in small data sets. But are very difficult to read in large data sets and are not designed for further processing.
++
+In typical organization the specification of reports in advance, configuration and communication with IGA operators (or even engineers) takes time and resources. Especially for ad-hoc reports.
++
+For many cases, better way is having standard report available in the form that is suitable for additional data analysis, the report user can run default report, import it to his analytical tool and perform the data analysis.
+This way reduces/removes specification of the report and enable easier analysis of the data with tools that the end-user
++
+Of course, the data may be provided only to authorized users.
+
+.Example
+As an example, security officer needs all application assignments of people from specific department and analyses their access to identify excessive user access while investigating a fraud. Having all accesses and performing the analysis and filtering them ad hoc according the traces, investigation.
+
+*Original format* - one line per user. All assignments in one line.
+[options=header, width=50% ]
+|===
+|User |Assignment
+|Adam Smith
+a|App A:User +
+App B:Editor +
+App C:Administrator
+|Buster Blake
+a|App B:Editor +
+App C:Editor
+|Clark Cooper
+a|App C:Administrator +
+App A:User +
+App X:User +
+App B:Editor
+|===
+
+*Proposed report format* - easy to process in analytical tools.
+
+[options=header, width=50% ]
+|===
+|User |Assignment
+|Adam Smith |App A:User
+|Adam Smith |App B:Editor
+|Adam Smith |App C:Administrator
+|Buster Blake |App B:Editor
+|Buster Blake |App C:Editor
+|Clark Cooper |App C:Administrator
+|Clark Cooper |App A:User
+|Clark Cooper |App X:User
+|Clark Cooper |App B:Editor
+|===
+
+When such security officer wants to identify the *roles that have 3 users in common* it is easy to process the second report in the analytical tool and perform selection.
+
 [#_hierarchy_of_roles__the_role_model]
 === Hierarchy of roles - the role model
+
+This use-case is displaing of the role hierarchy described xref:../iga-and-access/access-modeling/index.adoc#_role_hierarchy[here].
 
 Role manager needs to see roles in *hierarchy of roles based on inducements*. To understand the structure and whole role model.
 
@@ -308,27 +387,26 @@ For particular roles he needs answers to following questions:
 Structuring of the roles from top level business roles, through application roles to detail metaroles is useful for Role manager for analysis of the role structure and organization.
 It is also useful for auditors or security officers for review of access that particular role or list of roles can provide.
 
-This view (or report) should display the roles starting from top level business roles and including all levels of inducements.
-The roles may be duplicated in the role model display. It is natural as one application role may be included in multiple business roles.
+This report should display the roles starting from top level business roles and including all (or specified number) levels of inducements.
 
-Example of role model display::
+Technically, it is hard to display role model in full structure and with good readability, because there may be thousands of roles and each role may contain dozens or even hundreds of inducements.
+Also, the roles may be duplicated in the role model display. It is natural as one application role may be included in multiple business roles.
 
-* Business role 1
-** Application role 1   -> Access to application 1
-*** Metarole X
-** Application role 2   -> Access to application 2
-*** Metarole X
-* Business role 2
-** Business role 3
-*** Application role 1  -> Access to application 1
-**** Metarole X
-** Application role 4   -> Access to application 4
+To improve readability, the report user should be able to scope the report by specifying:
+
+* *object types* - e.g. display only roles or orgs. If orgs are included, then the xref:../iga-and-access/access-modeling/index.adoc#_defining_rules__org_units_and_roles[assignment rules] may be displayed.
+* *archetypes* - e.g. display only business roles (to have just structure of the business roles), or excluding metaroles out of reporting scope.
+* *set of roles for analysis* - only these roles will be analyzed. Recursively. Here he should define whether all descendants or all ancestors should be displayed.
+* *maximum displayed level* of the role structure - user may specify to displat only first or first two levels of role hierarchy.
+
+As an example, the role model may be displayed in xref:./role-model-report-example.xlsx[following structure].
 
 Also some additional information may be displayed for each role - role archetype, owner, count of members, ...
 
-The information may be result of some report - it may be quite expensive to compute such information each time in GUI.
+To provide whole structure of roles may be quite expensive operation in UI. Therefore, the report is good way for this use-case.
+But, if only one role should be analyzed, then the UI may provide the information as well. The xref:#_what_is_assigned_by_this_role[what is assigned by this role] and xref:#_where_is_this_role_included[where is this role included] use-cases describe this situation.
 
-NOTE: We have already role catalog displayed by org tree. It is useful in some situation, but this catalog does not display the hierarchy of the roles according the inducements.
+NOTE: MidPoint can already display role catalog by org tree. It is useful in some situation, but this catalog does not display the structure of the roles according the inducements.
 
 [#_roles_in_organization_units]
 === Roles in organization units
