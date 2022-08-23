@@ -1,5 +1,6 @@
 = GUI: Assignment Repository Search
 :page-since: 4.6
+:page-toc: top
 
 == Background Information
 
@@ -20,7 +21,7 @@ The following example illustrates how to enable repository-based search for the 
 all assignments of a user.
 
 .Enabling repository search for "All assignments" panel
-[source, xml]
+[source,xml]
 ----
 <systemConfiguration>
     ...
@@ -44,6 +45,7 @@ all assignments of a user.
     ...
 </systemConfiguration>
 ----
+
 <1> Causes this configuration to be applied to user assignments
 <2> Denotes "all assignments" panel
 <3> The most important part: enables repository-based search
@@ -84,7 +86,7 @@ for all abstract roles. It is to be put into the system configuration object at 
 (Do not forget to reindex the repository after including it.)
 
 .Full-text search configuration example
-[source, xml]
+[source,xml]
 ----
 <fullTextSearch>
     <enabled>true</enabled>
@@ -135,8 +137,11 @@ For example, the following `extension.xsd` file (put into the `schema` directory
 adds a `string` property named `reason` to an assignment. It may denote the reason why the
 assignment has been created.
 
+For role, this schema defines additional `string` property `externalName`, which may
+denote role name as intended for external systems.
+
 .Sample `extension.xsd` file
-[source, xml]
+[source,xml]
 ----
 <xsd:schema elementFormDefault="qualified"
             targetNamespace="http://example.com/xml/ns/mySchema"
@@ -162,6 +167,25 @@ assignment has been created.
             </xsd:element>
         </xsd:sequence>
     </xsd:complexType>
+
+    <xsd:complexType name="RoleExtensionType">
+        <xsd:annotation>
+            <xsd:appinfo>
+                <a:extension ref="c:RoleType"/>
+            </xsd:appinfo>
+        </xsd:annotation>
+        <xsd:sequence>
+            <xsd:element name="externalName" type="xsd:string" minOccurs="0" maxOccurs="1">
+                <xsd:annotation>
+                    <xsd:appinfo>
+                        <a:indexed>true</a:indexed>
+                        <a:displayName>External Name</a:displayName>
+                        <a:displayOrder>120</a:displayOrder>
+                    </xsd:appinfo>
+                </xsd:annotation>
+            </xsd:element>
+        </xsd:sequence>
+    </xsd:complexType>
 </xsd:schema>
 ----
 
@@ -174,7 +198,7 @@ We can add custom columns to the assignment panel by modifying `panel->listView`
 admin GUI configuration.
 
 .Adding newly-created property to assignment list
-[source, xml]
+[source,xml]
 ----
 <systemConfiguration>
     ...
@@ -203,6 +227,7 @@ admin GUI configuration.
     ...
 </systemConfiguration>
 ----
+
 <1> Setting this to `true` preserves original default columns, so we do not need to redeclare them.
 <2> Adds the column definition
 <3> Name (identifier) of the column
@@ -224,7 +249,7 @@ It is necessary to use either Advanced Search or Axiom Query Search feature for 
 For example:
 
 .Advanced search (XML)
-[source, xml]
+[source,xml]
 ----
 <filter>
   <substring>
@@ -235,7 +260,7 @@ For example:
 ----
 
 .Axiom query search
-[source, axiom]
+[source,axiom]
 ----
 extension/reason contains "testing"
 ----
@@ -264,7 +289,7 @@ As an example, if we want to enable sorting on our extension `reason` property, 
 the following column definition in `panel->listView` section.
 
 .Making the custom column sortable
-[source, xml]
+[source,xml]
 ----
 <column>
     <name>reason</name>
@@ -277,6 +302,119 @@ the following column definition in `panel->listView` section.
 ----
 
 WARNING: This feature is currently not available in some configurations. This is going to be fixed.
+
+=== Adding columns displaying assignment target data
+
+It is possible to add custom columns, which displays data from assignment target
+and it's extension, but there are some limitations, based on assignment panel type.
+
+All - `allAssignments`::
+panel and code assumes that target is `AbstractAssignmentHolderType`. If you want
+to add column which display target extension for `RoleType`, `OrgType` or `ServiceType`
+you need to use column with expressions. This columns can not be sortable.
+Role - `roleAssignments`::
+panel and code assumes that target is `RoleType` and contains extension data for `RoleType`.
+Organizations - `orgAssignments`::
+panel and code assumes that target is `OrgType`
+Service - `serviceAssignments`::
+panel and code assumes that target is `ServiceType`
+
+==== Adding column displaying information from reference itself (name or OID)
+
+.Column displaying `name` of target (not display name)
+[source,xml]
+----
+<column>
+    <name>targeName</name>
+    <path>targetRef</path>
+    <export>
+        <expression>
+            <script>
+                <code>input.targetName</code>
+            </script>
+        </expression>
+    </export>
+</column>
+----
+
+.Column displaying `oid` of target
+[source,xml]
+----
+<column>
+    <name>targetOid</name>
+    <path>targetRef</path>
+    <export>
+        <expression>
+            <script>
+                <code>input.oid</code>
+            </script>
+        </expression>
+    </export>
+</column>
+----
+
+==== Adding target extension column for concrete type panels
+
+IMPORTANT: This works only on assignment panels wit concrete target (Role, Organization, Service) and Repository search must be enabled.
+
+For concrete type panels adding column, which displays target extension is straight-forward and similar to adding normal custom column.
+
+If our schema has indexed extension property named `externalName`  defined for `RoleType`, we are able to add it as column to *Assignments -> Role* panel.
+The path for this property (relative to assignment) is `targetRef/@/extension/externalName`.
+
+.Column displaying `externalName` extension from target.
+[source,xml]
+----
+<column>
+  <name>extName</name>
+  <path>targetRef/@/extension/externalName</path>
+</column>
+----
+
+If we want to make this column also sortable, we need to add `sortProperty` to `column`.
+
+.Column displaying `externalName` extension from target.
+[source,xml]
+----
+<column>
+  <name>extName</name>
+  <path>targetRef/@/extension/externalName</path>
+  <sortProperty>targetRef/@/extension/externalName</sortProperty>
+</column>
+----
+
+==== Adding target extension column to All Assignments panel
+
+Since not all target types may contain extension (if it is defined in concrete type for example), adding column is bit trickier and require use of `script` expression and more verbose column definition. Since the extension property is not present in all possible
+assignment target types we can not sort by it.
+
+We can display our custom property `externalName` also on `allAssignments` panel, using
+following snippet:
+
+[source,xml]
+----
+<column>
+    <name>externalName</name>
+    <path>targetRef/@</path> <1>
+    <display>
+        <label>External Name</label> <2>
+    </display>
+    <export>
+        <expression>
+            <script>
+                <code>
+                  basic.getExtensionPropertyValue(input, "http://example.com/xml/ns/mySchema", "systemType") <3>
+                </code>
+            </script>
+        </expression>
+    </export>
+</column>
+----
+
+<1> In this case target must be whole target object (`targetRef/@`)
+<2> Since this column is custom column using expressions, we also need to define
+display name of column
+<3> We can use basic expression functions to get extension property. The function `getExtensionPropertyValue` has arguments object (in case of simple expression it is `input`), namespace and local name of extension property.
 
 == Using Advanced or Axiom Search Feature
 
@@ -292,7 +430,7 @@ Let us have a look at some examples.
 
 .Displaying assignments whose target name contains string `user`
 ====
-[source, xml]
+[source,xml]
 .Advanced (XML filter)
 ----
 <filter>
@@ -304,7 +442,7 @@ Let us have a look at some examples.
 ----
 
 .Axiom filter
-[source, axiom]
+[source,axiom]
 ----
 targetRef/@/name contains "user"
 ----
@@ -313,7 +451,7 @@ targetRef/@/name contains "user"
 .Displaying assignments to objects, which are members of "System role"
 ====
 
-[source, xml]
+[source,xml]
 .Advanced (XML filter)
 ----
 <filter>
@@ -325,7 +463,7 @@ targetRef/@/name contains "user"
 ----
 
 .Axiom filter
-[source, axiom]
+[source,axiom]
 ----
 targetRef/@/roleMembershipRef/@/name = "System role"
 ----
