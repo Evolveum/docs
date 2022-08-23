@@ -3,35 +3,35 @@
 
 == Correlators
 
-The general configuration schema - as introduced in midPoint 4.5 - is the following:
+The basic element of the configuration is the _correlation rule_ (or _correlator_)
+configuration.
 
-The basic element of the configuration is the _correlator configuration_.
+NOTE: The _correlation rule_ is more user-oriented term, while _correlator_ is
+more implementation-oriented one. See also the xref:index.adoc[overview document].
+Risking a bit of confusion, let us stick with the term _correlator_ in this document,
+at least for now.
 
-Note that each correlator can be seen as a _correlation rule_ in the sense
-of the xref:index.adoc[overview document]. Risking a bit of confusion, let us stick
-with the term _correlator_ in this document. At least for now.
+Correlators are hierarchical, with a specified default algorithm for combining their results.
 
-There may be more correlators, structured into compositions. They are evaluated according
-to the algorithm described below.
-
-The correlation can be configured also inside specific resource object _attributes_
-and (maybe) focus _items_. Please see the _Attribute-Level Configuration_ and
-_Item-Level Configuration_ sections at the end of the document.
+Correlators are usually defined in the object template. However, there may be other places;
+please see the #TODO# _Attribute-Level Configuration_ and _Item-Level Configuration_ sections
+at the end of the document.
 
 == Correlation Algorithm Outline
 
 Individual correlators are evaluated in a defined order. Each one produces zero, one, or more
-candidate matches. Each candidate match has a _confidence_ assigned: either "fully certain" flag,
-meaning that the correlator is certain that this is the identity searched for, or a decimal number
-denoting the level of confidence. The scale for this number is specific for each correlator.
+_candidate matches_. Each candidate match has a _confidence value_ assigned: either "fully certain"
+flag, meaning that the correlator is certain that this is the identity searched for, or a decimal
+number denoting the level of confidence. The scale for this number is specific for each correlator.
 
 === Combining the Results
 
-The algorithm for combining the results is the following:
+The default algorithm for combining the results is the following:
 
 . Each correlator provides a set of candidate matches, each with a confidence value.
 . A union of these sets is constructed, and for each candidate, the confidence values coming
-from individual correlators are summed. (Except for `ignoreIfMatchedBy` correlators, see below.)
+from individual correlators are summed. The "fully certain" flag is treated as "positive infinity"
+value here. Results of correlators denoted by `ignoreIfMatchedBy` are ignored, as described below.
 
 === "Ignore if Matched by" Flag
 
@@ -40,8 +40,8 @@ automatically implies the match by rule 2. As an example, consider the situation
 matches by both `givenName` and `familyName` (at the same time) and rule 2 matches
 by `familyName` only, without regarding any other items.
 
-Let us now assume that rule 1 brings a confidence increment of 0.5, while rule 2 brings
-the increment of 0.3. This setup means, though, that in practice any candidate
+Let us now assume that rule 1 brings a confidence value increment of 0.5, while rule 2 brings
+an increment of 0.3. This setup means, though, that in practice any candidate
 matching rule 1 would match rule 2 as well, providing an increase of 0.5 + 0.3 = 0.8.
 While not necessarily incorrect, such treatment is counter-intuitive.
 
@@ -152,54 +152,72 @@ when checked by this correlator.
 [%autowidth]
 |===
 | Option | Meaning | Example
-| `name`
-| Name by which this definition is referenced. If not present, the last segment
-of the item path is used to derive the name.
-| `dateOfBirth`
-
-| `path`
+| `ref`
 | Where (in the focus object) is this correlation item stored.
 | `extension/dateOfBirth`
 
-| `matching`
-| Matching algorithm for this item.
-|
+| `matcher`
+| Matcher to be used for matching this item.
+| `levenshtein-3`
 |===
 
-Each item can be matched using a specific algorithm. This determines the normalization of the
-item value before being stored and the query options used when searching. Some examples:
+== Matchers
 
-.Matching specification examples
+A _matcher_ (or _item value matcher_) is the basic building block of item-based correlation.
+It compares two item values to see if they "match" sufficiently so that the item is considered to be
+"matching" for the purpose of particular correlation rule.
+
+Any matcher consists of the following two parts:
+
+. _Normalizer_: It creates a normalized form of the stored value that can be targeted by the database query.
+. _Comparator_: It compares two normalized values to determine if they match.
+
+NOTE: In the future, we anticipate the use of matchers outside the correlation.
+For example, they may be used for regular user search within the GUI.
+
+NOTE: This concept is somewhat similar to the one of "matching rule".
+However, the implementation is much different.
+
+== Normalizers
+
+There are the following types of normalizers:
+
+.Normalizer types
 [%header]
 [%autowidth]
 |===
-| Option | Normalization | Query | Parameters
-| PolyStringNorm
-| Actually-configured PolyString "norm" normalization.
-| Standard equality
-| -
-
-| PolyStringNorm + Levenshtein
-| Actually-configured PolyString "norm" normalization.
-| Levenshtein distance
-| Distance interval
-
-| PolyStringNorm + First N
-| Actually-configured PolyString "norm" normalization,
-but taking first N characters only.
-| Standard equality
-| `N`
+| Normalizer type | Description
+| `polyString` | Default or specified PolyString normalizer. May be configured. (In the future.)
+| `original` | The original value.
+| `prefix` | Retains only specified number of characters from the start.
+| `custom` | Evaluated custom expression to get the normalized form.
 |===
 
-#TODO other examples; matching for non-string parameters#
+NOTE: Is "normalizer" a good name? What about "indexer"?
 
-NOTE: The PolyString "norm" normalization does not require `PolyString`-typed configuration items.
+== Comparators
+
+They describe how should the system compare values, which have been already normalized.
+A comparator is just another representation of the prism filter.
+(Sometimes combined with the matching rule.)
+
+.Comparator types
+[%header]
+[%autowidth]
+|===
+| Comparator type | Parameters | Description
+| `equality` | none | It compares values in the exact way.
+| `caseInsensitiveEquality` | none | It compares string values in a case-insensitive way.
+| `levenshtein` | `N` (integer) | Matches if the values have Levenshtein edit distance at most `N`.
+| `similarity` | `T` (float), `inclusive` (boolean) | Matches if the values have trigram similarity at most `T` (inclusive or not).
+|===
+
+NOTE: The PolyString normalization does not require `PolyString`-typed values.
 It is applicable to any `String` or `PolyString` values.
 
-NOTE: Levenshtein edit distances of individual items should be usable in the confidence expressions.
-They should be referencable using variable names like `distanceX` where `X` is the correlation item
-name; and additionally `distance` if there is a single correlation item configured to be compared
-using this metric.
+NOTE: In the future: Levenshtein edit distances of individual items should be usable in the confidence expressions.
+They should be referencable using variable names like `distanceX` where `X` is the correlation item name;
+and additionally `distance` if there is a single correlation item configured to be compared using this metric.
 
 === Item Definition vs Item Reference
 
