@@ -1,0 +1,209 @@
+= Smart Correlation Repository Notes
+:toc:
+
+== Table design
+
+One obvious option for identity attributes was to use extension-like JSONB column mechanism.
+Because there are multiple identity variants for each focus, it would be stored in a separate
+table with orig and norm variants in different JSONB columns to keep the structure flat.
+
+=== Levenshtein considerations
+
+Experiments with 10M row table and JSONB column showed expected results when Levenshtein function was used:
+
+* Full seq-scan must be used, there is no way to index for Levenshtein and various inputs.
+* Depending on the HW, no more than 10s should be expected for such a search on 10M variants.
+This means the more variants are used per user, the slower the search is.
+Also, the result may change with the volume (physical size) of the table, because all of it must be fetched.
+* When no indexing is used, there is just small difference whether the JSONB values are singlevalued
+or multivalued (which requires `exists` subquery with `from jsonb_array_elements_text`).
+
+=== Trigram indexing
+
+For some operations (`ilike` and `similarity`) trigram index can be successfully used.
+This requires `pg_trgm` extension which is already enabled in our DB schema.
+
+* Index must be created with this type `gin(<column> gin_trgm_ops)`, where `<column>` is the actual
+column name - it can be of `text` and compatible types - it does *not* work for arrays and JSONB.
+* JSONB single value can be indexed `using gin((attrs ->> 'first_name') gin_trgm_ops)`.
+With this index operations like `(attrs ->> 'first_name') % 'brady'` are very fast.
+
+However, trigram index can't be used to array values, in our case JSONB array values.
+There are some options with arrays:
+
+* `exists` subquery with `from jsonb_array_elements_text` can be used - which does not use any index, of course.
+* *Limited for some operations:*
+We can extract/normalize the multivalue into a single value string (similar to
+`fullTextInfo` used in MP) and then index this and add where to it as well.
+Additional conditions can be used as well; e.g. using trigram only for the digest column, this makes
+the query fast, and then check all the "slow" conditions on the other attributes (even multivalued).
+This solution is more complicated, because it requires some auto-magic either on repository or more
+work on the model level.
+** Instead of explicit column we can create index `using gin((attrs ->> 'multi-val-key') gin_trgm_ops)`.
+This indexes textual representation of the whole array value, so it's not usable as trigram index for each value.
+This can be used instead of explicit index column, it works just as well although it still
+allows for false positives - thuese must be filtered out by proper additional conditions.
+Related fast check then is `attrs ->> 'multi-value-key' ilike '%value%'`.
+Note that this "fast check" is usable only for some operations, e.g. `like` works fine, but
+`similarity` (`%`) does not.
+The reason is that while the single name is similar enough to the provided value, the whole
+digest returns false on the same check and would falsly ruled valid results out.
+
++
+--
+Doing this blindly without index does not help, this would require some additional information
+that should be stored in `m_ext_item` catalog in some additional configuration column (which would
+also be of JSONB type for flexibility, but this is unrelated).
+
+Perhaps it's better not to consider this for now.
+The added complexity is probably not worth the questionable benefits.
+--
+
+In any case, using JSONB seems to be a better way in overall.
+Using the detail table for key-value pairs takes roughly the same space, but requires join
+(or semi-join, that is `exists`) and even with indexes does not perform faster.
+
+It is expected that both single table or master-detail variant will experience some level
+of update bloat, but it should be managable by default auto-vacuum.
+
+SQL experiments code:
+[code,sql]
+
+----
+CREATE EXTENSION fuzzystrmatch;
+
+create table x_names (
+    id SERIAL NOT NULL PRIMARY KEY,
+    first_name text,
+    last_name text,
+    gender varchar(1),
+    country varchar(2),
+    attrs jsonb
+);
+
+create table x_names_attrs (
+    id SERIAL NOT NULL PRIMARY KEY,
+    name_id integer NOT NULL,
+    key text,
+    value text
+);
+
+ALTER TABLE x_names_attrs ADD CONSTRAINT x_names_attrs_name_id_fk
+    FOREIGN KEY (name_id) REFERENCES x_names (id)
+        ON DELETE CASCADE;
+
+CREATE INDEX x_names_attrs_name_id_idx ON x_names_attrs (name_id);
+-- alternative to pure FK index, does not seem to help with the queries we need
+CREATE INDEX x_names_attrs_name_id_key_idx ON x_names_attrs (name_id, key);
+
+-- copy of names from CSV file, in the end 10M names were used for experiments
+COPY x_names(first_name, last_name, gender, country)
+FROM '/vagrant/us.csv'
+DELIMITER ','
+;
+
+-- lateral join, seems fine when we need l and m in select too, but is slower than the next select
+SELECT count(*)
+from x_names,
+     levenshtein_less_equal(first_name, 'Brad', 5) l,
+     levenshtein_less_equal(last_name, 'Brad', 5) m
+where l <= 5 or m <= 5
+;
+
+-- fastest variant, using columns
+SELECT count(*)
+from x_names
+where levenshtein_less_equal(first_name, 'Brad', 5) <= 5
+      or levenshtein_less_equal(last_name, 'Brad', 5) <= 5
+
+-- filling the JSONB column, choose small or larger JSON content, it changes the speeds of full-scan
+update x_names
+-- small JSONB
+set attrs = ('{"first_name": "' || first_name || '", "last_name": "' || last_name || '", "names": ["' || first_name || '", "' || last_name || '"]}')::jsonb
+-- bit bigger JSONB
+-- set attrs = ('{"first_name": "' || first_name || '", "last_name": "' || last_name || '", "names": ["' || first_name || '", "' || last_name || '"],' ||
+-- ' "xxx1": "yyy1", "xxx2": "yyy2", "xxx3": "yyy3", "xxx4": "yyy4", "xxx5": "yyy5", "xxx6": "yyy7", "xxx7": "yyy7", "xxx8": "yyy8",' ||
+-- ' "xxx11": "yyy11", "xxx12": "yyy12", "xxx13": "yyy13", "xxx14": "yyy14", "xxx15": "yyy15", "xxx16": "yyy16", "xxx17": "yyy17", "xxx18": "yyy18",' ||
+-- ' "xxx21": "yyy21", "xxx22": "yyy22", "xxx23": "yyy23", "xxx24": "yyy24", "xxx25": "yyy25", "xxx26": "yyy26", "xxx27": "yyy27", "xxx28": "yyy28"}')::jsonb
+;
+
+-- Showing matching names (from first 50), unrolling the names multi-val JSON value.
+-- This, again, uses lateral join, which is not best for WHERE, see the query later.
+select *
+from x_names,
+     jsonb_array_elements_text(attrs -> 'names') n,
+     levenshtein_less_equal(n, 'Brad', 5) l
+where id <= 50
+      and l <  5
+;
+
+-- Using single value from JSONB (similar to single column, just marginally slower).
+SELECT count(*)
+from x_names
+where levenshtein_less_equal(attrs ->> 'first_name', 'Brad', 5) <= 5;
+
+-- This checks any of the multi-value names:
+SELECT count(*)
+from x_names
+where exists (select 1 from jsonb_array_elements_text(attrs -> 'names') n
+    where levenshtein_less_equal(n, 'Brad', 5) <= 5)
+
+-- Now filling the detail table:
+insert into x_names_attrs (name_id, key, value)
+select id, key, coalesce(aval, sval) val from (
+    select id, key,
+        case when jsonb_typeof(value) = 'array' then value end avals,
+        case when jsonb_typeof(value) <> 'array' then value end sval
+    from x_names, jsonb_each(attrs)
+    where id > 1000000
+) x left join jsonb_array_elements(avals) aval on true;
+
+-- query using detail table and two "columns"
+SELECT count(*)
+from x_names n
+where exists(select 1 from x_names_attrs
+    where name_id = n.id
+        and (key = 'first_name' and levenshtein_less_equal(value, 'Brad', 5) <= 5
+            or key = 'last_name' and levenshtein_less_equal(value, 'Brad', 5) <= 5));
+
+-- detail table, query for multi-val names key
+SELECT count(*)
+from x_names
+where exists(select 1 from x_names_attrs
+    where name_id = n.id
+        and key = 'names'
+        and levenshtein_less_equal(value, 'Brad', 5) <= 5);
+
+-- For other operations like % and LIKE/ILIKE we can build trigram indexes:
+-- One for specific key in JSON (all values must be single-value texts):
+create index x_names_afn_trg_idx
+    on x_names using gin((attrs ->> 'first_name') gin_trgm_ops);
+
+-- Tried this to make the query for 'names' in detail table faster, but did not work.
+create index x_names_attrs_names_trg_idx
+    on x_names_attrs using gin(value gin_trgm_ops)
+    where key = 'names';
+
+-- Very fast query using JSONB and trigram index (note % operation, levenshtein does not use index):
+SELECT count(*)
+from x_names n
+where (attrs ->> 'first_name') % 'brady';
+----
+
+Talking about speeds of the queries in very broad terms (can vary on HW, PG config...):
+
+* JSONB single value silimarity (`%`) search using index is very fast (under 1s counting 17k matches from 10M rows).
+* Levenshtein check on column or JSONB single value is ~10s.
+* Levenshtein check on multi-val JSONB (with subquery unrolling values) is ~20s.
+* Levenshtein check on multi-val `names` in detail table is ~50s.
+* Similarity search on multi-value JSONB (with subquery unrolling values) is ~30s.
+* Similarity search on multi-value `names` using detail table is ~30s.
+This is 20s less than the same with levenshtein function which can't be attributed only to
+the levenshtein performance (the same number of calls is performed for 10s query too).
+The similarity query uses Bitmap Index Scan on x_names_attrs_names_trg_idx which helps a bit.
+* Any lateral join makes the 10s query go up above 30s, even for 1:1 joins on levenshtein functions.
+We will not use these variants, they may be practical only for getting some values into select.
+
+== Custom operations and Querydsl
+
+// TODO inspiration is in PostgreSQLTemplates

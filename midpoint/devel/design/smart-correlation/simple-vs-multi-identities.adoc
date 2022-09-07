@@ -1,0 +1,157 @@
+= Correlation: Simple vs "Multi-Identities"
+:toc:
+
+The resource object correlation will work in two modes:
+
+.Modes of resource object correlation
+[%autowidth]
+[%header]
+|===
+| Mode | Description | Conflict resolution
+| Single identity
+| The user has only a single set of identity data. It is stored right in the `UserType` object
+in the traditional way: in statically-defined places (`givenName`, `familyName`, ...)
+and in extension (`extension/dateOfBirth` and so on).
+| Conflicts in data from multiple resources are not expected.
+
+| Multiple identities
+| User has potentially multiple sets of identity data. The main set contains the data stored
+in `UserType` object in the traditional way. But for each identity data source (e.g., for each
+source resource) we create a separate identity data set.
+| The engineer defines rules that select the most authoritative identity data from these sets.
+|===
+
+The single-identity mode is easy to set up and suitable for simple deployments.
+The multiple-identities mode requires a special setup, so it is to be used only when really needed.
+
+As far as correlation is concerned, the same mechanism are available in both cases:
+multiple correlators a.k.a. correlation rules, approximate matching, numerical confidence
+values, and so on.
+
+== Configuring Correlation in Single-Identity Mode
+
+#TODO#
+
+== Configuring Correlation in Multiple-Identities Mode
+
+The multiple identities feature is currently set up in an object template.
+
+=== Identity Item Definition
+
+The basic part of the configuration is the definition of so-called _identity item_. It is an item
+(currently, a property) that takes part in the user identity data that is of interest from
+the point of view of multiple identities - that means, it can differ among the various sources.
+
+In addition to marking an item as being part of the identity data, definitions related
+to matching (correlation) of this item can be provided. They can be seen as item-local
+(or item-specific) matching rules.
+
+.Sample identity item definition
+[source,xml]
+----
+<objectTemplate>
+    <item>
+        <ref>givenName</ref>
+        <!-- "identity" item means that this property will be a part of "identities" container. -->
+        <identity>
+            <!-- We may want to define some "local" matching rules for this item. Other ones
+                 can be defined globally, e.g., in the system configuration. -->
+
+            <!-- The first (default) rule uses traditional polystring normalization and "equals" matching. -->
+            <matching>
+                <name>exact</name>
+                <default>true</default>
+                <normalization>
+                    <currentPolyStringNormalization/> <!-- the default -->
+                </normalization>
+                <search>
+                    <equality/> <!-- the default -->
+                </search>
+            </matching>
+
+            <!-- This rule searches for values of levenshtein distance at most 2 from given value,
+                 over values normalized using "first-5" recipe below. -->
+            <matching>
+                <name>first-5-lev-2</name>
+                <normalization>
+                    <using>first-5</using>
+                </normalization>
+                <search>
+                    <levenshteinDistance>
+                        <to>2</to>
+                    </levenshteinDistance>
+                </search>
+            </matching>
+
+            <!-- Named normalization recipe. (May be local or global.) -->
+            <!-- Stores first five characters of polystring-normalized form. -->
+            <!-- They are stored in `givenName.first-5` element of <normalized> container. -->
+            <normalization>
+                <name>first-5</name>
+                <prefix>
+                    <characters>5</characters>
+                </prefix>
+                <currentPolyStringNormalization/> <!-- the default -->
+            </normalization>
+        </identity>
+    </item>
+</objectTemplate>
+----
+
+=== Correlation Rules (Identity Matching?) Definitions
+
+Again, these are stored in the object template.
+
+.Sample focus-scoped correlation definitions
+[source,xml]
+----
+<objectTemplate>
+    <identity>
+        <!-- The following definitions are applicable to any items in this template -->
+        <definitions>
+            <!-- If a matching with default=true was here, it would be used to all items -->
+            <matching>
+                <name>first-10-lev-1</name>
+                <normalization>
+                    <using>first-10-of-orig</using>
+                </normalization>
+                <search>
+                    <levenshteinDistance>
+                        <to>1</to>
+                    </levenshteinDistance>
+                </search>
+            </matching>
+            <normalization>
+                <name>first-10-of-orig</name>
+                <prefix>
+                    <characters>10</characters>
+                </prefix>
+                <noNormalization/> <!-- just to show this option -->
+            </normalization>
+        </definitions>
+        <!-- This defines the rules for correlation -->
+        <correlators>
+            <items>
+                <authority>principal</authority>
+                <item>
+                    <path>employeeNumber</path>
+                </item>
+            </items>
+            <items>
+                <confidence>0.5</confidence>
+                <item>
+                    <name>givenName</name>
+                </item>
+                <item>
+                    <name>familyName</name>
+                </item>
+                <item>
+                    <name>dateOfBirth</name>
+                </item>
+            </items>
+        </correlators>
+    </identity>
+</objectTemplate>
+----
+
+#TODO finish this#

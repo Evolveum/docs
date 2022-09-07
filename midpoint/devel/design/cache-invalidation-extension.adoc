@@ -1,0 +1,140 @@
+= GUI Profile & Cache Invalidation Updates for 4.6
+
+In order to implement GUI profile recomputation on changes effectivelly
+(practically it's cache invalidation, where GUI profile is cached computation from multiple sources - user, roles, system configuration)
+the cache invalidation mechanism needs to be extended.
+
+== Current state
+
+Cache invalidation events are not propagated for all types - e.g. users.
+Cache Listeners do not have option to specify filter for types and modification
+events they are interested in.
+
+Currently, `CacheRegistryImpl` is `CacheListener` and uses `Cache` interface
+to deliver invalidation events to caches.
+
+== Proposed solution
+
+Expand Cache Invalidation and Cache Listener contract to
+
+  - allow programatic specification of interesting invalidation events
+  * e.g. object type, set of item paths, which needs to be modified in order
+      to rise invalidation event.
+  * allow this specification to override clusterwide status (in order for event
+    to be received on all nodes)
+  - provide programatic list of all enabled event filters (needed for event originator)
+
+
+=== Introduce `CacheInvalidationEventFilter` or `CacheInvalidationEventSpecification`
+
+The object specifies following criteria for cache invalidation events:
+
+Object Type::
+  If specified, listener is only interested in receiving cache invalidation events
+  of specified type.
+Set of Item Path::
+  If specified, listener is only interested in receiving cache invalidation events, when
+  any of item paths is modified. (Object deletion is considered modification of item path.)
+Notify Added::
+  Default false, notify if object of specified type is added.
+Notify Removed::
+  Default true, notify if object of specified type is removed.
+Notify Updated::
+  Default true, notify if object of specified type is updated.
+
+Clusterwide::
+  If true, event should be delivered clusterwide - listeners are probably present also
+  on other nodes in cluster.
+
+=== Cache Listener
+
+During registration cache listener should provide set of `CacheInvalidationEventFilter`,
+in which the listener is interested and `CacheDispatcher`/`Invalidator` should propagate
+if they occured.
+
+There are two options how this could be done:
+
+ - Expand arguments of `CacheDispatcher.registerCacheListener` to accept also set of `CacheInvalidationEventFilter`.
+ This would require for listeners with filters to explicitly register via call, and will not work with `@Component`
+ annotation.
+ - Expand interface `CacheListener` with method `Set<CacheInvalidationEventFilter> getEventFilters()`, which is called
+   during registration of `CacheListener` and allows to provide specification of interested events. This approach works
+   with wiring using `@Component` annotation. The method will have default implementation for backwards compatibility
+   with existing code.
+
+=== Changes in `Invalidator` code
+
+Current logic of Cache Invalidation events is implemented in `Invalidator` code.
+The code of invalidator should be extended in order to support filtering and enabling
+emitting events based on all provided `CacheInvalidationEventFilter`.
+
+
+
+=== (Optional) Make `Cache` implement `CacheListener`
+
+As noted before, `Cache` contract is indirectly `CacheListener`, which does not allow
+for current caches to specify object type or paths they are interested in.
+
+If `Cache` contract extends `CacheListener` contract, this would allow caches
+to specify only set of events they are interested in.
+
+Currently these caches implements their own simple `ObjectType` filtering:
+
+ * ArchetypeManager
+   - (ArchetypeType, SystemConfigurationType, ObjectTemplateType)
+ * ConnectorManager
+   - ConnectorType, ConnectorHostType
+ * ExpressionFactory
+   - FunctionLibraryType
+ * NodeRegistrar
+   - NodeType
+ * ResourceCache
+   - ResourceType
+ * ScriptExpressionFactory
+   - FunctionLibraryType
+ * SystemConfigurationCache
+   - SystemConfigurationType
+
+
+=== CompiledGuiProfile invalidation
+
+The most probable place for updates for `CompiledGUIProfile` invalidation is
+`GuiProfiledPrincipalManagerImpl`:
+
+ * It has access to all local sessions: `getLocalLoggedInPrincipals`
+ * It is responsible for triggering initial GUICompiledProfile generation
+
+In this light `GuiProfiledPrincipalManagerImpl` will become `CacheListener`
+and will register for types which are used in profile compilation.
+
+`CompiledGUIProfile` will be extended to contain list of dependencies - types and oids
+of objects, which were used during profile compilation.
+
+`invalidate` method will walk via all logged in sessions, checked if their `CompiledGuiProfile` is affected by invalidation
+and sets invalid flag. On next access to `CompiledGuiProfile`
+the `GuiProfiledPrincipalManagerImpl` will recomputes profile if neccessary.
+
+
+== 2022-06-28: Meeting Minutes
+
+Session refresh / invalidation:
+  - reload GUI (recompile profile) when configuration changes without need to login / logout
+  - session close when user is disabled
+
+Step 1: extend cache invalidation with changed item paths registration for invalidation events.
+This registration provides additional information
+
+
+Step 2:
+Authorization / GUI code uses new cache listening for types and paths which affects GUI compilation.
+
+ Compiled GUI profiles are invalidated on oid, type changes from CacheInvalidation
+ - CompiledGUIProfile should contain list of all objects considered for GUI profile (not only objects applied, eg. all user roles)
+
+ - ProfileManager contains list of all active CompiledGUIProfile - on cache invalidation event it walks thru all profiles and invalidates (recomputes) affected profiles
+
+
+Step 3: Make cluster-wide cache invalidation asynchronous.
+
+Lockout status task:
+  - update lockout status
