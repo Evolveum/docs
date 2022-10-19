@@ -99,38 +99,6 @@ This includes better handling of `kind` and `intent` values, the possibility to 
 
 ** Spring Boot was upgraded from 2.5 to 2.7.
 
-=== Deprecation, Feature Removal And Incompatible Changes
-
-* WAR packaging for midPoint binary was changed to JAR packaging (`midpoint.jar`).
-No change is required if provided scripts (in `bin` directory) are used for start/stop.
-Replace `midpoint.war` with `midpoint.jar` in you service definitions - or recreate the service with
-version 4.6 if you have no custom options in the service.
-Explicit deployment of midPoint WAR to Tomcat became unsupported in the previous version 4.5.
-
-** This change affects how midPoint overlays are developed - for more see
-xref:/midpoint/reference/deployment/maven-overlay-project.adoc[this document].
-
-* Older versions of `commons-lang` and `commons-collections` libraries were removed and are now
-fully replaced by newer versions from group `org.apache.commons`, that is `commons-lang3` and
-`commons-collections4`.
-This may affect existing Groovy scripts.
-Any imports from packages `org.apache.commons.lang` must be replaced with respective imports
-from `org.apache.commons.lang3` (rarely `org.apache.commons.text`, e.g. `WordUtils`) and
-package `org.apache.commons.collections` must be replaced with `org.apache.commons.collections4`.
-Alternatively, provide the older JARs in the runtime by putting them in `${midpoint.home}/lib`.
-
-* As part of GUI upgrade, there are changes in CSS class names (watch out for Font-Awesome icons and standard Bootstrap CSS classes).
-
-=== API changes
-
-==== midpoint.getFocusesByCorrelationRule
-
-This method was not quite compatible with correlators changes introduced in 4.5,
-and is definitely not compatible with synchronization schema changes done in this release.
-So, it was rewritten from scratch, and renamed to `findCandidateOwners`.
-(The old signature is still available but marked as deprecated.)
-There may be minor differences in the behavior, so please review javadoc and adapt your code, if necessary.
-
 === Releases Of Other Components
 
 * New version (3.5) of LDAP connector bundle (including xref:/connectors/connectors/com.evolveum.polygon.connector.ldap.LdapConnector/[LDAP Connector] and xref:/connectors/connectors/com.evolveum.polygon.connector.ldap.ad.AdLdapConnector/[Active Directory Connector]) was released and bundled with midPoint.
@@ -380,6 +348,39 @@ Please see xref:/midpoint/reference/repository/native-postgresql/migration/[] fo
 Upgrade from midPoint versions older than 4.5 to midPoint {release-version} is not supported directly.
 Please xref:/midpoint/release/4.5/#upgrade[upgrade to midPoint 4.5.x] first.
 
+=== Deprecation, Feature Removal And Major Incompatible Changes Since 4.5
+
+* WAR packaging for midPoint binary was changed to JAR packaging (`midpoint.jar`).
++
+*Actions required*:
+
+** If provided scripts (in `bin` directory) are used for start/stop: *none*.
+** If the service is used for start/stop:
+*** either *replace* `midpoint.war` with `midpoint.jar` in you service definitions,
+*** or *recreate* the service with version 4.6 if you have no custom options in the service.
+** If midPoint *overlays* are developed, then please see
+xref:/midpoint/reference/deployment/maven-overlay-project.adoc[this document].
++
+NOTE: Explicit deployment of midPoint WAR to Tomcat became unsupported in the previous version (4.5).
+
+* Older versions of `commons-lang` and `commons-collections` libraries were removed and are now
+fully replaced by newer versions from group `org.apache.commons`, that is `commons-lang3` and
+`commons-collections4`.
+This may affect existing Groovy scripts.
++
+*Actions required*:
+
+** Any imports from packages `org.apache.commons.lang` must be replaced with respective imports
+from `org.apache.commons.lang3` (rarely `org.apache.commons.text`, e.g. `WordUtils`) and
+package `org.apache.commons.collections` must be replaced with `org.apache.commons.collections4`.
+** Alternatively, provide the older JARs in the runtime by putting them in `${midpoint.home}/lib`.
+
+* As part of GUI upgrade, there are changes in CSS class names.
++
+*Actions required*:
+
+** Check for Font-Awesome icons and standard Bootstrap CSS classes used in your configuration.
+
 === Changes In Initial Objects Since 4.5
 
 MidPoint has a built-in set of "initial objects" that it will automatically create in the database if they are not present.
@@ -391,9 +392,6 @@ This may result in upgrade problems if the existing object contains configuratio
 
 The following list contains a summary of changes to the initial objects in this midPoint release.
 The complete new set of initial objects is in the `config/initial-objects` directory in both the source and binary distributions.
-Although (in general) any problems caused by the changes in initial objects are unlikely to occur, the implementors are advised to review the changes and assess the impact on case-by-case basis.
-In particular, the GUI changes between 4.5 and 4.6 require the `adminGuiConfiguration` changes be applied thoroughly.
-Also, the application of default configuration for flexible authentication is needed for successful non-GUI login.
 
 * `000-system-configuration.xml`:
 Added default configuration for Request access GUI.
@@ -423,11 +421,38 @@ The (unneeded) "self-owned-task-add-execute-changes" authorization was removed.
 
 Please review link:https://github.com/Evolveum/midpoint/commits/master/gui/admin-gui/src/main/resources/initial-objects[source code history] for detailed list of changes.
 
+*Actions required:*
+
+* The GUI changes between 4.5 and 4.6 require the `adminGuiConfiguration` changes be applied thoroughly.
+* The default configuration for flexible authentication (in `015-security-policy.xml`) should be applied appropriately.
+Otherwise, non-GUI logins may not work correctly.
+* Although (in general) any problems caused by the changes in initial objects are unlikely to occur, the implementors are advised to review also the other changes and assess the impact on case-by-case basis.
+
 TIP: Copies of initial object files are located in `config/initial-objects` directory of midPoint distribution packages. These files can be used as a reference during upgrades. On-line version can be found in https://github.com/Evolveum/midpoint/tree/v{release-version}/config/initial-objects[midPoint source code].
 
 === Schema Changes Since 4.5
 
-// TODO
+* `roleCatalogRef`, `roleCatalogCollections`, `defaultCollection`, and `defaultAssignmentConstraints` in `roleManagement` in the system configuration object are now deprecated.
+The whole configuration for requesting access (role catalog, shopping cart) was moved to `adminGuiConfiguration/accessRequest`.
+
+* `userDashboardLink` and `userDashboard` in the admin GUI configuration are now deprecated.
+The new `homePage` item should be used instead.
+
+* `followOn` property of ID Match-based correlator is now deprecated.
+The new `referenceIdProperty` should be used instead.
+
+* `name` property in `GuiActionType` is deprecated.
+The `identifier` should be used instead.
+
+* `auxiliaryObjectClass`, `baseContext`, `searchHierarchyScope` in the resource object type definition are now deprecated.
+They were moved to the new `delineation` item.
+
+* The whole `synchronization` section in the resource definition is now deprecated.
+It was heavily refactored and its parts are now available in the individual object type definitions - see `correlation`, `synchronization` and `delineation` items.
+
+* The now-deprecated `nonIterativeChangeExecution` activity definition was generalized into `explicitChangeExecution`.
+
+* Items `mailAuthentication` and `smsAuthentication` (in `AuthenticationsPolicyType`), `additionalAuthenticationName` in `AbstractRegistrationPolicyType`, and `securityQuestionReset`, `mailReset`, and `smsReset` (`CredentialsResetPolicyType`) were removed in 4.6, as they had been deprecated before (in 4.1 and 4.5).
 
 === Behavior Changes Since 4.5
 
@@ -440,7 +465,27 @@ The check is based on `roleMembershipRef` values.
 Resources are no longer taken into account.
 Please see bug:MID-8123[] and link:https://github.com/Evolveum/midpoint/commit/c55b06e9[commit c55b06e9] for more information.
 
-// TODO === Important Internal Changes Since 4.5
+#TODO#
+
+=== Important Internal Changes Since 4.5
+
+These changes should not influence people that use midPoint "as is".
+These changes should also not influence the XML/JSON/YAML-based customizations or scripting expressions that rely just on the provided library classes.
+These changes will influence midPoint forks and deployments that are heavily customized using the Java components.
+
+#TODO#
+
+=== API changes
+
+==== midpoint.getFocusesByCorrelationRule
+
+This method was not quite compatible with correlators changes introduced in 4.5,
+and is definitely not compatible with synchronization schema changes done in this release.
+So, it was rewritten from scratch, and renamed to `findCandidateOwners`.
+(The old signature is still available but marked as deprecated.)
+There may be minor differences in the behavior, so please review javadoc and adapt your code, if necessary.
+
+#TODO#
 
 ++++
 {% include release-issues.html %}
