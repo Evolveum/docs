@@ -92,12 +92,17 @@ and `ownedBy`, as well as support for nested filter for reference targets (a.k.a
 
 * There are ConnID Connector Server (Java) improvements and xref:/connectors/connid/1.x/connector-server/java/[documentation updates].
 
+* The `nonIterativeChangeExecution` activity was generalized into `explicitChangeExecution` one.
+It now allows to execute multiple unrelated changes.
+
 ==== Internal Improvements
 
-** The resource definition schema was cleaned up.
+* The resource definition schema was cleaned up.
 This includes better handling of `kind` and `intent` values, the possibility to globally override object class definitions, and moving synchronization-related configuration right into the `objectType` definition.
 
-** Spring Boot was upgraded from 2.5 to 2.7.
+* The new `connector.available` property can be used to find connector objects that are link:https://github.com/Evolveum/midpoint/commit/9feaaa6f[really loaded].
+
+* Spring Boot was upgraded from 2.5 to 2.7.
 
 === Releases Of Other Components
 
@@ -335,7 +340,9 @@ Note that:
 * Version numbers of some bundled connectors have changed.
 Connector references from the resource definitions that are using the bundled connectors need to be updated.
 
-* Replace `midpoint.war` with `midpoint.jar` in you service definitions - or recreate the service with version 4.6 if you have no custom options in the service.
+* If there are any open ID Match-based correlation cases, they should be resolved or deleted before the migration.
+
+* See also the "actions required" information below.
 
 It is strongly recommended migrating to the xref:/midpoint/reference/repository/native-postgresql/[new native PostgreSQL repository implementation]
 for all deployments that have not migrated yet.
@@ -380,6 +387,13 @@ package `org.apache.commons.collections` must be replaced with `org.apache.commo
 *Actions required*:
 
 ** Check for Font-Awesome icons and standard Bootstrap CSS classes used in your configuration.
+
+* #TODO# Some implementation classes (e.g. `ArchetypeManager`) were moved, so the logging may be affected.
+See e.g. link:https://github.com/Evolveum/midpoint/commit/3bca7cea[3bca7cea]. And many others. #TODO which ones?#
++
+*Actions required*:
+
+** Update your logging configuration if you have custom logging based on these classes.
 
 === Changes In Initial Objects Since 4.5
 
@@ -454,6 +468,9 @@ It was heavily refactored and its parts are now available in the individual obje
 
 * Items `mailAuthentication` and `smsAuthentication` (in `AuthenticationsPolicyType`), `additionalAuthenticationName` in `AbstractRegistrationPolicyType`, and `securityQuestionReset`, `mailReset`, and `smsReset` (`CredentialsResetPolicyType`) were removed in 4.6, as they had been deprecated before (in 4.1 and 4.5).
 
+* The schema for experimental `items` correlator (and related definitions) introduced in 4.5 was reworked, as it got the final form in 4.6.
+In a similar way, experimental `extending` and `using` relations between correlators were replaced by standardized `super` relation.
+
 === Behavior Changes Since 4.5
 
 * The meaning of `requireAssignmentTarget` configuration item in xref:/midpoint/reference/security/authentication/flexible-authentication/configuration/[Flexible Authentication Configuration] has been changed.
@@ -465,15 +482,23 @@ The check is based on `roleMembershipRef` values.
 Resources are no longer taken into account.
 Please see bug:MID-8123[] and link:https://github.com/Evolveum/midpoint/commit/c55b06e9[commit c55b06e9] for more information.
 
-#TODO#
+* Behavior of shadows in "reaping" state has been changed.
+See bug:MID-8069[] and commits link:https://github.com/Evolveum/midpoint/commit/dc42c96c[dc42c96c] and link:https://github.com/Evolveum/midpoint/commit/faa835e6[faa835e6].
 
-=== Important Internal Changes Since 4.5
+* Behavior of missing accounts in "dry run" reconciliation task mode was fixed.
+They are now link:https://github.com/Evolveum/midpoint/commit/90236d8a[correctly deleted].
 
-These changes should not influence people that use midPoint "as is".
-These changes should also not influence the XML/JSON/YAML-based customizations or scripting expressions that rely just on the provided library classes.
-These changes will influence midPoint forks and deployments that are heavily customized using the Java components.
+* Names of approval work items and cases now contain not only users' full name, but the plain (login) name as well.
+See bug:MID-8111[] and link:https://github.com/Evolveum/midpoint/commit/ef6fdcad[commit ef6fdcad].
 
-#TODO#
+* Logging of exceptions occurring during provisioning operations was slightly reduced to make log files more readable.
+See bug:MID-6695[] and commits link:https://github.com/Evolveum/midpoint/commit/e9b9d96b[e9b9d96b] and link:https://github.com/Evolveum/midpoint/commit/0db34470[0db34470].
+
+* Classification algorithm cleanup #TODO pavol# see link:https://github.com/Evolveum/midpoint/commit/d3175376[d3175376].
+
+* If the xref:/midpoint/reference/synchronization/synchronization-sorter/[synchronization sorter] returns no classification, the default classification algorithm link:https://github.com/Evolveum/midpoint/commit/d77d478d[is now employed].
+
+* #TODO pavol# describe https://github.com/Evolveum/midpoint/commit/d62cd32e.
 
 === API changes
 
@@ -486,6 +511,27 @@ So, it was rewritten from scratch, and renamed to `findCandidateOwners`.
 There may be minor differences in the behavior, so please review javadoc and adapt your code, if necessary.
 
 #TODO#
+
+=== Important Internal Changes Since 4.5
+
+These changes should not influence people that use midPoint "as is".
+These changes should also not influence the XML/JSON/YAML-based customizations or scripting expressions that rely just on the provided library classes.
+These changes will influence midPoint forks and deployments that are heavily customized using the Java components.
+
+- Xalan was replaced by internal JVM transformer.
+See bug:MID-7959[] and commit link:https://github.com/Evolveum/prism/commit/7cad9100[7cad9100].
+
+The process of building GUI was changed #TODO Vilo#
+
+=== Other Internal Changes Since 4.5
+
+Besides provided library classes (`midpoint` and `basic`) the deployer is free to call any internal midPoint classes.
+However, they are free to change at any time - at least for now.
+Here is a list of known changes in the mostly used ones:
+
+- `ObjectTypeUtil.hasArchetype` link:https://github.com/Evolveum/midpoint/commit/158a0dce[was renamed] to `hasArchetypeRef`.
+- Methods for querying `SelectorOptions` link:https://github.com/Evolveum/midpoint/commit/0c478652[were changed].
+- Methods for working with resource schema objects were significantly reworked. See e.g. link:https://github.com/Evolveum/midpoint/commit/3735d288[3735d288].
 
 ++++
 {% include release-issues.html %}
