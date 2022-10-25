@@ -341,20 +341,6 @@ In the concrete run, only mappings for 2 target resources were updated.
 Hence, in the simulation results table we only want to see changes related to these two targets.
 It is now a question of dependencies and the sophistication of the implementation, if we need to compute more, and then discard all except for these two resources, or we don't need to compute anything other than these two resources.
 
-=== Configuring the Results Data Stored
-
-NOTE: This section sits somewhere between execution mode specification requirements and reporting requirements.
-For the time being, let us keep it here, under execution mode specification.
-
-The kinds of changes that are stored for later analysis have to be configurable.
-There should be a possibility to somehow mark or list attributes which change should be recorded during simulated or real execution.
-For example:
-
-- How many users or accounts will be enabled/disabled?
-- How many renames there will be?
-
-Maybe the policy rules can be used for this (see the design document).
-
 === Minimum Requirements for 4.7 in the Area of Flexible Execution Mode
 
 #TODO#
@@ -390,37 +376,92 @@ But these will not be resolved in 4.7.
 
 Most probably none. #TODO - ok?#
 
+[#_reporting_on_the_results]
 == Reporting on the Results
 
-#TODO update with the results of today's meeting with Tony#
+=== Questions to Support
 
-Results from the simulations must be stored somehow.
-The initial proposal is to save them in the separated table, something similar to audit, but maybe with some improvements, e.g. to be able to search not only according to the items changed (path), but also according to the value.
-Questions which need to be answered:
+The following are the typical questions a user may ask _after_ the simulation is run:
 
-* How many users will be disabled? (And why - reason, e.g. because all roles were unassigned or explicit disable)
-* How many account identifiers will be changed?
-* How many of which attributes will be changed?
-* How many accounts are linked/unmatched/...?
+* Questions about accounts
+** How many (and which) accounts will be created/deleted/modified (on the resource)?
+** How many (and which) accounts will be disabled? (And why - reason, e.g. because all roles were unassigned or explicit disable)
+** How many (and which) account identifiers will be changed?
+** How many (and which) attributes will be changed?
+** How many (and which) accounts will be in the `linked`, `unmatched`, `unlinked`, `disputed` state after the operation?
+footnote:[This question is tricky!
+If we deal with deltas only, we can tell nothing about the absolute counts of shadows e.g. being in `linked` state.
+To be decided.]
+What about transitions between these states, e.g. how many accounts were switch e.g. from unknown to `unlinked` state?
+** #TODO What about queries on candidate owners? Some examples here?#
 
-We need to support partitioning, possibility to easily and regularly delete old records.
-Requirements for storing results of simulations:
+* Questions about users
+** How many users will be created/deleted/modified (in the repository)?
+** How many users will be disabled? (And why - e.g. because all roles were unassigned, or because of explicit disable)
+*** Here are probably two distinct queries, one asking for `activation/effectiveStatus`, one for assignments or `roleMembershipRef` values.
+** How many users were accidentally demoted (e.g. were managers before, and they are only members or even not that after)?
 
-* we want partition for each task, to be able to search effectively, to do a report effectively,
+Other search criteria:
 
-* we need possibility to search by resource
+* task OID,
+* resource OID, maybe with object class or type,
+* ... what else?
 
-* we will need to store attribute deltas, correlation deltas, candidate owners etc.
+=== Data Maintenance
 
-* we want to store only last task run result (deltas) for now, cleaning of partitions must be automatic (e.g. after some period? before new run of task?)
-** but later, maybe we will need to store defined number of task runs, so think about the partitioning key
+We need to be able to easily and regularly delete old records.
 
-* we want to store pre-computed numbers of changes (numbers/percentage easily retrievable by admin/engineer),
-** we want to store (defined) number of runs to be able to see trends in data (e.g. how is the number of users changing from day to day?). This may by later applied for the audit.
-** default operation for which we want to save pre-computed numbers of operations might be
-*** count for add/modify/delete operations (on object)
-*** accounts deactivation (where deactivation means accounts being disabled and deleted)
-*** changes of primary and secondary identifier
+At the beginning, we probably want to store only the last task run result.
+Old runs should be deleted either automatically after some time, or when a new task run is requested.
+(Later we may want to store a defined number of task runs.)
+
+=== Configuring the Data Collected
+
+NOTE: This section sits somewhere between execution mode specification requirements and reporting requirements.
+For the time being, let us keep it under the latter (i.e. here).
+
+The kinds of changes that are stored for later analysis have to be configurable.
+There should be a possibility to somehow mark or list attributes which change should be recorded during simulated or real execution.
+For example:
+
+- How many users or accounts will be enabled/disabled?
+- How many renames there will be?
+
+Maybe the policy rules can be used for this (see the design document).
+
+=== Pre-processing of the Data
+
+Not all information can be retrieved from the "raw data" (e.g. the deltas or the object state before and after the processing) in reasonable time.
+Therefore, some amount of pre-processing is unavoidable.
+The general approach should be like this:
+
+. A narrower range of pre-defined queries (defined by midPoint plus defined by the administrator before the simulation run) should be evaluated quickly.
+. A wider range of generic queries may be slower, but still possible.
+. There may be some exotic queries that cannot be formulated after-the-simulation.
+They will require some preparatory work before the simulation in order to tag the results of individual operations with appropriate marks for later querying.
+
+==== Recommendation for Pre-computed Data
+
+* Accounts (meaning resource objects):
+** number of accounts created/deleted/modified,
+** number of accounts enabled/disabled,
+** number of accounts with identifiers changed,
+** number of accounts with entitlements changed,
+** number of accounts with correlation situation changed,
+* Users (meaning focus objects):
+** number of users created/deleted/modified,
+** number of users enabled/disabled,
+** number of users renamed,
+** number of users with assignments changed,
+** number of users with parentOrgRef changed,
+** number of users with role membership changed.
+
+Along with the numbers we may store the base in order to be able to compute percentages.
+
+=== Trends Analysis
+
+Later, we may keep a defined number of runs (at least partially) to see trends in data.
+As for the trends, a selection (or all) of pre-computed data mentioned above may be collected.
 
 === Requirements to Be Implemented in 4.7
 
@@ -438,12 +479,20 @@ We only need the changes - at this point.
 
 #TODO is all this really sufficient?#
 
+=== Design
+
+See xref:/midpoint/devel/design/simulations/design/#_storing_simulation_results[here].
+
 == Non-Functional Requirements
 
 Should the transient effects of the simulated runs (e.g. sequences being increased, objects created on demand, and so on) live outside the processing of a single item?
 Should they be visible cluster-wide?
 
 (This is to decide whether the temporary data storage could be simple in-memory, or it should be somehow shared across the cluster, e.g. using the repository.)
+
+How "upgradeable" should be the simulation data?
+Do they have to survive 4.7 -> 4.8 upgrade?
+And after that release?
 
 == GUI Requirements
 

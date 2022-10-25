@@ -1,12 +1,112 @@
 = Simulations - Design Decisions and Questions
+:page-since: 4.7
+:page-toc: top
 
 See also the xref:/midpoint/devel/design/simulations/requirements/[requirements].
+
+[#_storing_simulation_results]
+== Storing Simulation Results
+
+The requirements for reporting are xref:requirements.adoc#_reporting_on_the_results[here].
+
+=== How to Capture State and Changes
+
+The current idea is to store delta(s), original, and new state (`@before` vs `@after` in queries) of any object changed.
+The disadvantage of storing pure deltas is maybe their fragmentation - one operation can be split into several deltas.
+(This could be solved by aggregation of deltas in a single operation to a single delta.)
+
+Anyway, separating "before" and "after" state allows writing queries like these:
+
+.Change of effective status to "disabled"
+----
+@type = FocusType
+AND @before/activation/effectiveStatus != @after/activation/effectiveStatus
+AND @after/activation/effectiveStatus = disabled
+----
+
+.Change in primary identifier value
+----
+@type = ShadowType
+AND @before/primaryIdentifierValue != @after/primaryIdentifierValue
+----
+
+==== Queries We Currently Cannot Implement Directly
+
+Let us assume the question: What users were accidentally demoted?
+I.e. they have an assignment of type `org:manager` to org `X`, and such an assignment is not there afterwards.
+Either it is of type `org:default` or does not exist at all.
+
+Some partial attempts:
+
+.Demoting within the same assignment
+----
+. type UserType
+AND assignment matches (
+  @before/targetRef/relation = manager
+  AND @before/targetRef/relation != @after/targetRef/relation
+)
+----
+
+.Demoting by deleting the assignment
+----
+. type UserType
+AND assignment matches (
+  @before/targetRef/relation = manager
+  AND @after not exists
+)
+----
+
+But we cannot specify that "there exists (another) assignment to `X`".
+Maybe we can try `roleMembershipRef`.
+Or maybe this is a case when custom reporting/tagging is needed.
+
+=== Reporting on Correlation
+
+To know the situation, we may reference any of the following:
+
+* shadow/synchronizationSituation
+* shadow/correlation/situation
+
+To know the owner:
+
+* focus/linkRef
+* shadow/correlation/resultingOwner
+* shadow/correlation/ownerOptions (for disputed?)
+
+=== Custom Reporting/Tagging
+
+How to compute pre-computed numbers?
+Some ideas:
+
+. There could be a reporting-based step in the simulation that would compute various (aggregate) numbers for later retrieval and use.
+. Or there could be a code (maybe somewhat common with reporting as well?) that would flag/tag individual objects for later search, inspection, or aggregation.
+
+An example is the "being demoted" condition mentioned above.
+
+=== Where to Store the Data?
+
+Maybe we should allow storing the simulation results in a physically separate database, just like we do for the audit.
+(There is an "OLTP vs OLAP" dichotomy here.)
+
+Implementation issue: If it should be PostgreSQL, it is better _not_ to use `repo-sqlbase` but sqale instead.
+We should then implement the "separate database" option somehow.
+
+=== Concrete Design of the Tables
+
+How will we store the "before" and "after" state?
+Will we use the decomposition like we do in the regular (production) data, e.g. `focus` -> `assignment`, etc?
+Or, will we go with JSON?
+
+=== Misc Issues
+
+* Axiom needs the schema to correctly parse the queries.
+We should perhaps store the relevant resource schemas along with the simulation data.
 
 == Configuring the Result Data Stored
 
 *Design question*
 
-Where we should declare such options? In the task? In resource configuration? In object template for focus object attributes/mappings?
+Where we should declare what data do we want to be stored during the simulation? In the task? In resource configuration? In object template for focus object attributes/mappings?
 
 *Design idea*
 
