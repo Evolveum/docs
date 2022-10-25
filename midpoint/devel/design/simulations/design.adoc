@@ -1,0 +1,59 @@
+= Simulations - Design Decisions and Questions
+
+See also the xref:/midpoint/devel/design/simulations/requirements/[requirements].
+
+== Configuring the Result Data Stored
+
+*Design question*
+
+Where we should declare such options? In the task? In resource configuration? In object template for focus object attributes/mappings?
+
+*Design idea*
+
+We may consider using thresholds here.
+Besides the traditional use (i.e., stopping the computation after defined number of errors or other events), we may want to use the thresholds to define what to watch for during the task execution.
+For example, we may define a rule that watches for the modification of `activationStatus`, `employeeNumber`, and `emailAddress` properties.
+The policy action would not be to stop execution when the constraint is satisfied, but to "record" (or "count", or something like this) these situations.
+Then, after the task is over, midPoint would store the numbers (and/or percentages) of the changes regarding `activationStatus`, `employeeNumber`, and `emailAddress` properties to the repository.
+They can be then shown on the dashboard or analyzed for the long term, as the data trends (when multiple task runs are considered).
+
+This can be used during simulations, but also for regular runs.
+
+== Simulation-Local Data
+
+In order to provide semi-transient data for the simulation (including initial configuration change set) the following architecture could be employed:
+
+image::virtual-repository.drawio.png[Virtual repository]
+
+The local data may reside in memory or in repository.
+In the latter case, it would allow clusterwide operation of the simulation tasks.
+
+The simulation will not be perfect.
+One obstacle is paging and sorting.
+Another is evaluation of repo-bound filters like `targetRef/@/something = value`.
+We just have to hope these things are not used in the backend scripts.
+This would need to be specified as a known limitation.
+
+As for the repo-based implementation, maybe all what is needed is the column for the local data set identification.
+(We considered this design a couple of years ago.)
+The combination of local and global data is still a problem, though:
+we are not sure how to determine the "newest" versions of the objects, to implement paging and ordering, and so on.
+
+[NOTE]
+====
+We will skip this (most probably) for 4.7.
+(Although it is generally not good to postpone things like this, we probably do not have enough time to do it now.)
+
+Partial issues can be solved also in the application logic, simply by avoiding the repository updates.
+The repo cache may then implement safety checks that make sure that repo data will not be updated (except for selected operational data items like timestamps).
+====
+
+== Other Comments
+
+* Up to now, midPoint was designed around the "direct execution" model.
+Simulations and preview of changes were only hacked upon it.
+Now is the time to change this, and make simulated operations the first-class citizens in the midPoint execution.
+
+WARNING: Whatever we create now will be alive for maybe four years!
+(In 4.8 there will be no time for radical changes.
+And the next LTS is three years after 4.8.)
