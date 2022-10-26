@@ -109,7 +109,10 @@ Not to be supported in 4.7.
 
 === Role Evolution
 
-When a role (or a set of roles) evolve, we may want to preview the effects before we put the update definition(s) into production.
+When a role (or a set of roles) evolve, we may want to preview the effects before we put the updated definition(s) into production.
+
+Also, we may want to limit the effects we are interested in to the mere information of what users have the role(s) currently assigned.
+(Meaning that we are interested only in the membership changes: who obtained the role and who lost the membership.)
 
 Not to be supported in 4.7.
 
@@ -229,37 +232,37 @@ If a mapping is marked for simulated execution, the values computed must not be 
 If a mapping is marked for no execution, it should not be executed at all.
 (In the worst case, it may be executed but the results have to be discarded.)
 
-==== Attribute and Association
+===== Attribute and Association
 TODO
 
-==== Object Type and Object Class
+===== Object Type and Object Class
 TODO
 
-==== Resource
+===== Resource
 NOTE: Unlike mappings, we cannot make resources or object classes or object types "disappear" if they are to be ignored for the particular execution.
 We must do that more intelligently.
 Moreover, we may need to specify more options, like "is reading from the resource allowed, or should we use some (cached) state"?
 
-==== Abstract Role
+===== Abstract Role
 TODO
 
-==== Assignment and Inducement
+===== Assignment and Inducement
 TODO
 
-==== Correlation and Correlation Rule
+===== Correlation and Correlation Rule
 TODO
 
-==== Policy Rule
+===== Policy Rule
 TODO
 
-==== Synchronization Reaction and Action
+===== Synchronization Reaction and Action
 TODO
 
-==== Other
+===== Other
 We may need the overall "do not write" switch that would prevent any changes to be written into the repository or resource.
 Something that is today (although not perfectly) provided when `previewChanges` method is invoked instead of `executeChanges` one.
 
-==== Relations Between Items
+===== Relations Between Items
 
 Individual items are bound by relations, the basic ones being "contained-by" ones.
 For example, a resource contains object classes and object types.
@@ -386,30 +389,43 @@ The following are the typical questions a user may ask _after_ the simulation is
 * Questions about accounts
 ** How many (and which) accounts will be created/deleted/modified (on the resource)?
 ** How many (and which) accounts will be disabled? (And why - reason, e.g. because all roles were unassigned or explicit disable)
+** How many (and which) accounts will be deactivated? (A summary of deleted, disabled, archived, ...)
 ** How many (and which) account identifiers will be changed?
 ** How many (and which) attributes will be changed?
 ** How many (and which) accounts will be in the `linked`, `unmatched`, `unlinked`, `disputed` state after the operation?
 footnote:[This question is tricky!
 If we deal with deltas only, we can tell nothing about the absolute counts of shadows e.g. being in `linked` state.
-To be decided.]
+To be decided.
+We may somehow use the shadow "simulation mode" - but not always:
+The initial tuning of the correlation is OK in this regard, because shadows are in the preview mode.
+But if we want to improve the correlation rules afterwards, we cannot simply switch shadows back from production to preview.]
 What about transitions between these states, e.g. how many accounts were switch e.g. from unknown to `unlinked` state?
-** #TODO What about queries on candidate owners? Some examples here?#
+** What will be the correlated owner and/or owner candidates for a specific shadow?
+** ...
 
 * Questions about users
 ** How many users will be created/deleted/modified (in the repository)?
+** How many users will be deactivated?
 ** How many users will be disabled? (And why - e.g. because all roles were unassigned, or because of explicit disable)
 *** Here are probably two distinct queries, one asking for `activation/effectiveStatus`, one for assignments or `roleMembershipRef` values.
 ** How many users were accidentally demoted (e.g. were managers before, and they are only members or even not that after)?
+** ...
 
-Other search criteria:
+Other common search criteria:
 
 * task OID,
 * resource OID, maybe with object class or type,
-* ... what else?
+* archetype,
+* organizational unit,
+* role membership.
+
+We probably want to query also the unchanged entities.
+Like "show me the students there will be after the change" (and how many of them are there).
 
 === Data Maintenance
 
 We need to be able to easily and regularly delete old records.
+(E.g. using DB table partitioning.)
 
 At the beginning, we probably want to store only the last task run result.
 Old runs should be deleted either automatically after some time, or when a new task run is requested.
@@ -429,32 +445,78 @@ For example:
 
 Maybe the policy rules can be used for this (see the design document).
 
+[#_pre_processing_of_the_data]
 === Pre-processing of the Data
 
 Not all information can be retrieved from the "raw data" (e.g. the deltas or the object state before and after the processing) in reasonable time.
 Therefore, some amount of pre-processing is unavoidable.
+
 The general approach should be like this:
 
-. A narrower range of pre-defined queries (defined by midPoint plus defined by the administrator before the simulation run) should be evaluated quickly.
-. A wider range of generic queries may be slower, but still possible.
-. There may be some exotic queries that cannot be formulated after-the-simulation.
-They will require some preparatory work before the simulation in order to tag the results of individual operations with appropriate marks for later querying.
+. We accept that a limited number queries are impossible to formulate after the simulation is done.
+However, it must be possible to formulate them _before_ the simulation, and find the answers afterwards.
+
+. We accept that some queries are possible to ask, but slow to evaluate if formulated only after the simulation is done.
+Again, it must be possible to prepare the simulation in such a way that they could be answered (if needed) in a reasonable time.
+
+. Common queries should be answerable quickly, without any specific preparation.
+
+Moreover, there may be queries that we _know beforehand_ that we want to have in the results.
+For example, "how many there will be active users after the processing?".
+This is something that we know we can count during the simulation.
+
+A limitation to consider:
+"If you know you will need to query the whole object set (i.e. not only objects that were changed), tell it before the simulation."
+This will cause some information to be stored in the queryable form right to the repository maybe in a form of tags.
+We could then search through these tags (see the design document).
+
+A typical scenario:
+
+. "Count how many active users (overall) do you expect after this simulated recomputation is done."
+This means users that were and were not changed during the simulated recomputation.
+We assume that the recomputation goes over all the users.
+
+. "Show me them."
+(After the simulation.)
+MidPoint should show the first page of these users, and then should allow to browse through them.
+Filtering (searching) should be available as well.
+
+A different, more complex requirement:
+
+* "Show me all the users whose name you expect was changed, sorted according to the name."
+
+Even more complex one:
+
+* "Show me all active users do you expect after this simulation, sorted according to the name."
+
+*Limitation:* The sorting will be limited / incomplete / not as the user wishes.
+The reason is that this query will be - most probably - combined from production and simulation database.
+Most probably, first there will be new users, then changed ones, then unchanged ones.
+Or maybe first new+changed, then unchanged.
+
+_UI idea: To show the list with the first column (change type) as ordered, without the possibility to change this ordering.
+UX aspects are to be consulted with Paťko._
+
+Note: The active but unchanged users may be optional to show.
+In many situations they will not be needed.
 
 ==== Recommendation for Pre-computed Data
 
 * Accounts (meaning resource objects):
 ** number of accounts created/deleted/modified,
-** number of accounts enabled/disabled,
+** number of accounts enabled/disabled (deactivated)
 ** number of accounts with identifiers changed,
 ** number of accounts with entitlements changed,
 ** number of accounts with correlation situation changed,
 * Users (meaning focus objects):
 ** number of users created/deleted/modified,
-** number of users enabled/disabled,
+** number of users enabled/disabled (deactivated),
 ** number of users renamed,
 ** number of users with assignments changed,
+** number of users with archetypes changed,
 ** number of users with parentOrgRef changed,
-** number of users with role membership changed.
+** number of users with (any) role membership changed,
+** number of users with (specific) role membership changed - useful if we simulate modifications of a given role, see also <<Role Evolution>> scenario.
 
 Along with the numbers we may store the base in order to be able to compute percentages.
 
@@ -462,6 +524,9 @@ Along with the numbers we may store the base in order to be able to compute perc
 
 Later, we may keep a defined number of runs (at least partially) to see trends in data.
 As for the trends, a selection (or all) of pre-computed data mentioned above may be collected.
+
+TIP: This feature is more general, not bound to simulations only.
+Something similar we want to see also for dashboards.
 
 === Requirements to Be Implemented in 4.7
 
@@ -506,10 +571,14 @@ And after that release?
 ** reorganization simulation,
 ** fully simulated create-on-demand,
 ** simulated discovery,
-** serious support for sequences,
-** focus mappings (??), #TODO Rado#
-** changes of roles in combination with assignment target search (??), #TODO Rado#
-** auto-assignments (??). #TODO Rado#
+** serious support for sequences: meaning that simulated sequences are maintained outside the processing of individual users - e.g., accounts created in the simulated way will not get (all) uid/gid of 1000,
+** changes of roles in combination with assignment target search:
+like we have `assignmentTargetSearch` in inbound or template mapping, that assigns a user the organization with ID that we get from HR.
+We want to simulate what will happen if we change the code(s) in the existing organization units in the repository.
+This is practically not doable without the local storage (deprecation/proposing of replacement roles could be somehow done, but in totally weird and impractical way);
+** auto-assignments: we want to change the auto-assignment rule in the role, and we want to see the effects.
+This depends a little on whether the auto-assignment rule will belong to "lifecycle-aware" configuration items.
+Most probably not in 4.7.
 
 * Straight application of deltas computed during simulation.
 The original idea was that pre-computed deltas could be applied without re-computing them.

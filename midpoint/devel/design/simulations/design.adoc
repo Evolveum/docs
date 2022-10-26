@@ -9,7 +9,25 @@ See also the xref:/midpoint/devel/design/simulations/requirements/[requirements]
 
 The requirements for reporting are xref:requirements.adoc#_reporting_on_the_results[here].
 
-=== How to Capture State and Changes
+=== Where to Store the Simulation Results?
+
+Maybe we should allow storing the simulation results in a physically separate database, just like we do for the audit.
+(There is an "OLTP vs OLAP" dichotomy here.)
+
+The following combinations probably make sense:
+
+. repository, audit, simulations all in one database,
+. repository in one database, audit + simulations in another,
+. repository, audit, simulations in separate databases.
+
+(It seems that the audit and simulations have much in common.
+We expect that eventually the audit may evolve towards the mechanisms we now design for simulations.
+Maybe even the audit will have some xref:/midpoint/devel/design/simulations/tagging/[tags], although different from simulation tags mentioned in <<Tagging>>.)
+
+Implementation issue: If it should be PostgreSQL, it is better _not_ to use `repo-sqlbase` but sqale instead.
+We should then implement the "separate database" option somehow.
+
+=== How to Capture and Query State and Changes
 
 The current idea is to store delta(s), original, and new state (`@before` vs `@after` in queries) of any object changed.
 The disadvantage of storing pure deltas is maybe their fragmentation - one operation can be split into several deltas.
@@ -32,6 +50,7 @@ AND @before/primaryIdentifierValue != @after/primaryIdentifierValue
 
 ==== Queries We Currently Cannot Implement Directly
 
+===== Complex Queries
 Let us assume the question: What users were accidentally demoted?
 I.e. they have an assignment of type `org:manager` to org `X`, and such an assignment is not there afterwards.
 Either it is of type `org:default` or does not exist at all.
@@ -60,36 +79,56 @@ But we cannot specify that "there exists (another) assignment to X".
 Maybe we can try `roleMembershipRef`.
 Or maybe this is a case when custom reporting/tagging is needed.
 
-=== Reporting on Correlation
+===== Queries on Unchanged Data
+NOTE: Let us use the term "unchanged" to denote objects that were processed by the simulation task (if there is any) but no changes were predicted for them. (Because, of course, no objects should be literally _changed_ by the simulation.)
 
-To know the situation, we may reference any of the following:
+The question of "what are the expected active users after the simulation" cannot be answered from the deltas (or new state of changed objects) alone.
+The result set should contain also the objects that were not changed by the simulation - either processed by the respective task (if any), or even not processed by it at all.
 
-* shadow/synchronizationSituation
-* shadow/correlation/situation
+We can provide a limited answer to such a question if we use <<Tagging>>:
+we can at least deal with the objects processed by the simulation task.
 
-To know the owner:
+=== Tagging
 
-* focus/linkRef
-* shadow/correlation/resultingOwner
-* shadow/correlation/ownerOptions (for disputed?)
+It looks like we could use the _tags_ to implement queries that are impossible or hard to execute: either because the condition is too complex, or because they deal with unchanged objects.
+(See xref:requirements.adoc#_pre_processing_of_the_data[the relevant section in Requirements doc].)
 
-=== Custom Reporting/Tagging
+The idea is:
 
-How to compute pre-computed numbers?
-Some ideas:
+. When a simulation is run, a set of tags is attached to objects being processed: either only to changed ones, or even to those processed but unchanged.
+* one such generic tag may be "this object was processed", another "this object was changed", or even maybe "this object was processed but unchanged";
+* there may be some pre-defined tags like "the user is active afterwards";
+* finally, an administrator may define his own set of tags, bound to search filters or even generic expressions.
+. These tags are _not_ stored within the object (e.g. increasing its version, and so on).
+Instead, they are stored separately, with a link to the data about the simulation run.
 
-. There could be a reporting-based step in the simulation that would compute various (aggregate) numbers for later retrieval and use.
-. Or there could be a code (maybe somewhat common with reporting as well?) that would flag/tag individual objects for later search, inspection, or aggregation.
+NOTE: See xref:/midpoint/devel/design/simulations/tagging/[related ideas] (outside the Simulations feature scope).
 
-An example is the "being demoted" condition mentioned above.
+==== Querying with Tags
 
-=== Where to Store the Data?
+When asking for users that were (potentially) not updated by the simulation, we get a cross-database query.
 
-Maybe we should allow storing the simulation results in a physically separate database, just like we do for the audit.
-(There is an "OLTP vs OLAP" dichotomy here.)
+For example:
 
-Implementation issue: If it should be PostgreSQL, it is better _not_ to use `repo-sqlbase` but sqale instead.
-We should then implement the "separate database" option somehow.
+_Show me all active users do you expect after this simulation, sorted according to the name._
+
+How will we evaluate it?
+
+. The first query goes to the simulation DB and returns new + changed objects that are active after the change, sorted according to the name.
+(Being active can be determined e.g. by the tag.
+But also by `activation/effectiveState` value.)
+. The second query goes to the production DB where it looks for users being active (by `activation/effectiveState` or by looking at the tag) and unchanged at the same time.
+(The latter will be known by looking for the specific tag.)
+
+The results of the queries are then combined.
+The limitation is that the basic ordering (new and/or changed first, unchanged afterwards) cannot be changed.
+It may be refined by adding secondary sorting criteria, assuming that they are supported by the particular databases.
+
+Queries like this should accept additional filter clauses, entered by users.
+
+==== Other Ideas
+Will we store also the version of the object that we have seen during the simulation?
+In order to tell the user that it has been changed since then?
 
 === Concrete Design of the Tables
 
@@ -101,6 +140,19 @@ Or, will we go with JSON?
 
 * Axiom needs the schema to correctly parse the queries.
 We should perhaps store the relevant resource schemas along with the simulation data.
+
+==== Reporting on Correlation
+
+To know the situation, we may reference any of the following:
+
+* shadow/synchronizationSituation
+* shadow/correlation/situation
+
+To know the owner:
+
+* focus/linkRef
+* shadow/correlation/resultingOwner
+* shadow/correlation/ownerOptions (for disputed?)
 
 == Configuring the Result Data Stored
 
@@ -146,6 +198,13 @@ We will skip this (most probably) for 4.7.
 
 Partial issues can be solved also in the application logic, simply by avoiding the repository updates.
 The repo cache may then implement safety checks that make sure that repo data will not be updated (except for selected operational data items like timestamps).
+====
+
+[TIP]
+====
+We should check if PostgreSQL does provide "copy on write" functionality for the application.
+(It must have something like that internally.)
+If it does, we would be able to cheaply obtain an updatable copy of midPoint repository that we could use as the local storage.
 ====
 
 == Other Comments
