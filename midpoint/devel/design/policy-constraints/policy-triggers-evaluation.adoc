@@ -1,0 +1,57 @@
+= Policy Triggers Evaluation
+
+== Primary Motivation
+
+This design note was written mainly because of bug:MID-8269[] and its siblings (bug:MID-8243[], bug:MID-8251[], maybe others).
+The issue is that rules dealing with segregation of duties (the `exclusion` policy constraint) are explicitly xref:/midpoint/reference/roles-policies/segregation-of-duties/#_role_exclusion_definition[allowed] to be defined "uni-directionally", i.e. on the one of the two excluded roles.
+The definition should then be applied bidirectionally.
+
+Currently, this is the case only for `enforcement` policy action.
+The role approval and pruning still require the exclusion to be defined in both directions.
+
+== What Needs to Be Done
+
+Technically, we need to browse through all exclusion triggers and somehow "attach" them to both evaluated assignments, not only to the one to whom they are physically assigned/induced.
+
+However, current API does not provide a clean mechanism for this, as it only deals with the policy rules, not individual triggers.
+See https://github.com/Evolveum/midpoint/blob/10070ab6109eb8c169dd39190067d3f37694d5cd/model/model-api/src/main/java/com/evolveum/midpoint/model/api/context/EvaluatedAssignment.java#L80-L109[the source code].
+
+Therefore, this process needs to be done at each place where triggered policy rules are "consumed", i.e. in
+
+* https://github.com/Evolveum/midpoint/blob/10070ab6109eb8c169dd39190067d3f37694d5cd/gui/admin-gui/src/main/java/com/evolveum/midpoint/gui/impl/page/self/requestAccess/RequestAccess.java#L472-L491[request access wizard],
+* https://github.com/Evolveum/midpoint/blob/10070ab6109eb8c169dd39190067d3f37694d5cd/model/model-impl/src/main/java/com/evolveum/midpoint/model/impl/lens/projector/focus/PruningOperation.java#L92-L105[code for assignments pruning],
+* https://github.com/Evolveum/midpoint/blob/10070ab6109eb8c169dd39190067d3f37694d5cd/model/workflow-impl/src/main/java/com/evolveum/midpoint/wf/impl/processors/primary/policy/AssignmentPolicyAspectPart.java#L152-L154[approvals].
+
+Other places where it would be _potentially_ needed in:
+
+* https://github.com/Evolveum/midpoint/blob/10070ab6109eb8c169dd39190067d3f37694d5cd/model/certification-impl/src/main/java/com/evolveum/midpoint/certification/impl/CertificationHook.java#L80-L85[certification hook],
+* https://github.com/Evolveum/midpoint/blob/10070ab6109eb8c169dd39190067d3f37694d5cd/model/model-impl/src/main/java/com/evolveum/midpoint/model/impl/lens/projector/policy/scriptExecutor/PolicyRuleScriptExecutor.java#L99-L107[executor of "script execution" policy actions],
+* https://github.com/Evolveum/midpoint/blob/10070ab6109eb8c169dd39190067d3f37694d5cd/model/notifications-impl/src/main/java/com/evolveum/midpoint/notifications/impl/NotificationHook.java#L100-L105[notification hook]
+
+Obviously, this is not good.
+We do not want to repeat the same (or very similar) code needlessly.
+
+== Related Problem 1
+
+There is another problem: When looking for exclusion constraints, we need to crawl through the rules and their (potentially composite) triggers.
+This needs to be done e.g. in request access UI code and in pruning code.
+Although the code itself is simple, it is not well maintainable in the long run.
+
+== Related Problem 2
+
+Generally, when we have a policy rule, and we want to act somehow upon its triggers, it is hard to distinguish which triggers are "substantial" and which ones are "auxiliary".
+The former represent the core of the rule, like the exclusion constraint or "assignment being added" one.
+The latter may represent e.g. conditions under which the rule is to be applied.
+The current specification language does not distinguish between the two.
+We only have `presentation/final` and `presentation/hidden` flags that drive the presentation of the condition(s) to the user.
+
+== (Partial) Solution Proposal
+
+We should improve the API (e.g. `EvaluatedAssignment`) to be able to provide information like this:
+
+. Get all exclusion triggers (also the ones triggered from the opposite side), with the ability to easily detect e.g. the requested policy actions for each of them.
+This would be useful for request access UI and the pruning.
+. Get all policy rules triggered from the opposite side of the exclusion.
+This is useful for approvals.
+
+The problem 2 is still to be solved.
