@@ -1,0 +1,640 @@
+= Simulations - The Requirements
+:page-since: 4.7
+:page-toc: top
+
+[NOTE]
+====
+This is an attempt to formulate requirements for the new _simulations_ feature - both current and expected ones.
+The goal is to provide a basis for solid xref:/midpoint/devel/design/simulations/design/[design] that would hold the anticipated evolution of the requirements in this area.
+
+Obviously, not all requirements mentioned here have to be designed into midPoint 4.7.
+The primary goal for 4.7 is to cover "first steps" scenarios:
+small number of resources, small number of users, simple configuration.
+The binding requirements for 4.7 are named explicitly right in the document.
+====
+
+== The Principal Requirements
+
+. MidPoint must execute _operations_ with _flexible execution mode_, with a configuration potentially _different from the default one_.
+footnote:["Flexible execution mode" is not a good term.
+It is too general.
+We should replace it with something more specific.]
+. MidPoint must provide rich ways of _reporting on the results_ of these operations.
+
+The underlying reason is that midPoint must support iterative solution development and deployment.
+Its users must feel confident to invoke operations in "preview mode" with no worries of causing any harm.
+
+== Scenarios To Support
+
+MidPoint must support the following typical scenarios.
+
+=== Incremental Introduction of the New Resource Configuration
+
+When connecting a new source or target system to midPoint, we must create its resource definition.
+However, the first version of the definition is rarely completely correct and usually there is a need to fine-tune it.
+To avoid any damage, we want actions driven by this resource definition to have no permanent effects in midPoint nor in any connected system.
+
+MidPoint will support this by marking the resource as "for simulation only"footnote:[The terminology is not clear.
+There are alternatives like "simulation", "proposed", and so on.].
+This will be the default setting for a new resources created in the Resource Wizard.
+It will have multiple effects, described below.
+
+==== Previewing Content of a Resource
+
+One of effects of this setting will be the safe viewing the content of the resource, i.e. objects of given object class or object type.
+The usual side effect of such viewing is the creation of shadows for all repository objects seen.
+The requirement here is that either no shadows should be created, or (most probably in 4.7) the shadows will be created, but they will be disposable.
+
+The implementation in 4.7 will probably look like this:
+When browsing a "for simulation only" ("proposed") resource, all the shadows created are marked as "simulated" (or "preview") ones.
+This markfootnote:[The concrete way of marking is to be decided.
+Either some existing lifecycle state(s) may be used for this, or new _simulation_ (_preview_) state is conceived, or a new property is used for this.]
+will be the signal for midPoint that such shadow may be updated freely regarding its kind, intent, synchronization situation, candidate owners, and so on.
+Also, such shadows can be deleted at any time - by midPoint or by the administrator.
+(Once the shadow leaves this mode and becomes a "production" one, its updating is much more restricted, and it also should not be deleted without serious reason.)
+
+==== Fine-Tuning the Correlation Configuration
+
+The correlation deals with determining the owner of the shadow - or concluding that there is currently no owner.
+Just like any other part of midPoint configuration, in most cases also this one needs some fine-tuning until it is production-ready.
+(Often it is because of the suboptimal quality of data on the resource.)
+
+Correlation configuration fine-tuning is best done while the resource and the shadows are in the "simulation" mode.
+The GUI should provide an option to simply run the correlation simulation.
+The results of the simulation are stored in the repository.
+They can be viewed by displaying the number and list of accounts in various synchronization situations: linked, unlinked, unmatched, or disputed ones.
+For disputed and unlinked accounts there should be a possibility to display the owner candidate(s).
+
+The fine-tuning of the correlation process ends by marking this part of resource configuration as _production_ or _active_
+footnote:[Again, the terminology is unclear yet.].
+After the next run of an appropriate synchronization task, the correlation is executed in production mode, and shadow's synchronization situation is determined for good.footnote:[Other effects are to be decided: The shadow can be linked to its owner. It can be also turned to the "production" mode.]
+
+==== Fine-Tuning the Inbound and Outbound Mappings
+
+After the correlation is set up, we may start fine-tuning the inbound and outbound mappings.
+footnote:[Actually, it is not strictly required that the mappings come after correlation.
+There may be cases when correlation comes after the mappings - or does not come at all.]
+
+While the resource as such is in "proposed" mode, the execution of mappings has no effects on objects in midPoint and connected systems.
+The effects can only be previewed and checked for correctness.
+Only later, when we decide that the first version of the resource definition is adequate and all mappings were tested properly, we can switch the resource to the "active" mode.
+After that, all the mappings and other settings such as object types and correlations will be effective during regular midPoint operation.
+
+=== Incremental Improvements of the Resource Configuration
+
+When a new _resource object type_ is being added, the challenges and the procedures are very similar.
+This time, however, we cannot switch the whole resource to "for simulation only" mode.
+We do so only for the newly created object type.
+This guarantees that the previously accepted and tested configuration continues to work as expected - and, at the same time, we can test the newly added parts.
+
+You now probably feel that this is not the end.
+The same applies to adding new attribute mappings or new associations to existing object types.
+Also, to changing or extending the correlation rules.
+We need to support all these scenarios with simulated executions as well.
+
+=== Other Configuration Changes
+
+Fine-tuning of the configuration is not limited to resources.
+The same approach can be used when introducing e.g. new object template mappings, new archetypes, policy rules, and so on.
+
+(This is not guaranteed to be fully supported in 4.7.)
+
+=== Reorganization Simulation
+
+* What would be the consequences of importing the CSV with the new organizational structure?
+* What would be the consequences of substantial changes in midPoint organizational structure?
+(A variation of the above.)
+
+Not to be supported in 4.7.
+
+=== Role Evolution
+
+When a role (or a set of roles) evolve, we may want to preview the effects before we put the updated definition(s) into production.
+
+Also, we may want to limit the effects we are interested in to the mere information of what users have the role(s) currently assigned.
+(Meaning that we are interested only in the membership changes: who obtained the role and who lost the membership.)
+
+Not to be supported in 4.7.
+
+=== Other Scenarios
+
+#TODO#
+
+== Operations
+
+Returning to our more technical description of requirements, let us now consider its individual parts:
+operations, flexible execution, configuration changes, and reporting needs.
+
+The _operations_ supported must be:
+
+* on _foreground_ (invoked from GUI or from REST), or on _background_ (in tasks),
+* connected to _a single_ or _multiple_ entities (users, accounts, ...), up to all entities of given type,
+* invoked by _calling the clockwork_ or by _synchronization_ from the resource,
+* comprising a _simple activity_ (like import, recomputation, or delta application), or a _complex activity_ (like resource reconciliation, a sequence of GUI operations).
+
+=== Minimum Requirements for 4.7 in the Area of Operations
+
+* GUI "Preview changes" as it is now
+* Simulations for import, live sync, and reconciliation tasks.
+* Simulations for recomputation tasks.
+* Simulations for iterative scripting tasks.
+(To be decided.)
+
+== Flexible Execution Mode
+
+During the processing of a resource or repository object, midPoint executes tens to hundreds or even to thousands of actions.
+They comprise recording the state of the resource object in repository (shadowization), classification, correlation, loading related objects (including accounts from other resources), evaluation of inbound mappings, treating focus and projections activation, object template, assignments, lifecycle state, credentials, policy rules, outbound mappings, outbound account values reconciliation, computed changes applications to focus or resource objects, and many more.
+
+Generally, there should be the following categories of actions regarding their effects:
+
+. actions whose effects are stored in a regular way (persistently),
+. actions whose effects are determined, but the effects are stored only for later inspection or analysis,
+. actions whose effects are discarded or that are not executed at all.
+
+=== Existing State of Affairs
+
+The concept of different execution modes is not new.
+MidPoint already contains various mechanisms that provide some flexibility in this regard.
+
+.Overview of existing mechanisms for flexible execution (rough description)
+[%header]
+[%autowidth]
+|===
+| Feature | Actions executed fully (1) | Actions executed for inspection (2) | Actions not executed (or with effects discarded) (3)
+| Regular run
+| all
+| -
+| -
+
+| Preview changes
+| some (Note 1)
+| all
+| -
+
+| Simulations
+| some (Note 1)
+| policy rules (some of)
+| all the others actions
+
+| Dry run
+| classification, partly correlation (setting the situation)
+| -
+| owner linkage, synchronization
+
+| Partial processing options
+| ones that are enabled
+| -
+| ones that are disabled
+
+| "Limit propagation" option
+| focus-oriented, and those oriented to the originating resource
+| -
+| actions related to other resources
+|===
+
+Notes:
+
+. Because of current implementation restrictions, some actions executing in "preview changes" (simulation) mode leave the persistent traces: e.g. objects that are created on demand, items of sequences, or changes made in the provisioning module e.g. when reading from resources.
+
+=== The Goal
+
+We need a way of specification of what actions should be in what category (persistent effects, effects for inspection, no effects) for the particular operation execution.
+
+An option of doing that is concentrating on _configuration items_ that are processed by individual actions.
+For each such item we could either specify the basic intention on actions' effects durability (regular i.e. persistent; simulation i.e. for analysis; none i.e. ignored), or more complex specification (see below).
+
+The processing of the following configuration items should be addressable:
+
+* a resource,
+* an object class on a given resource,
+* an object type on a given resource,
+* a resource object item (attribute or association),
+* an abstract role,
+* an assignment or an inducement,
+* a mapping,
+* a correlation or a given correlator,
+* a policy rule,
+* a synchronization reaction or action.
+
+(For each one, plural form should be considered as well: e.g. a single resource, or multiple resources.)
+
+==== Specifying the Processing for a Configuration Item at the Abstract Level
+
+Here we should define how we will define the behavior of individual items.
+
+Note that we do _not_ talk about a concrete style _how_ this should be configured, e.g. by setting their properties in the configuration!
+We are still at the abstract level of the specification of the behavior for a given operation execution.
+The concrete ways of configuring this behavior will be considered later.
+
+===== Mapping
+If a mapping is marked for full execution, the values computed by it may be used for storing into the repository and/or sending out to a resource.
+If a mapping is marked for simulated execution, the values computed must not be stored only for later inspection.
+If a mapping is marked for no execution, it should not be executed at all.
+(In the worst case, it may be executed but the results have to be discarded.)
+
+===== Attribute and Association
+TODO
+
+===== Object Type and Object Class
+TODO
+
+===== Resource
+NOTE: Unlike mappings, we cannot make resources or object classes or object types "disappear" if they are to be ignored for the particular execution.
+We must do that more intelligently.
+Moreover, we may need to specify more options, like "is reading from the resource allowed, or should we use some (cached) state"?
+
+===== Abstract Role
+TODO
+
+===== Assignment and Inducement
+TODO
+
+===== Correlation and Correlation Rule
+TODO
+
+===== Policy Rule
+TODO
+
+===== Synchronization Reaction and Action
+TODO
+
+===== Other
+We may need the overall "do not write" switch that would prevent any changes to be written into the repository or resource.
+Something that is today (although not perfectly) provided when `previewChanges` method is invoked instead of `executeChanges` one.
+
+===== Relations Between Items
+
+Individual items are bound by relations, the basic ones being "contained-by" ones.
+For example, a resource contains object classes and object types.
+Object types contain attributes and associations.
+Attributes and associations contain inbound and outbound mappings; although here the relations are not that simple.
+footnote:[For example, an inbound mapping may be related to multiple attributes.
+While an outbound mapping has only a single target attribute or association, there are situations when it can have other attributes or associations as sources.]
+
+Generally, there should be some algorithm that will propagate settings attached to higher-level items to lower-level ones.
+For example, if a resource is put into "simulated" mode in a given execution, this should propagate to all its object classes and object types, down to individual mappings.
+However, we need to be able to override these propagated settings.
+A typical example is that the object type as a whole is simulated, but its correlation is executed in full.
+Or, an attribute as a whole is simulated, except for one or two mappings for it.
+(See also <<Mode Inheritance and Overriding>> below.)
+
+#TODO refine these ideas#
+
+// WARNING: This may be dangerous, though.
+// The administrator may think that the attribute as such is "safe", but the forgotten mapping(s) may cause it to be modified.
+
+=== Configuring the Execution Mode
+
+How will we configure the above behavior?
+
+==== Simple Way of Configuration
+
+Here is perhaps the most natural implementation:
+
+- Each item will have a four-state tag, e.g. with `draft`, `proposed`, `active`, and `deprecated` values.
+- The global mode selection would be two-states, e.g. `regular` vs `simulation`.
+footnote:[Roughly corresponding to `executeChanges` and `previewChanges` Model API methods.]
+
+The regular mode would execute all active and deprecated items.
+The simulation mode would execute all active and proposed items, and will set the overall "write" option to "do not write anything" mode.
+The `draft` items will be ignored altogether.
+
+This is maybe what would be OK for 4.7.
+
+===== Mode Inheritance and Overriding
+
+As sketched out in <<Relations Between Items>>, the configuration items are not independent.
+For example, you may declare the resource as `proposed`, but some of its parts as `active`.
+Let us propose how it can work in various situations.
+
+. Resource is marked as `proposed`, while its constituent parts are not marked at all.
+Now the constituents (object types, correlation, attributes, associations, mappings) inherit the `proposed` flag.
+Nothing is executed "in real".
+
+. Resource is marked as `proposed`, but the correlation in `account/default` object type is `active`.
+Other parts are not marked.
+Now all constituents _except for correlation_ will inherit the `proposed` flag, while the correlation is `active`.
+When a standard task is executed against this resource, nothing is executed "in real", except for the correlation for `account/default` object type.
+footnote:[What about the shadows?
+Will they be still "simulation"/"preview" ones?]
+
+. Resource is `active`, attribute is `proposed`, and one of its outbound mappings is `active`.
+By the same logic, the value of the mapping should be propagated to the target resource.
+
+WARNING: #Is this overriding OK?#
+I am not sure.
+The administrator may be misled by the `proposed` value of the attribute, falsely assuming that "nothing can go wrong here".
+It could be even worse if the mappings for that attribute (or association) are scattered throughout multiple roles.
+Similarly, in the previous case, he may look at `proposed` value for the resource, and forget about the `active` value of correlation.
+To be decided.
+
+==== Advanced Configuration Options
+
+Think of e.g. limiting the (regular) execution to a resource or two, ignoring all the other resources.
+Or imagine the regular task run, with only some mappings, or some resources recording the outputs for further analysis.
+
+NOTE: It is clear that it is not possible to mix-and-match the settings in arbitrary way.
+For example, if there is a mapping chaining, we cannot take the mapping inside the chain, and declare it as "executed for inspection", while keeping all the others to be "regular" - in the same run!
+Such distinction can be done, but the simulation and regular (updating) runs must be executed separately.
+
+==== An Example
+
+There are 100 target resources.
+In the concrete run, only mappings for 2 target resources were updated.
+Hence, in the simulation results table we only want to see changes related to these two targets.
+It is now a question of dependencies and the sophistication of the implementation, if we need to compute more, and then discard all except for these two resources, or we don't need to compute anything other than these two resources.
+
+=== Minimum Requirements for 4.7 in the Area of Flexible Execution Mode
+
+#TODO#
+
+== Using a Configuration Different from the Default One
+
+Besides selecting elements for execution/simulation/disregard in the particular execution, we may need to run more advanced simulations.
+For example, we may ask what consequences would an arbitrary change in a configuration item have on a given operation (e.g. users recomputation or import from a resource).
+
+Examples of such changes:
+
+* change in a role,
+* change in a script code in some condition,
+* change in a correlation rule.
+
+=== Change Sets
+
+There is the following idea related to role modeling: Changes to roles often do not make sense in isolation.
+The whole role model should be versioned, so that the changes are applied atomically - either none or all of them.
+The same may be true for any non-trivial changes in midPoint configuration.
+
+(Note that marking items as `proposed` - `active` - `deprecated` would fulfill this condition, with some limitations regarding the granularity of changes.
+The price is that only one such "change set" could be definable at any given time.)
+
+There is an idea of named and referencable "change set" that would describe such an atomic change.
+The simulation tasks could be decoupled from such change sets.
+
+NOTE: Most probably, named change sets won't be implemented in the near future.
+The reorganization simulations are perhaps the most important use cases for named change sets.
+But these will not be resolved in 4.7.
+
+=== Minimum Requirements for 4.7 in the Area of Using a Configuration Different from the Default One
+
+Most probably none. #TODO - ok?#
+
+[#_reporting_on_the_results]
+== Reporting on the Results
+
+=== Questions to Support
+
+The following are the typical questions a user may ask _after_ the simulation is run:
+
+* Questions about accounts
+** How many (and which) accounts will be created/deleted/modified (on the resource)?
+** How many (and which) accounts will be disabled? (And why - reason, e.g. because all roles were unassigned or explicit disable)
+** How many (and which) accounts will be deactivated? (A summary of deleted, disabled, archived, ...)
+** How many (and which) account identifiers will be changed?
+** How many (and which) attributes will be changed?
+** How many (and which) accounts will be in the `linked`, `unmatched`, `unlinked`, `disputed` state after the operation?
+footnote:[This question is tricky!
+If we deal with deltas only, we can tell nothing about the absolute counts of shadows e.g. being in `linked` state.
+To be decided.
+We may somehow use the shadow "simulation mode" - but not always:
+The initial tuning of the correlation is OK in this regard, because shadows are in the preview mode.
+But if we want to improve the correlation rules afterwards, we cannot simply switch shadows back from production to preview.]
+What about transitions between these states, e.g. how many accounts were switch e.g. from unknown to `unlinked` state?
+** What will be the correlated owner and/or owner candidates for a specific shadow?
+** ...
+
+* Questions about users
+** How many users will be created/deleted/modified (in the repository)?
+** How many users will be deactivated?
+** How many users will be disabled? (And why - e.g. because all roles were unassigned, or because of explicit disable)
+*** Here are probably two distinct queries, one asking for `activation/effectiveStatus`, one for assignments or `roleMembershipRef` values.
+** How many users were accidentally demoted (e.g. were managers before, and they are only members or even not that after)?
+** ...
+
+Other common search criteria:
+
+* task OID,
+* resource OID, maybe with object class or type,
+* archetype,
+* organizational unit,
+* role membership.
+
+We probably want to query also the unchanged entities.
+Like "show me the students there will be after the change" (and how many of them are there).
+
+=== Data Maintenance
+
+We need to be able to easily and regularly delete old records.
+(E.g. using DB table partitioning.)
+
+At the beginning, we probably want to store only the last task run result.
+Old runs should be deleted either automatically after some time, or when a new task run is requested.
+(Later we may want to store a defined number of task runs.)
+
+=== Configuring the Data Collected
+
+NOTE: This section sits somewhere between execution mode specification requirements and reporting requirements.
+For the time being, let us keep it under the latter (i.e. here).
+
+The kinds of changes that are stored for later analysis have to be configurable.
+There should be a possibility to somehow mark or list attributes which change should be recorded during simulated or real execution.
+For example:
+
+- How many users or accounts will be enabled/disabled?
+- How many renames there will be?
+
+Maybe the policy rules can be used for this (see the design document).
+
+[#_pre_processing_of_the_data]
+=== Pre-processing of the Data
+
+Not all information can be retrieved from the "raw data" (e.g. the deltas or the object state before and after the processing) in reasonable time.
+Therefore, some amount of pre-processing is unavoidable.
+
+The general approach should be like this:
+
+. We accept that a limited number queries are impossible to formulate after the simulation is done.
+However, it must be possible to formulate them _before_ the simulation, and find the answers afterwards.
+
+. We accept that some queries are possible to ask, but slow to evaluate if formulated only after the simulation is done.
+Again, it must be possible to prepare the simulation in such a way that they could be answered (if needed) in a reasonable time.
+
+. Common queries should be answerable quickly, without any specific preparation.
+
+Moreover, there may be queries that we _know beforehand_ that we want to have in the results.
+For example, "how many there will be active users after the processing?".
+This is something that we know we can count during the simulation.
+
+A limitation to consider:
+"If you know you will need to query the whole object set (i.e. not only objects that were changed), tell it before the simulation."
+This will cause some information to be stored in the queryable form right to the repository maybe in a form of tags.
+We could then search through these tags (see the design document).
+
+A typical scenario:
+
+. "Count how many active users (overall) do you expect after this simulated recomputation is done."
+This means users that were and were not changed during the simulated recomputation.
+We assume that the recomputation goes over all the users.
+
+. "Show me them."
+(After the simulation.)
+MidPoint should show the first page of these users, and then should allow to browse through them.
+Filtering (searching) should be available as well.
+
+A different, more complex requirement:
+
+* "Show me all the users whose name you expect was changed, sorted according to the name."
+
+Even more complex one:
+
+* "Show me all active users do you expect after this simulation, sorted according to the name."
+
+*Limitation:* The sorting will be limited / incomplete / not as the user wishes.
+The reason is that this query will be - most probably - combined from production and simulation database.
+Most probably, first there will be new users, then changed ones, then unchanged ones.
+Or maybe first new+changed, then unchanged.
+
+_UI idea: To show the list with the first column (change type) as ordered, without the possibility to change this ordering.
+UX aspects are to be consulted with Paťko._
+
+Note: The active but unchanged users may be optional to show.
+In many situations they will not be needed.
+
+==== Recommendation for Pre-computed Data
+
+* Accounts (meaning resource objects):
+** number of accounts created/deleted/modified,
+** number of accounts enabled/disabled (deactivated)
+** number of accounts with identifiers changed,
+** number of accounts with entitlements changed,
+** number of accounts with correlation situation changed,
+* Users (meaning focus objects):
+** number of users created/deleted/modified,
+** number of users enabled/disabled (deactivated),
+** number of users renamed,
+** number of users with assignments changed,
+** number of users with archetypes changed,
+** number of users with parentOrgRef changed,
+** number of users with (any) role membership changed,
+** number of users with (specific) role membership changed - useful if we simulate modifications of a given role, see also <<Role Evolution>> scenario.
+
+Along with the numbers we may store the base in order to be able to compute percentages.
+
+=== Trends Analysis
+
+Later, we may keep a defined number of runs (at least partially) to see trends in data.
+As for the trends, a selection (or all) of pre-computed data mentioned above may be collected.
+
+TIP: This feature is more general, not bound to simulations only.
+Something similar we want to see also for dashboards.
+
+=== Requirements to Be Implemented in 4.7
+
+We need to report on the most basic changes:
+
+* account creations and deletions,
+* activations and deactivations,
+* group membership changes,
+* password changes.
+
+#TODO what about correlation situations?#
+
+Absolute numbers are not important.
+We only need the changes - at this point.
+
+#TODO is all this really sufficient?#
+
+=== Design
+
+See xref:/midpoint/devel/design/simulations/design/#_storing_simulation_results[here].
+
+== Non-Functional Requirements
+
+Should the transient effects of the simulated runs (e.g. sequences being increased, objects created on demand, and so on) live outside the processing of a single item?
+Should they be visible cluster-wide?
+
+(This is to decide whether the temporary data storage could be simple in-memory, or it should be somehow shared across the cluster, e.g. using the repository.)
+
+How "upgradeable" should be the simulation data?
+Do they have to survive 4.7 -> 4.8 upgrade?
+And after that release?
+
+== GUI Requirements
+
+* indicate in resource wizard that a part is in simulation mode
+
+* if the whole resource is switched from _production_ to _simulation_ (or vice versa), we need to check all the other parts which can have their configuration and give the user feedback what everything will be changed and what it means at the end.
+
+== Most Probably out of Scope for 4.7
+
+* Everything that requires the local storage:
+** reorganization simulation,
+** fully simulated create-on-demand,
+** simulated discovery,
+** serious support for sequences: meaning that simulated sequences are maintained outside the processing of individual users - e.g., accounts created in the simulated way will not get (all) uid/gid of 1000,
+** changes of roles in combination with assignment target search:
+like we have `assignmentTargetSearch` in inbound or template mapping, that assigns a user the organization with ID that we get from HR.
+We want to simulate what will happen if we change the code(s) in the existing organization units in the repository.
+This is practically not doable without the local storage (deprecation/proposing of replacement roles could be somehow done, but in totally weird and impractical way);
+** auto-assignments: we want to change the auto-assignment rule in the role, and we want to see the effects.
+This depends a little on whether the auto-assignment rule will belong to "lifecycle-aware" configuration items.
+Most probably not in 4.7.
+
+* Straight application of deltas computed during simulation.
+The original idea was that pre-computed deltas could be applied without re-computing them.
+This is tricky, e.g. because of sequences.
+Therefore, we will require recomputation of the deltas before they are really applied.
+
+== Other
+
+=== Multiple Users
+
+The preview changes or simulation mode can be used by multiple users at once, with different expectations.
+For example, the administrator may fine-tune the configuration of a resource or a role, putting some configuration items in _for simulation_ state.
+He may try to run a simulation task (or preview some changes in GUI), with those draft configuration items in action.
+At the same time, an operator may try modifying a user and previewing the changes using the "production" configuration only.
+
+A similar situation is when two administrators may be fine-tuning independent parts of the configuration.
+Each one may want to run the simulation task (or GUI action) with a different set of configuration items.
+
+=== Outstanding Issues of Preview Changes Functionality
+
+We need to review and improve and fix outstanding issues for preview changes, as they are used for simulation tasks.
+Examples: permanent effects of create-on-demand feature, used sequence numbers, and so on.
+
+For 4.7 this is tricky, as we probably won't have the local state available.
+At the other hand, we really do not want anything to be created during preview/simulation.
+
+=== Create on Demand in 4.7
+
+See bug:MID-4568[].
+
+The idea is that create-on-demand feature will be enabled only if explicitly allowed e.g. in the task.
+In this way, the simulation will be "safe" - no side effects will be carried out.
+The negative side is that it will crash in some situations.
+We can investigate further options for treating these situations, at least partially.
+
+For example, what if we created the assignment `targetRef` with an embedded target object?
+
+NOTE: As far as Model API is concerned, this could be driven by a property in `ModelExecuteOptions`.
+
+=== Sequences in 4.7
+
+When a value from a sequence is requested (in `previewChanges` invocation), the sequence is advanced.
+When the `previewChanges` method terminates, the value is returned to the sequence as unused.
+See e.g. commit link:https://github.com/Evolveum/midpoint/commit/30142a32[30142a32].
+(bug:MID-4778[]).
+
+The slight problem is that this creates a "hole" in the sequence.
+
+*Suggestion:* Being in `previewChanges`, what if we simply used the current sequence value without advancing the sequence?
+The effect on the preview would be the same, as it is now - the same value would be used.
+But no effects would be visible to the outside world.
+
+Maybe there should be an option for this, just like the one for Create on Demand feature?
+
+=== Deltas
+
+We will need to improve delta mechanism, so we will be able to tell, that the old attribute value is changing to the new attribute value.
+Now, there is some heuristic and quick hack which is used, but we need to do it properly.
+This will also influence the scene generation code for delta visualization.
