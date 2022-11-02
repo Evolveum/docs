@@ -1,0 +1,173 @@
+= Midpoint Studio switch to Gradle
+
+== Introduction
+
+Currently, projects created and managed by Midpoint Studio use Maven as dependency management tool.
+This helps Idea and Studio plugin to support functionality directly dependent on Midpoint code base (e.g. code completions, XSD schema validation)
+
+There are three main problems with current state:
+
+. If user has multiple Midpoint environments configured and these use different versions of Midpoint, plugin features might be a little off in some cases.
+Mainly groovy scripts code validation with code autocompletion.
+Also XSD schema validation might throw errors about unknown elements, or missing elements in XMLs.
+. Upgrading dependencies in Midpoint project is now very cumbersome.
+Maven POM file has to be edited, too many properties changed, dependencies updated.
+. If there's new feature added to Studio plugin which requires new Maven dependency on classpath to function properly or other changes on Maven level, each user must update POM file accordingly and this also depends on specific set of Midpoint dependencies.
+
+Example of Maven pom.xml file created by Studio plugin (not maintained in any way afterwards):
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>org.example</groupId>
+    <artifactId>midpoint-project</artifactId>
+    <version>1.0-SNAPSHOT</version>
+    <packaging>pom</packaging>
+
+    <repositories>
+        <repository>
+            <id>evolveum</id>
+            <url>https://nexus.evolveum.com/nexus/content/groups/public/</url>
+        </repository>
+        <repository>
+            <id>evolveum-snapshots</id>
+    <url>https://nexus.evolveum.com/nexus/content/repositories/snapshots/</url>
+        </repository>
+    </repositories>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+        <java.version>11</java.version>
+
+        <connid.version>1.5.0.18</connid.version>
+        <scripted.sql.version>2.2.1</scripted.sql.version>
+        <midpoint.version>4.4</midpoint.version>
+        <groovy.version>3.0.8</groovy.version>
+        <testng.version>7.4.0</testng.version>
+    </properties>
+
+    <build>
+        <sourceDirectory>midpoint-home/scripts</sourceDirectory>
+
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <version>3.8.1</version>
+                    <configuration>
+                        <source>${java.version}</source>
+                        <target>${java.version}</target>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+    </build>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.evolveum.polygon</groupId>
+            <artifactId>connector-scripted-sql</artifactId>
+            <version>${scripted.sql.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>net.tirasa.connid</groupId>
+            <artifactId>connector-framework</artifactId>
+            <version>${connid.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.codehaus.groovy</groupId>
+            <artifactId>groovy-all</artifactId>
+            <version>${groovy.version}</version>
+            <type>pom</type>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.codehaus.groovy</groupId>
+                    <artifactId>groovy-ant</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.codehaus.groovy</groupId>
+                    <artifactId>groovy-test-junit5</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.codehaus.groovy</groupId>
+                    <artifactId>groovy-test</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.codehaus.groovy</groupId>
+                    <artifactId>groovy-testng</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>com.evolveum.midpoint.model</groupId>
+            <artifactId>model-impl</artifactId>
+            <version>${midpoint.version}</version>
+        </dependency>
+        <!-- TEST -->
+        <dependency>
+            <groupId>org.testng</groupId>
+            <artifactId>testng</artifactId>
+            <version>${testng.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>net.tirasa.connid</groupId>
+            <artifactId>connector-test-common</artifactId>
+            <version>${connid.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>net.tirasa.connid</groupId>
+            <artifactId>connector-framework-contract</artifactId>
+            <version>${connid.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>
+----
+
+In here `${UPPER_CASE}` properties are replaced when Midpoint project is created in Intellij Idea.
+Updating this is a nightmare even for Midpoint devs - if you want to stay up to date with the dependencies.
+
+== Proposition
+
+New proposition is simple, we'll switch to from Maven to Gradle as backbone for dependencies management in Midpoint project.
+
+Gradle is much more flexible with more options to customize how dependencies are loaded an handled. API to develop plugins is on different level compared to Maven.
+
+Gradle build would be supported by custom Gradle plugin for Midpoint project developed hand in hand with Studio plugin.
+
+Example of proposed Gradle file (in kotlin)
+
+[source,kotlin]
+----
+plugins {
+    id("com.evolveum.midpoint.studio") version "1.0-SNAPSHOT" // this is Gradle plugin version, not Intellij Studio plugin
+}
+
+group = "org.example.midpoint.project"
+version = "0.1"
+
+midpointStudio {
+    midpointVersion = "4.5"
+}
+----
+
+As you can see to update version of Midpoint, user has to change one value, which refers to Midpoint version.
+Dependencies changes will be handled accordingly via new Midpoint gradle plugin.
+
+As usual there has to be an option to support for custom dependencies, e.g. custom libs or overlay build.
+
+In first iteration, gradle plugin would set up:
+
+* java plugin
+* list of midpoint related dependencies
+* list of repositories (evolveum nexus)
+* ...other ideas welcomed
