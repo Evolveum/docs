@@ -15,14 +15,13 @@ The binding requirements for 4.7 are named explicitly right in the document.
 
 == The Principal Requirements
 
-. MidPoint must execute _operations_ with _flexible execution mode_, with a configuration potentially _different from the default one_.
-footnote:["Flexible execution mode" is not a good term.
-It is too general.
-We should replace it with something more specific.]
-. MidPoint must provide rich ways of _reporting on the results_ of these operations.
+MidPoint must support iterative and incremental solution development and deployment.
 
-The underlying reason is that midPoint must support iterative solution development and deployment.
-Its users must feel confident to invoke operations in "preview mode" with no worries of causing any harm.
+. It must be possible to mark parts of midPoint configuration as "in development".
+(Maybe even with distinguishing multiple development stages, for example, testing and QA.)
+. Those parts must not affect the regular ("production") operation of midPoint.
+Hence, users should feel confident that any changes in those "in development" parts of the configuration will not destroy or harm their production data.
+. It must be possible to execute selected operations (like import from resource) in a special mode where the effects of some or all of those "in development" parts can be gathered and analyzed.
 
 == Scenarios To Support
 
@@ -34,8 +33,8 @@ When connecting a new source or target system to midPoint, we must create its re
 However, the first version of the definition is rarely completely correct and usually there is a need to fine-tune it.
 To avoid any damage, we want actions driven by this resource definition to have no permanent effects in midPoint nor in any connected system.
 
-MidPoint will support this by marking the resource as "for simulation only"footnote:[The terminology is not clear.
-There are alternatives like "simulation", "proposed", and so on.].
+MidPoint will support this by marking the resource as "in development"footnote:[The terminology is not clear.
+There are alternatives like "simulation", "testing", "proposed", and so on.].
 This will be the default setting for a new resources created in the Resource Wizard.
 It will have multiple effects, described below.
 
@@ -46,51 +45,86 @@ The usual side effect of such viewing is the creation of shadows for all reposit
 The requirement here is that either no shadows should be created, or (most probably in 4.7) the shadows will be created, but they will be disposable.
 
 The implementation in 4.7 will probably look like this:
-When browsing a "for simulation only" ("proposed") resource, all the shadows created are marked as "simulated" (or "preview") ones.
+When browsing a resource that is "in development", all the shadows created are marked as "non-production" ones.
 This markfootnote:[The concrete way of marking is to be decided.
 Either some existing lifecycle state(s) may be used for this, or new _simulation_ (_preview_) state is conceived, or a new property is used for this.]
 will be the signal for midPoint that such shadow may be updated freely regarding its kind, intent, synchronization situation, candidate owners, and so on.
 Also, such shadows can be deleted at any time - by midPoint or by the administrator.
 (Once the shadow leaves this mode and becomes a "production" one, its updating is much more restricted, and it also should not be deleted without serious reason.)
 
+==== Fine-Tuning the Classification Configuration
+
+The classification is the process of determining kind and intent of any shadows seen by midPoint.
+It is driven by `delineation` part of resource object types definitions.
+It usually needs to be iterated until it is good enough to be released into production.
+(One of the reasons is incomplete understanding of the data on the resource or their suboptimal quality.)
+
+Typical questions to be asked during tuning the classification configuration:
+
+* How will the shadow types (meaning kind and intent) look like for the shadows of given object class (all or selected ones)?
+* How many shadows would have changed their type after a particular change is done in the classification configuration?
+(Or simply after an updated classification configuration is applied.)
+Which ones will that be?
+How many and which ones of them are already in the "production" state?
+
 ==== Fine-Tuning the Correlation Configuration
 
 The correlation deals with determining the owner of the shadow - or concluding that there is currently no owner.
 Just like any other part of midPoint configuration, in most cases also this one needs some fine-tuning until it is production-ready.
-(Often it is because of the suboptimal quality of data on the resource.)
 
-Correlation configuration fine-tuning is best done while the resource and the shadows are in the "simulation" mode.
-The GUI should provide an option to simply run the correlation simulation.
-The results of the simulation are stored in the repository.
-They can be viewed by displaying the number and list of accounts in various synchronization situations: linked, unlinked, unmatched, or disputed ones.
-For disputed and unlinked accounts there should be a possibility to display the owner candidate(s).
+Typical questions to be asked during tuning the correlation configuration:
 
-The fine-tuning of the correlation process ends by marking this part of resource configuration as _production_ or _active_
-footnote:[Again, the terminology is unclear yet.].
+* What will be the correlation/synchronization situation (no owner, existing owner, disputed owner, or already linked owner) for all or selected shadows?
+And who are the candidate owners?
+* How many shadows would have changed their correlation/synchronization situation after a particular change is done in the classification configuration?
+(Or simply after an updated correlation configuration is applied.)
+Which ones will that be?
+How many and which ones of them are already in the "production" state?
+How many and which ones of them are already linked to a user?
+
+The fine-tuning of the correlation process ends by marking this part of resource configuration as "in production"footnote:[Again, the terminology is unclear yet.].
 After the next run of an appropriate synchronization task, the correlation is executed in production mode, and shadow's synchronization situation is determined for good.footnote:[Other effects are to be decided: The shadow can be linked to its owner. It can be also turned to the "production" mode.]
 
 ==== Fine-Tuning the Inbound and Outbound Mappings
 
-After the correlation is set up, we may start fine-tuning the inbound and outbound mappings.
-footnote:[Actually, it is not strictly required that the mappings come after correlation.
+After the classification and correlation are set up, we may start fine-tuning the inbound and outbound mappings.footnote:[Actually, it is not strictly required that the mappings come after correlation.
 There may be cases when correlation comes after the mappings - or does not come at all.]
 
-While the resource as such is in "proposed" mode, the execution of mappings has no effects on objects in midPoint and connected systems.
+While the resource as such is in "development" mode, the execution of mappings has no effects on objects in midPoint and connected systems.
 The effects can only be previewed and checked for correctness.
-Only later, when we decide that the first version of the resource definition is adequate and all mappings were tested properly, we can switch the resource to the "active" mode.
+Only later, when we decide that the first version of the resource definition is adequate and all mappings were tested properly, we can switch the resource to the "production" mode.
 After that, all the mappings and other settings such as object types and correlations will be effective during regular midPoint operation.
 
 === Incremental Improvements of the Resource Configuration
 
 When a new _resource object type_ is being added, the challenges and the procedures are very similar.
-This time, however, we cannot switch the whole resource to "for simulation only" mode.
+This time, however, we cannot switch the whole resource to "in development" mode.
 We do so only for the newly created object type.
 This guarantees that the previously accepted and tested configuration continues to work as expected - and, at the same time, we can test the newly added parts.
+
+Note that the necessary changes to object classification may be tricky here.
+When dealing with separate object class (like working with groups while accounts are already in production), it can be done by putting group object class into the development mode.
+However, the problem may be if we have - for example - all of `inetOrgPerson` accounts in production (as `account/default` type), and now we want to split the type into two: `account/default` and `account/testing`, where the latter are designated by some naming convention.
+
+Here we probably need the feature of production/non-production shadows.
+
+. First, we would "unmark" selected shadows (given by the naming convention we suppose matches the testing accounts) from production to non-production mode.
+. Then, we change the classification algorithm.
+Technically, this is done by introducing a new object type (`account/testing`) in the development mode, with a specific delineation.
+In fact, mere addition of this object type changes the configuration for the classification algorithm, even if the delineation for `account/default` remains unchanged.
+(#TODO# If the delineation for `account/default` changes - how this will be put into the configuration? Will we mark the old one as deprecated, and the new one as proposed?)
+. We then experiment with the classification configuration, running the import from the resource (single-account or bulk one), and looking at changes that are either done to now-unmarked shadows or at changes that would be executed against the production shadows. #TODO# This part is to be thought about in more details.
+
+#TODO think about possible interference with the production processes#
+
+==== Development of Other Configuration Items
 
 You now probably feel that this is not the end.
 The same applies to adding new attribute mappings or new associations to existing object types.
 Also, to changing or extending the correlation rules.
 We need to support all these scenarios with simulated executions as well.
+
+#TODO think about this again#
 
 === Other Configuration Changes
 
@@ -120,10 +154,18 @@ Not to be supported in 4.7.
 
 #TODO#
 
-== Operations
+== Technical Requirements
 
-Returning to our more technical description of requirements, let us now consider its individual parts:
+. MidPoint must execute _operations_ with _flexible execution mode_, with a configuration potentially _different from the default one_.
+footnote:["Flexible execution mode" is not a good term.
+It is too general.
+We should replace it with something more specific.]
+. MidPoint must provide rich ways of _reporting on the results_ of these operations.
+
+Let us now consider individual parts of these requirements:
 operations, flexible execution, configuration changes, and reporting needs.
+
+== Operations
 
 The _operations_ supported must be:
 
@@ -238,6 +280,9 @@ TODO
 ===== Object Type and Object Class
 TODO
 
+===== Classification Configuration
+TODO
+
 ===== Resource
 NOTE: Unlike mappings, we cannot make resources or object classes or object types "disappear" if they are to be ignored for the particular execution.
 We must do that more intelligently.
@@ -291,13 +336,16 @@ How will we configure the above behavior?
 
 Here is perhaps the most natural implementation:
 
-- Each item will have a four-state tag, e.g. with `draft`, `proposed`, `active`, and `deprecated` values.
-- The global mode selection would be two-states, e.g. `regular` vs `simulation`.
-footnote:[Roughly corresponding to `executeChanges` and `previewChanges` Model API methods.]
+- Each item will have a four-state tag, e.g. with `draft`, `testing`, `proposed`, `active`, and `deprecated` values.
+- The global mode selection would be two-state, e.g. `production` vs `simulation` footnote:[Roughly corresponding to `executeChanges` and `previewChanges` Model API methods.] or three-state, e.g. `production` vs `simulation-of-proposed` vs `simulation-of-testing`.
 
-The regular mode would execute all active and deprecated items.
-The simulation mode would execute all active and proposed items, and will set the overall "write" option to "do not write anything" mode.
-The `draft` items will be ignored altogether.
+The effects could be:
+
+. The production mode would execute all active and deprecated items.
+. The simulation (or `simulation-of-proposed`) mode would execute all active and proposed items, and will set the overall "write" option to "do not write anything" mode.
+. The `simulation-of-testing` mode would execute all active, proposed, and testing items.
+(What about the gradual deprecation? Should be there `deprecated-proposed` and `deprecated-testing`?)
+. The `draft` items will be ignored altogether.
 
 This is maybe what would be OK for 4.7.
 
