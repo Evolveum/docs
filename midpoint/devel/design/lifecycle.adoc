@@ -1,0 +1,71 @@
+= Lifecycle Design Notes
+:page-nav-title: Lifecycle
+
+== Lifecycle State
+
+Lifecycle state (`lifecycleState`) property represents _business_ lifecycle of an object.
+Being a _business_ lifecycle, it is supposed to have a meaning for (human) users of midPoint.
+It specifies lifecycle of an object how it transitions through various phases of _business_ processes.
+
+E.g. it may represent state of the user in a user registration process, being unverified (`draft` or `proposed`), then activated after verification.
+
+E.g. it may represent role engineering and maintenance process, role being designed (`draft`), submitted for review (`proposed`) and approved for use (`active`).
+
+As a business lifecycle, midPoint should *not* modify lifecycle state by itself, especially not as a side-effect of various processes.
+MidPoint can change lifecycle state only in case than an object transitions between stages of a business process.
+E.g. midPoint can change lifecycle state when a registered user is verified.
+MidPoint can also expire (delete) an archived role/user after some expiration period, but that has to be part of a lifecycle policy definition.
+MidPoint should *not* change the lifecycle state as a side effect of other tasks, e.g. midPoint should not change lifecycle state as a result of a simulation run.
+
+== Shadow Lifecycle State
+
+Lifecycle state (`lifecycleState`) property stored in shadow object represents _business_ state of the object that the shadow represents on resource, which is usually an _account_.
+The `lifecycleState` property does *not* represent the _technical_ state of the shadow itself.
+There are other properties that can be used to determine state of the shadow (e.g. pending operations).
+
+Shadows are managed internally by midPoint, their state changes quite often.
+Shadow reflects a state of the outside world, usually heavily influenced by state of the network, database content on external resources and so on.
+We do not want such volatile and often unpredictable changes to interfere with business state of the _accounts_.
+
+== Lifecycle State and Object Modification
+
+Lifecycle states are often used to _create_ an object.
+E.g. user self-registration will use lifecycle states to track progress of user through a registration process.
+Role engineering would use `draft` and `proposed` states to create new roles in the system in an orderly and controlled way.
+In this scenario the role would be created in `draft` state.
+It can be modified as many times as needed, until the definition is correct.
+It is then transitioned to `proposed` state, and submitted for approval.
+Technically, the change being approved is a change of `lifecycleState` property from `proposed` to `active`.
+
+Similarly, `deprecated` and `archived` states may be used to decommission (delete) an object in a gradual and safe way.
+
+However, there is no such simple way to control the process of _modification_ of an active object, e.g. maintenance of an active role.
+An active object cannot be deactivated and modified.
+Therefore, different strategy is required here.
+We would use `Case` objects to store proposed deltas for active objects.
+The `Case` can live for a relatively long time, it can be shared between users, it can store deltas for several objects, it can be a base for simulations and so on.
+The `Case` would be an envelope for the proposed change.
+Once reviewed and approved, the `Case` can be closed, and the deltas applied to all active objects.
+
+In fact, the `Case` can be useful even in the creation and decommissioning cases, e.g. in case that several roles need to created or decommissioned together.
+The `Case` object can encapsulate state changes of all the roles, making sure they are considered together as an atomic group.
+
+== Simulations
+
+The `lifecycleState` is, and also it is not useful for simulations.
+
+The `lifecycleState` *can* be used to mark parts of configuration or policy that will be simulated.
+E.g. `objectType` definitions in a resource may have `lifecycleState` property, where the `proposed` lifecycle state may mean that the object type definition will be simulated, yet it will not be applied in production.
+Similarly `deprecated` lifecycle state may mean that the definition is applied in production, but it is ignored by simulation.
+
+However, we do *not* want simulation to change `lifecycleState`.
+E.g. we do not want simulation to create shadows or create-on-demand objects with `lifecycleState`=`proposed`.
+A separate property (or other mechanism) is needed for this purpose.
+
+
+== Questions
+
+`deprecated`: applied in production, but ignored by simulation. Do we really want this? We may need to live with deprecated configurations for long time.
+E.g. there may be deprecated roles, which we do not want to assign to anyone.
+But we want deprecated roles to work for users that have them assigned, and we may want this to take effect in simulations.
+Do we need to split to `deprecated` and `decommissioning` states?
