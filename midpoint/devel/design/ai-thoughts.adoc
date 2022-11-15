@@ -1,0 +1,169 @@
+= Thoughts Regarding Use of AI and ML in MidPoint
+:page-nav-title: AI Thoughts
+
+This page summarizes thoughs about use of artificial intelligence (AI), machine learning (ML) and recommender systems in *future* midPoint development.
+
+== Role Mining
+
+Priority: high
+
+MidPoint heavily relies on xref:/midpoint/reference/roles-policies/rbac/[roles] to manage privileges assigned to users.
+However, creation and maintenance of role definitions is a very demanding task.
+There may be thousands of roles in a particular system.
+In fact, it is not unusual for a system to have more roles than it has users.
+
+The idea of role mining is to determine ("mine") role definitions from existing data.
+For example, role mining process should detect a combination of privileges that are frequently assigned to a user together.
+The "miner" should suggest that a role should be created from such set of privileges.
+
+We can assume that we have a database of existing low-level privileges for each user (e.g. Active Directory group membership, membership in Wiki spaces, privileges in indivudual projects, etc.)
+
+=== Example
+
+The "miner" detects that Active Directory groups `wiki-public-reader`, `library-access`, `guest-facilities-access` and `self-service` are almost always assigned together.
+The "miner" should suggest that a business role should be created from such privileges.
+
+=== Difficulties
+
+* A set of frequently-assigned privileges may in fact represent several roles.
+E.g. in the example above, the privileges may in fact represent two roles: `Public access` (containing `wiki-public-reader` and `self-service`) which is assigned to all registered users; and `Registered guest` (containing `library-access` and `guest-facilities-access`) assigned to users that have explicitly registered for physical access to the facilities.
+
+* The data may not be accurate.
+E.g. there may be users that do not have `self-service` privilege assigned, but they should have it.
+This may deform the results, e.g. if large amount of population does not have `self-service` assigned, this privilege probably would not be part of role recommendation.
+On the other hand, an ideal system would realize that the data are wrong, that there is a class of users that should have `self-service` assigned and include this privilege in role suggestion.
+Which means that creation of the suggested role may result in assignment of more privileges to more users as compared to the original system state.
+
+* The results may depend on non-privilege aspects of the users.
+For example, role suggestions may depend on organizational structure or user types.
+The "miner" may take into consideration whether the users are internal employees or external collaborators, suggesting slightly different roles for each user type.
+
+* Extension: the "miner" might be able to suggest role auto-assignment rule, in addition to suggesting a role.
+E.g. the "miner" could suggest that `Public access` role is created, and that it is automatically assigned to all self-registered users (as indicated by the `origin` user property).
+
+* Roles can be hierarchical.
+Business roles contain application roles, but they can contain other business roles or technical roles.
+Ideally, the "miner" should take into consideration existing roles.
+E.g. if `wiki-public-reader` and `self-service` privileges are already part of `Public access` role,
+the "miner" should suggest to create a new `Common user` role that includes existing `Public access` role, adding `library-access` and `guest-facilities-access` privileges.
+
+* Nice to have: Role naming.
+There are only two hard problems in computer science.
+It would be nice if the "miner" could suggest suitable name for new role.
+
+== Outlier Detection
+
+Goal of the outlier detection mechanism is to detect users that have significantly different privileges from their peers.
+
+=== Example
+
+Alice, Bob, Carol and Mallory all work in marketing department.
+While Alice, Bob and Carol have mostly similar privileges (roles, group membership, etc.), privileges of Mallory and quite different.
+Mallory was assigned to marketing department quite recently.
+He still has a large set of privileges from his previous assignment in engineering department, privileges that were not revoked by mistake.
+We want the outlier detection mechanism to issue a warning that Mallory's privileges do not fit the usual set of privileges for a marketing department.
+
+=== Difficulties
+
+* How do we know who are user's peers?
+This may be easy for a formal organizational structure (divisions, departments, etc.)
+However, there are also projects, research groups, multiple academic affiliations, etc.
+
+* This may work both ways: detecting users that have privileges too high for their group (over-provisioned users), and detecting user that do not have enough privileges (under-provisioned users).
+
+=== Ideas
+
+* This may also work for roles.
+E.g. detect an application roles that is different from other application roles.
+All application roles usually have privileges related to one _application_, which usually means one _identity resource_.
+We would like to detect a role that is classified as application role, but which contains privileges from several _identity resources_.
+
+== Role Request Recommendations
+
+Some roles are automatically assigned, based on role auto-assignment rules.
+However, this does not work for all roles.
+For most roles, there is nobody in an organization that can reliably define the rules who needs which roles.
+Therefore, users are requesting assignment of roles, and there are persons that review the request and approve/deny it.
+
+However, users are often not sure which roles they should request.
+There are role catalogs: complex things which are difficult to navigate.
+Therefore users usually request roles that their colleagues already have ("just give me the same roles that John has").
+
+We can perhaps make this easier.
+We could suggest the roles that a user might need, based on user's organizational structure membership, membership in projects and so on.
+
+=== Ideas
+
+* We could also suggest creating a new business role, based on content of user's requests.
+E.g. if Mary insists on having the same privileges as John, we can create a business role for that privilege set, and assign that business role both to Mary and John.
+However, would that combination be meaningful?
+Do we always want to do this?
+Are there other users with the same combination?
+How to name that role?
+This looks like some ad-hoc-micro-role-mining.
+
+== Approval Assistance
+
+We have this request-and-approval process for assigning roles to users.
+
+However, there are many role requests, and only few reviewers/approvers.
+Many requests are repetitive.
+Approval of role requests is a menial task.
+Can we make this easier for approvers?
+Can we suggest that this is a _usual_ request, and it should be approved without too much scrutiny?
+Can we warn approver that this is a very _unusual_ request, and it has to be closely reviewed?
+Can we even make some decisions automatically, without waiting for an approver?
+
+== Difficulties
+
+* Automatic decisions are very questionable.
+The approval process is there for a reason, the reason being that nobody can specify exact rule, therefore each request should be considered individually.
++
+Should this mechanism take a different form?
+E.g. look for patterns in approval decisions, and suggest new role auto-assignment rules?
+
+== Certification Assistance
+
+Users are requesting access privileges, the requests are approved.
+Then users are requesting more privileges, which are also approved.
+This, quite obviously, leads to _privilege hoarding_.
+Users are getting new privileges, while still keeping old privileges.
+Access is granted, never revoked, and the overall security risk grows and grows.
+
+xref:/midpoint/reference/roles-policies/certification/[Access certification] mechanisms is designed as a counter-balance.
+The principle of access certification is (usually) a regular review of existing user privileges.
+The privileges need to be _certified_ during the review, confirming that user still needs them.
+
+However, this process is even more painful that access-and-approval process.
+There are thousands upon thousands of privileges assigned in the system, and most of them need to be certified and re-certified.
+
+Can we somehow make this less painful?
+Can we tell the diffirence between usual privilege (which we should certify without any need thought) and unusual privilege?
+We should somehow consider risk level of the privilege.
+Could we perhaps make some decisions automatically?
+E.g. skip certification of this privilege for now, but make sure we have a closer look at it next year?
+
+TODO
+
+Note: questionable
+Should this take a different form?
+E.g. look for patterns in approval decisions, suggest adjustments in certificaiton policies (e.g. longer/shorter intervals between campaigns, risk thresholds, etc.)
+
+== Correlation
+
+TODO
+
+== Mapping Suggestions
+
+TODO: Suggest which attribute should be mapped to which property (using which transform), based on existing data sets.
+
+Priority: low
+
+== Challenges and Questions
+
+=== Danger: Artificial Stupidity
+
+Existing privilege assignments are almost certainly wrong (over-provisioned).
+Current practices are similar (pressure to add privileges, little motivation to remove them).
+How do we make sure that this does not introduce a bias to "the machine"?
+How do we make sure that the machine will not repeat the mistakes that users are already doing?

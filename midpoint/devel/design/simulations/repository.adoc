@@ -1,0 +1,230 @@
+= Simulations - Repository and Model
+:page-since: 4.7
+:page-toc: top
+
+== Base Objects and Containers
+
+=== Simulation Result
+
+Object storing base information about simulation and simulation result full object (except deltas, and results).
+
+Object is stored in primary midPoint database and also simulations database,
+it has full-object fields and all properties of normal midPoint object.
+
+Simulation Result objects contains multiple containers for:
+
+ - *Metric* - Named statistics / counters - precomputed counters based on custom queries, containing user-defined metrics to capture about simulations (account added, disabled, etc)
+ - *Processed Objects* -
+
+.SQL update to introduce `simulation_result`
+[source, sql]
+----
+ALTER TYPE ObjectType ADD VALUE IF NOT EXISTS 'SIMULATION_RESULT' AFTER 'SIMULATION_RESULT';
+CREATE TABLE m_simulation_result (
+    oid UUID NOT NULL PRIMARY KEY REFERENCES m_object_oid(oid),
+    objectType ObjectType GENERATED ALWAYS AS ('SIMULATION_RESULT') STORED
+        CHECK (objectType = 'SIMULATION_RESULT')
+    ...
+)
+    INHERITS (m_object)
+    ;
+----
+
+
+=== Simulation Result - Metrics
+
+Metrics are user (system) defined counters using filter API and/or other mechanisms (outside of scope of Repository storage), which captures properties of simulation (e.g. objects scanned, accounts disabled.)
+
+Basic metric have following properties:
+
+Identifier::
+  name, tag used to identify metric. It is logical name, which is also used for tagging processed objects, if they matched query associated with metric
+Display Name::
+  Human readable name of metric, such as "Accounts Disabled", to provide users insight into meaning of metric.
+
+Query / Policy::
+  Query or policy (if applicable) which resulted to
+Count Objects "scanned"?::
+  Count of all objects processed during evaluation of the metric
+Objects matched count::
+  Count of all objects, which matched query or policy associated with metric
+
+=== Simulation Result - Processed Objects
+
+Container used to store simulation-related information about processed `objects`:
+
+OID::
+  Object identifier of processed object
+Type::
+  Object Type
+Name::
+  Name of processed objects
+State::
+  State of object during simulation: `unmodified`, `modified`, `added`, `deleted`
+Tags / Metrics::
+  List of metrics, which object matches
+
+Details::
+  Details are stored in simulation-only database, details such as before / after state
+  are stored only for added/modified/ object
+
+  - *Deltas* - store
+  - *before state* - full object representation of object
+  - *after state* (simulations-only, optional)
+
+[source, sql]
+----
+ALTER TYPE ContainerType ADD VALUE IF NOT EXISTS 'OBJECT_RESULT' AFTER 'FOCUS_IDENTITY';
+CREATE TABLE m_simulation_processed_object (
+  ownerOid UUID NOT NULL REFERENCES m_object_oid(oid) ON DELETE CASCADE,
+  ...
+
+
+) PARTITION BY LIST(ownerOid);
+----
+
+NOTE: This table represents Prism `container`, but since we will use different partitioning than inheritance, we can not model it in similar way as other container tables are modeled in PostgreSQL native repository.
+
+== Repository API
+
+Storing simulation result in one final call is not reasonable, the support for partial
+additions of object specific results is needed.
+
+.Use cases
+. Storing simulations information and counters
+. Retrieving simulation information and counters
+
+. Storing simulation results - deltas and objects
+. Browsing precomputed query results (added objects, modified objects)
+. Ad-hoc search and analysis on simulated data
+
+=== Current repository APIs
+
+Use case 1. (storing information and counters) and 2. (retrieveing) is easily supported by
+current native repository implementation by adding support for storage of new object type for
+*SimulationRun*.
+
+Use case 4.  (deltas / object results) is easily and effectively achievable using `searchContainers` if these containers would be stored in separate table (see SimulationResult)
+
+Use case 3. - adding deltas / containers - this may require special implementation for Simulation Result probably - we want to avoid generating whole object on addition of new container (additional result should be only inserted to table).
+
+Use case 5. - This would require
+
+==== Behaviour in normal repository
+
+`SimulationResult` object is always returned from repository with:
+
+* metrics present
+* list of processed objects - no values, always `incomplete=true`
+** this data could be purged to save space, dataset could be too huge to be useful in-memory (10k+ containers)
+* object deltas - no values, always `incomplete=true`
+** this data could be purged to save space, dataset could be too huge to be useful in-memory (10k+ containers)
+
+=== Simulation Manager
+
+The possibility to have actual data spread over two databases (unmodified in production, created and modified in simulations database) is is necessary to have specialized component for simulations, which will orchestrate writing / reading from these two logical databases.
+
+The API for Simulations would need following methods:
+
+`addSimulationResult`::
+  variant of addObject, fallbacks mostly to similar implementation as in native repository
+`addSimulationProcessedObject`::
+  new method, bit similar to `audit`, adds container to existing simulation result,
+  implementation does not need to recompute or fetch full `SimulationResult` object.
+  Stores light-weight version into production database and full version into simulations database.
+`searchSimulationResult`::
+  performs search on `SimulationResult` objects, search does not support searching on processed objects.
+`searchSimulationProcessedObject`::
+  performs search on `ProcessedObject` containers, this could support
+  also search on before/after state, if present.
+  The search is first performed on simulations-only database for modified objects
+  and is "joined" with results from production database.
+
+== Storage Strategy
+
+There are 2 possible storage strategies used during deployment:
+
+- Option A: Use same database for production data and simulation results
+- Option B: Use separate database for simulation results
+
+=== Option A: Only in midPoint database (optional)
+
+.Pros
+- Simpler deployment, testing
+
+.Cons
+- Slowdown of production database, simulations partitioning will make midPoint database less readable for administrators.
+
+=== Option B: Mixed (part in midPoint database, part in Simulations-only database)
+
+NOTE: Preferred solutions
+
+One of discussed solutions was to store basic simulation results and counter tags
+in production database, while storing deltas and after states in separate database.
+
+
+.Pros
+- Smaller slowdown of production database, since minimal
+
+.Cons
+- Will need `Simulations API` facade - when listing all objects from simulation, unmodified objects may be fetched from midPoint database, while modified from Simulations database
+- simulations partitioning will make midPoint database less readable for administrators.
+
+=== Option C: Simulations-only database (not implemented)
+
+All simulation related data are stored in separate database.
+
+=== Partitioning
+There is expectation, that object results should be dropped fast - there is proposal to have partition for each simulation result.
+
+The partition needs to be created before any results are stored, these can be done by issuing CREATE TABLE ... PARTITION OF command. This requires midPoint to have privileges to edit schema.
+
+.Partitions named by oid of simulation result
+[source, sql]
+----
+CREATE TABLE m_simulation_result_processed_object_4e485c35_0f6a_4d95_a4b6_c87530fe
+  PARTITION OF m_simulation_result_processed_object
+  FOR VALUES IN ('4e485c35-0f6a-4d95-a4b6-c87530fe');
+
+----
+
+This type of partitioning allows us to purge detailed data really fast by `DROP TABLE`.
+
+NOTE: Unfortunately automatic partition creation is not present in bare PostgreSQL.
+
+.Caveats
+- If simulations are run often, and results are not purged from database will contain
+lot of tables - one table per simulation run.
+
+
+==== Configuration of partitioning
+
+- Partitioning configuration (if simulation uses partition for processed objects) is stored
+  in simulation result.
+  - This allows for catch-all partition for simple simulations / startup
+  - Repository based on partitioning configuration of particular simulation result
+    uses DELETE or (CREATE ... PARTITION OF / DROP TABLE) to purge Processed Objects table.
+
+- Configuration if simulations should be partitioned:
+  - Global partitioning configuration is present in System Configuration
+    - Simulation is responsible for reading system configuration and using partitioning
+    configuration when creating new SimulationResult objects.
+
+
+
+
+== Other
+
+.Table Prefixes
+m_::
+  Operational midPoint tables  - these tables are used during normal operations
+  and stores configuration, shadow and focus data
+ma_::
+  Audit tables
+ms_::
+  Non-operational simulation tables
+
+
+== Notes
+
+Make sure PostgreSQL enums are alphanumerically ordered.

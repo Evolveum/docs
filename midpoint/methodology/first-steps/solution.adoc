@@ -86,7 +86,11 @@ NOTE: This are ##preliminary## steps of Connect/Cleanup/Automate which are curre
 .. `UNMATCHED`: reasonable default for source system is `addFocus`
 .. `UNLINKED`: reasonable default is `link`
 .. `LINKED`: "synchronize=true" equivalent
-.. `DELETED`: ?
+.. `DELETED`: reasonable default has to be set by the user:
+... no reaction: if account cannot be deleted from source system
+... `unlink`: if account can be deleted, but we do not want to do anything
+... `inactivateFocus`: if account can be deleted and we want to disable midPoint user
+... `deleteFocus`: if account can be deleted and we want to delete midPoint user
 .. `DISPUTED`: ? can happen with source at all?
 
 ===== Start import user phase (repeat until satisfied)
@@ -113,7 +117,7 @@ So this should be optional / to be selected by the user.
 . outbound mappings are in "comparison" mode by default
 . non-invasive configuration (*no reactions for situations*, not even `UNLINKED` -> `link`)
 . save resource
-. list accounts via midPoint (to check permissions etc.)
+. list accounts via midPoint (to check connection to resource, permissions of midPoint service account etc.)
 
 ////
 // moving below
@@ -136,17 +140,17 @@ So this should be optional / to be selected by the user.
 +
 ##*TODO this is important for Katka for Resource wizard*##
 
-. run reconciliation with target system (no dry-run - that will be eventually deprecated); because all reactions are non-invasive and mappings do not enforce anything yet.
+. run reconciliation with target system (no dry-run - that will be eventually deprecated); because all reactions are non-invasive and mappings in "comparison mode" do not enforce anything yet.
 +
-TIP: FYI: Shadows are created.
+TIP: FYI: Shadows are created in repository.
 . run ##interactive## reconciliation report to show situations/reactions - including situations `UNMATCHED` etc. for which we do not have any reaction - yet.
 +
-TIP: FYI: Shadows are classified.
+TIP: FYI: Shadows are classified, situations are set.
 
 .. The report must show also "candidate" user owners.
 +
-*NOTE: No linkRef yet! (Store candidate owner(s) in Shadow?) Each run will overwrite this temporary state?*
-.. Report should show user identifier as a separate column and another column "display name" (typically `fullName`) - this should be configurable using expressions. A'la `adminGuiConfiguration`?
+*NOTE: There is no `linkRef` yet in the user! Should we store candidate owner(s) in Shadow? Should we consider this temporary and overwrite each time we run reconciliation?*
+.. Report should show user identifier as a separate column and _another column_ "display name" (typically `fullName`) - this should be configurable using expressions. A'la `adminGuiConfiguration`?
 // end moved from above
 
 ====== (Optional) Account marking phase
@@ -154,8 +158,8 @@ TIP: FYI: Shadows are classified.
 . mark unmatched accounts for later decommissioning if necessary. (We are not sure if we can decommission them immediately. Let's postpone the decision. It will be visible in reports to differentiate unmatched from unmatched+this flag.)
 . mark unmatched or other accounts (linkable, but maybe some special) for later review ("do not update"), if we do not know what to do with them at the moment. It will be visible in reports to have a track of them.
 . mark protected accounts (in addition to using `<protected>` element in resource). This will be visible in reports to have a track of them. (TODO: we should see also the accounts which are made protected using the old-fashioned way - they should be marked in shadows objects too!)
-.. If the account has situation, `PROTECTED` will erase it. Situation will be already stored in Shadow.
-.. NOTE: some accounts may be deleted directly by AD administrators after they see the report
+.. NOTE: if the account has situation, setting it to `PROTECTED` will erase it from Shadow.
+.. NOTE: some accounts may be also deleted directly by AD administrators after they see the report
 
 //====== (Optional) Manual linking phase
 
@@ -206,18 +210,19 @@ TIP: FYI: Now we have all *existing* AD usernames in midPoint, we can consider t
 ===== Attribute correlation phase (repeat until satisfied)
 
 . run reconciliation report on _attribute level_ (simulation using mappings in "comparison" mode): what will midPoint change in target system (simulation of what would be done).
+This makes sense after the existing accounts are linked.
 +
 *Review the report output with target system administrators.*
 +
-The report should show some statistics e.g.:
+The report should show some summary and changes e.g.:
 
-.. How many accounts would be changed, deleted
-.. How many accounts are with "do not update" mark (outbounds are ignored for them)
-.. Which attributes will be changed and how many changes (e.g. attribute `givenName` will be changed in 200 accounts), sorted desc
+.. How many accounts would be created, changed, deleted
+.. How many accounts are marked "decommissioned", "to be reviewed", "protected" etc. (outbounds are ignored for them)
+.. Which attributes will be changed and how many changes (e.g. attribute `givenName` will be changed in 200 accounts; attribute `dn` will be changed in 20 accounts), sorted descending
 .. Table of changes to be made (*TODO how to present it? Our delta format e.g. in Preview changes takes too many screen space, how to even export it to CSV/Excel?*)
 . based on the review, you have several options:
 .. (Option 1) Update mappings in target resource (still in comparison mode), if they are incorrect
-.. (Option 2) Mark account for later processing (do not touch until that) to make exception
+.. (Option 2) Mark more accounts for later processing (do not touch until that) to make exception
 .. (Option 3) Let midPoint perform the account update(s) if the mappings are OK, even if they attempt to change target system accounts
 //. (Option 4) Fix account attributes in AD (administrator of AD) outside midPoint, if they are incorrect
 
@@ -226,8 +231,9 @@ The report should show some statistics e.g.:
 TIP: FYI Shadows are still marked as decommissioned/do not update.
 
 . Cleanup at least some marked shadows (decommissioned/do not update). *TODO does this need mappings? This is the following action in the list*
-.. (Optional) Unmark decommissioned accounts (which are also UNMATCHED) to allow midPoint to eventually remove them in later phases.
-.. (Optional) Unmark "do not update" accounts to allow midPoint to update them in later phases.
+.. (Optional) Unmark "to be decommissioned" accounts (which are also UNMATCHED) to allow midPoint to eventually remove them in later phases.
+.. (Optional) Run explicit action to delete accounts marked as "to be decommissioned".
+.. (Optional) Unmark "to be reviewed" accounts to allow midPoint to update them in later phases.
 
 ===== Turn on the provisioning policy
 
@@ -419,10 +425,14 @@ We need the following types of report:
 * *TODO* but we won't have any automatic provisioning at the beginning. No automatic rules yet. But we might have archetypes with inducements. ? This report may be more relevant for later phases...?
 . *What will midPoint change in the target system?* This allows detection of incorrect/missing mappings between midPoint and target system as well as between midPoint and source system. This is more or less a *simulation report* but beyond the current implementation of thresholds. We need to preview the changes.
 
+And perhaps this one which is similar to "What will midPoint change in the target system?":
+
+. *What has this task done?* The information about what has just happened is certainly in audit log and if there are any errors they can be stored either in the task itself or in the processed objects. But we lack "one button away" way of showing it - we need to show information which this task run has collected. We could re-use the same report (or its look) which we use for simulation, but this time we will show what has happened. Summary of actions, summary of attribute changes (e.g. DN was changed in 100 accounts etc.) and the changes and results from audit log...
+
 For all reports: how to execute actions (manual correlation etc.) from the reports?
 Using interactive pages a'la menu:Resource[Accounts]?
 
-TODO: new idea based on M. Spanik's idea: side-by-side report. See <<side-by-side-report,below>>.
+//TODO: another idea based on M. Spanik's idea: side-by-side report. See <<side-by-side-report,below>>.
 
 ==== What is in target system (AD) and is not in midPoint?
 
@@ -533,7 +543,9 @@ Visualisation notes:
 
 NOTE: This report should be executed after the reconciliation to have information about existing state.
 
-TODO Implementation in midPoint: ? recomputation limited to target system (AD) with simulation mode ? Special mapping mode? It seems to be similar to the simulation of changes which midPoint is about to make.
+NOTE: This report might be actually implemented as part of "What will midPoint change in target system (AD)?". "Add" might be also considered as a change...
+
+TODO Implementation in midPoint: ? recomputation with "output" limited to target system (AD) with simulation mode ? Special mapping mode? It seems to be similar to the simulation of changes which midPoint is about to make.
 
 The report (ideally interactive in Resource/Accounts, exportable to Excel) should contain the following information:
 
@@ -578,7 +590,7 @@ Visualisation notes:
 
 NOTE: This report should be executed after the reconciliation to have information about existing state.
 
-TODO Implementation in midPoint: ? recomputation limited to target system (AD) with simulation mode ?
+TODO Implementation in midPoint: ? reconciliation or recomputation limited to target system (AD) with simulation mode ?
 
 TODO Or could this perhaps use passive caching (reconciliation will be executed before this report anyway)?
 
@@ -722,6 +734,7 @@ Visualisation notes:
 NOTE: The two reports for showing what midPoint would create and update can be also merged to one.
 In that case some summary panel with statistics (no changes / additions / removals / updates) would be nice in report "summary panel".
 
+////
 [#side-by-side-report]
 ==== Side by side report (idea)
 
@@ -957,6 +970,8 @@ h|Other attributes...
 |(account for user will be created with identifier `jpopol`)
 
 |===
+
+////
 
 === Archetypes
 
@@ -1257,27 +1272,43 @@ image::mappings-idea3.png[]
 
 === Shadow Marks
 
+NOTE: What about using "marks" also for other objects, e.g. focal objects in midPoint as well for marking/labelling purposes? Which parts can be recycled?
+
 Explicit "marks" in shadow, meaning that shadow is:
 
-* Protected: no modification possible, ignored by recon and other processes.
+* *Protected*: no modification possible, ignored by recon and other processes.
 Used for emergency administration accounts such as `root` or `administrator`.
 
-* Decommissioning: the account should be disabled/deleted eventually, but not just yet.
+* *To be decommissioned*: the account should be disabled/deleted eventually, but not just yet.
 (TODO: we need better name for this, "decomissioning" is ugly and hard to understand)
 
-* Remediation: the account has to be manually remediated.
+* *Remediation*: the account has to be manually remediated.
 E.g. remediation case should be opened, several people have to discuss what to do with the account.
 It will probably end up as protected account, or be decommissioned.
 (Overlap with IGA)
 ** This may be needed for source system account as well to ignore changes coming from that account (e.g. in case the source system has invalid data which cannot be fixed immediately.)
 
-* Do not touch: (need better name) ignore this account.
+* *Review later*: (or a better name) ignore this account.
 Do not apply any mappings, do not change anything.
 The account is a mess, we have to sort it out eventually, just not yet.
 For the time being we just want to keep status quo, maybe include it in reports, but we are not going to do anything else.
 ** This may be needed for source system account as well to ignore changes coming from that account (e.g. in case the source system has invalid data which cannot be fixed immediately.)
 ** TODO: if such accounts is actually UNLINKED or LINKED, we might want to protect it against any changes (outbound), but we may need it to import data from it (inbound). E.g. in case of importing login names from AD, we want to import it and then protect the account against changes, because it is the President of Galaxy
 
+We should probably have some _kinds_ of shadow marks which specify midPoint behaviour (similar to relation kind). For example:
+
+* do not process at all (this could probably apply for Protected)
+* ignore outbounds, but allow inbound processing (this could probably apply for Review later)
+** this can be used if we do not want to update the account, but we need to use it do populate midPoint object (e.g. username)
+* do not process automatically, only explicitly (this could probably apply for To be decommissioned)
+* TODO: more? other?
+
+The shadow marks must be extensible (maybe via `System configuration`) with a reasonable default set e.g. as above.
+
+* TODO: if we would extend the marking purposes also to other (e.g. focal) objects, we probably need to associate the mark definition with kind and with object type... (perhaps even Archetype)...
+
+The shadow marks must be queryable.
+Perhaps even query for _focal objects owning shadow with specific mark_ should be possible - to allow e.g. recomputation of such users.
 
 The details are below:
 
@@ -1291,7 +1322,7 @@ Yet, we cannot be bothered to change resource configuration.
 
 *Solution*: Make a button to quickly mark an account as protected.
 Store that information in the shadow.
-+
+
 Of course, we would also need an ability to "unmark" the account, mistakes happen.
 
 *Drawbacks*: Deleting all shadows would not be a "harmless" operation anymore.
@@ -1433,8 +1464,11 @@ NOTE: This is irrelevant (low priority) for external authentication and/or if no
 
 *Solution*:
 
-. notify users in their dashboard
-. send notification to user with soon-to-be-expired password based on the password policy that applies to them (via security policies). This will require some task running periodically (each night?).
+. notify users in their dashboard (requires users to log in to midPoint)
+. send notification to user with soon-to-be-expired password based on the password policy that applies to them (via security policies).
+* This will require some task running periodically (each night?).
+* Or perhaps we can have trigger set in user object when user changes his/her password and then Trigger scanner can pick up this. (We already have similar solution for Unlocking users after lock-out period.)
+** TODO: what to do if security policy changes meanwhile???
 
 *Drawbacks*: ?
 
