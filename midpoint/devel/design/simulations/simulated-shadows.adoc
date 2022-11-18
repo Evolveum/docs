@@ -11,133 +11,155 @@ They differ in behavior, and that depends on the configuration of the respective
 
 . Representing existing resource objects covered by non-production configurations.
 This means that the whole resource or its part (object class, object type) is in non-production mode.
-Let us call these "discovered simulated shadows".
+See <<Discovered Simulated Shadows>>.
 
 . Representing objects "to be created" on a resource by simulation tasks.
 This means that if a simulation is going to create an object on a resource (regardless of whether a production or a non-production one), the operation will not reach the resource, but only a shadow will be created.
 This is somewhat similar to resources in maintenance mode.
-Let us call these "created simulated shadows".
+See <<Created Simulated Shadows>>.
 
-== Basic Principles
+// == Basic Principles
+//
+// When thinking about the behavior of shadows in a simulation mode, there are some basic principles to maintain:
+//
+//
+// . _Shadows for existing resource objects should be safe to be created and updated._
+// +
+// The creation or updating of a shadow is not considered to be a "substantial side effect" of any operation in simulation or production task.
+// The reason is that this is equivalent to simply browsing the resource.
+//
+//
+// AKA "The mere existence of a shadow is not considered to be a 'visible side effect'"
+// AKA "attributes, OCs, exists and dead flag may be updated regardless of the mode"
+//
+// // limitacia: zmeny v scheme a inych nastaveniach nepodporujeme ako simulovane
+// // primarny ciel:
+// //   simulovat
+// //    - mappingy
+// //    - linkovanie
+// //    - klasifikacia ?? moze mat obmedzenia, napr. nie reklasifikovanie
+// //    --> nezaujima nas az tak moc korelacia, lebo ta samotna je uz dnes bez side efektov
 
-When thinking about the behavior of shadows in a simulation mode, there are some basic principles to maintain:
+== Task Execution Modes
 
-. A task running in production mode should ignore all non-production parts of the configuration.
-. Unclassified shadow should be safe to be created, even without the "simulated" flag.
+A task can execute in one of the following modes:
 
-A notable open question here is concerned with the principle 1:
-
-What if we have a resource that is marked as proposed as a whole?
-The strict interpretation is that the production task shouldn't see the resource at all.
-So any (read or write) operation on it should fail with `ObjectNotFoundException`.
-But maybe we should not be such strict.
-
-== Discovered Simulated Shadows
-
-=== Shadows Creation
-
-The current task can be executing either in a production or a simulationfootnote:[Either with production or non-production configuration.] mode.
-A resource object is encountered by such a task.
-The whole resource or a particular object class can be in production or a non-production mode.
-A classification may be executed, leading to a specific object type.
-The type itself can be in production or a non-production mode.
-
-Overall, we have six possibilities:
-
-- task execution mode: production, simulation with production configuration, simulation with non-production configuration,
-- object class or type mode: production or non-production.
-
-.Mode of shadow created
+.Potential task modes
 [%autowidth]
 [%header]
 |===
-| Task execution mode \ Object class or type mode | Production | Non-production
-| Production | production | production^a^
-| Simulation (production config) | ?^b^ | ?^c^
-| Simulation (simulation config) | ?^d^ | simulated
+| Mode | Effects | Configuration used | Description
+
+| production
+| persistent
+| productionfootnote:[e.g. `active` and `deprecated` states]
+| This is the standard mode.
+
+| "production simulation"
+| non-persistent
+| production
+| This is the usual "preview changes" mode, when e.g. operation wants to see what effects a particular data change will have, before it's really executed.
+
+| "development simulation"
+| non-persistent
+| developmentfootnote:[e.g. `proposed` and `active` states]
+| Used for fine-tuning and testing proposed configuration changes before they are put into production.
 |===
 
-Notes:
+=== Golden Rule
 
-a. The shadow will be created as a production one, but its handling will be driven solely by the production configuration.
-Most probably, this means that e.g. no classification will be done.
-The shadow will be created as a "raw" one.
+A task running in production or production simulation mode (or production-like mode for short) should ignore all non-production parts of the configuration.
 
-b. The mere existence of a shadow should pose no problem.
-Moreover, if the production configuration is used, also the classification of the shadow should be no problem, as it would be the same as if the shadow was discovered by a production tasks.
-On the other hand, there is a rule that simulation tasks should not have visible effects.
-So the question is: is the existence of a production shadow considered to be a visible effect?
+For example, if a resource is marked as "proposed", all of its synchronization-related configuration (reactions, mappings) is treated as non-existent in production-like mode.
+Similarly, if an object class marked as "proposed", all synchronization reactions and mappings for all object type definitions based on this object class are treated as non-existent.
+Finally, the same is true if a specific object type is marked as "proposed".
 
-c. The shadow would be most probably not classified, just as in the case of production task with non-production shadow.
-The basic question from the note above remains.
+[NOTE]
+====
+This is a slight deviation from the idea that "what is marked as non-production, is considered to be non-existent".
 
-d. May the non-production parts of the configuration somehow influence the production ones?
-For example, when considering classification rules.
-Setting a delineation for object type in simulation mode can influence the result of classification for shadows of another (production) object type.
+For example, let us assume we have two account types (`normal` and `admin`), while the former is "active" and the latter is "proposed".
+Under the current approach, tasks in all modes classify the shadows in the same way.
+The shadows marked as `testing` will be "inactive" in the production mode - no synchronization reactions, no mappings.
+But it will be classified as such.
 
-=== Working with Shadows Afterwards
+In contrast, the original idea (more ambitious but definitely less clear) somehow expected that midPoint would pretend that the `admin` type does not exist at all.
+However, we were not able to present a consistent model of midPoint working under these assumptions.
 
-Let us have a task that is either:
+As a practical consequence, we will (currently) not directly support the process of changing a classification code that was already put into production.
+The classification code will have to be fine-tuned while the whole resource or the whole object class is in development mode.
+====
 
-- production task (PT),
-- simulation task with production configuration (STPC),
-- simulation task with simulation configuration (STSC).
+== Discovered Simulated Shadows
 
-When such a task encounters a shadow, there are four options:
+After thorough consideration, it looks like the status of discovered shadows can be determined simply by looking at the status of their object type (given by the kind and intent).
+This means that we - for the time being - do not need any special "simulation" flag for them.
 
-- definition (e.g. object type) for the shadow is production, and the shadow is a production one (PDPS)
-- definition for the shadow is production, and the shadow is a simulated one (PDSS),
-- definition for the shadow is non-production (simulation), and the shadow is a production one (SDPS),
-- definition for the shadow is non-production, and the shadow is a simulated one (SDSS).
+Let us now consider the behavior of these shadows under various conditions or actions.
 
-==== Shadow Update
+=== Shadows Creation
 
-By updating a shadow we mean updating stored identifiers or other cached attributes, auxiliary object class info, and the like.
+In all task modes, shadows for newly discovered objects will be created in the same way.
+Just like to was from the beginning of midPoint.
+Their behavior will be later influenced by the production/non-production status of their object type.
+(See below.)
+
+=== Shadows Update
+
+By updating a shadow we mean updating stored identifiers or other cached attributes, object class(es) information, and the like.
 Production and non-production configurations should not differ in substantial things, like what identifiers are there, attribute types, attribute caching.
 Therefore, we may safely update the shadow in all situations.
 
-==== Shadow Classification
+NOTE: Practical limitations that stem from these assumptions should be carefully described.
 
-The table below tells _not_ whether the classification is done (because it may be necessary to determine the proper shadow type), but whether its results are stored in the shadow.
+#TODO# It seems that associations may influence the identifiers that are stored in the shadow, see `ProvisioningUtil.shouldStoreAttributeInShadow` and `ShadowCreator.createShadowForRepoStorage`.
+We believe this will not have any negative effect.
+
+=== Shadow Classification
 
 .Shadow classification
 [%autowidth]
 [%header]
 |===
-| Task execution mode \ Situation | PDPS | PDSS | SDPS | SDSS
-| Production | if not classified^a^ | ?^b^ | skipped^c^ | skipped^c^
-| Simulation (production config) | TBD | TBD | TBD | TBD
-| Simulation (simulation config) | TBD | TBD | TBD | TBD
+| Task execution mode \ Situation | Production type | Non-production type | No type
+| Production-like | skip | skip (see note) | execute
+| Simulation | skip | re-execute | execute
 |===
 
-Notes:
+Note: We keep the non-production classification in the production-like mode, because we don't want the production operation to destroy the results of the previous simulation.
 
-a. Existing classification is checked if it is (still) in production mode, and if yes, it is kept in the shadow.
+=== Correlation
 
-b. Probably we first switch the shadow to production mode and then classify it.
-(Actually, we might need to do the classification anyway to determine the mode of definition.
-The question is whether to store the classification to the shadow.)
+By correlation, we mean determining the owner (if any).
+The actual owner linkage is considered below in <<Synchronization>> section.
 
-c. If the shadow is already classified (and the type is non-production), it is kept as it is.
-If the shadow is unclassified, and the classification points to a non-production type, it is also kept as it is.
-(Because by definition, production mode does not see the non-production parts of the configuration.)
-
-==== Shadow Correlation
-
-.Shadow correlation
+.Correlation
 [%autowidth]
 [%header]
 |===
-| Task execution mode \ Situation | PDPS | PDSS | SDPS | SDSS
-| Production 2+| if no owner^a^ 2+| skipped^b^
-| Simulation (production config) | TBD | TBD | TBD | TBD
-| Simulation (simulation config) | TBD | TBD | TBD | TBD
+| Task execution mode \ Situation | Has owner | No owner (production type) | No owner (non-production type)
+| Production-like | skip | execute | skip (see note)
+| Simulation | skip 2+| execute
 |===
 
-Notes:
+Note: We skip the correlation for non-production types in production-like modes mainly because of the Golden rule.
+In addition, we do not want to destroy the results of the latest simulation by a production-grade operations.
 
-a. Shadow will be switched to production mode if the definition is production-grade.
-b. The production task does not see non-production correlation configuration.
+NOTE: Again, this is considered to be a known limitation of the simulations feature.
+Later, we will need to provide a process of fine-tuning correlation rules once they were put into production.
+
+=== Synchronization
+
+.Synchronization
+[%autowidth]
+[%header]
+|===
+| Task execution mode \ Situation | Production type | Non-production type
+| Production-like | execute | skip (see note)
+| Simulation 2+| execute in the simulated mode
+|===
+
+Note: Per the Golden rule, there is no visible synchronization configuration there.
 
 // Imagine a shadow is seen in a task (produ)
 // [%autowidth]
@@ -158,21 +180,28 @@ b. The production task does not see non-production correlation configuration.
 // . However, even if the owner for a non-production shadow is determined, the linkage will _not_ occur.
 // #TODO is this OK? Think again!#
 
-=== Updating the Shadow Mode
-
-* It is done in `ShadowManager.updateShadowInRepository` method, i.e.
-** after successful on-resource `getObject` operation,
-** during processing of the object found (`ShadowedObjectFound`),
-** during processing of the change (`ShadowedChange`).
-
-WARNING: Although the usual change here is from non-production to production mode, nothing prevents a shadow from being switched from production back to non-production.
-#Are we OK with that? What if the shadow has already an owner?#
+// === Updating the Shadow Mode
+//
+// * It is done in `ShadowManager.updateShadowInRepository` method, i.e.
+// ** after successful on-resource `getObject` operation,
+// ** during processing of the object found (`ShadowedObjectFound`),
+// ** during processing of the change (`ShadowedChange`).
+//
+// WARNING: Although the usual change here is from non-production to production mode, nothing prevents a shadow from being switched from production back to non-production.
+// #Are we OK with that? What if the shadow has already an owner?#
 
 == Created Simulated Shadows
 
-#TODO#
+Shadows that are created by simulation tasks (either with production or development configuration) must not reach the resource.
+They will behave like if the resource was in maintenance mode.
+
+We want them to be quickly and safely deleted, for example when a simulation is going to be re-run (and wants to start from zero), or before the resource is put into "active" mode.
+
+So there will be a flag to identify them.
 
 == Side Effects of Provisioning Operations
+
+#TODO this part has not been reviewed yet#
 
 === Getting the Shadows
 
@@ -190,9 +219,3 @@ Arbitrary pending operation can be executed. The shadow may be even deleted by t
 . No refresh, no execution of pending operations.
 . No discovery
 . What if we simply not updated the shadow if it is a production one?
-
-== Open Questions
-
-* TODO: Splitting an object type definition ...
-* Other moments for updating the shadow mode? E.g. non-resource `getObject` operations?
-
