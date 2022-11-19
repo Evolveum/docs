@@ -117,16 +117,23 @@ We believe this will not have any negative effect.
 
 === Shadow Classification
 
+We have a resource object, combined with a shadow that is (currently) either unclassified, or classified as type `T`.
+The classification is now done based on the status of `T`.
+(_Not_ on the classification of the resource object, as if it would be (re)classified now.)
+
 .Shadow classification
 [%autowidth]
 [%header]
 |===
-| Task execution mode \ Situation | Production type | Non-production type | No type
+| Task execution mode \ Situation of `T` | Production type | Non-production type | No type
 | Production-like | skip | skip (see note) | execute
 | Simulation | skip | re-execute | execute
 |===
 
-Note: We keep the non-production classification in the production-like mode, because we don't want the production operation to destroy the results of the previous simulation.
+Note: We keep the classification of non-production objects in the production-like mode, because we don't want the production operation to destroy the results of the previous simulation.
+
+#TODO# Is that OK?
+Note that when displaying the content of a resource in development with the hope of showing updated classification, the search must be done in simulation mode.
 
 === Correlation
 
@@ -198,6 +205,86 @@ They will behave like if the resource was in maintenance mode.
 We want them to be quickly and safely deleted, for example when a simulation is going to be re-run (and wants to start from zero), or before the resource is put into "active" mode.
 
 So there will be a flag to identify them.
+
+See the following for details:
+
+=== Creating Resource Objects
+
+What if a task asks for a creation of a resource object?
+
+.Resource object creation
+[%autowidth]
+[%header]
+|===
+| Task execution mode \ Object type | Production | Non-production
+| "production" | real^a^ .2+| exception^b^
+| "production simulation" | simulated^c^ ?
+| "development simulation" 2+| simulated^d^
+|===
+
+Notes:
+
+a. When a production task asks for creation of a resource object for production object type, the object should be created normally.
+
+b. Production-like task should not normally ask for a creation of object on non-production object type.
+The mappings are invisible from production mode, so the only way of creating an object there is to provide all the values (directly or via object construction mappings).
+
+c. Production simulation tasks (preview changes, thresholds) may want to create simulated shadows for production object types.
+#TODO when/how will these be deleted? Won't they interfere with shadow created from "development simulation" tasks?#
+
+d. We want to pretend resource objects are created, while they are in fact not.
+
+The "simulated" objects creation here means the behavior very similar or equivalent to the behavior of a resource in maintenance mode.
+A shadow will be created in midPoint repository, but not on the resource.
+The shadow will be marked in a special way, so it can be easily identified and deleted.
+
+=== Modifying Resource Objects
+
+Now imagine a task asks for a modification of a resource object.
+
+Here the situation is more complex:
+For production object types, the existing shadow may be "real" or "simulated".
+
+.Resource object modification
+[%autowidth]
+[%header]
+|===
+| Task execution mode \ Situation | Production type, real shadow | Production type, simulated shadow | Non-production type, simulated shadow
+| "production" | real | exception^a^ .2+| exception^b^
+| "production simulation" | exception^c^ | ?^d^
+| "development simulation" | exception^e^ 2+| simulation^f^
+|===
+
+Notes:
+
+a. This is an unfortunate clash between simulation and reality.
+A shadow was created by a simulation (production or development mode) task.
+It might be, for example, a group for an org created by the simulation.
+Now, a real task creates the org in the repository, and discovers that there is a shadow for that org.
++
+#TODO what should we do?
+Should we delete and re-create the shadow anew?
+Should we avoid finding that shadow in the first place by the production task?#
+
+b. Production-like task should not normally ask for a modification of an object of a non-production object type, just like it should not normally ask for a creation of such an object.
+
+c. While one can imagine when a "production simulation" can ask for a creation of a resource object of production type (for example, creating a role "on demand" that, in turn, creates an account for itself), it is less imaginable that such a shadow should be modified.
+Or, in other words, such modification should be redirected to the bag of "simulation deltas", and not sent to the provisioning.
++
+#TODO what if the delta is important?
+Like it changes the identifiers of the shadow?#
+
+d. If the shadow was created by the development simulation, it should not be reused by production simulation.
+If it was created by production simulation that it's safe to log a pending modification operation to it.
+
+e. We have no mechanism of inserting a pending delta to a production shadow.
+Maybe the safest way is to redirect such a delta to the set of "simulation deltas" just like in note "c" above.
+
+f. We simply put the delta to the shadow, just like the resource was in the maintenance mode.
+
+=== Deleting Resource Objects
+
+#TODO#
 
 == Side Effects of Provisioning Operations
 
