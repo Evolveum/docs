@@ -206,7 +206,11 @@ We want them to be quickly and safely deleted, for example when a simulation is 
 
 So there will be a flag to identify them.
 
-See the following for details:
+Before dealing with the details, let us formulate a basic rule driving further design decisions.
+
+=== General Shadows Simulation Rule
+
+A task running in production mode should behave identically with or without simulated shadows present.
 
 === Creating Resource Objects
 
@@ -225,6 +229,7 @@ What if a task asks for a creation of a resource object?
 Notes:
 
 a. When a production task asks for creation of a resource object for production object type, the object should be created normally.
+But see also <<Co-existence of Production and Simulated Shadows>> section below.
 
 b. Production-like task should not normally ask for a creation of object on non-production object type.
 The mappings are invisible from production mode, so the only way of creating an object there is to provide all the values (directly or via object construction mappings).
@@ -239,6 +244,22 @@ The "simulated" objects creation here means the behavior very similar or equival
 A shadow will be created in midPoint repository, but not on the resource.
 The shadow will be marked in a special way, so it can be easily identified and deleted.
 
+==== Co-existence of Production and Simulated Shadows
+
+What should provisioning do, if there is a simulated shadow e.g. for group `G1`, and there is a request (in production mode) to create a real shadow for group `G1`?
+
+There are three options here:
+
+. Existing simulated shadow will be converted to a production one.
+(I.e., the OID will stay unchanged.)
+. New production shadow is created, and the existing simulated shadow is deleted.
+. New production shadow is created, and the existing simulated shadow is kept.
+
+The third option requires that the simulated shadows will live in "alternate reality", so they would not interfere with the production ones.
+However, the effects of such situation are unclear.
+
+NOTE: The provisioning module must be "stand-alone" in the sense that it should not depend on the caller to e.g. check there is no simulated shadow present before calling the `addObject` method.
+
 === Modifying Resource Objects
 
 Now imagine a task asks for a modification of a resource object.
@@ -251,37 +272,47 @@ For production object types, the existing shadow may be "real" or "simulated".
 [%header]
 |===
 | Task execution mode \ Situation | Production type, real shadow | Production type, simulated shadow | Non-production type, simulated shadow
-| "production" | modify | recreate? avoid? ^a^ .2+| exception^b^
+| "production" | modify | exception^a^ .2+| exception^b^
 | "production simulation" .2+| exception (redirecting to simulation deltas set)^c^ .2+| ?^d^
 | "development simulation"  | modify^e^
 |===
 
 Notes:
 
-a. This is an unfortunate clash between simulation and reality.
-A shadow was created by a simulation (production or development mode) task.
-It might be, for example, a group for an org created by the simulation.
-Now, a real task creates the org in the repository, and discovers that there is a shadow for that org.
-+
-#TODO what should we do?
-Should we delete and re-create the shadow anew?
-It should be referenced by any real repository objects, after all.
-Or, should we avoid finding that shadow in the first place by the production task?
-(Meaning that the simulation shadows will be invisible for production tasks.)#
+a. Modification on simulated shadow is something that should not have occurred in the first place.
+(Per the <<General Shadows Simulation Rule>>, the behavior of production task should not depend on the existence of simulated shadows.)
+`ObjectNotFoundException` should be thrown here.
+A production shadow should have been created before the modification operation is called, see <<Created Simulated Shadows>>.
 
 b. Production-like task should not normally ask for a modification of an object of a non-production object type, just like it should not normally ask for a creation of such an object.
 
 c. While one can imagine when a simulation (production or development) can ask for a _creation_ of a resource object of production type (for example, creating a role "on demand" that, in turn, creates an account for itself), it is less imaginable that such a shadow should be _modified_.
 Or, in other words, such modification should be redirected to the bag of "simulation deltas", and not sent to the provisioning.
-(After all, we have no mechanism of inserting a "simulation-only" delta to a production shadow.)
++
+This would be the solution for this time.
+We accept that shadow creation is an exception that is needed for "create on demand" to work.
+If we needed the storage of deltas later, we could add them into the list of pending operations (marked as "simulated pending operation"), but we need to be careful to avoid updating the shadow attributes.
+The search operations would not find the updated shadows, then.
+We need to think about use cases covered by such solution.
+(Faster viewing? Record-keeping purposes?)
+That way or another, we will not support this mechanism for now.
 
 d. We could simply add a pending delta to the shadow.
-#But is it safe to mix deltas from production and development simulations?#
+But is it safe to mix deltas from production and development simulations?
 
 e. We simply put the delta to the shadow, just like if the resource was in the maintenance mode.
 
-#Should we create a two-valued "simulation" flag, instead of a pure boolean?
-Something like "exists for production simulation" and "exists for development simulation"?#
+==== Open Question
+
+Can modifications described in notes "c" and "d" above occur during a standard use case?
+What would be that case?
+
+If there is any, we have to support that.
+If not, let us record that as a known limitation.
+
+Is there a case of collision between production and development simulation?
+Should we create a two-valued "simulation" flag, instead of a pure boolean?
+Something like "exists for production simulation" and "exists for development simulation"?
 
 === Deleting Resource Objects
 
