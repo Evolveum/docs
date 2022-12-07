@@ -1,0 +1,344 @@
+= User Accesses
+
+To improve governance (xref:/midpoint/methodology/iga/reporting/[IGA Reporting]),
+especially in the context of xref:/midpoint/methodology/iga/reporting/www-report/[Report Who Has Access Where and Why]
+it is desirable to be able to get information not only about all (direct and indirect) assignments,
+but also about their source, that is assignment paths inducing those, and other data - why, when, reason, etc.
+This information should be available quickly without the need to reevaluate assignments for each object.
+
+== Current All direct/indirect assignments panel
+
+There is a possibility to list all (direct and indirect) assignments using GUI.
+After opening details of a user, there is menu with Assignments -> All direct/indirect assignments.
+
+Problems:
+
+The content of the panel is computed on the fly, using preview changes functionality (with some limitation, but not important).
+It means that we cannot efficiently search in such indirect assignments.
+If the amount of the assignments is big it takes toooooo long to compute all of them.
+Some information has to be computed because they are not stored, e.g. why do I have this role?
+
+Why the preview changes is used?
+
+* It provides information about the parent of the indirect assignments - but only the direct one, which is not enough.
+* It also shows constructions - but we may not need to see these for our purposes.
+Constructions are not covered by `roleMembershipRef` values, but `linkRef` can be used for that.
+* The view shows unsaved changes, like to-be assigned roles.
+This is not necessary for the "Accesses" view.
+
+What are the gotchas of this view?
+
+* It shows the desired state even if it is not current, but does not inform user that save/recompute is needed to fix it.
+For example, membership refs may be stale or missing because of the validity changes in indirect inducements.
+* When the same indirect role is reached via multiple assignment paths it shows it once when it comes
+from one direct assignment, but two times when it comes from two different direct assignments.
+This is normalized to a single `roleMembershipRef` value, as expected.
+
+[NOTE]
+Currently, if the object is recomputed and their induced roles change (inducement structure change,
+or inducement activation state) the change is not indicated as previewed change.
+Changes in `roleMembershipRef` are merely an operational item changes in audit.
+This may not be aligned with the admin's perspective, as the user actually gets a new access, but this is not previewed.
+
+== Requirements
+
+////
+Original requirements:
+What we want:
+
+We want to rework the all direct/indirect assignment panel, so it will be possible to just ask repository for the objects, and they will be displayed.
+If we are not interested in the construction assignments, it could be possible by searching all abstractRoles through roleMembershipRef.
+
+It should be possible even now. So what is the problem?
+
+* The problem is, that for now, without the previewChanges functionality we cannot say the origin of the indirect assignment.
+And it is crucial for the administrators.
+Therefore, we need somehow store the additional information about the reference, to be able to present it also in GUI.
+
+Those information might be:
+
+* direct parent of the indirectly assigned role,
+* the whole chain of the roles from top to the indirectly assigned role,
+* if the role is direct/indirect (this might be derived from the missing parent)
+////
+
+We need to be able:
+
+* To access the information about all direct and indirect assignments faster, preferably directly from the repository.
+* We want to see the whole chain of roles inducing the indirect assignment.
+There may be multiple chains leading to the same indirect assignment, all should be visible.
+* Additional info may be added to the assignment, e.g. the case approving it, reason message, time, etc.
+* Seeing constructions is currently not required.
+
+It is OK to see the data stored in the assignment holder object valid to the last recomputation.
+
+=== Options
+
+* Using existing `roleMembershipRef` and adding the information there.
+** Either reference itself would be extended.
+** Add the information to the reference as xref:/midpoint/projects/midprivacy/phases/01-data-provenance-prototype/[value metadata],
+this leaves the main reference schema untouched.
+* Using some additional structure (e.g. sidecar container).
+
+Let's go over pros and cons of these solutions.
+
+==== Extending refs
+
+Pros:
+
+* Existing references can be used, no special-purposed sidecar container is necessary.
+* TODO: anything else?
+
+Cons:
+
+* Some kind of extension for the reference type needs to be developed.
+This can be done as specialized type of the reference (subtype).
+Impact on the code is unknown, the existing type would probably still work without any change.
+* Alternative is to make room in the existing ref type for additional info, e.g. extension container.
+
+In general, we didn't want to touch the reference type main structure, so this was not further persued.
+
+==== Using metadata on refs
+
+Pros:
+
+* Existing references can be used, no special-purposed sidecar container is necessary.
+* xref:/midpoint/projects/midprivacy/phases/01-data-provenance-prototype/[Value metadata] topic
+can be further developed and enhanced - possible synergies in the future.
+
+Cons:
+
+* Value metadata are experimental/prototype feature.
+May require further work on the metadata and their configuration, e.g. how to enable them only for some usages?
+The scope of the additional work is unclear.
+* If repository indexing is required later, this solution would need mechanisms to do it.
+
+==== Using additional container (AKA "IGA-info")
+
+Pros:
+
+* No new technology is required, just another type of container - each value would represent "access".
+* Can be part of full object, can be indexed separately, can have its own table and be queryable.
+* Can also contain data for constructions.
+While it is different type of access it would still be covered by the same type of container (works for assginments).
+* Can easily represent both active and inactive assignments.
+* Can also store any assignment evaluation information that is not specific to the final references.
+It is not clear how useful this can be; this would require one more container level.
+
+Cons:
+
+* It's an additional container mirroring data (repeating) data from `roleMembershipRef`.
+
+=== Repository search
+
+There is a couple of ways how we may need to search for the "accesses" data:
+
+* In the context of a single user, we want similar search capabilities like in
+xref:/midpoint/guides/assignment-repository-search/[Assignment Repository search].
+** Alternative would be in-memory search which was not enough for assignments - either because of search options or performance.
+If performance is in play for some deployment, there will be more "all assignments" than direct assignments.
+* Similarly, we may need to search across many users, e.g. accesses for users in some organization.
+This will be relevant for reporting - see the next section.
+
+Currently the repository can search objects or containers:
+
+* We can search users filtered by `roleMembershipRef` values and their targets.
+* We could search for "access" containers ("IGA-info") - this roughly matches the possible "Accesses" panel or report,
+although report may require one row per distinct assignment path leading to each access (see the report section on that).
+* If metadata for `roleMembershipRef` is used, we would need to implement *reference search*,
+where the main `select ... from` works with the reference table.
+This requires new capabilities on the repository level and also extension of the xref:/midpoint/reference/concepts/query/query-api/[Query API].
++
+It has the same limitation as the container search for the report - one result row may still represent
+multiple rows in the xref:/midpoint/methodology/iga/reporting/www-report/[IGA report].
+
+=== Report engine considerations
+
+Currently, our reports can produce one row for one row of query result.
+
+For reasons shown above we may need to introduce a new capability - to generate multiple rows for each query result row.
+This appears in an example of the xref:/midpoint/methodology/iga/reporting/www-report/[WWW report],
+otherwise the consumer of the report either does not have expected filter capabilities (e.g. in Excel)
+or needs to preprocess the report to multiply the lines with multi-value assignment path.
+
+Generating multiple rows per query result row would allow:
+
+* To query users, go over their "accesses" data and generate one row not only per each access,
+but also for each distinct assignment path leading to that access.
+* To query access containers (or roleMembershipRefs when the reference search is implemented)
+and generate rows for each assignment path.
+
+If the capability of generating more rows per query result row is added, either of the solutions above would produce the same report.
+However, the second solution may still be more attractive because it generates less new rows per row which affects the preview less (see problems lower).
+
+Problems/questions:
+
+* How would this impact report preview and its paging?
+Is it acceptable to have a limited single page preview (filtering would still be possible)?
+* What should be the order of the generated rows?
+Implied internally somehow?
+This may not be so critical when the targeted tool (Excel) supports sorting.
+
+
+=== Proposal
+
+Additional access information will be stored as xref:/midpoint/projects/midprivacy/phases/01-data-provenance-prototype/[value metadata]
+on the `roleMembershipRef` values.
+
+The structure of the additional information (TBD) can be the same whether it's placed in metadata or in a non-metadata container.
+The mechanism of creating the data in the code when the assignments are evaluated is also the same.
+
+This solution requires the following:
+
+* Revisiting value metadata, probably adding a way how to enable them only for a specific purpose (here for "accesses" information).
+* Adding repository reference search:
+** Query API needs to be enhanced to allow queries for reference type.
+*** How to identify the type of ref?
+Can we use something like object type + path similar to the `referencedBy` filter?
+*** API changes are needed, as currently the definition for the query root assumes container.
+* Report generation mechanism to generate one or more rows for a single query result row.
+
+// TODO process original document lower
+
+== Other notes and questions
+
+* For `linkRef` (which is object reference as well) we might also want to know why was the account
+created (e.g. application told so) - where the valueMetadata with parent role/origin/chain might be relevant.
+
+* Storing "IGA-info" should be switchable, e.g. off by default.
+
+* When to recompute the `roleMembershipRef`?
+There is no change proposed for this at this moment.
+
+== IGA reporting follow-up notes
+
+Let's consider https://docs.evolveum.com/midpoint/methodology/iga/reporting/www-report/[Report: Who Has Access Where and Why]:
+
+* Currently, we're not considering any searchability of IGA-info,
+so all the questions for the report must be provided by other things - e.g. membership refs, their targets, etc.
+** A CSV report, which may be refreshed regularly, e.g. once a day, is enough.
+If further search - based on the detail info like assignment paths or parents - is needed, it can be open in Excel, etc.
+
+* How to reasonably display cases when many applications are induced by a role?
+One row per application.
+
+* What if application is induced by many roles?
+What if application is induced by the same role, but via multiple assignment paths?
+** On screen, multiple assignment paths can be shown in one table line, possibly shortened.
+** For report/spreadsheet one line per each possible chain is preferred.
+** What about idempotent roles computation vs assignment chain display?
+
+* What of "why" is available now - at least theoretically in the runtime?
+What is stored already, e.g. metadata of an assignment contains its creator/modifier, is that usable?
+How to get ticket/request identification - aren't these external information, how would that get into MP?
+** `originMappingName` on `assignment/metadata` can be used for things like "rule name",
+** various additional info can be obtained from `assignment/extension` items,
+** also various requestor/approver comments are available on the assignment.
+
+* How to hide non-important/technical roles?
+** There always should be a way to show unfiltered view, e.g. for administrator.
+** (Mato) There should be something called "user access" showing just objects of specified types/archetypes.
+This can be built-in, based on our new archetypes by default - but customizable.
+
+* What about meta-roles?
+** Not relevant, we don't want to see it, this is how it works in current All direct/indirect assignments.
+
+* What about assigned since date?
+** Assignment can be used for this, but it is up to the engineer to choose the right info (created, validFrom, extension attribute).
+This can be used in report, not for IGA-info - we do not want the content of this info customizable (not yet anyway).
+
+
+== What information should be provided in UI (Martin's notes)
+
+UI details to the "fast" view mentioned above and also other views that should be displayed.
+
+=== What views to display
+
+* View: *All direct and indirect assignments*
+** view targeted to technical users: IDM administrators / operators / support
+** providing answer to question: "What does the user have assigned and why ?"
+
+* View: *User access*
+** view targeted for business users: end users, managers, …
+** providing answer to question: "Where does the user have access and why?"
+** this view is the default filter to display business data only
+** may be displayed as a view in assignments or additional tab in user (useful for self-service)
+
+Additional filtering of business data:
+
+* Engineer should be able to define:
+** Additional views displaying direct and indirect assignments but displaying specific archetypes only
+** concept working in 4.6 for direct assignments. Just extend also for views with indirect assignments.
+
+This should not be in default configuration - but available for definition by engineer - some examples and documentation how to display this.
+I can prepare the documentation and examples.
+This concept may be used to display also user's membership in different ORGs - even indirectly assigned.
+
+=== View: All direct and indirect assignments
+
+Columns::
+** Target archetype (icon)
+** Target name
+** Source
+*** direct -> for direct assignments
+*** <direct assignment that gave this object> - for indirect assignments
+***  this column can provide the answer to the "..why ?" part. Answers the question: "By which assignment was this object assigned ?"
+*** may be multivalue - object is assigned by multiple sources.
+** Assignment path -> for indirect assignments only
+*** full assignment path - in names of objects
+*** may be multivalue - one line = one assignment path
+*** example: Business role X -> App. role A -> Application A
+** Activation
+*** for direct assignments (it may be also for indirect, but this must be computed)
+** Additional columns for direct assignments possible
+*** e.g: since the
+*** activation
+
+[NOTE]
+Assignment paths and sources may be multivalue. If there are many assignment paths, the view should display only few lines and add info (e.g. "…") that there are more components in the path or in the source.
+
+[NOTE]
+Engineer should have option to add additional columns. When engineer wants to add columns by configuration, he should be able to identify whether the column will be filled for direct or indirect assignments or both.
+
+Rows::
+** all direct and indirect assignments stored in user object
+*** metaroles should be excluded
+** multiple assignments:
+*** direct assignments of the same object should be displayed as individual lines
+*** direct and indirect assignments of the same object should be displayed as individual lines
+*** all indirect assignments of the same object should be aggregated to one line.
+
+Ordering::
+** by target name
+** by type of assigned object or by archetype (ordering by first column)
+** by source
+
+Search/filtering::
+** search by target name
+*** simulate AXIOM search:  targetRef/@/name contains <string> (operation like search in all users view)
+*** do not use searching by OID - this is complicated and not easy to use
+** we do not need to search by assignment path
+*** if somebody wants to search by assignment path - this could be achieved by full text search (optionally)
+
+
+=== View: User access
+
+Columns::
+Same as for "All direct and indirect assignments" view.
+
+Rows::
+* only assigned services
+** both direct or indirect assignments
+* multiple assignments:
+** direct assignments of the same object should be displayed as individual lines
+** direct and indirect assignments of the same object should be displayed as individual lines
+** all indirect assignments of the same object should be aggregated to one line.
+
+[NOTE]
+Engineer should be able to define filtering to specific archetypes only and exclude assignments of specific individual objects from the view (both direct and indirect assignments) - by specific value of an object attribute (e.g. application has attribute - excludeFromAccessView)
+
+Ordering::
+Same as for "All direct and indirect assignments" view.
+
+Search/filtering::
+Same as for "All direct and indirect assignments" view.
