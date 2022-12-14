@@ -1,4 +1,5 @@
 = User Accesses
+:page-toc: top
 
 To improve governance (xref:/midpoint/methodology/iga/reporting/[IGA Reporting]),
 especially in the context of xref:/midpoint/methodology/iga/reporting/www-report/[Report Who Has Access Where and Why]
@@ -121,7 +122,8 @@ Pros:
 * Can be part of full object, can be indexed separately, can have its own table and be queryable.
 * Can also contain data for constructions.
 While it is different type of access it would still be covered by the same type of container (works for assginments).
-* Can easily represent both active and inactive assignments.
+* Can easily represent both active and inactive assignments - not a major selling point now.
+(If references are used, a special relation could be used for inactive ones.)
 * Can also store any assignment evaluation information that is not specific to the final references.
 It is not clear how useful this can be; this would require one more container level.
 
@@ -342,3 +344,35 @@ Same as for "All direct and indirect assignments" view.
 
 Search/filtering::
 Same as for "All direct and indirect assignments" view.
+
+
+== Implementation notes
+
+Design:
+
+* Should we use "provenance" or a new ValueMetadataType item?
+** Unsure... we'll try provenance, see MappingSpecificationType (has assignment paths, but it's not the same)
+** It is hardly a `mappingSpec` - is it `acquisition`? Let's consider some items:
+*** `originRef` should represent origin of the data - which is the direct assignment (what MP object
+would represent that concept?), or its origin? Is this necessary?
+*** `resourceRef` probably useless, even for construction this is not the target resource, but the source of the construction.
+*** `actorRef` actor adding the direct assignment? actor who caused recompute leading to adding this `roleMembershipRef`?
+** We need to add stuff like `assignmentPath` to the information (that would also contain the direct assignment - first in each path).
+
+The structure:
+
+* let's try reusing `AssignmentPath(Segment)Type`, we will containerize it
+** order of segments via `segmentOrder` to avoid confusion with inducement order
+
+* referencing assignment/<cid> where appropriate for direct assignment (is this necessary to store? just use the first segments of assignment-paths)
+
+* for each ref, do we want one "accesses blob" or one value-metadata-value per assignment path ("chain")?
+** The latter is preferred, where assignment path would be the key for `MidpointProvenanceEquivalenceStrategy`.
+** The question is whether all membership refs aren't currently replaced as a whole anyway which would simplify it.
+
+* How to make this feature toggleable?
+** In sysconfig under `roleManagement` new boolean `accessesMetadataEnabled`.
+
+Code points of interest:
+
+* com.evolveum.midpoint.prism.Item#addRespectingMetadataAndCloning
