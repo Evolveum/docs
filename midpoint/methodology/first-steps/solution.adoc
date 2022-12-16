@@ -1442,6 +1442,8 @@ This works, but the user in midPoint is (of course) indicated as disabled, becau
 
 Maybe even some reason for this - to be specified by the administrator - could be useful.
 
+See also <<Value Override>> below.
+
 === TODO New mapping mode/strength
 
 *Environment*: Mapping that would return a value, but it will not be used for provisioning, only for simulation/correlation. (TODO Mentioned above as `preview` or `comparison`) TODO Radovan
@@ -1525,6 +1527,8 @@ Could we assign a role or org in the same way?
 Maybe we would like to have a condition when to do so?
 However, maybe a condition when to use the entire `objectType` definition would be more appropriate?
 
+*Implementation*: This was implemented in 4.6.
+
 === User-Friendly Schema Docs
 
 bug:MID-7759[]
@@ -1550,6 +1554,8 @@ I want to disable this person in midPoint.
 However, if I change `administrativeStatus` manually, the value will reset after the next recon with HR.
 
 TODO: Solution
+
+NOTE: Isn't this a generalization of <<Custom Activation Status Override>> above?
 
 === Mapping Preview/Warnings
 
@@ -1617,6 +1623,58 @@ Upgrade to a new major version may have compatibility issues, this should probab
 * Show preview, which users will be modified with simulation
 * Click button to do it
 
+=== Correlation-Only Mappings
+
+*Problem*: Sometimes we may need inbound mappings just for the purpose of correlation; typically on target resources.
+It is doable, but quite awkward (see link:https://github.com/Evolveum/midpoint/blob/7c78c7e94b375fdf8b94fbd93b474411903d5a29/testing/story/src/test/resources/first-steps/resource-opendj-290.xml#L47-L60[resource-opendj-290.xml] in `TestFirstSteps`):
+
+[source,xml]
+----
+<attribute>
+    <ref>ri:employeeNumber</ref>
+    <outbound>
+        <!-- A standard outbound mapping. -->
+        <strength>strong</strength>
+        <source>
+            <path>employeeNumber</path>
+        </source>
+    </outbound>
+    <inbound>
+        <!-- Inbound mapping that is here only for the sake of correlation. -->
+        <target>
+            <path>employeeNumber</path>
+        </target>
+        <!-- This is a kind of hack. We want to correlate on this attribute by a simple
+             mapping but do not want to use it to really modify the focus. This may happen
+             for correlation attributes on non-authoritative resources (e.g. target ones,
+             or "auxiliary" source ones). -->
+        <evaluationPhases>
+            <include>beforeCorrelation</include>
+            <exclude>clockwork</exclude>
+        </evaluationPhases>
+    </inbound>
+</attribute>
+----
+
+*Solution*: ?
+
+=== Conditions for Items Correlators
+
+*Problem*: When organizing items correlators into tiers, the current algorithm is such that the execution stops at a particular
+tier if there is a certain owner found.
+What is missing, though, is a "strong reject" of a match by given correlator or correlators.
+Consider, for example, the tiers defined as follows:
+
+. Matching on `employeeNumber` (tier 1, confidence 1.0 - i.e., a candidate owner is automatically accepted as the definite one)
+. Matching on `emailAddress` (tier 2, confidence 1.0)
+. Matching on `givenName` and `familyName` (tier 3, confidence 0.8 - i.e., a candidate owner(s) must be approved by the operator)
+
+What we want to say is that if - for a given candidate - `employeeNumber` exists and does not match, then the match on `emailAddress` should not be considered;
+or that it should be considered not as an authoritative one.
+
+See e.g. link:https://github.com/Evolveum/midpoint/blob/7c78c7e94b375fdf8b94fbd93b474411903d5a29/testing/story/src/test/resources/first-steps/resource-opendj-240.xml#L106-L142[resource-opendj-240.xml] in `TestFirstSteps`.
+
+*Solution*: conditions? negative confidence deltas on mismatch?
 
 == Schema Improvements
 
