@@ -1,4 +1,7 @@
 = Tagging as a New Feature
+:page-toc: top
+
+== Part One: The Original Idea
 
 NOTE: This is just to record an idea that appeared on a simulations-related design meeting.
 
@@ -23,10 +26,179 @@ Related mechanisms:
 - simulation tags (these are not the same as these "production" tags),
 - "administrator" tags (see right below).
 
-== "Administrator" Tagging
+=== Administrator Tagging
 
 A related but distinct feature is the tagging done by the administrator himself.
 He or she will be able to tag (and untag) any object with a custom mark.
 The dictionary of available tags would be customizable.
 
 This is somehow related also to the Shadow Marks feature.
+
+== Part Two: More General Idea to Discuss
+
+There are the following kinds of tags currently known or anticipated:
+
+=== Policy Situation
+
+Denotes a situation in which a specific object (focus, shadow) or assignment is.
+
+Primarily, this means something that midPoint discovered.
+
+==== Examples
+- role with no owner,
+- org unit with two managers (when only one is allowed),
+- exclusion constraint violation (two or more SoD-conflicting assignments),
+- ...
+
+==== Determination
+- primarily automatic (by non-transitional policy rules)
+- overridable by human (originally suppressing policy rules but maybe also adding the situations?)
+
+==== Uses
+- reporting (numbers, specific objects/assignments),
+- dashboards (number of marked objects/assignments at given time instant)
+- certification?
+- remediation (cases)?
+
+==== Storage
+- policy situation (object / assignment) – currently by URI
+
+=== Event Tag
+Distinguishes an event (currently corresponding to an operation, and being either real audit event or simulated i.e. expected event).
+
+==== Examples
+* Resource objects:
+** created/deleted/modified; does not need to be an event – readily available from delta type,
+** enabled/disabled (deactivated),
+** identifier(s) changed,
+** entitlement(s) changed,
+* Focus objects:
+** created/deleted/modified; does not need to be an event – readily available from delta type,
+** enabled/disabled (deactivated),
+** renamed,
+** assignment(s) changed,
+** archetype(s) changed,
+** parentOrgRef value(s) changed,
+** (any) role membership changed,
+** (specific) role membership changed - useful if we simulate modifications of a given role, see also Role Evolution scenario. This means that the administrator must define custom tags here.
+
+==== Determination
+* automatic (by transitional policy rules)
+
+==== Uses
+* reporting (numbers, specific events),
+* dashboards (number of events in given time period),
+
+==== Storage
+* in simulation “processed object” record,
+* later in audit event record (audit delta? we should consider unifying audit and simulations)
+
+=== Shadow Mark
+
+Automatically or manually discovered fact about the shadow.
+
+==== Examples
+* protected account (detected by the config or manually marked)
+* invalid account (fails the validity check, or even maybe failing inbound mapping?)
+* orphaned account – to be researched, discussed, ...
+* account to be deleted – decided that it should be removed, but not removed yet
+* “do not touch” account – may be imported/linked, but not changed in any way
+* ...
+
+==== Determination
+* automatic (e.g. invalid accounts, protected accounts detected by the configuration)
+* manual
+
+==== Uses
+* reporting (numbers, objects)
+* dashboards
+* controls some aspects of behavior (whether to synchronize, whether to update, ...)
+
+==== Storage
+* policy situation?
+* a new property or reference?
+
+==== Questions
+* can this be considered a policy situation?
+
+=== Administrator Tag
+
+Manually marked object or assignment.
+See <<Administrator Tagging>> in <<Part One: The Original Idea>>.
+
+==== Examples
+* object to be researched, deleted, … ?
+* “do not touch” object – but what does that mean?
+* or just any admin use
+
+==== Determination
+* manual
+
+==== Storage
+* policy situation?
+* a new property or reference?
+
+==== Questions
+* is this the same as a shadow mark? can this be considered a policy situation?
+
+=== Query/Export Tag
+
+Some object queries are too hard to be efficiently evaluated – they are simpler to determine when an object is being (re)computed.
+See <<Part One: The Original Idea>>
+
+==== Examples
+* complex business logic determining if an object should be part of a report that is used for e.g. provisioning outside midPoint (i.e. a report is sent to the target system via REST)
+
+==== Determination
+* automatic
+* possible manual override?
+
+==== Storage
+* ?
+
+== Implementation Ideas
+
+What about creating a new `TagType` that would provide a registry of all tags assignable to objects, assignments, and events?
+Individual tag types would be distinguished by archetypes, standard structural ones being:
+
+* policy situation,
+* event tag,
+* shadow mark (maybe),
+* administrator mark (maybe),
+* query/export tag (maybe).
+
+Administrator could add any number of auxiliary archetypes here.
+Or maybe even custom structural ones?
+
+Alternative would be to create subtypes for the basic tag categories, because not all data are applicable to all tags.
+E.g., policy situation tag could have global policy rules attached right to it, simplifying the system configuration.
+Shadow mark tags could have policies attached to them (e.g. if synchronization or outbounds are allowed for the shadows).
+But creating subtypes would complicate the repository; we usually use archetypes for this (e.g. when cases are concerned).
+
+=== Attaching Tags to Objects
+
+We should probably have separate items for individual kinds of tags.
+(Just like we have e.g. `roleMembershipRef` distinct from `archetypeRef` and `parentOrgRef`.)
+It is advantageous when we want to quickly access only tags of given types.footnote:[Although it is expected that the tag dictionary would be always present in memory, just like e.g. archetypes are.]
+Also, it is better from the security endpoint - we may want to give access to the tags of some type but not the others.
+
+Speaking of authorizations, we could maybe limit the tags the client is able to see by limiting the access to the specific tag objects.
+(The references to invisible tags would be removed from the object being fetched.)
+
+It is possible to have different mechanisms for different tag types, e.g. keeping policy situations "by URI" just for compatibility reasons.
+
+=== Design Considerations
+
+Advantages of using tags as separate objects:
+
+* Easy and flexible querying - if we use prism references
+** e.g. by tag archetype, by tag name / URI, ...
+** ...
+
+Disadvantages:
+
+* Need for another repository type (generic, native)
+
+2022-12-19: We (Rado, Tony, Vilo, Pavol) decided to go on with `TagType`.
+Tony will do that for new repo.
+Pavol will continue implementing event tags.
