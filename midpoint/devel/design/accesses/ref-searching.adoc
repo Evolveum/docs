@@ -1,0 +1,205 @@
+= Reference searching
+:page-toc: top
+
+It is already possible to search *objects* and *containers*.
+It is also possible to search _by_ reference value and its target.
+But to be able to search accesses (represented by `roleMembershipRef`) we need to search *references* as well.
+This means, that the number of results matches the number of found references.
+This is similar to container search, e.g. we can search multiple assignments inside a single object (or accross multiple objects).
+
+The missing parts are:
+
+* How to provide the search instructions?
+* How to construct the result set?
+* How to filter based on the owner of the reference?
+(We already can filter by the reference target, this is a solved problem.)
+
+== Owning object... or container?
+
+For `roleMembershipRef` the situation is very simple.
+Object owns the reference and its item path is `roleMembershipRef`.
+But in the future we may want to search for `case/workItem/assigneeRef` in access certification campaign.
+What is the owner of this reference?
+Is it the access certification campaign and the ref path is `case/workItem/assigneeRef`?
+Or is it the `AccessCertificationWorkItemType` with the ref path `assigneeRef`?
+The owning object is clearly an object, not a container.
+But when we talk about *parent* it is the container - just like it works for containers now.
+
+[NOTE]
+Currently, refs do not have parent searchable because it wasn't needed when the search does not start on the reference.
+
+== Search instructions
+
+We need to be able to specify:
+
+* Which reference (table) to search - what goes to the `select` clause (search root).
+* Additional filter for the target of the reference - which is already a solved problem.
+* Additional filter for the owner and/or parent of the reference - probably parent is more consistent with existing capabilities.
+* Pagination details.
+
+=== Specifying search root
+
+To specify the reference there is a couple of options:
+
+* We can introduce an enumeration of supported reference searches and use these values directly,
+e.g. `ACCESS_CERT_WI_ASSIGNEE_REF` would search for `case/workItem/assigneeRef` on access certification campaings.
+* We can specify the starting object and the item path to the reference, e.g. `AccessCertificationCampaignType`
+and `case/workItem/assigneeRef`.
+* We can specify the parent object/container, and then single-segment item path, e.g. `AccessCertificationWorkItemType`
+and `assigneeRef`.
+
+When it comes to providing the item path to the ref, it can be explicit, or part of the ref filter (see the next section).
+
+[NOTE]
+(RR) I believe that any of the options is OK as long as one is chosen and not much flexibility is allowed to keep it simple.
+In theory, one would argue, that both options with type and path are OK, and even `AccessCertificationCaseType`
+with `workItem/assigneeRef` is an equivalent option.
+But I'd allow only object+path or parent container+path from these, not any combination.
+
+=== Specifying the ref filter
+
+Using `RefFilter` as a search filter seems a natural choice.
+This can provide also the `itemPath` to the reference (relative to the allowed owner or parent type).
+Ref filter can also contain the target filter (for the reference target), as already supported.
+
+=== Parent/owner filter
+
+For refs that are defined directly in the object type, that is single-segment path from the object type,
+the parent and owner are the same and there is no complication.
+The filtration can be achieved by an optional separate filter, which - if provided - is applied to
+the joined owner.
+
+For any deeper ref (e.g. `metadata/modifierRef` or `workItem/originalAssigneeRef`) it is much flexible to
+go up the hierarchy step by step and use some kind of parent filter - similar to `OwnedByFilter`.
+The reason is, that this way we can clearly specify filter conditions not only on the object,
+but also on the parent container.
+
+Starting this on the owner object (e.g. a `CaseType` for `workItem/originalAssigneeRef`) makes it already disconnected.
+How would we express our interest only in those refs owned by a `CaseWorkItemType` with, for instance, this and that stage number?
+Going from the object down could be interpreted as "we want `workItem/originalAssigneeRef` from a case
+that has (any) work item with such a stage number - which may not be the work item with the searched reference.
+Clearly saying that the parent of the ref should have such a stage number leads to no such disconnection.
+
+=== Reference Query?
+
+With the need to provide all the things above plus pagination it is probably best to pack it in a dedicated type.
+The structure could be:
+
+----
+ReferenceQuery:
+- filter (RefFilter, mandatory unless itemPath is provided explicitly)
+- parentFilter (equivalent of OwnedByFilter.filter)
+- paging
+- allowPartialResults
+----
+
+`OwnedByFilter` provides also `type` and `path`:
+
+* `path` is needed for containers mainly to distinguish between assignemnts and inducements, but this
+is not a problem for reference search - and the path is actually part of the main (ref) `filter`;
+* `type` could narrow down the initial type provided to the `searchRefs` call - but one could
+just as well provide the narrower type directly (e.g. `UserType` instead of `AssignmentHolderType`).
+
+This makes only the filter part of the `OwnedByFilter` relevant for this case.
+Considering this, it is questionable whether we want to embed this filter into `RefFilter` directly.
+On the one hand it would make ref filter more consistent with the container search.
+On the other hand it is not useful on the `RefFilter` for any other type of search, because
+normally we get to the refs through their owning object/container(s).
+
+The `parentFilter`/`ownedBy` filter is also useful while applying security - at least
+when the parent is an object for which we already support the security pre-processing.
+
+Eventual `ReferenceQuery` is quite similar to existing `ObjectQuery` with the following differences:
+
+* Type of `filter` will mostly be `RefFilter`, not `ObjectFilter`.
+This could be achieved by filter parametrization, but perhaps it is not even necessary, read on.
+* Additional `parentFilter` is needed or `ownedBy` support inside the `RefFilter`.
+
+=== Two vs one filter
+
+But there are also a few good reasons to have `ownedBy` part inside the `RefFilter`:
+
+* We don't need to construct two separate filters for one reference search.
+* `ObjectQuery` could be used as is, or perhaps with minimal type parametrization to enforce `RefFilter`.
+
+So with `ownedBy` in `RefFilter` there is only a difference in the type of the root filter.
+But even `ObjectFilter` for reference search can make sense, because that way we can `OR` or `AND`
+multiple ref filters, not to mention top level `NOT`.
+
+When complex filters are allowed, though, it doesn't make sense to use `itemPath` to the ref from `RefFilter`.
+With multiple ref filters inside a complex filter we still need just a single `itemPath` to the ref
+*and* a very likely just one `parentFilter`, not `ownedBy` for each `RefFilter`.
+The `itemPath` problem can be solved by and explicit `itemPath` - and then ignoring the `itemPath` in
+the ref filters applicable to the root of the search.
+
+Can we limit ourselves now to a single `RefFilter` on the top level?
+This still allows using complex target/owner filters, but not disjunct combination of ref types/relations.
+
+== Usage examples
+
+Just like the type for other queries is provided separately (and clearly identifies the table for select),
+the identification of the ref table should also be explicit, hence probably out of the top level ref filter.
+Then we can ignore the `itemPath` inside ref filters and this also solves one of the questions
+if complex filters are allowed.
+This explict `itemPath` can be part of the `ReferenceQuery` type or explicit parameter, or implied by
+the new enum type of supported ref searches (mentioned previously in _Specifying search root_).
+
+Knowing what kind of reference search is required is also important for definitions during filter construction.
+
+=== Java fluent API
+
+Alternative 1 - existing API without any changes, but with two filters constructed:
+
+----
+S_FilterEntryOrEmpty userTypeQuery = prismContext.queryFor(UserType.class);
+ObjectQuery refQuery = userTypeQuery
+        .ref(UserType.F_ROLE_MEMBERSHIP_REF)
+        .item(F_NAME).eq("actual-role-name")
+        .maxSize(5)
+        .build();
+ObjectFilter parentFilter = userTypeQuery.id("user-oid-here").buildFilter();
+SearchResultList<ObjectReferenceType> objectReferenceTypes =
+        repositoryService.searchReference(UserType.class, refQuery, parentFilter);
+----
+
+WIP: Alternative 2 - single filter with `ownedBy` support in `RefFilter`:
+
+----
+S_FilterEntryOrEmpty userTypeQuery = prismContext.queryFor(UserType.class);
+ObjectQuery refQuery = userTypeQuery
+        .ref(UserType.F_ROLE_MEMBERSHIP_REF)
+// TODO how to distinguish between (or start/stop) target filter and ownedBy filter?
+// We probably don't want some magic like "AND containing ref and owned by filter is interpreted in this way"... or do we?
+        .item(F_NAME).eq("actual-role-name")
+        .build();
+ObjectFilter parentFilter = userTypeQuery.id("user-oid-here").buildFilter();
+SearchResultList<ObjectReferenceType> objectReferenceTypes =
+        repositoryService.searchReference(UserType.class, refQuery, parentFilter);
+----
+
+=== Axiom
+
+Axiom only creates the filter, not the query, but that's OK.
+
+Let's just expore the ref filter allowing owned by directly:
+
+----
+roleMembershipRef matches (
+    // @ represents ref target, target filter is inside (...)
+    @ matches (
+        name = "actual-role-name" )
+    and
+    . ownedBy (
+        @type = UserType
+        and . inOid 'user-oid-here' ) )
+----
+
+== Other problems
+
+* How to apply security on the model layer?
+This probably requires the owner filter part.
+Do we need to solve it in the first implementation?
+Currently, `applySchemasAndSecurityToContainers` is called only for `AccessCertificationCampaignType`,
+so other container types don't have this covered either.
+While `preProcessOptionsSecurity` is called for containers, `preProcessQuerySecurity` is not called
+for the container query at all, only for the object search.
