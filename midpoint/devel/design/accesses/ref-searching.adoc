@@ -10,9 +10,9 @@ This is similar to container search, e.g. we can search multiple assignments ins
 The missing parts are:
 
 * How to provide the search instructions?
-* How to construct the result set?
 * How to filter based on the owner of the reference?
 (We already can filter by the reference target, this is a solved problem.)
+* How to construct the result set?
 
 == Owning object... or container?
 
@@ -47,6 +47,7 @@ e.g. `ACCESS_CERT_WI_ASSIGNEE_REF` would search for `case/workItem/assigneeRef` 
 and `case/workItem/assigneeRef`.
 * We can specify the parent object/container, and then single-segment item path, e.g. `AccessCertificationWorkItemType`
 and `assigneeRef`.
+This is also ambiguous for assignments, but can be clarified by `ownedBy`.
 
 When it comes to providing the item path to the ref, it can be explicit, or part of the ref filter (see the next section).
 
@@ -82,6 +83,10 @@ Clearly saying that the parent of the ref should have such a stage number leads 
 
 === Reference Query?
 
+[NOTE]
+This is early thought experiment.
+See the further sections for final solution.
+
 With the need to provide all the things above plus pagination it is probably best to pack it in a dedicated type.
 The structure could be:
 
@@ -106,13 +111,23 @@ On the one hand it would make ref filter more consistent with the container sear
 On the other hand it is not useful on the `RefFilter` for any other type of search, because
 normally we get to the refs through their owning object/container(s).
 
+[NOTE]
+====
+Final solution is mandatory ownedBy next to ref.
+Owned by directly inside ref is not good for a couple of reasons:
+
+* If we want all refs of some type we would do that with no (null) ref filter.
+Where would the additional `ownedBy` go then?
+* As mentioned, `ownedBy` is otherwise not useful for the ref filter.
+* Owned-by filter is common for the search, so it can't be in (some) ref filter if we allow combination of ref filters (AND/OR).
+====
+
 The `parentFilter`/`ownedBy` filter is also useful while applying security - at least
 when the parent is an object for which we already support the security pre-processing.
 
 Eventual `ReferenceQuery` is quite similar to existing `ObjectQuery` with the following differences:
 
-* Type of `filter` will mostly be `RefFilter`, not `ObjectFilter`.
-This could be achieved by filter parametrization, but perhaps it is not even necessary, read on.
+* Initially, it is nice to type the `filter` as `RefFilter` - but this does not allow `AND/OR`.
 * Additional `parentFilter` is needed or `ownedBy` support inside the `RefFilter`.
 
 === Two vs one filter
@@ -131,6 +146,7 @@ With multiple ref filters inside a complex filter we still need just a single `i
 *and* a very likely just one `parentFilter`, not `ownedBy` for each `RefFilter`.
 The `itemPath` problem can be solved by and explicit `itemPath` - and then ignoring the `itemPath` in
 the ref filters applicable to the root of the search.
+WARNING: `itemPath` can contain `@/otherRef` and not be relevant to the search root!
 
 Can we limit ourselves now to a single `RefFilter` on the top level?
 This still allows using complex target/owner filters, but not disjunct combination of ref types/relations.
@@ -150,8 +166,9 @@ Knowing what kind of reference search is required is also important for definiti
 
 Alternative 1 - existing API without any changes, but with two filters constructed:
 
+[source,java]
 ----
-S_FilterEntryOrEmpty userTypeQuery = prismContext.queryFor(UserType.class);
+var userTypeQuery = prismContext.queryFor(UserType.class);
 ObjectQuery refQuery = userTypeQuery
         .ref(UserType.F_ROLE_MEMBERSHIP_REF)
         .item(F_NAME).eq("actual-role-name")
@@ -162,19 +179,45 @@ SearchResultList<ObjectReferenceType> objectReferenceTypes =
         repositoryService.searchReference(UserType.class, refQuery, parentFilter);
 ----
 
-WIP: Alternative 2 - single filter with `ownedBy` support in `RefFilter`:
+WIP: Alternative 2 - single filter with `ownedBy` support in `RefFilter`.
+How to distinguish between (or start/stop) target filter and ownedBy filter?
+We probably don't want some magic like "AND with ref and owned by filter is interpreted in this way"... or do we?
+EDIT: Actually, this is on the way to the final solution with AND containing mandatory `ownedBy` filter.
+
+[source,java]
+----
+ObjectQuery refQuery = prismContext.queryFor(UserType.class)
+        .ref(UserType.F_ROLE_MEMBERSHIP_REF) // returns some new S_RefEntry state
+            .targetFilter()
+            //.block() // optional, needed for OR/AND
+                .item(F_NAME).eq("actual-role-name")
+            //.endBlock() // optional, needed for OR/AND
+            //.and() //possible but useless in constrained S_RefEntry context
+            .ownedBy(UserType.class)
+            //.block() // optional, needed for OR/AND
+                    .id("user-oid-here")
+            //.endBlock() // optional, needed for OR/AND
+        .endRef() // important, pair to ref(...)
+        .build();
+SearchResultList<ObjectReferenceType> objectReferenceTypes =
+        repositoryService.searchReference(UserType.class, refQuery);
+----
 
 ----
-S_FilterEntryOrEmpty userTypeQuery = prismContext.queryFor(UserType.class);
-ObjectQuery refQuery = userTypeQuery
-        .ref(UserType.F_ROLE_MEMBERSHIP_REF)
-// TODO how to distinguish between (or start/stop) target filter and ownedBy filter?
-// We probably don't want some magic like "AND containing ref and owned by filter is interpreted in this way"... or do we?
-        .item(F_NAME).eq("actual-role-name")
-        .build();
-ObjectFilter parentFilter = userTypeQuery.id("user-oid-here").buildFilter();
-SearchResultList<ObjectReferenceType> objectReferenceTypes =
-        repositoryService.searchReference(UserType.class, refQuery, parentFilter);
+ObjectQuery refQuery = prismContext.queryForReference(UserType.class, F_ROLE_MEMBERSHIP_REF)
+    // already contains owned by filter - but how to customize it?
+
+ObjectQuery refQuery = prismContext.queryForReferenceOwnedBy(UserType.class, F_ROLE_MEMBERSHIP_REF)
+    block().endBlock() // empty owner subfilter... can we
+    .and()
+    ...
+
+ObjectQuery refQuery = prismContext.queryForReference()
+    .ownedBy(UserType.class, F_ROLE_MEMBERSHIP_REF) // here the defs are populated
+    .block().endBlock()
+    .and()
+    .ref(., ...)
+
 ----
 
 === Axiom
@@ -184,15 +227,40 @@ Axiom only creates the filter, not the query, but that's OK.
 Let's just expore the ref filter allowing owned by directly:
 
 ----
-roleMembershipRef matches (
+. matches (
     // @ represents ref target, target filter is inside (...)
     @ matches (
-        name = "actual-role-name" )
-    and
-    . ownedBy (
-        @type = UserType
-        and . inOid 'user-oid-here' ) )
+        name = "actual-role-name" ) )
+and
+. ownedBy (
+    @type = UserType
+    and . inOid 'user-oid-here' )
 ----
+
+== Constructing result set
+
+. Select refs, this can be low-level repo based `List<MReference>`.
+// from here optionally based on options? what if client does not want parents?
+. Collect unique owner OIDs.
+. Select owner objects.
+. Crawl the objects to extract the result references from them.
+
+Considerations:
+
+* When do we want/need refs from objects?
+For one user we don't need it.
+* Value metadata are not in returned `MReference` - if they need to be part of the returned data,
+we need to get the ref from the loaded object.
+This, again, may be unnecessary for cases when GUI works with a single object.
+
+These are all low-priority problems, at this moment we want either refs only, or refs from objects,
+without any Get options customization for the object.
+What should be the default behavior?
+
+=== Report related
+
+Can we extract metadata in expressions?
+Currently, probably not... just adding support for `@metadata` segment may not be enough because of multi-value nature of metadata.
 
 == Other problems
 
@@ -203,3 +271,45 @@ Currently, `applySchemasAndSecurityToContainers` is called only for `AccessCerti
 so other container types don't have this covered either.
 While `preProcessOptionsSecurity` is called for containers, `preProcessQuerySecurity` is not called
 for the container query at all, only for the object search.
+
+== MEETING
+
+Example: "Show me all membership refs on a user."
+This only requires ownedBy filter, but ref filter must work like "all".
+This is probably null ref filter - which cannot contain ownedBy! - it's not ref filter with no value.
+
+*It seems we want ownedBy independent of the ref (or complex AND/OR) filter.*
+
+Another idea:
+
+*If `ownedBy` is mandatory on the top level, it can specify the path to the ref better than any of the ref filters (if any is even there).*
+This would allow searchRefs(ObjectQuery, options...) without any type parameter.
+
+Owned by and OR of two relations:
+----
+// ownedBy added automagically by GUI where expected
+. ownedBy ( @type = UserType and @path = roleMembershipRef)
+and (
+  . matches ( relation = manager )
+  or . matches (relation = default)
+)
+and @ matches ( archetypeRef/@/name = "BusinessRole")
+----
+
+----
+. ownedBy ( @type = UserType and @path = roleMembershipRef)
+and (
+  . matches ( relation = manager )
+  or . matches (relation = default)
+)
+and @ matches ( archetypeRef/@/name = "BusinessRole")
+----
+
+=== Meeting Conclusions
+
+* Model/repo API something like: +
+`SearchResultList<ObjectReferenceType> searchReferences(ObjectQuery, options...)`
+* Query must be `AND` and contain top level `ownedBy` filter (check provisioning query interpretation)
+and additional ref filter(s).
+* POC fluent for fluent API (e.g. queryForReferenceOwnedBy(...)).
+* Axiom will need to support non-container definitions too. (Tony)
