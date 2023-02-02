@@ -1310,6 +1310,155 @@ The shadow marks must be extensible (maybe via `System configuration`) with a re
 The shadow marks must be queryable.
 Perhaps even query for _focal objects owning shadow with specific mark_ should be possible - to allow e.g. recomputation of such users.
 
+.Additional shadow marks notes (2.2.2023) - to be discussed
+====
+
+Run (a simulation of) reconciliation and start shadow marking.
+Repeat until satisfied.
+
+
+
+.Shadow marks notes
+[cols="20%,10%,10%,5%,5%,5%,5%,40%"]
+|===
+
+.2+^.^h|Mark
+.2+^.^h|Src/Tgt System
+.2+^.^h|Typical situation
+4+^.^h|Operations allowed
+.2+^.^h|Description
+
+h|Sync
+h|Add
+h|Mod
+h|Del
+
+|"Protected"
+|Src/Tgt
+|`UNMATCHED`
+|No
+|No
+|No
+|No
+|Protected accounts as usual. MidPoint ignores them in both synchronization and provisioning.
+
+|"To be decommissioned"
+
+Actually alias for _Protected_.
+|Tgt
+|probably only `UNMATCHED`
+|No
+|No
+|No
+|*No* (but see below)
+a|We know, that this account should be deleted.
+But not yet, not until someone "approves" it.
+But we will ignore it for now.
+Even when they are in situation `UNMATCHED` and even if there is reaction to delete them. +
+We can either have an explicit task to delete them, or we can simply (manually or in bulk) remove this shadow mark and re-run reconciliation which will delete such accounts (`UNMATCHED` situation is present).
+
+|"To be reviewed"
+
+Actually alias for _Protected_.
+|Src/Tgt
+|`UNMATCHED`, `DISPUTED`
+|No
+|No
+|No
+|No
+a|We don't know what to do. +
+Perhaps correlation identifier is wrong. +
+Ignore thise account for now. +
+
+|"Do not touch"
+|Tgt
+|any?
+|Yes
+|No
+|No
+|No
+a|Allow synchronization of this account to midPoint (e.g. linking account to owner, importing login from target such as AD), but disallow any outbound modifications.
+
+WARNING: This would ignore standard synchronization-based events from source system.
+*TODO how to properly use this - methodology. Perhaps it's safe only when synchronization with source is not yet turned on. Otherwise to correctly apply "missed deletes/unassignments" we would need Full enforcement policy.*
+
+|"Add only"
+|Tgt
+|any?
+|No
+|Yes
+|No
+|No
+|*Does not make sense. No shadow to mark. Policy to achieve "no modification of existing content"?*
+
+|"Modify only"
+|Tgt
+|any?
+|No
+|No
+|Yes
+|No
+|*Does not make sense.*
+
+|"Do not delete"
+|Tgt
+|any?
+|Yes
+|Yes
+|Yes
+|No
+|*Does not make much sense for specific account. We would need to set this in advance. We can have disable instead of delete*
+
+|"Incorrect source data."
+
+Actually alias for _Protected_.
+|Src
+|`UNMATCHED`, `UNLINKED`, `LINKED`, ...
+|No
+|No
+|No
+|No
+a|This account has bad data. +
+Ignore the account for now. +
+
+Use cases:
+
+. the first source is being connected - would require deletion of bad users and marking their shadows
+. non-first source is being connected - would require simulation first, then marking shadows
+. big changes in existing source (e.g. reorganization) - would require simulation first, then marking shadows
+. new kind/intent (e.g. externals) is being connected - would require simulation first, then marking shadows
+
+
+|===
+
+.Aliases vs Multiple marks
+
+We can have either `Incorrect source data` (which is of "class" `Protected`) or we can have `Protected` + `Incorrect source data` additional "mark". Something similar to structural and auxiliary archetypes...
+
+.How to set shadow marks
+
+We need to set shadow marks:
+
+* manually, per account
+* manually, for all accounts (in some situation). Automatically generated bulk task running on background could help
+* automatically, by ##policy (specified where?)##
+** Example: set `To be reviewed` shadow mark + mayber even create case for all `UNMATCHED` accounts automatically. When administrator decides, he/she will set another mark `Do not set any other marks` to prevent loops and `UNMATCHED` will behave normally (without marking and case creation).
+
+.Idea 1.2.2023:
+Combine shadow marks with cases? Some "campaign" to cleanup? Decisions will be:
+
+* remove mark e.g. remove `to be decommisioned`, `do not update` or `incorrect source data` to revert to midpoint standard behaviour
+* change mark e.g. from `to be reviewed` to `protected`
+* do not decide (keep mark)
+* assign case to someone else ##to achieve what? Reconfiguration of midpoint?##
+* change of mark or removal, e.g. `to be decommissioned` mark could also go for approval/execution
+
+
+====
+
+
+
+
 The details are below:
 
 [#explicitly_marking_accounts_as_protected]
