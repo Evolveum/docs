@@ -1274,41 +1274,137 @@ image::mappings-idea3.png[]
 
 NOTE: What about using "marks" also for other objects, e.g. focal objects in midPoint as well for marking/labelling purposes? Which parts can be recycled?
 
-Explicit "marks" in shadow, meaning that shadow is:
-
-* *Protected*: no modification possible, ignored by recon and other processes.
-Used for emergency administration accounts such as `root` or `administrator`.
-
-* *To be decommissioned*: the account should be disabled/deleted eventually, but not just yet.
-(TODO: we need better name for this, "decomissioning" is ugly and hard to understand)
-
-* *Remediation*: the account has to be manually remediated.
-E.g. remediation case should be opened, several people have to discuss what to do with the account.
-It will probably end up as protected account, or be decommissioned.
-(Overlap with IGA)
-** This may be needed for source system account as well to ignore changes coming from that account (e.g. in case the source system has invalid data which cannot be fixed immediately.)
-
-* *Review later*: (or a better name) ignore this account.
-Do not apply any mappings, do not change anything.
-The account is a mess, we have to sort it out eventually, just not yet.
-For the time being we just want to keep status quo, maybe include it in reports, but we are not going to do anything else.
-** This may be needed for source system account as well to ignore changes coming from that account (e.g. in case the source system has invalid data which cannot be fixed immediately.)
-** TODO: if such accounts is actually UNLINKED or LINKED, we might want to protect it against any changes (outbound), but we may need it to import data from it (inbound). E.g. in case of importing login names from AD, we want to import it and then protect the account against changes, because it is the President of Galaxy
+. Run (a simulation of) reconciliation and start shadow marking.
+. Repeat until satisfied.
 
 We should probably have some _kinds_ of shadow marks which specify midPoint behaviour (similar to relation kind). For example:
 
-* do not process at all (this could probably apply for Protected)
-* ignore outbounds, but allow inbound processing (this could probably apply for Review later)
-** this can be used if we do not want to update the account, but we need to use it do populate midPoint object (e.g. username)
-* do not process automatically, only explicitly (this could probably apply for To be decommissioned)
-* TODO: more? other?
+* do not process at all (this could probably apply for `Protected`)
+* do not process automatically, only explicitly (this could probably apply for `Decommission later`)
 
-The shadow marks must be extensible (maybe via `System configuration`) with a reasonable default set e.g. as above.
-
-* TODO: if we would extend the marking purposes also to other (e.g. focal) objects, we probably need to associate the mark definition with kind and with object type... (perhaps even Archetype)...
+The shadow marks must be extensible with a reasonable default set in initial objects.
 
 The shadow marks must be queryable.
 Perhaps even query for _focal objects owning shadow with specific mark_ should be possible - to allow e.g. recomputation of such users.
+Also querying by timestamp of shadow mark should be possible.
+Also some metadata how/why the mark was created (by which user, by which task, case etc., and when).
+
+
+.Shadow marks notes
+[cols="20%,10%,10%,5%,5%,5%,5%,40%"]
+|===
+
+.2+^.^h|Mark
+.2+^.^h|Src/Tgt System
+.2+^.^h|Typical situation
+4+^.^h|Operations allowed
+.2+^.^h|Description
+
+h|Sync
+h|Add
+h|Mod
+h|Del
+
+|"Protected"
+|Src/Tgt
+|`UNMATCHED`
+|No
+|No
+|No
+|No
+|Protected accounts as usual. MidPoint ignores them in both synchronization and provisioning.
+
+|"Decommission later"
+|Tgt
+|probably only `UNMATCHED`
+|No
+|Yes
+|Yes
+|Yes
+a|We assume that this account should be deleted.
+But not automatically.
+Even when they are in situation `UNMATCHED` and even if there is reaction to delete them. +
+Later, after we decide, we can simply (manually or in bulk) remove this shadow mark and re-run reconciliation which will delete such accounts (`UNMATCHED` situation is present). +
+Or we can simply explicitly delete the accounts.
+
+|"Correlate later"
+|Src/Tgt
+|`UNMATCHED`, `DISPUTED`
+|No
+|Yes
+|Yes
+|Yes
+a|We don't know how to correlate this account. +
+Perhaps correlation identifier has incorrect/empty value. +
+Ignore this account for now. +
+When the account is linked to owner, mark must be removed too. +
+*TODO: GUI could suggest this.*
+
+|"Do not touch"
+|Tgt
+|any?
+|No
+|No
+|No
+|No
+a|Some accounts have attributes that would be overwritten or deleted by midPoint (as shown in simulations). Data does not match the policies set in midPoint. We do not want to apply them. +
+Ignore these accounts for now.
+
+NOTE: Model should not try to execute any changes on this account (no errors should be thrown). Manual attempts to modify/delete should still show error just like in `Protected`.
+
+WARNING: This would ignore standard synchronization-based events from source system.
+*TODO how to properly use this - methodology. Perhaps it's safe only when synchronization with source is not yet turned on. Otherwise to correctly apply "missed deletes/unassignments" we would need Full enforcement policy.*
+
+WARNING: Use with care, i.e. temporarily. Otherwise, you are breaking your policy.
+
+|"Invalid data."
+
+Actually alias for _Protected_.
+|Src
+|`UNMATCHED`, `UNLINKED`, `LINKED`, ...
+|No
+|No
+|No
+|No
+a|This account has bad data. +
+Ignore the account for now. +
+
+Use cases:
+
+. the first source is being connected - would require deletion of bad users and marking their shadows
+. non-first source is being connected - would require simulation first, then marking shadows
+. big changes in existing source (e.g. reorganization) - would require simulation first, then marking shadows
+. new kind/intent (e.g. externals) is being connected - would require simulation first, then marking shadows
+
+Could be automatically set by midPoint policies by validating the account attributes to ignore bad accounts.
+
+|===
+
+.How to set shadow marks
+
+We need to set shadow marks:
+
+* manually, per account
+* manually, for all accounts (in some situation). Automatically generated bulk task running on background could help
+* automatically, by policy specified in resource (legacy protected accounts definition)
+* automatically, by ##policy specified within the mappings##
+** Example: validation of attributes
+* automatically, by ##policy, specified in shadow mark itself##
+** ##how?##
+* automatically, by ##policy specified in correlation## (Katka's idea)
+** Example: set `Correlate later` for accounts with empty value of correlation attribute in either resource or midPoint
+* automatically, by ##policy (specified e.g. in synchronization settings)##
+** Example: set `To be reviewed` shadow mark + maybe even create case for all `UNMATCHED` accounts automatically. When administrator decides, he/she will set another mark `Do not set any other marks` to prevent loops and `UNMATCHED` will behave normally (without marking and case creation).
+
+.Idea 1.2.2023 for future:
+Combine shadow marks with cases? Some "campaign" to cleanup? Decisions will be:
+
+* remove mark e.g. remove `to be decommisioned`, `do not update` or `incorrect source data` to revert to midpoint standard behaviour
+* change mark e.g. from `to be reviewed` to `protected`
+* do not decide (keep mark)
+* assign case to someone else ##to achieve what? Reconfiguration of midpoint?##
+* change of mark or removal, e.g. `to be decommissioned` mark could also go for approval/execution
+
 
 The details are below:
 
@@ -1340,21 +1436,24 @@ Could we specify the protected account definition just by referring the shadow m
 This may be related to bug:MID-761[]
 
 [#explicitly_marking_accounts_for_decommissioning]
-==== Explicitly Marking Accounts for Decommissioning
+==== Explicitly Marking Accounts for Later Decommissioning
 
 *Environment*: Correlating accounts on AD (or other resource), dealing with accounts that belong to people left the organization ages ago.
 
 *Problem*: We are not entirely sure that such accounts are not needed any more.
 We would like to mark them, report them, discuss them on long series of meetings, bury them in soft peat for three months, get an approval, signed in triplicate, then finally disable the accounts.
 
-*Solution*: Make a button to quickly mark an account for decommissioning.
+*Solution*: Make a button to quickly mark an account for later decommissioning.
 Store that information in the shadow.
 However, do nothing else yet.
+Automatic behavior will be switched off.
 The marker could be used to report the accounts.
-Accounts marked for decommissioning will not pop out in lists of uncorrelated accounts.
+##? Accounts marked for decommissioning will not pop out in lists of uncorrelated accounts. ?##
 MidPoint will mostly ignore them.
 Until the day comes to decommission the accounts.
 Then we will run a pre-configured task that disables all accounts marked for decommissioning.
+
+Manual explicit operations should still work (modify, disable, delete).
 
 Of course, we would also need an ability to "unmark" the account, mistakes happen.
 
@@ -1694,10 +1793,12 @@ This can be very useful in correlating existing user populations.
 We need to add following new pre-defined objects (initial objects):
 
 * `Person` archetype (structural)
+* `LDAP` resource template for target (outbound provisioning)
 
 Following objects are questionable:
 
 * Auxiliary person archetypes: `Employee`, `Contractor`, `Student`
+* `AD` resource template for target (outbound provisioning)
 
 == TODO For Discussion
 
