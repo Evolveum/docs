@@ -1,0 +1,61 @@
+= Performance Evaluation
+
+== Initial Measurements
+
+The setup is as follows:
+`TestOperationPerf` creates two users, `alice` and `bob`.
+They have five common properties each: `name`, `givenName`, `familyName`, `credentials/password/value`, and `activation/administrativeStatus`.
+They have a defined number of single-valued extension properties.
+Also, they have a defined number of values in `organization` property, mapped into respective role assignments.
+
+[%autowidth]
+|===
+| User | Extension properties | Organizations/assignments
+| `alice`
+| 10
+| 3
+| `bob`
+| 50
+| 40
+|===
+
+The user logged in was `administrator`, so in fact, no items were removed because of authorizations.
+This is the most common case, as usually all tasks and reports are run with full authorization.
+
+There was neither a template nor an archetype to be applied.
+The costs incurred were solely from the data traversal and definition wrapping and/or cloning.
+
+We tested three scenarios concerning `applySchemasAndSecurity` method:
+
+. Full updating of both data and definitions (as in 4.7).
+. Updating the data, with all definitions switching to transformable ones (to do template/archetype refinements if there were any).
+No application of authorizations to definitions.
+. Updating the data only.
+Definitions were not touched.
+
+The last scenario is not realistic now because we want to refine the schema using templates and archetypes.
+But from a performance point of view, it will be the one used because we assume we'll cache the refined schemas.
+
+Each test was run 3 times and consisted of 1,000 calls to `model.getObject` that included (fully cached) H2 repository get operation followed by `applySchemasAndSecurity` one.
+Hence, there is an (unknown) common component of the repo call.
+But overall, this test provides a basic insight into the situation.
+
+[%autowidth]
+|===
+| Scenario | `alice` | `bob` | Improvement (`alice`) | Improvement (`bob`)
+| Fully updating data and definitions (4.7)
+| 13.862 ms
+| 14.397 ms
+|
+|
+| Updating data, switching definitions to transformables
+| 0.577 ms
+| 1.472 ms
+| 95.8%
+| 89.8%
+| Updating data, ignoring definitions
+| 0.334 ms
+| 0.856 ms
+| 97.6%
+| 94.1%
+|===
