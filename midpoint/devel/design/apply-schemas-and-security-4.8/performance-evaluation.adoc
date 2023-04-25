@@ -1,4 +1,5 @@
 = Performance Evaluation
+:page-toc: top
 
 == Initial Measurements
 
@@ -11,6 +12,7 @@ Also, they have a defined number of values in `organization` property, mapped in
 [%autowidth]
 |===
 | User | Extension properties | Organizations/assignments
+
 | `alice`
 | 10
 | 3
@@ -43,6 +45,7 @@ But overall, this test provides a basic insight into the situation.
 [%autowidth]
 |===
 | Scenario | `alice` | `bob` | Improvement (`alice`) | Improvement (`bob`)
+
 | Fully updating data and definitions (4.7)
 | 13.862 ms
 | 14.397 ms
@@ -103,6 +106,7 @@ Concerning the definitions, we run the execution in three modes:
 [%autowidth]
 |===
 | Mode | Description
+
 | Deep
 | Schema refinements are executed deeply:
 Both in the object-level definition and in lowest item-level definitions (where they are defined).
@@ -120,6 +124,7 @@ The tests were run three times, with the average values summarized here:
 [%autowidth]
 |===
 | Definitions \ Authorizations | Full | Can read all | Can read almost all | Can read few items
+
 | Deep | 0.600 ms | 0.595 ms | 0.635 ms | 0.474 ms
 | Root only | 0.569 ms | 0.560 ms | 0.597 ms | 0.464 ms
 | None | 0.200 ms | 0.200 ms | 0.235 ms | 0.206 ms
@@ -136,4 +141,57 @@ This had small influence on the performance:
 image::perf-2b.png[Chart]
 
 Now, let us concentrate on optimizing the pure authorization application phase, without considering the definitions.
-(We suppose this will be the mode if real operation.)
+(We suppose this will be the mode in the real operation.)
+
+== Further Improvements
+
+The authorization application was improved in the following stages:
+
+. Baseline: https://github.com/Evolveum/midpoint/commit/e828b741[e828b741]
+. Elimination of needless `add` and `modify` authorization decision computations: https://github.com/Evolveum/midpoint/commit/64b6f210[64b6f210]
+. Checking if authorization applications would yield any change and optimization of internal data structures: https://github.com/Evolveum/midpoint/commit/604d874d[604d874d]
+
+Now the tests were executed as follows:
+
+. They were run on a separate idle machine (slightly less performant).
+. Each test was run 16 times, with two worst and two best times ignored.
+. Schema refinements from object template and archetype were not applied - i.e., only authorizations were.
+. In order to measure microsecond-level times, the fast tests were executed 20x more times.
+Moreover, tests in step 2 and 3 were run with detached (and regularly thrown away) operation result objects to avoid out-of-memory conditions.
+This may have a minor influence on the results.
+(Testing code for step 2 was back-ported.)
+
+The results are the following:
+
+[%autowidth]
+|===
+| Version | Commit | Full | Can read all | Can read almost all | Can read few items
+
+| Baseline | https://github.com/Evolveum/midpoint/commit/e828b741[e828b741] | 269.7 µs | 255.9 µs | 284.9 µs | 232.4 µs
+| No `add` and `modify` checks | https://github.com/Evolveum/midpoint/commit/64b6f210[64b6f210] | 242.4 µs | 233.2 µs | 264.7 µs | 220.3 µs
+| Skip needless autz processing | https://github.com/Evolveum/midpoint/commit/604d874d[604d874d] | 2.9 µs | 3.8 µs | 189.1 µs | 185.6 µs
+|===
+
+image::perf-2c.png[Chart]
+
+Just to provide a broader view, we can show a very rough comparison with the `applySchemasAndSecurity` performance in 4.7.
+Let's use a conservative estimate of the performance of this method to be ~ 10 milliseconds per user.
+(The real value can be somewhere between 10 and 20 milliseconds.)
+If needed, the measurements can be done, of course.
+
+[%autowidth]
+|===
+| Version | Full | Can read all | Can read almost all | Can read few items
+
+| midPoint 4.7 (estimate) |  10,000.0 µs | 10,000.0 µs | 10,000.0 µs | 10,000.0 µs
+| https://github.com/Evolveum/midpoint/commit/604d874d[master] | 2.9 µs | 3.8 µs | 189.1 µs | 185.6 µs
+|===
+
+image::perf-2d.png[Chart]
+
+The performance improvement is mainly due to the elimination of processing that is currently seen as not strictly necessary:
+
+. tailoring the object definition with authorizations (R - A - M flags) - this made the biggest difference;
+. application of template/archetype refinements to the definition;
+. simplification of internal data structures;
+. using the simplified structures to determine if the authorization application can be skipped altogether.
