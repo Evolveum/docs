@@ -93,6 +93,24 @@ upkeep-status: green
 | Role object class introduced for the management of role members and also the "mamanger" attribute
 management feature and some minor fixes.
 
+
+| 1.0.2.1
+| Evolveum
+| link:https://nexus.evolveum.com/nexus/repository/public/com/evolveum/polygon/connector-msgraph/1.0.2.1/connector-msgraph-1.0.2.1.jar[download jar]
+| link:https://github.com/Evolveum/connector-microsoft-graph-api[Evolveum git repository (master)]
+| Mar 24 2023
+| Changes in query url construction for the AccountObjectClass
+(can be extended for other object classes in the future)
+
+| 1.0.2.1
+| Evolveum
+| link:https://nexus.evolveum.com/nexus/repository/public/com/evolveum/polygon/connector-msgraph/1.0.2.2/connector-msgraph-1.0.2.2.jar[download jar]
+| link:https://github.com/Evolveum/connector-microsoft-graph-api[Evolveum git repository (master)]
+| Apr 20 2023
+| Changes in query url construction for the GroupObjectClass
+(can be extended for other object classes in the future)
+
+
 |===
 
 
@@ -107,9 +125,42 @@ TODO
 === Limitations
 
 Currently three object types are supported by the connector. Accounts, groups and licence objects.
-There are some limitations in case of more complex relationship parameters (i.e. "App role assignments" in regards of the User type objects), which are not present in the schema because of the current connID API limitations.
-The group objects "distribution lists" and "mail and security" groups are read-only due to graph API limitations. General provisioning and deprovisioning of group objects is otherwise permitted. Licences objects access is possible and read-only.
+There are some limitations in case of more complex relationship parameters (i.e. "App role assignments" in regards of the User
+type objects), which are not present in the schema because of the current connID API limitations.
+The group objects "distribution lists" and "mail and security" groups are read-only due to graph API limitations. General
+provisioning and deprovisioning of group objects is otherwise permitted. Licences objects access is possible and read-only.
 Role object class is currently implemented as read only, except role membership management.
+
+Only basic query features are supported fo Licence and Role objects.
+
+== Supporter filters for Licence and Role Objects (other than all filter)
+
+[%autowidth]
+|===
+| ObjectClass | Parameters | Filter | Note
+
+| Role
+| Uid, Display Name
+| Equals Filter
+|
+
+| Role
+| Display Name
+| Contains Filter
+| Contains filter will be translated to "Starts With" filter
+
+| Role
+|
+| Contains All Values
+|
+
+
+| Licence
+| Uid, Id
+| Equals Filter
+|
+
+|===
 
 [WARNING]
 ====
@@ -119,6 +170,79 @@ graph API referencing this as a bug.
 
 link: https://github.com/microsoftgraph/microsoft-graph-docs/issues/14899[Microsoft documentation bug report]
 ====
+
+Query url construction for Accounts and Groups now gives the possibility to specify complex queries using
+Composite filters (‘And’, ‘Or’) and also ‘Not’ filter. There are a couple of api limitations in the
+usage of filters.
+
+
+- Contains filter: Although the graph API documentation states that a contains filter functionality
+is provided, in reality the usage is quite limited (seems that not possible for the Account objects,
+please see https://github.com/microsoftgraph/microsoft-graph-docs/issues/15837[this article] ).
+To compensate for this the connector leverages the “search” functionality which in some cases can
+partially work as a ‘contains’ filter (tokens).
+Please see https://learn.microsoft.com/en-us/graph/search-query-parameter?tabs=http#using-search-on-directory-object-collections[this article].
+- Less than, Greater than filter: The construction of the filter queries is implemented properly
+yet the API responds mostly with an exception hinting that “Less than or equals” or “Greater
+than or equals” filtering should be used instead (did not find the reason for this in the API
+documentation yet).
+- Not and Ends with filter have implicitly the “count” parameter set to true.
+This is requested by the API, please see https://learn.microsoft.com/en-us/graph/aad-advanced-queries?tabs=http[this article].
+- Generally you might experience specific limitations for other attributes. Usually you will be prompted with a corresponding exception.
+
+
+When using a query which has a “contains” filter with other types of filter preset
+(Other than composite filters or the ‘NOT’ filter). The part of the query with the contains filter
+(either the single contains or other composite filter or not filter with only contains filters) has
+to be directly on the left or right side of the first ‘AND’ filter clause. This is due to API limitations
+regarding the combination of the ‘filter’ and ‘search’ clause, please see
+https://learn.microsoft.com/en-us/graph/search-query-parameter?tabs=http#using-search-on-directory-object-collections[this article].
+
+Please also keep in mind the way you structure the queries related to this fact. MidPoint will automatically generate some parts
+of the ‘AND’ filter tree based on the notation used in your configuration. In case of the usage of ‘Contains’ filter, please divide the ‘AND’ clauses directly in the configuration.
+Please see the example below:
+
+.Rather than structuring the queries with a single and ale letting midPoint divide the
+it for the API, divide the query into specific AND blocks (right and left sides):
+[source,xml]
+----
+<q:and>
+    <q:and>
+        <q:or>
+            <q:substring>
+                <q:path>attributes/name</q:path>
+                <q:value>A</q:value>
+            </q:substring>
+            <q:substring>
+                <q:path>attributes/name</q:path>
+                <q:value>B</q:value>
+            </q:substring>
+        </q:or>
+        <q:not>
+            <q:substring>
+                <q:path>attributes/department</q:path>
+                <q:value>FOO</q:value>
+            </q:substring>
+        </q:not>
+    </q:and>
+    <q:and>
+        <q:not>
+            <q:substring>
+                <q:path>attributes/name</q:path>
+                <q:value>Baar</q:value>
+                <q:anchorEnd>true</q:anchorEnd>
+            </q:substring>
+        </q:not>
+        <q:not>
+            <q:substring>
+                <q:path>attributes/name</q:path>
+                <q:value>XYZ</q:value>
+                <q:anchorStart>true</q:anchorStart>
+            </q:substring>
+        </q:not>
+    </q:and>
+</q:and>
+----
 
 == Notes
 
