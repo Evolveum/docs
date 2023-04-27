@@ -1,33 +1,15 @@
 = Performance Evaluation
 :page-toc: top
 
-== Initial Measurements
+This is a slightly expanded, internal version of xref:summary.adoc[].
+It contains details about variants of the solution that were considered and measured during the development.
 
-The setup is as follows:
-`TestOperationPerf` creates two users, `alice` and `bob`.
-They have five common properties each: `name`, `givenName`, `familyName`, `credentials/password/value`, and `activation/administrativeStatus`.
-They have a defined number of single-valued extension properties.
-Also, they have a defined number of values in `organization` property, mapped into respective role assignments.
+There are two scenarios: the whole "get object" operation and the sole post-processing.
+For their description, please see xref:summary.adoc[].
 
-[%autowidth]
-|===
-| User | Extension properties | Organizations/assignments
+== Initial Measurements of the Whole "Get Object" Operation
 
-| `alice`
-| 10
-| 3
-| `bob`
-| 50
-| 40
-|===
-
-The user logged in was `administrator`, so in fact, no items were removed because of authorizations.
-This is the most common case, as usually all tasks and reports are run with full authorization.
-
-There was neither a template nor an archetype to be applied.
-The costs incurred were solely from the data traversal and definition wrapping and/or cloning.
-
-We tested three scenarios concerning `applySchemasAndSecurity` method:
+First, we tested the overall performance of repeated `getObject` operation using the following three scenarios concerning `applySchemasAndSecurity` method:
 
 . Full updating of both data and definitions (as in 4.7).
 . Updating the data, with all definitions switching to transformable ones (to do template/archetype refinements if there were any).
@@ -35,12 +17,7 @@ No application of authorizations to definitions.
 . Updating the data only.
 Definitions were not touched.
 
-The last scenario is not realistic now because we want to refine the schema using templates and archetypes.
-But from a performance point of view, it will be the one used because we assume we'll cache the refined schemas.
-
-Each test was run 3 times and consisted of 1,000 calls to `model.getObject` that included (fully cached) H2 repository get operation followed by `applySchemasAndSecurity` one.
-Hence, there is an (unknown) common component of the repo call.
-But overall, this test provides a basic insight into the situation.
+At this point, we were not certain whether we will want to refine the schema by templates and archetypes.
 
 [%autowidth]
 |===
@@ -51,11 +28,13 @@ But overall, this test provides a basic insight into the situation.
 | 14.397 ms
 |
 |
+
 | Updating data, switching definitions to transformables
 | 0.577 ms
 | 1.472 ms
 | 95.8%
 | 89.8%
+
 | Updating data, ignoring definitions
 | 0.334 ms
 | 0.856 ms
@@ -65,32 +44,11 @@ But overall, this test provides a basic insight into the situation.
 
 image::perf-1.png[Chart]
 
-== Initial Measurements for "No-Autz Definition Update" Approaches
+Later, we moved to lower-level measurements concentrated solely on the post-processing, because that parts of the code we planned to optimize.
 
-xref:design-meetings.adoc#_2023_04_19[It was decided] that midPoint will _not_ update the definitions, both top-level and at the level of individual items, with the result of authorization processing.
-(This was the case of "Full" processing in <<Initial Measurements>> section.)
+== Initial Measurements of the Post-Processing
 
-In order to continue the performance improvements of `applySchemasAndSecurity` method, the more detailed measurements were done.
-
-A low-level `TestPerformance` class in `model-impl` was created that measures the performance of that method in isolation.
-
-The test creates a list of 4,000 user objects, each having:
-
-- 50 single-valued extension properties,
-- 51 assignments (1 archetype and 50 roles),
-- corresponding values in `archetypeRef` and `roleMembershipRef` items.
-
-The user has an archetype of `person` that is connected with the object template `person`.
-The https://github.com/Evolveum/midpoint/blob/b5db18c587dd73b7c3f3f0597275a83117d5f537/model/model-impl/src/test/resources/perf/object-template-person.xml[object template] refines the definitions of 14 items.
-Some of them are present in user objects, some are not.
-There is a refinement of `assignment/description` that is present 51 times in each user.
-
-The user objects are immutable, as we plan to prefer this mode of operation in the future.
-
-Now the `applySchemasAndSecurity` method is called on the user list.
-
-One test execution consists of a heat-up cycle and then five cycles of "create a list - apply schemas and security".
-The time for the schema/security application is summed up and averaged per one method invocation.
+First of all, xref:design-meetings.adoc#_2023_04_19[it was decided] that midPoint will _not_ update the definitions, both top-level and at the level of individual items, with the result of authorization processing.
 
 There are four authorization scenarios:
 
@@ -98,8 +56,6 @@ There are four authorization scenarios:
 . role that can see https://github.com/Evolveum/midpoint/blob/master/model/model-impl/src/test/resources/perf/role-can-read-all.xml[the whole user object];
 . role that can see https://github.com/Evolveum/midpoint/blob/master/model/model-impl/src/test/resources/perf/role-can-read-almost-all.xml[almost all the items] (all except one);
 . role that can see https://github.com/Evolveum/midpoint/blob/master/model/model-impl/src/test/resources/perf/role-can-read-few.xml[only a few items] (one extension and one assignment property).
-
-We hope that scenarios 1 and 2 will be the usual ones for running reports and other read-intensive tasks.
 
 Concerning the definitions, we run the execution in three modes:
 
@@ -143,7 +99,7 @@ image::perf-2b.png[Chart]
 Now, let us concentrate on optimizing the pure authorization application phase, without considering the definitions.
 (We suppose this will be the mode in the real operation.)
 
-== Further Improvements
+== Further Improvements of the Post-Processing
 
 The authorization application was improved in the following stages:
 
@@ -168,28 +124,15 @@ The results are the following:
 | Version | Commit | Full | Can read all | Can read almost all | Can read few items
 
 | Baseline | https://github.com/Evolveum/midpoint/commit/e828b741[e828b741] | 269.7 µs | 255.9 µs | 284.9 µs | 232.4 µs
-| No `add` and `modify` checks | https://github.com/Evolveum/midpoint/commit/64b6f210[64b6f210] | 242.4 µs | 233.2 µs | 264.7 µs | 220.3 µs
-| Skip needless autz processing | https://github.com/Evolveum/midpoint/commit/604d874d[604d874d] | 2.9 µs | 3.8 µs | 189.1 µs | 185.6 µs
+| No `add` and `modify` checks | https://github.com/Evolveum/midpoint/commit/64b6f210[64b6f210] | 241.8 µs | 233.2 µs | 266.2 µs | 221.5 µs
+| Skip needless autz processing | https://github.com/Evolveum/midpoint/commit/604d874d[604d874d] | 2.9 µs | 3.7 µs | 188.3 µs | 183.4 µs
 |===
 
 image::perf-2c.png[Chart]
 
-Just to provide a broader view, we can show a very rough comparison with the `applySchemasAndSecurity` performance in 4.7.
-Let's use a conservative estimate of the performance of this method to be ~ 10 milliseconds per user.
-(The real value can be somewhere between 10 and 20 milliseconds.)
-If needed, the measurements can be done, of course.
+== Note about the Improvement Achieved
 
-[%autowidth]
-|===
-| Version | Full | Can read all | Can read almost all | Can read few items
-
-| midPoint 4.7 (estimate) |  10,000.0 µs | 10,000.0 µs | 10,000.0 µs | 10,000.0 µs
-| https://github.com/Evolveum/midpoint/commit/604d874d[master] | 2.9 µs | 3.8 µs | 189.1 µs | 185.6 µs
-|===
-
-image::perf-2d.png[Chart]
-
-The performance improvement is mainly due to the elimination of processing that is currently seen as not strictly necessary:
+Overall, the observable performance improvement is mainly due to the elimination of processing that is currently seen as not strictly necessary:
 
 . tailoring the object definition with authorizations (R - A - M flags) - this made the biggest difference;
 . application of template/archetype refinements to the definition;
