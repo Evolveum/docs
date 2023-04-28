@@ -381,7 +381,7 @@ Unassign the role by clicking the _Unassign_ button (the minus icon) on the end 
 . If user has no role all the accounts created by the role should be gone.
 
 
-=== Governance
+=== Governance - Role request process
 
 Following scenario demonstrates governance over the requests to assign _Patron_ role to users.
 Requests are approved in the *workflow*.
@@ -441,6 +441,40 @@ Only the very last choice is accounted.
 
 . Logout from midPoint and login as administrator.
 You can review campaign in _Certifications / Campaigns_ menu_._
+
+
+=== Segregation of duties (SoD)
+
+Some roles are mutually exclusive. Sometimes it is because we want to prevent accumulation of critical privileges in hands of a single user. Another time, we just want to deny non-compatible combinations, for example mutually exclusive licences for target software.
+
+In our fictive workshop, we have are using the former example for segregation of duties. _Patron_ and _Philistine_ roles have the exact opposite meaning, therefore it doesn't make sense to have them both at the same time.
+
+Try it yourself by adding _Philistine_ role to a user and then try to request _Patron_ role using steps from the previous section. When you get to the shopping cart, midPoint will detect the conflict and offer you smart _Conflict solver_ which will let you select which role you want to keep.
+
+=== Governance - Visibility
+
+The key question that Identity governance need to answer is: Who has access where and why? That will provide necessary visibility useful for not technical and business people.
+
+MidPoint offers you option to visualize accesses directly in GUI or create a comprehensive report, that you can analyze in your favourite tool.
+
+To see accesses of individual users follow these steps:
+
+. Open User's detail. Go to menu `Users` -> `All users` and select any user.
+. Open `All accesses` panel.
+. You can now see accesses to roles, organization units, applications etc. of the selected user. You can also see metadata why is the access there and since when.
+. Notice in the _Source_ column, you can use _Magnifying glass_ icon to display the whole chain of objects (e.g. roles) that is leading to given access. Also, if the given access is given though multiple sources/chains, there are displayed as multiple lines.
+
+If you want rather to generate report that can be analyzed outside midPoint, follow there steps:
+
+. Open `Reports` -> `All reports` and open _Indirect assignment report_.
+. Click on _Run original report_ button.
+. On the bottom of the preview page click on _Run report_
+. You will see a bar on the top of the screen informing you the report was processed in background task. Click on _(show task)_.
+. The tasks should be complete by now. Click on `Download report` button.
+. Use your favourite tool to analyze the report outside of midPoint.
+
+CAUTION: The current role and application structure in this demo is not completed yet. That doesn't cause any problem with the visualization feature itself, but the results might be hard to interpret or sometimes even illogical.
+The next update of the demo will improve this and bring a systematic approach to application and role structure.
 
 
 === Create person in LDAP
@@ -576,6 +610,52 @@ Click _Save_ to make the change permanent.
 (Note: This change is not provisioned to any target resources. It's only visible on this dashboard.)
 
 . You can assign additional users to `Licenced service Demo` and observe changes in the dashboard. If you try to assign more than 5 users, you will get an error message.
+
+=== Simulations
+
+Executing changes in production environment is always stressful process. Even a tiny mistake can have catastrophic consequences. MidPoint introduces _Simulations_ as advanced feature which enables you to deploy new configuration with confidence.
+
+In the Leonardo's Workshop we have decided to deploy a corporate email identity generated from users artistic name. This is already preconfigured in _Development_ mode, therefore it won't affect the current configuration, but we can simulate it.
+
+. Generating the corporate email address is done during synchronization process from HR system. Open `Resources` -> `All resources` -> `HR Feed` -> `Accounts` -> `Configure mappings`. Then find the mapping with name _Corporate email address_ and you will see it's indeed in _Development mode_.
+
+. Optionally, you can check outbound mapping named _Email address_ in `LDAP Server` resource. Just don't forget to switch to `Outbound mappings` on `Configure mappings` page.
+
+. Will we run a complex simulation by recomputing all users. Open `Server tasks` -> `All tasks` and select `User Recomputation Simulation`. Then click on _Resume_ button and after a while click on _Refresh button_. If the task already finished _Show simulation result button_ will appear. Click on it.
+
+. You will see detailed screen with all simulation results. Feel fee to browse all details and get familiar with the reporting style.
+
+. Our main interest lays in _Resource object affected_ tile. Open it.
+
+. You should see that our new email address will be changed for users _Raphael_ and _King Francis_. You can click on both to see the details.
+
+. We conclude that _Raphael_ will have to get used to his new email address _King Francis_ might have objection to such change (accentuated by french invention guillotine). To prevent any incidents, including future ones,  we decide to "lock" king's account. Click on the small button at the end of the line to _Add mark_ and select _Do not touch_.
+
+. You can run the same simulation again using the same steps as before and then you will see the king's account won't be affected.
+
+. Optionally you can go to the resources mappings configuration (as you did at the beggining) and switch both mappings to _Production_ mode. Then run _User Recomputation_ task to apply the changes in email addresses handling.
+
+=== Orphaned accounts
+
+When connection a new resource you might encounter an account that doesn't have owner in midPoint, but you don't want to delete/disable it yet. Maybe you just need find the owner manually later, maybe you don't have all users imported from sources yet... There might be several reasons.
+
+. Go to `Resources` -> `All resources` -> `Addressbook` -> `Accounts`. You will see user _paciolo_ in _UNMATCHED_ situation. That is our orphaned account.
+
+. Our identity engineers team are eager to automate and they already prepared configuration in _Development mode_ that will remove all orphaned account. This is a good practice when you have all accounts in order because you will effectively prevent creating new orphaned accounts because they will be deleted before anyone will have the change to start using them.  Let's check what the engineering team prepared.
+
+. At the bottom of the page click on _Simulation_ button and select _Create new reconciliation (Simulated)_. Go to `Execution` panel and change _mode_ to "Preview". Optionally go to `Basic` panel and fill in the _name_ to help you identify this simulation task later. At the end click on _Save & Run_.
+
+. Click on _Simulation_ button again, select _Show existing_ and then click on the task that you've just created. It should be completed by now. Click on _Show simulation result_ button.
+
+. On simulation result screen click on `Projection deactivated` tile. You can see that account `paciolo`  would be deleted. Paciolo was Leonardo's dear friend, therefore we don't want to delete his account. Click on _Add mark_ button at the end of the row and add _Correlate later_ mark.
+
+. Now the account is marked to be correlated later and therefore won't be affected by planned configuration change which should delete all orphaned accounts. You can verify it by running the simulation again.
+
+. Go back to Resource's accounts page, click on _Simulations_ button again and selct _Show existing_. Select the simulation task that you've created before. Click on _Run now_ and wait until the task will be completed. After that click on _Show simulation result_.
+
+. Paciolo's account should not be affected now.
+
+. The engineers can deploy the change preventing occurrence of new orphaned account. Paciolo's account is still marked and should be resolved manually later. It's important to not forget about such accounts and process them properly. Don't keep such exception forever!
 
 
 == Implementation Details
