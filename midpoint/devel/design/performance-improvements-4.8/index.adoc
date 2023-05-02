@@ -1,0 +1,179 @@
+= Performance Improvements in 4.8
+:page-since: 4.8
+
+After optimizing the xref:../apply-schemas-and-security-4.8/summary.adoc[model-level post-processing of retrieved objects], we tried to measure the overall performance of midPoint.
+The xref:/midpoint/projects/midscale/design/testing-design/system-perf-test/[semi-real performance test], developed as part of xref:/midpoint/projects/midscale/[midScale] project, was used.
+
+== Preliminary Results
+
+The preliminary (indicative) results were obtained from the execution of the test on a dedicated iron, an older development PC.
+They may not be precise, as the number of objects involved was quite low (up to thousands), in order to gather the data quickly.
+
+More detailed tests are being prepared. But let us present those preliminary results anyway.
+
+.Preliminary performance results
+image::chart-preliminary.png[Preliminary performance results]
+
+The chart compares average processing time for an account (during "initial import" scenarios) and then for a user (during "recomputation" scenarios).
+Individual scenarios differ in the size and complexity of the simulated deployment:
+
+.Characterization of scenarios
+[%autowidth]
+|===
+| Scenario | Source systems | Source mappings | Target systems | Target mappings per system | Assignments per user | Number of accounts/users
+
+| `1s-1m-0t-0m-0a-10ku` | 1 | 1 | 0 | - | 0 | 10,000
+| `1s-50m-0t-0m-0a-5ku` | 1 | 50 | 0 | - | 0 | 5,000
+| `1s-50m-5t-50m-0a-2500u` | 1 | 50 | 5 | 50 | 0 | 2,500
+| `1s-50m-5t-50m-20a-1ku` | 1 | 50 | 5 | 50 | 20 | 1,000
+|===
+
+.MidPoint versions used
+[%autowidth]
+|===
+| Version | Source code | Comment
+
+| `support-4.4`
+| https://github.com/Evolveum/midpoint/commit/427a0cdf[427a0cdf]
+| Current on Apr 27, 2023
+
+| `support-4.6`
+| https://github.com/Evolveum/midpoint/commit/d4139f25[d4139f25]
+| Current on Apr 27, 2023
+
+| `support-4.7`
+| https://github.com/Evolveum/midpoint/commit/d71980b6[d71980b6]
+| Current on Apr 27, 2023
+
+| `master`
+| midPoint https://github.com/Evolveum/midpoint/commit/fba1e2c9[fba1e2c9], prism https://github.com/Evolveum/prism/commit/fe9b732a[fe9b732a]
+| Current on Apr 27, 2023
+
+| `prism-fix-1`
+| midPoint the same, prism https://github.com/Evolveum/prism/commit/531be184[531be184]
+| Improved `PrismSchemaImpl.findTypeDefinitionByCompileTimeClass`.
+
+| `prism-fix-2`
+| midPoint the same, prism https://github.com/Evolveum/prism/commit/1d5f8911[1d5f8911]
+| Improved `ItemImpl.equals`.
+
+| `prism-fix-3`
+| midPoint the same, prism https://github.com/Evolveum/prism/commit/e84729be[e84729be]
+| Removed two iterative definition lookups.
+
+| `prism-fix-4`
+| midPoint https://github.com/Evolveum/midpoint/commit/23e237aa[23e237aa], prism https://github.com/Evolveum/prism/commit/382f87be[382f87be]
+| Not freezing already frozen objects.
+Skipping checking equivalent prism values during parsing from repo.
+
+| `cloning-1`
+| midPoint https://github.com/Evolveum/midpoint/commit/f8e8d6b1[f8e8d6b1]
+| Reduced the number of object clone operations.
+The effect on the performance seems to be lower than expected.
+
+| `cached-marks`
+| midPoint https://github.com/Evolveum/midpoint/commit/0f2062df[0f2062df]
+| Enabled global caching of `MarkType` objects.
+The system performance test uses a custom caching configuration that didn't contain the caching of marks (introduced in 4.7).
+However, it seems that the difference between caching disabled and enabled is quite small.
+
+| `qualified-names`
+| midPoint https://github.com/Evolveum/midpoint/commit/ed6351ad[ed6351ad], prism https://github.com/Evolveum/prism/commit/9c684889[9c684889]
+| The presence of unqualified names in `path` expression evaluator leads to sequential scans through prism container values.
+Before trying to fix this seriously in midPoint, this commit tries to measure the effect of using fully qualified names.
+(In addition to a minor prism improvement that should slightly improve the performance in this case.)
+|===
+
+=== Details
+
+==== Testing scripts
+
+.Listing 1: Example of testing script for 4.7
+[source, bash]
+----
+cd /home/pavol/mp47
+export DB="-Dtest.config.file=test-config-new-repo.xml -Dmidpoint.repository.jdbcUrl=jdbc:postgresql://localhost:5432/midpoint-test-47 -Dmidpoint.repository.jdbcUsername=midpoint -Dmidpoint.repository.jdbcPassword=..."
+
+/home/pavol/perf/tests.sh
+----
+
+.Listing 2: Common testing script
+[source, bash]
+----
+#!/bin/bash
+export GIT_COMMIT=$(git rev-parse HEAD)
+export BRANCH=$(git branch --show-current)
+
+PREFIX="integration-test -pl :story -nsu -Pextratest -DenableAssertions=false -Dit.test=TestSystemPerformance $DB -Dsources.multi-attr-values=5 -DtaskTimeout=7200000 $EXTRA"
+
+SOURCES_1_50="-Dsources.resources=1 -Dsources.single-mappings=50 -Dsources.multi-mappings=50"
+SOURCES_3_50="-Dsources.resources=3 -Dsources.single-mappings=50 -Dsources.multi-mappings=50"
+
+TARGETS_3_50="-Dtargets.resources=3 -Dtargets.single-mappings=50 -Dtargets.multi-mappings=50"
+TARGETS_5_50="-Dtargets.resources=5 -Dtargets.single-mappings=50 -Dtargets.multi-mappings=50"
+
+TARGETS_0="-Dtargets.resources=0"
+ROLES_0="-Droles.business.count=0 -Droles.technical.count=0 -Droles.assignments.count=0 -Droles.inducements.count=0"
+
+SCHEMA_10="-Dschema.single-valued-properties=10 -Dschema.multi-valued-properties=10"
+SCHEMA_50="-Dschema.single-valued-properties=50 -Dschema.multi-valued-properties=50"
+SCHEMA_100="-Dschema.single-valued-properties=100 -Dschema.multi-valued-properties=100"
+SCHEMA_200="-Dschema.single-valued-properties=200 -Dschema.multi-valued-properties=200"
+
+# Assuming 8x vCPU -> 6 threads
+THREADS="-Dimport.threads=6 -Dimport.no-op-runs=0 -Dreconciliation.runs=0 -Drecomputation.threads=6"
+
+# Scale (build variable)
+S=5
+
+#
+# Group 1: Single source, increasing number of mappings: 1, 10, 50, 100, 200 (both single and multi)
+#
+
+PREFIX_G1="$PREFIX -Dsources.resources=1 $TARGETS_0 $ROLES_0 $THREADS"
+
+mvn $CLEAN $PREFIX_G1 -Dsources.single-mappings=1   -Dsources.multi-mappings=1   $SCHEMA_10  -Dsources.accounts=$((2000*S))
+#mvn        $PREFIX_G1 -Dsources.single-mappings=10  -Dsources.multi-mappings=10  $SCHEMA_10  -Dsources.accounts=$((2000*S))
+mvn        $PREFIX_G1 -Dsources.single-mappings=50  -Dsources.multi-mappings=50  $SCHEMA_50  -Dsources.accounts=$((1000*S))
+#mvn        $PREFIX_G1 -Dsources.single-mappings=100 -Dsources.multi-mappings=100 $SCHEMA_100 -Dsources.accounts=$((1000*S))
+#mvn        $PREFIX_G1 -Dsources.single-mappings=200 -Dsources.multi-mappings=200 $SCHEMA_200 -Dsources.accounts=$((1000*S))
+
+#
+# Group 2: Increasing number of sources (having 50 + 50 mappings): 5, 10, 20
+#
+
+PREFIX_G2="$PREFIX -Dsources.single-mappings=50 -Dsources.multi-mappings=50 $SCHEMA_50 $TARGETS_0 $ROLES_0 $THREADS"
+
+#mvn $PREFIX_G2 -Dsources.resources=3  -Dsources.accounts=$((500*S))
+#mvn $PREFIX_G2 -Dsources.resources=5  -Dsources.accounts=$((500*S))
+#mvn $PREFIX_G2 -Dsources.resources=10 -Dsources.accounts=$((500*S))
+
+#
+# Group 3: Increasing number of targets (having 1 source, 50 + 50 mappings): 5, 10, 20
+#
+
+PREFIX_G3="$PREFIX $SOURCES_1_50 $SCHEMA_50 $ROLES_0 $THREADS -Dtargets.single-mappings=50 -Dtargets.multi-mappings=50"
+
+mvn $PREFIX_G3 -Dtargets.resources=5  -Dsources.accounts=$((500*S))
+#mvn $PREFIX_G3 -Dtargets.resources=10 -Dsources.accounts=$((500*S))
+
+#
+# Group 4: Increasing number of assignments (having 1 source, 5 targets, 50 + 50 mappings; each BR has 2 TRs): 5, 10, 20, 100
+#
+
+PREFIX_G4="$PREFIX $SOURCES_1_50 $TARGETS_5_50 $SCHEMA_50 $THREADS -Droles.business.count=100 -Droles.technical.count=500 -Droles.inducements.count=2"
+
+#mvn $PREFIX_G4 -Droles.assignments.count=5   -Dsources.accounts=$((250*S))
+#mvn $PREFIX_G4 -Droles.assignments.count=10  -Dsources.accounts=$((200*S))
+mvn $PREFIX_G4 -Droles.assignments.count=20  -Dsources.accounts=$((200*S))
+#mvn $PREFIX_G4 -Droles.assignments.count=100 -Dsources.accounts=$((100*S))
+
+#
+# Group 5: Misc
+#
+PREFIX_G5="$PREFIX $SOURCES_3_50 $TARGETS_3_50 $SCHEMA_50 $THREADS -Droles.business.count=100 -Droles.technical.count=500 -Droles.inducements.count=2"
+
+#mvn $PREFIX_G5 -Droles.assignments.count=50 -Dsources.accounts=$((150*S))
+----
+
+The `-DenableAssertions=false` turns off the evaluation of Java assertion statements.
