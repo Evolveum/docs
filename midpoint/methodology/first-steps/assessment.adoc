@@ -92,7 +92,7 @@ We do not want to change any data in Active Directory yet.
 
 *Correlate Active Directory accounts* with midPoint users.
 If you have employee numbers stored in your Active Directory, then use that for correlation.
-As an alternative, you may want to use several attributes for correlation such as names, locality, department etc.
+As an alternative or in addition, you may want to use several attributes for correlation such as names, locality, department etc.
 Manual confirmation using midPoint correlation cases can be used to specify midPoint user who should own the Active Directory account if the match is ambiguous.
 
 After configuring correlation and synchronization (in Development mode):
@@ -112,12 +112,51 @@ For now just focus on correlating the bulk of users.
 If you get 80-90% users to correlate well, you are done here.
 
 There will be also orphaned accounts (`Unmatched` situation).
-We will take care of them later to not stop us from continuing.
+
+We will analyze the accounts here, but we will take final decision later in <<6. Clean Up The Accounts>> to not stop us from progressing.
+
+TIP: You can analyze/clean up the data in several iterations.
+
+The orphaned accounts generally fall into the following categories:
+
+. *Obviously orphaned accounts*:
+Review the list of orphaned accounts (the accounts in Active Directory not having an owner in midPoint which should mean they are not related to HR data on which midPoint data is based) one by one and make sure these are _not_ system accounts (see the next category).
+If you are absolutely sure the accounts should be deactivated, you do not need to mark them and leave them to their (later) fate.
+
+. *Orphaned accounts of unclear origin*:
+Review the list of orphaned accounts (the accounts in Active Directory not having an owner in midPoint which should mean they are not related to HR data on which midPoint data is based) one by one and make sure these are _not_ system accounts (see the next category).
+xref:/midpoint/methodology/first-steps/solution/#explicitly_marking_accounts_for_decommissioning[_Mark_ the undesired ones as Decommission later] to be deactivated eventually (but not immediately).
+
+. *System (service) accounts*:
+For all accounts that are crucial for Active Directory, we need a different decision.
+xref:/midpoint/methodology/first-steps/solution/#explicitly_marking_accounts_as_protected[_Mark_ the system accounts as Protected in midPoint] to keep track of them, but ignore them otherwise by midPoint.
+
+. *Accounts unmatched because of data inconsistencies.*
+Review the rest of accounts which have not been matched or decided in the previous steps.
+This is the time to take care of the Smiths, Johnsons and Browns.
+Have a look at all the `jsmith`, `smithj` and `jsmith2` accounts.
+If possible, update your correlation configuration to use more attributes to find matching users.
++
+You can also try to figure out which account belongs to which user and correlate them manually.
++
+Or you can mark specific accounts as "Correlate later" to resolve them in later iteration.
++
+If you did the previous steps well, there should be just a handful of them.
++
+Sometimes there are several accounts (or groups of accounts) which need to be reviewed in more detail and remedied.
+To avoid getting stuck in this phase, you may simply mark these accounts for later review (Do not touch) and ignore any provisioning for them fow now.
+(This is similar to the concepts of protected accounts, but the accounts should be marked only temporarily and will be reported.)
+
+Also, as we are progressing in iterations, we recommend to *review the accounts marked in previous iterations* to avoid a constant increase of their numbers.
+
+After you have finished marking of your accounts, you can run the simulated _import_ or _reconciliation_ task with Development configuration.
+Your marked accounts should not be attempted to deactivate anymore.
+Not marked orphaned accounts should be still indicated for deactivation.
 
 Switch the resource, object type configuration and all synchronization actions except `Unmatched` to Production mode, and:
 
 . Run the simulated _import_ or  _reconciliation_ task on AD resource using Production configuration.
-. Then have a look at the simulation results in midPoint GUI (interactively). Orphaned accounts should not be touched anymore.
+. Then have a look at the simulation results in midPoint GUI (interactively). Orphaned accounts should not be touched anymore - we will resolve them later.
 
 Correlate the majority of your accounts now:
 
@@ -175,63 +214,22 @@ Import the usernames now:
 After most of the accounts have been correlated and usernames imported, we can handle the orphaned accounts.
 Inspect the previous simulation results (or run the simulated _import_ or _reconciliation_ task with Active Directory once again) and concentrate on the orphaned accounts in situation `Unmatched`.
 
-There may be one or more categories of uncorrelated accounts to take care of.
+As you have already marked your accounts (and intentionally not marked some of them), you can run the simulated _import_ or _reconciliation_ task with Development configuration once again to see what will happen.
 
-TIP: You can clean up the data in several iterations.
-
-. *Obviously orphaned accounts*:
-Review the list of orphaned accounts (the accounts in Active Directory not having an owner in midPoint which should mean they are not related to HR data on which midPoint data is based) one by one and make sure these are _not_ system accounts (see the next category).
-If you are absolutely sure the accounts should be deactivated, you do not need to mark them.
-
-
-. *Orphaned accounts of unclear origin*:
-Review the list of orphaned accounts (the accounts in Active Directory not having an owner in midPoint which should mean they are not related to HR data on which midPoint data is based) one by one and make sure these are _not_ system accounts (see the next category).
-xref:/midpoint/methodology/first-steps/solution/#explicitly_marking_accounts_for_decommissioning[_Mark_ the undesired ones as Decommission later] to be deactivated eventually (but not immediately).
-
-. *System (service) accounts*:
-For all accounts that are crucial for Active Directory, we need a different decision.
-xref:/midpoint/methodology/first-steps/solution/#explicitly_marking_accounts_as_protected[_Mark_ the system accounts as Protected in midPoint] to keep track of them, but ignore them otherwise by midPoint.
-
-. *Accounts unmatched because of data inconsistencies.*
-Review the rest of accounts which have not been matched or decided in the previous steps.
-This is the time to take care of the Smiths, Johnsons and Browns.
-Have a look at all the `jsmith`, `smithj` and `jsmith2` accounts.
-If possible, update your correlation configuration to use more attributes to find matching users.
-+
-You can also try to figure out which account belongs to which user and correlate them manually.
-+
-Or you can mark specific accounts as "Correlate later" to resolve them in later iteration.
-+
-If you did the previous steps well, there should be just a handful of them.
-+
-Sometimes there are several accounts (or groups of accounts) which need to be reviewed in more detail and remedied.
-To avoid getting stuck in this phase, you may simply mark these accounts for later review (Do not touch) and ignore any provisioning for them fow now.
-(This is similar to the concepts of protected accounts, but the accounts should be marked only temporarily and will be reported.)
-
-Also, as we are progressing in iterations, *review some accounts marked for later review* to avoid a constant increase of their numbers.
-
-// FIXME move this to AD outbound part
-////
-Except the cases of uncorrelated accounts, other problems may be reported by the reconciliation/simulation reports and more work may be required to fix the situation:
-
-. *Clean up incorrect mappings* to avoid undesired changes in AD accounts.
-Review the accounts where midPoint indicates a change of AD account attributes.
-This means there are differences between the account attribute values in the target system and the values computed by midPoint for these accounts in _comparison_ (TODO!) mode.
-Review the mappings.
-Chances are that the mappings are working correctly, but data in Active Directory does not correspond to them because it was previously managed manually and can contain errors. (For example, some family names are capitalized and other are not.)
-Adapt the mappings in midPoint to not cause undesired changes in Active Directory.
-////
-
-After you have finished marking of your accounts, you can run the simulated _import_ or _reconciliation_ task with Development configuration to see what will happen.
-Your marked accounts should not be attempted to deactivate anymore.
+Your marked accounts should not be attempted to be deactivated.
 Not marked orphaned accounts should be indicated for deactivation.
 
 You are ready for clean up procedure:
 
 . re-configure synchronization action for `Unmatched` situation: set it to Production mode
+. run _import_ or _reconciliation_ task with Active Directory with Production configuration to see what would happen one last time. If the simulation results correspond to what you have seen earlier with Development configuration, continue.
 . run _import_ or _reconciliation_ task with Active Directory
-. orphaned accounts should be deactivated
+. not marked orphaned accounts should be deactivated
 . additionally, the policy for orphaned accounts is set from now on, but the marked accounts will not be harmed.
+
+You should periodically review your marked accounts, especially those "temporary" states such as "To be decommissioned", "Do not update" and "Correlate later".
+
+You should also periodically run reconciliation task with your Active Directory to detect and deactivate any future orphaned accounts.
 
 .##TODO @Radovan##: this paragraph should be probably somewhere else. Where?
 ====
