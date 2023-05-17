@@ -4,45 +4,142 @@
 
 WARNING: This page is a work in progress.
 
+== Introduction
+
+This document contains description of design for upgrade features and related components.
+
+== Terms definition
+
+. _Old midpoint_ - Version of midPoint currently running.
+. _New midPoint_ - version of midPoint to which we plan to upgrade.
+
 == Upgrade steps
 
-. Use _midpoint.home_ to configure connection to midPoint repository
-. Check if midPoint is *NOT* running.
-. Verify objects in repository
-. Initial objects
-.. *TODO:* How to update existing ones
-. Upgrade DB schema
-. Update midpoint.home
-. Update binaries
+Upgrade process will have two main phases.
+First phase can be started while old midPoint is still running.
+Second phase will be started after midPoint was shut down and is ready for main upgrade.
 
+=== First phase:
 
-== Opened questions for meeting
+. Verify installation details
+.. Version checks for midPoint and database schema
+. Verify objects in midPoint
+.. CSV output with warnings, schema issues and changes that will be done during upgrade
+.. XML dump of raw schema changes
+. Review CSV (and optionally XML), by administrator preparing upgrade
+. Update objects that can be changed before midPoint is upgraded (db schema, executable)
 
-* How to update object during upgrade procedure?
-** When reading object with old repository impl, we can't update is according to new one
-** When reading object with new repository impl, we will not get any info about elements that were removed.
-Currently, only warning to log - if schema migration exist, else exception is thrown.
+*Notes regarding first phase*
+
+* Schema will be updated in last 4.4.* and 4.7.* to be able to handle schema changes and parsing
+
+=== Second phase:
+
+. Check current midPoint status, whether it's down
+. Download distribution
+. Upgrade database schema
+.. MidPoint internal repository
+.. Audit database
+. Upgrade _midpoint.home_ directory
+. Upgrade objects in midPoint repository (more details in xref:_verification_and_upgrade_of_midpoint_objects[])
+.. Initial objects
+.. All other based on CSV from first phase (if it's available)
+... There will be option to skip object update
+
+*Notes regarding second phase*
+
+* Tasks doesn't have to be suspended before starting second phase, because midPoint will not run during this phase - only repository will be initialized.
+* Resources using bundled connectors (CSV, DBTable, LDAP related) should be upgraded to use new connector version
+** Old connector xml should be removed (the one which will not have JAR library available after upgrade)
+* Audit DB schema and data upgrade is expected to be schema compatible, fast.
+No data upgrade expected.
+** Potential option is via renaming existing tables and creating correct new ones
+
+== Upgrade steps
+
+=== Verification
+
+#TODO#
+
+==== CSV export columns
+
+* _Object OID_
+* _Object name_
+* _Object type_
+* _Schema change identifier_: Unique identifier of type of schema change
+* _Item Validation status_
+* _Item path for validation item_
+* _Message_
+* _Upgrade phase_: When change can be applied during upgrade
+** *First* - for changes that can be done during first phase of upgrade (before midPoint is shutdown).
+** *Second* - changed done after DB schema was upgraded (after midPoint was shutdown)
+* _Upgrade type_: Type of change that will be done by upgrade process.
+** *Seamless* - for 1:1 changes, without functional changes.
+** *Preview* - change should be reviewed by admin. For changes that are not exactly 1:1 in terms of
+** *Manual* - manual update by admin is needed.
+* _Upgrade priority_: Whether object update is a precondition for upgrade.
+** *Necessary* - midPoint will not start without this change.
+** *Optional* - Change can be ignored and resolved (executed) later.
+* _Upgrade status_: Yes/no column. Default value (or empty) is yes.
+** *yes* - object will be upgraded if possible.
+** *no* - object processing will be skipped.
+
+==== XML delta dump
+
+ZIP file will be created containing one or more XML files.
+Each file will contain object delta XML for 1000 objects.
+
+=== Distribution download
+
+#TODO#
+
+=== Database schema upgrade
+
+#TODO#
+
+=== Upgrade of _midpoint.home_ directory
+
+#TODO#
+
+=== Objects upgrade
+
+#TODO#
+
+==== Upgrade of initial objets
+
+#TODO#
+
+==== Objects upgrade
+
+#TODO#
+
+==== Upgrade of resources referencing bundled connectors
+
+#TODO#
+
+== Ninja notes
+
+* Switch to Spring shell & batch seems to be overkill
+** JCommander + JANSI is good enough
+
+== Opened Questions
+
+* Currently, only warning to log - if schema migration exist, else exception is thrown.
 * Objects upgrade in database
 ** What if we want to dry run objects upgrade to review changes?
 *** I'd verify objects and execute upgrade on them but then store delta in h2 table (as report from tool).
 How to dump delta otherwise for many objects?
-* Should administrator stop all tasks before upgrade?
 * How can upgrade tool upload objects (with recompute) if we're only on repo layer?
 * How to wrap up upgrade after new version was started
 ** What if upgrade process needs to recompute something?
-* Tech stack
-** Spring shell or plain jcommander lib (with jansi)?
-** Spring batch? Is this necessary? Multithreading jobs/steps. Probably not worth it.
-* Audit logs - how to upgrade, if needed?
-** First option
-*** Upgrade schema for existing tables
-**** Can take too long if new columns have default values, or new indexes have to be created
-** Second option
-*** Move existing tables
-*** Create new ones
-*** Update ID sequence to `max(ID) + 1` from old tables
-*** Copy data from old tables to new ones if necessary
 * Initial objects
 ** diff previous version with next (how to display changes)
 ** diff next version with current state of repository (how to display delta)
+* Upgrade of objects in projects (midPoint studio), since objects in midPoint will be upgraded by CMD tool
 
+== Next steps
+
+* Qualify schema changes, see xref:/midpoint/devel/design/schema-cleanup-4.8/schema-cleanup.adoc[Schema cleanup]
+* Introduce XSD annotations that will describe upgrade priority
+** Optionally this can be done directly in implementation classes created for each schema change
+* Ninja code cleanup

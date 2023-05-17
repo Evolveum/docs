@@ -102,7 +102,7 @@ management feature and some minor fixes.
 | Changes in query url construction for the AccountObjectClass
 (can be extended for other object classes in the future)
 
-| 1.0.2.1
+| 1.0.2.2
 | Evolveum
 | link:https://nexus.evolveum.com/nexus/repository/public/com/evolveum/polygon/connector-msgraph/1.0.2.2/connector-msgraph-1.0.2.2.jar[download jar]
 | link:https://github.com/Evolveum/connector-microsoft-graph-api[Evolveum git repository (master)]
@@ -110,6 +110,34 @@ management feature and some minor fixes.
 | Changes in query url construction for the GroupObjectClass
 (can be extended for other object classes in the future)
 
+| 1.0.3.0
+| Evolveum
+| link:https://nexus.evolveum.com/nexus/repository/public/com/evolveum/polygon/connector-msgraph/1.0.3.0/connector-msgraph-1.0.3.0.jar[download jar]
+| link:https://github.com/Evolveum/connector-microsoft-graph-api[Evolveum git repository (master)]
+| Apr 28 2023
+| Filter aggregation implementation. Solves some issues with 'contains' filter in combination with other filters in composite filters.
+
+| 1.1.0.0
+| Evolveum
+| link:https://nexus.evolveum.com/nexus/repository/public/com/evolveum/polygon/connector-msgraph/1.1.0.0/connector-msgraph-1.1.0.0.jar[download jar]
+| link:https://github.com/Evolveum/connector-microsoft-graph-api[Evolveum git repository (master)]
+| Apr 28 2023
+| Upgrade to connId 1.5.1.3, Implementation of discovery methods.
+
+| 1.1.0.1
+| Evolveum
+| link:https://nexus.evolveum.com/nexus/repository/public/com/evolveum/polygon/connector-msgraph/1.1.0.1/connector-msgraph-1.1.0.1.jar[download jar]
+| link:https://github.com/Evolveum/connector-microsoft-graph-api[Evolveum git repository (master)]
+| May 3 2023
+| Connector configuration localization properties and minor schema fix.
+
+| 1.1.1.0
+| Evolveum
+| link:https://nexus.evolveum.com/nexus/repository/public/com/evolveum/polygon/connector-msgraph/1.1.1.0/connector-msgraph-1.1.1.0.jar[download jar]
+| link:https://github.com/Evolveum/connector-microsoft-graph-api[Evolveum git repository (master)]
+| May 11 2023
+| Contribution merge, contains all values filtering has added filter and search support
+(https://learn.microsoft.com/en-us/graph/api/user-list-memberof?view=graph-rest-1.0&tabs=http[for limitations please see microsoft documentation])
 
 |===
 
@@ -202,46 +230,11 @@ Please also keep in mind the way you structure the queries related to this fact.
 of the ‘AND’ filter tree based on the notation used in your configuration. In case of the usage of ‘Contains’ filter, please divide the ‘AND’ clauses directly in the configuration.
 Please see the example below:
 
-.Rather than structuring the queries with a single and ale letting midPoint divide the
-it for the API, divide the query into specific AND blocks (right and left sides):
-[source,xml]
+[source]
 ----
-<q:and>
-    <q:and>
-        <q:or>
-            <q:substring>
-                <q:path>attributes/name</q:path>
-                <q:value>A</q:value>
-            </q:substring>
-            <q:substring>
-                <q:path>attributes/name</q:path>
-                <q:value>B</q:value>
-            </q:substring>
-        </q:or>
-        <q:not>
-            <q:substring>
-                <q:path>attributes/department</q:path>
-                <q:value>FOO</q:value>
-            </q:substring>
-        </q:not>
-    </q:and>
-    <q:and>
-        <q:not>
-            <q:substring>
-                <q:path>attributes/name</q:path>
-                <q:value>Baar</q:value>
-                <q:anchorEnd>true</q:anchorEnd>
-            </q:substring>
-        </q:not>
-        <q:not>
-            <q:substring>
-                <q:path>attributes/name</q:path>
-                <q:value>XYZ</q:value>
-                <q:anchorStart>true</q:anchorStart>
-            </q:substring>
-        </q:not>
-    </q:and>
-</q:and>
+(attributes/icfs:name not startsWith "XYZ" and attributes/icfs:name not endsWith "Baar")
+and ((attributes/ri:department not contains "FOO" and attributes/ri:department not contains "Baar")
+and (attributes/icfs:name contains "A" or attributes/icfs:name contains "B"))
 ----
 
 == Notes
@@ -253,7 +246,16 @@ DigiCert Global Root CA
 DigiCert Global Root G2
 ----
 
-Some API resources might have a limit on the amount of API calls. This called 'resource throttling' might have an effect on the general performance of the connector. The connector itself copes with this by invoking the request for a specific resource multiple times (if needed) with a pause between each attempt. The length of the 'wait time' depends on the reply from the API endpoint, which provides the connector with the information about the availability of the endpoint. For more information see "https://docs.microsoft.com/en-us/graph/throttling".
+With the version 'version' 1.1.0.0 of the connector, the discovery method automatically fetches the
+jvm default trust store which holds the early mentioned certificates by default. The discovery method
+offers to use this trust store for communication.
+
+Some API resources might have a limit on the amount of API calls. This called 'resource throttling'
+might have an effect on the general performance of the connector.
+The connector itself copes with this by invoking the request for a specific resource multiple times
+(if needed) with a pause between each attempt. The length of the 'wait time' depends on the reply
+from the API endpoint, which provides the connector with the information about the availability of
+the endpoint. For more information see "https://docs.microsoft.com/en-us/graph/throttling".
 
 == Configuration parameters
 
@@ -269,6 +271,13 @@ Some API resources might have a limit on the amount of API calls. This called 'r
 
 | tenantId
 | Either Domain name of the Azure AD tenant or the tenant's guid identifier.
+
+| validateWithFailoverTrustStore
+| If set to true, connector will use the failover truststore to validate CA certificates as a primary trust store. Default value is 'true'.
+
+| pathToFailoverTrustStore
+| Path to trust store database which is going to be used with CA certificate validation as a failover. Default value is the path to JVM native trust store.
+
 
 | proxyPort
 | Port number of the HTTPS proxy to use to connect to cloud services. For this setting to take any effect, ProxyHost needs to be configured as well.
@@ -299,6 +308,15 @@ Some API resources might have a limit on the amount of API calls. This called 'r
 
 | throttlingRetryCount
 | Max retry count in case of an request impacted by throttling. Default 3.
+
+| certificateBasedAuthentication
+| If set to true connector uses certificate-based authentication.
+
+| certificatePath
+| Path to public key (.crt format).
+
+| privateKeyPath
+| Path to private key (.der or .pem format).
 
 |===
 

@@ -66,30 +66,35 @@ Individual scenarios differ in the size and complexity of the simulated deployme
 | Not freezing already frozen objects.
 Skipping checking equivalent prism values during parsing from repo.
 
+| `cloning-1`
+| midPoint https://github.com/Evolveum/midpoint/commit/f8e8d6b1[f8e8d6b1]
+| Reduced the number of object clone operations.
+The effect on the performance seems to be lower than expected.
+
+| `cached-marks`
+| midPoint https://github.com/Evolveum/midpoint/commit/0f2062df[0f2062df]
+| Enabled global caching of `MarkType` objects.
+The system performance test uses a custom caching configuration that didn't contain the caching of marks (introduced in 4.7).
+However, it seems that the difference between caching disabled and enabled is quite small.
+
+| `qualified-names`
+| midPoint https://github.com/Evolveum/midpoint/commit/ed6351ad[ed6351ad], prism https://github.com/Evolveum/prism/commit/9c684889[9c684889]
+| The presence of unqualified names in `path` expression evaluator leads to sequential scans through prism container values.
+Before trying to fix this seriously in midPoint, this commit tries to measure the effect of using fully qualified names.
+(In addition to a minor prism improvement that should slightly improve the performance in this case.)
+
+| `misc-1`
+| midPoint https://github.com/Evolveum/midpoint/commit/e40f8794[e40f8794], prism https://github.com/Evolveum/prism/commit/ed32e894[ed32e894]
+| Improved https://github.com/Evolveum/prism/commit/dae64b99[XMLGregorianCalendar cloning],
+avoided slow https://github.com/Evolveum/midpoint/commit/52965ae5[`PrismContainerValue.getProperties()`] calls,
+partially improved definitions lookups and others.
 |===
 
 === Details
 
-==== Assertions
-The assertions were disabled by including the following in `pom.xml`:
-
-.Listing 1: Disabling assertions
-[source,xml]
-----
-<plugin>
-    <groupId>org.apache.maven.plugins</groupId>
-    <artifactId>maven-failsafe-plugin</artifactId>
-    ...
-    <configuration>
-        ...
-        <enableAssertions>false</enableAssertions>
-    </configuration>
-</plugin>
-----
-
 ==== Testing scripts
 
-.Listing 2: Example of testing script for 4.7
+.Listing 1: Example of testing script for 4.7
 [source, bash]
 ----
 cd /home/pavol/mp47
@@ -98,14 +103,14 @@ export DB="-Dtest.config.file=test-config-new-repo.xml -Dmidpoint.repository.jdb
 /home/pavol/perf/tests.sh
 ----
 
-.Listing 3: Common testing script
+.Listing 2: Common testing script
 [source, bash]
 ----
 #!/bin/bash
 export GIT_COMMIT=$(git rev-parse HEAD)
 export BRANCH=$(git branch --show-current)
 
-PREFIX="integration-test -pl :story -nsu -Pextratest -Dit.test=TestSystemPerformance $DB -Dsources.multi-attr-values=5 -DtaskTimeout=7200000 $EXTRA"
+PREFIX="integration-test -pl :story -nsu -Pextratest -DenableAssertions=false -Dit.test=TestSystemPerformance $DB -Dsources.multi-attr-values=5 -DtaskTimeout=7200000 $EXTRA"
 
 SOURCES_1_50="-Dsources.resources=1 -Dsources.single-mappings=50 -Dsources.multi-mappings=50"
 SOURCES_3_50="-Dsources.resources=3 -Dsources.single-mappings=50 -Dsources.multi-mappings=50"
@@ -176,3 +181,5 @@ PREFIX_G5="$PREFIX $SOURCES_3_50 $TARGETS_3_50 $SCHEMA_50 $THREADS -Droles.busin
 
 #mvn $PREFIX_G5 -Droles.assignments.count=50 -Dsources.accounts=$((150*S))
 ----
+
+The `-DenableAssertions=false` turns off the evaluation of Java assertion statements.
