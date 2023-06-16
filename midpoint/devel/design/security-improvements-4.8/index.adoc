@@ -1,0 +1,106 @@
+= Security Improvements in 4.8
+:page-since: 4.8
+:page-toc: top
+
+== Authorization Configuration
+
+Before 4.8, we could specify the authorization only at the level of an object.
+For example, the logged-in principal could see particular items of a given object, depending on its relation to it.
+Or, it could execute some operations on that object.
+
+In 4.8, we need more.
+First of all, we need to be able to authorize operations on the level of individual items.
+
+. A user can see or complete case work items assigned to him.
+. A user can see or complete case work items assigned to people in organizations managed by him.
+. A user can see only closed (or not closed) case work items.
+. A user can only see other users' assignments to the roles he is an owner or approver of.
+. A user can only see other users' `roleMembershipRef` values related to the roles he is an owner of approver of.
+
+Regarding certifications, things get even more complex:
+
+. A user can see certification cases related to people in organizations managed by him.
+. A user can see certification cases related to roles he is an owner or approver of.
+. A user can see or complete certification case work items assigned to him.
+. A user can see or complete certification case work items assigned to people in organizations managed by him.
+. A user can see only closed (or not closed) certification case work items.
+
+NOTE: We cannot guarantee all of the above scenarios to be implemented.
+We will provide more detailed analysis here later.
+
+//"Work items and cases, Resource templates, Tasks, Pre-authenticated for scripts"
+
+
+== Changes
+
+- The `assignee` clause now covers all assignees, not only assignees of open work items (commit https://github.com/Evolveum/midpoint/commit/c97e31dc[c97e31dc]).
+
+== Migration of the Authorizations
+
+Please see xref:/midpoint/devel/design/schema-cleanup-4.8/authorizations.adoc[] more details.
+
+== Open Questions
+
+=== Value-Level Action Authorizations
+
+Currently, only the following authorizations are evaluated at sub-object level:
+
+. `#read` (i.e., `#search` and `#get`)
+. `#completeWorkItem`
+. `#delegateWorkItem`
+
+In particular, `#add`, `#modify` nor `#delete` ones are ignored at this level.
+Is it OK?
+Or, should we implement that?
+What will need to be resolved in that case, are relations to `#assign` and `#unassign` authorizations that would get an alternative representation of `#add` and `#delete` of `AssignmentType` value in `assignment` item.
+
+The question is also whether we should apply sub-object authorizations when  `getEditObjectDefinition` is called.
+(Currently, they are not.)
+
+=== Embedding of Value-Level Authorization Selectors
+
+Currently, the following inner value types are automatically attached to their parents:
+
+- `AssignmentType` -> `AssignmentHolderType`:`assignment`
+- `CaseWorkItemType` -> `CaseType`:`workItem`
+- `AccessCertificationCaseType` -> `AccessCertificationCampaignType`:`case`
+- `AccessCertificationWorkItemType` -> `AccessCertificationCaseType`:`workItem` -> `AccessCertificationCampaignType`:`case/workItem`
+
+I.e. if there is an authorization with a selector with `type` = `AccessCertificationCaseType`, it is automatically interpreted as if it had `parent` selector of `type` = `AccessCertificationCampaignType` and `path` = `case`.
+
+(See https://github.com/Evolveum/midpoint/blob/db9da87e8ee4401d803493b4307b3c0233ee4620/repo/security-enforcer-impl/src/main/java/com/evolveum/midpoint/security/enforcer/impl/Specification.java#L142-L159[`Specification#getCandidateAdjustments`] and https://github.com/Evolveum/midpoint/blob/db9da87e8ee4401d803493b4307b3c0233ee4620/repo/security-enforcer-impl/src/main/java/com/evolveum/midpoint/security/enforcer/impl/Specification.java#L236-L259[`Specification.Adjustment`] or their updates in https://github.com/Evolveum/midpoint/blob/master/repo/security-enforcer-impl/src/main/java/com/evolveum/midpoint/security/enforcer/impl/Specification.java[current source code].)
+
+Should we add another such auto-embedded cases?
+Is the treatment of `AssignmentType` ok?
+(Or, should we add `inducement` embedding for it?)
+Should we analyze the original container query and derive the attachments from there?
+
+=== Level of Support for `searchContainers` and `searchReferences` Methods
+
+The `searchContainers` and `countContainers` currently support the following types regarding security:
+
+- `AccessCertificationCaseType`
+- `AccessCertificationWorkItemType`
+- `CaseWorkItemType`
+- `OperationExecutionType`
+- `AssignmentType`
+- `SimulationResultProcessedObjectType`
+
+Among them, `AssignmentType` and `SimulationResultProcessedObjectType` are excluded from post-processing (i.e. application of `#get` authorizations on values returned by the search) because the repository does not return their parent objects.
+
+Is that OK?
+E.g., should we add support for `AssignmentType` filtering?
+What about `searchReferences`?
+In particular, do we plan to filter the metadata (accesses) content according to authorizations in 4.8?
+If so, how?
+
+=== Diagnostics Improvements
+
+Are we going to somehow improve authorization diagnostics?
+The improvements in 4.8 tried to separate authorization and value selector evaluation logic from the diagnostic logging,
+in order to provide more flexibility in this area.
+
+Should we provide alternative troubleshooting means in addition to existing one (i.e. by logging) ?
+For example, dumping the structured output into CSV?
+Or, integrating with the tracing?
+
