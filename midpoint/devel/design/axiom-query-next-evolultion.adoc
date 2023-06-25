@@ -1,0 +1,181 @@
+= Midpoint Query: Next Evolution
+
+
+== What will be new in 4.8 M2
+
+IMPORTANT: Features described here are currently in development and are not yet on master branch
+
+=== APIs for ease of use from code and scripts
+
+[source, groovy]
+----
+def query = midpoint.queryFor(UserType.class, "activation matches activation matches (effectiveStatus = 'enabled' and enableTimestamp > '2022-05-10')") <1>
+def result = midpoint.searchObjects(UserType.class, query); <2>
+----
+<1> Creates ObjectQuery for specified object type (in this case `UserType`) 
+<2> Search objects using query
+
+
+==== Placeholders
+
+In order to faciliate better support for use in code, `placeholders` are introduced. Placeholders can later be bind to variables and MidPoint code will take care of proper escaping and type checking.
+
+[source, groovy]
+----
+def prepared = midpoint.prepareQueryFor(UserType.class, "activation matches (effectiveStatus = 'enabled' and enableTimestamp > ?)"); <1>
+def query = prepared.bind(basic.fromNow("-P1D"));  <2>
+def result = midpoint.searchObjects(UserType.class, query); <3>
+----
+<1> Creates PreparedQuery for specified object type (in this case `UserType`) 
+<2> Binds positional arguments to PreparedQuery using var args 
+<3> Executes search using query
+
+
+=== Autoconversion from "legacy" Query API to Query Language
+
+*  Planned updates to Query Playground to directly enter Axiom and to provide conversion functionality. 
+** Currently supported conversion (in code) is cannonical conversion, which preserves most of original structure
+** If time allows `concise` form will also be added.
+
+
+
+
+=== Better Error Reporting
+
+* Positional information in errors, more human readable:
+
+** `Path 'activation/effectiveState' on line 1, char 15 does not exists in schema.`
+*** *Idea, not planned*: We could use in-memory levenstein on subitems of last existing item to came up with list of suggestions (but this could suggest also non-indexed properties).
+
+** `Filter 'matches' requires subfilter, not literal value on line 1, character 30.`
+** `Filter 'exists' must not have value on line 1, character 20.`
+
+
+=== Simplified syntax for self `.` filters.
+
+Currently there are several "self" filters (`type`, `fullText`, `inOrg`), which references object as a whole. This filters use `.` notation for path, but prior to 4.8 does not allow use of item paths, so their use can be verbose in some cases.
+
+[source, axiom]
+----
+assignment/targetRef/@ matches (. inOrg 'ebd0bf7b-7e80-4175-ba5e-4fd5de2ecd62' )  <1>
+----
+<1> Users, who have assigned service / role / org. unit, which is present in organization `ebd0bf7b-7e80-4175-ba5e-4fd5de2ecd62`
+
+With support for shorter "self" filters with dereference: 
+
+[source, axiom]
+----
+assignment/targetRef/@ inOrg 'ebd0bf7b-7e80-4175-ba5e-4fd5de2ecd62'  <1>
+----
+<1> Users, who have assigned service / role / org. unit, which is present in organization `ebd0bf7b-7e80-4175-ba5e-4fd5de2ecd62`
+
+
+=== Syntactic suggar and unification of concepts
+
+==== Unify `. type` in favour of `@type =`
+
+There are two ways how container / object type is specified in code, the changes will introduce unified way and deprecate `. type` syntax in 
+ - In `ownedBy`, `referencedBy` type is specified using `@type =` syntax.
+
+
+[source, axiom]
+----
+. referencedBy ( @type = RoleType and ...)
+----
+
+[source, axiom]
+----
+assignment/target/@ matches ( . type = ServiceType and ...) <1>
+assignment/target/@ matches ( @type = ServiceType and ...) <2>
+----
+<1> Old syntax, still supported
+<2> New syntax, similar to existing uses in `referencedBy` and `ownedBy`
+
+
+=== Support for 'run-time' schema
+
+Query Language is schema-aware and mostly schema sensitive, this allows to spot typos in item paths before evaluation of filter, but that has side-effect where we were not able to parse queries with runtime schema. 
+
+
+==== Schema-aware support for Shadow Attributes
+
+In order to have schema aware support for shadow attributes, the  query must meet following conditions: 
+
+* Context type must be `ShadowType`
+* `resourceRef` must be specified using `matches` filter with OID explicitly specified
+* `kind` - must be specified as literal, present during query parsing
+* `intent` - must be specified as literal, present during query parsing
+
+
+[source, axiom]
+----
+resourceRef matches (oid = 'ebd0bf7b-7e80-4175-ba5e-4fd5de2ecd62') <1>
+and kind = 'account' <2>
+and intent = 'default' <3>
+and attributes/mail = 'francis' <4>
+----
+<1> Resource specification, `matches` filter is currently required because of use of RefFilter, `oid`` is required in order to identify resource during parsing
+<2>  `kind` must be literal in query. Placeholders or expressions are currently unsupported.
+<3> `intent` must be literal in query. Placeholders or expressions are currently unsupported.
+<4> `search`` in attributes container. Here we can use items from resource schema and placeholders and expressions are supported (based on use). 
+
+==== Schema-unaware support for Shadow Attributes
+
+If schema-unaware support for shadow attributes is requested, the Query parsing will not be able to verify validity of provided paths in filter and will
+treat everything  as existing anyXSD properties.
+
+== Discussions
+
+=== Named Placeholders vs. Variables
+
+*Named Placeholders* seems to be very similar concept to *variables* (existing concept in midPoint), so *Named Placeholders* could be potentially dropped
+in favour of *variables*, but there are possible differences:
+
+* Placeholders were intended to be light-weight, suport only simple values
+* Their evaluation is simple mapping of user-provided (code) values in scripts, instead of relying of heavy weight evaluation.
+
+== Technicalities (for Developers)
+
+=== Real metamodel behind Queries in midPoint
+
+In reality, the legacy Query API does not reflect real metamodel, which is actually behind use and behavior of filters.
+
+NOTE: This section is WIP. To distinguish between new and old terms lets use `condition` for new terms.
+
+
+
+
+* *Condition* - Basic part of filter in Query.
+** *Logical Condition* (`and`, `or`, `not` )
+*** Special Logical Conditions (this were not present in Query Language)
+**** *All*
+**** *None*
+**** *Undefined*
+
+** *Value Condition* - Value conditions usually have three parts: item locator, condition type and condition value specification (eg. value used to compare)
+*** *Simple Value Condition* ( `=`, `<`, `>`, `!=`, `<=`, `>=`, `in`, `contains`, `startsWith`, `endsWith` )
+*** *Structured Value Condition*
+**** ExistsFilter, RefFilter, MatchesFilter
+
+* *Item Locator*
+** *Self* - `.` symbol, represent context object itself
+** *Item Path* - Explicitly specified item path in query. Item Path is relative to context item.
+** *Special locators*
+*** *Owned By* - Equivalent to `..` item path, but also aware of location (item path) on which context item is present. 
+*** *Referenced By* - Context items are midPoint objects, which references current object. 
+*** *Dereference* - Context item is object, which is referenced by reference on specified path.
+
+* *Value Specification*
+** *Literal Value* - Normal value,embeded in query text, such as `"Administrator"` or `"2012-09-12"`. 
+** *Placeholder* - Placeholder, which needs to be bound to literal value supplied by user code. Placeholders are schema-aware and thus can perform some sanity checks, before query is evaluated.
+*** *Unnamed (Positional) Placeholder* -  `?` Symbol. Positional placeholder, which does not have name assigned.
+*** *Named Placeholder* - identifier prefixed with `:` symbol. Placeholder is named. (Discussion: this seems similar to )
+** *Item Path* - Item path relative to context item
+** *Expression* - Heavy-weight expressions supported in midPoint, currently we explicitly support 3 expression types.
+*** *Constant* - Constant
+*** *Variable* - Variable expression, identified with path starting with `$` 
+*** *Script* - Script expression, this could be groovy (by default)
+
+.Filter By Item Locators
+* *Self* - `inOid`, `ownerOid`, `type`, `fullText`
+
