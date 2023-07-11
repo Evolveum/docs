@@ -30,7 +30,6 @@ We will provide more detailed analysis here later.
 
 //"Work items and cases, Resource templates, Tasks, Pre-authenticated for scripts"
 
-
 == Changes
 
 - The `assignee` clause now covers all assignees, not only assignees of open work items (commit https://github.com/Evolveum/midpoint/commit/c97e31dc[c97e31dc]).
@@ -126,21 +125,85 @@ What specific authorization scenarios should we support?
 ==== Answer (27th June 2023)
 Engineers should create improvement JIRA issues what scenarios they need to handle.
 
-=== Expression Profiles
+=== Expression Profiles, Task Templates
 
-The goal is to allow creating/editing of configuration objects (reports, roles, resource definitions, ...) by non-root users: trusted to some extent, but not as much as to be able to create arbitrary executable code.
+Results of a design meeting (Katka, Rado, Pavol) on 11th of July 2023.
 
-The solution:
+==== Main Use Cases
 
-. There will be a limitation for the expression profile to be applied for objects with given archetype.
-. User will have the ability to edit objects with given archetype (and probably only parts of them).
+. Allowing delegation of auto-assignment selectors/expressions to non-root users.
+. Allowing delegation of certain role management actions (involving editing of mappings) to non-root users.
+Especially for business roles.
+. Allowing GUI customizations using expressions - e.g. in custom columns, but also using other expressions.
+. Of course, continuing the support for expression in reports editable by non-root users.
+. https://docs.evolveum.com/midpoint/reference/admin-gui/admin-gui-config/#custom-actions-for-object-lists[Custom GUI actions for object lists] (that use task templates) should be callable by non-privileged users, even if they utilize Groovy code - bug:MID-6913[]/bug:MID-7831[].
+
+==== The Solution
+
+. Selected expressions (mostly those mentioned in the use cases above) will run under defined expression profiles.
+These profiles will be derived typically from the archetype of the containing object (e.g., role).
+. User will have the authorization to edit (parts of) objects with given archetype.
+They will NOT have the authorization to edit other expressions.
+
+==== What about Task Templates?
+
+Building blocks of the solution:
+
+. Individual methods in function libraries could run under `runAsRef`/`runPrivileged` regime.
+(Maybe they even can do now, as they are basically expressions.)
+. Function libraries will be callable from bulk actions (maybe even expressions as such could be).
+. Bulk actions will execute under expression profiles as well.
+. Function libraries will be covered by expression profiles i.e. one will be able to specify which libraries/methods are callable under given profile.
+. Task template will provide a specific archetype that will be used to derive an expression profile for tasks derived from it.
+(These tasks will inherit the archetype on their creation.)
+
+==== Determining Expression Profiles
+
+. Primarily based on hosting object's archetype plus item pathfootnote:[E.g. resource configuration properties vs. expressions in mappings].
+(At first, we use the structural archetype, because the composition of expression profiles is tricky.
+footnote:[Consider resources of archetype/profile 1 ("strong", editable by power users) and archetype/profile 2 ("weak", editable by less trusted, wider group of people).
+If a resource have both archetypes 1 and 2, and if the profiles would be combined such as "the most powerful wins", then the wider group of people would be able to write scripts that would execute with strong privileges, which is bad.])
+. We may consider defining common profile for all GUI-related expressions, as they may reside on multitude of objects, e.g. even in user's GUI config.
+Such configuration would be probably part of the system configuration object.
+
+=== RunAsRef vs RunPrivileged
+
+We create new configuration item, replacing `runAsRef`. It can be called e.g. `privileges`, and will cover the following:
+
+- `runAsRef` - if we want to switch the principal (actor) identity
+- `runPrivileged` - if we want to switch only the authorizations - by default to full ones ("setuid bit"); later we may be able to define specific authorizations to be used
+
+If this is used in a custom library, it should be 100% hack-proof.
+(Although, we may be able to restrict availability of such a method via expression profiles.)
+
+=== Other Considerations
+
+==== Authorization Roles with Conditions
+These conditions may require authorizations, but these are not available at login.
+The new `runPrivileged` feature will resolve this.
+
+==== Auditing
+. We certainly want to audit both original principal and the current actor (after one or more `runAsRef` directives).
+. We also want to note when the privileges were messed with by the `runPrivileged` feature.
+Later, when `runPrivileged` allows adding specific (not all) privileges, we _may_ consider recording details about privilege enhancements.
+
+==== GUI Tasks Authorization Requirements
+
+Should we require any authorizations in order to invoke tasks from GUI?
+(Like for assignment/unassignment of role members?)
+
+Currently, we require (rather weak) `#executeScript` authorization to run bulk actions.
+In 4.8, we will continue requiring this; so the role owners will have to possess that authorization.
+
+#TODO ok?#
+
+=== Unrelated/Unsorted Notes (not part of the meeting)
 
 Partial questions:
 
-. Will it be sufficient to have only a single expression profile for the whole object?
 . What about unusual places where expressions can be found? E.g.
-.. expressions in explicit filters
-.. expressions in (implicit) reference filters (static / dynamic)
+.. expressions in explicit filters e.g. in search evaluators
+.. expressions in (implicit) dynamic reference filters (import-time filters do not support expressions)
 .. expressions in prism values e.g. configuration properties
 .. any other places?
 
@@ -159,7 +222,7 @@ Filter/query expressions:
 | `evaluateCollectionFilter`
 | TODO
 
-| https://github.com/Evolveum/midpoint/blob/d0f186a07b9e57faad99e19da4d711ef1bcfa5e6/gui/admin-gui/src/main/java/com/evolveum/midpoint/gui/impl/component/search/wrapper/PropertySearchItemWrapper.java#L244-L244['PropertySearchItemWrapper']
+| https://github.com/Evolveum/midpoint/blob/d0f186a07b9e57faad99e19da4d711ef1bcfa5e6/gui/admin-gui/src/main/java/com/evolveum/midpoint/gui/impl/component/search/wrapper/PropertySearchItemWrapper.java#L244-L244[`PropertySearchItemWrapper`]
 | `evaluatePredefinedFilter`
 | TODO
 
@@ -321,31 +384,19 @@ a| . auto-completion expressions,
 . applicability condition (legacy change processor config)
 |===
 
-=== "Run privileged" flag
+Interesting cases:
 
-=== Auditing of "run as" / "run privileged"
+. Expressions coming from various sources
+.. correlators (resource, system configuration)
+.. compiled collections/views
+.. policy rules
+.. approval schema fragments
+.. ?
 
-. Do we want to store both original user identity and the switched one?
-. Do we want to store the information "running in privileged mode"?
-
-=== How to Authorize Management of Template-Based Objects
+==== How to Authorize Management of Template-Based Objects
 
 There are objects that could be derived from templates (or super-objects): resources, archetypes, later maybe others.
 Do we need to specify authorization statements like:
 
 . You can create/modify _only_ resources derived from given template?
 . You can/cannot create/modify resources derived from given template?
-
-=== Task Templates
-
-Task templates are used e.g. for https://docs.evolveum.com/midpoint/reference/admin-gui/admin-gui-config/#custom-actions-for-object-lists[custom actions for object lists] in GUI.
-They may need to be executed with the rights of the defining user, not the currently logged in one.
-
-See bug:MID-6913[] and bug:MID-7831[].
-
-How to ensure this?
-
-=== GUI Tasks Authorization Requirements
-
-Should we require any authorizations in order to invoke tasks from GUI?
-(Like for assignment/unassignment of role members?)
