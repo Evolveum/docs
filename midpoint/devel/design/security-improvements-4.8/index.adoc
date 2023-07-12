@@ -30,7 +30,6 @@ We will provide more detailed analysis here later.
 
 //"Work items and cases, Resource templates, Tasks, Pre-authenticated for scripts"
 
-
 == Changes
 
 - The `assignee` clause now covers all assignees, not only assignees of open work items (commit https://github.com/Evolveum/midpoint/commit/c97e31dc[c97e31dc]).
@@ -55,7 +54,9 @@ Or, should we implement that?
 What will need to be resolved in that case, are relations to `#assign` and `#unassign` authorizations that would get an alternative representation of `#add` and `#delete` of `AssignmentType` value in `assignment` item.
 
 The question is also whether we should apply sub-object authorizations when  `getEditObjectDefinition` is called.
-(Currently, they are not.)
+
+==== Answer (28th June 2023)
+We may look at this, but with a lower priority.
 
 === Embedding of Value-Level Authorization Selectors
 
@@ -74,6 +75,11 @@ Should we add another such auto-embedded cases?
 Is the treatment of `AssignmentType` ok?
 (Or, should we add `inducement` embedding for it?)
 Should we analyze the original container query and derive the attachments from there?
+
+==== Answer (28th June 2023)
+We will *not* support such an automatic embedding.
+Each sub-object selector must be rooted in a prism object.
+(#TODO implement this#)
 
 === Level of Support for `searchContainers` and `searchReferences` Methods
 
@@ -94,6 +100,9 @@ What about `searchReferences`?
 In particular, do we plan to filter the metadata (accesses) content according to authorizations in 4.8?
 If so, how?
 
+==== Answer (28th June 2023)
+We will have a look at both `AssignmentType` post-processing (i.e. returning the parent from the repository) and the implementation for `searchReference` - if the time permits.
+
 === Diagnostics Improvements
 
 Are we going to somehow improve authorization diagnostics?
@@ -104,3 +113,290 @@ Should we provide alternative troubleshooting means in addition to existing one 
 For example, dumping the structured output into CSV?
 Or, integrating with the tracing?
 
+==== Answer (27th June 2023)
+The Authorization Playground page was created.
+It will be improved as the time permits.
+
+=== Support for Specific Authorization Situations
+
+The current authorization framework is quite general and flexible, but with many limitations restricting its practical use.
+What specific authorization scenarios should we support?
+
+==== Answer (27th June 2023)
+Engineers should create improvement JIRA issues what scenarios they need to handle.
+
+=== Expression Profiles, Task Templates
+
+Results of a design meeting (Katka, Rado, Pavol) on 11th of July 2023.
+
+==== Main Use Cases
+
+. Allowing delegation of auto-assignment selectors/expressions to non-root users.
+. Allowing delegation of certain role management actions (involving editing of mappings) to non-root users.
+Especially for business roles.
+. Allowing GUI customizations using expressions - e.g. in custom columns, but also using other expressions.
+. Of course, continuing the support for expression in reports editable by non-root users.
+. https://docs.evolveum.com/midpoint/reference/admin-gui/admin-gui-config/#custom-actions-for-object-lists[Custom GUI actions for object lists] (that use task templates) should be callable by non-privileged users, even if they utilize Groovy code - bug:MID-6913[]/bug:MID-7831[].
+
+==== The Solution
+
+. Selected expressions (mostly those mentioned in the use cases above) will run under defined expression profiles.
+These profiles will be derived typically from the archetype of the containing object (e.g., role).
+. User will have the authorization to edit (parts of) objects with given archetype.
+They will NOT have the authorization to edit other expressions.
+
+==== What about Task Templates?
+
+Building blocks of the solution:
+
+. Individual methods in function libraries could run under `runAsRef`/`runPrivileged` regime.
+(Maybe they even can do now, as they are basically expressions.)
+. Function libraries will be callable from bulk actions (maybe even expressions as such could be).
+. Bulk actions will execute under expression profiles as well.
+. Function libraries will be covered by expression profiles i.e. one will be able to specify which libraries/methods are callable under given profile.
+. Task template will provide a specific archetype that will be used to derive an expression profile for tasks derived from it.
+(These tasks will inherit the archetype on their creation.)
+
+==== Determining Expression Profiles
+
+. Primarily based on hosting object's archetype plus item pathfootnote:[E.g. resource configuration properties vs. expressions in mappings].
+(At first, we use the structural archetype, because the composition of expression profiles is tricky.
+footnote:[Consider resources of archetype/profile 1 ("strong", editable by power users) and archetype/profile 2 ("weak", editable by less trusted, wider group of people).
+If a resource have both archetypes 1 and 2, and if the profiles would be combined such as "the most powerful wins", then the wider group of people would be able to write scripts that would execute with strong privileges, which is bad.])
+. We may consider defining common profile for all GUI-related expressions, as they may reside on multitude of objects, e.g. even in user's GUI config.
+Such configuration would be probably part of the system configuration object.
+
+=== RunAsRef vs RunPrivileged
+
+We create new configuration item, replacing `runAsRef`. It can be called e.g. `privileges`, and will cover the following:
+
+- `runAsRef` - if we want to switch the principal (actor) identity
+- `runPrivileged` - if we want to switch only the authorizations - by default to full ones ("setuid bit"); later we may be able to define specific authorizations to be used
+
+If this is used in a custom library, it should be 100% hack-proof.
+(Although, we may be able to restrict availability of such a method via expression profiles.)
+
+=== Other Considerations
+
+==== Authorization Roles with Conditions
+These conditions may require authorizations, but these are not available at login.
+The new `runPrivileged` feature will resolve this.
+
+==== Auditing
+. We certainly want to audit both original principal and the current actor (after one or more `runAsRef` directives).
+. We also want to note when the privileges were messed with by the `runPrivileged` feature.
+Later, when `runPrivileged` allows adding specific (not all) privileges, we _may_ consider recording details about privilege enhancements.
+
+==== GUI Tasks Authorization Requirements
+
+Should we require any authorizations in order to invoke tasks from GUI?
+(Like for assignment/unassignment of role members?)
+
+Currently, we require (rather weak) `#executeScript` authorization to run bulk actions.
+In 4.8, we will continue requiring this; so the role owners will have to possess that authorization.
+
+#TODO ok?#
+
+=== Unrelated/Unsorted Notes (not part of the meeting)
+
+Partial questions:
+
+. What about unusual places where expressions can be found? E.g.
+.. expressions in explicit filters e.g. in search evaluators
+.. expressions in (implicit) dynamic reference filters (import-time filters do not support expressions)
+.. expressions in prism values e.g. configuration properties
+.. any other places?
+
+Filter/query expressions:
+
+[%header]
+[%autowidth]
+|===
+| Class | Method | Note
+
+| https://github.com/Evolveum/midpoint/blob/d0f186a07b9e57faad99e19da4d711ef1bcfa5e6/gui/admin-gui/src/main/java/com/evolveum/midpoint/gui/impl/component/ContainerableListPanel.java#L1087-L1087[`ContainerableListPanel`]
+| `createReportPerformed`
+| TODO
+
+| https://github.com/Evolveum/midpoint/blob/d0f186a07b9e57faad99e19da4d711ef1bcfa5e6/gui/admin-gui/src/main/java/com/evolveum/midpoint/gui/impl/component/search/Search.java#L334-L334[`Search`]
+| `evaluateCollectionFilter`
+| TODO
+
+| https://github.com/Evolveum/midpoint/blob/d0f186a07b9e57faad99e19da4d711ef1bcfa5e6/gui/admin-gui/src/main/java/com/evolveum/midpoint/gui/impl/component/search/wrapper/PropertySearchItemWrapper.java#L244-L244[`PropertySearchItemWrapper`]
+| `evaluatePredefinedFilter`
+| TODO
+
+| https://github.com/Evolveum/midpoint/blob/d0f186a07b9e57faad99e19da4d711ef1bcfa5e6/gui/admin-gui/src/main/java/com/evolveum/midpoint/gui/impl/component/search/wrapper/ObjectCollectionSearchItemWrapper.java#L109-L109[`ObjectCollectionSearchItemWrapper`]
+| `createFilter`
+| TODO
+
+| https://github.com/Evolveum/midpoint/blob/d0f186a07b9e57faad99e19da4d711ef1bcfa5e6/gui/admin-gui/src/main/java/com/evolveum/midpoint/gui/impl/page/self/requestAccess/PersonOfInterestPanel.java#L756-L756[`PersonOfInterestPanel`]
+| `createAutocompleteFilter`
+| TODO
+
+| https://github.com/Evolveum/midpoint/blob/d0f186a07b9e57faad99e19da4d711ef1bcfa5e6/model/model-impl/src/main/java/com/evolveum/midpoint/model/impl/controller/CollectionProcessor.java#L217-L219[`CollectionProcessor`]
+| `determineCollectionStats`
+| Works on `filter` / `domainFilter` in `CompiledObjectCollectionView`; this is a compiled view from various collection objects, probably.
+
+| https://github.com/Evolveum/midpoint/blob/d0f186a07b9e57faad99e19da4d711ef1bcfa5e6/model/model-impl/src/main/java/com/evolveum/midpoint/model/impl/controller/DashboardServiceImpl.java#L279-L282[`DashboardServiceImpl`]
+| `countAuditEvents`
+| The filter is created using some magic, see `combineAuditFilter` method in that class.
+
+| https://github.com/Evolveum/midpoint/blob/d0f186a07b9e57faad99e19da4d711ef1bcfa5e6/model/model-impl/src/main/java/com/evolveum/midpoint/model/impl/controller/ModelInteractionServiceImpl.java#L2227-L2230[`ModelInteractionServiceImpl`]
+| `parseFilterFromCollection`
+| Again, evaluating filters on `CompiledObjectCollectionView`.
+
+| https://github.com/Evolveum/midpoint/blob/d0f186a07b9e57faad99e19da4d711ef1bcfa5e6/model/model-impl/src/main/java/com/evolveum/midpoint/model/impl/lens/assignments/TargetsEvaluation.java#L243-L247[`TargetsEvaluation`]
+| `createFilterEvaluator`
+| Resolving dynamic `targetRef` filters in assignments or inducements during assignments evaluation.
+
+| https://github.com/Evolveum/midpoint/blob/d0f186a07b9e57faad99e19da4d711ef1bcfa5e6/model/model-impl/src/main/java/com/evolveum/midpoint/model/impl/lens/construction/ConstructionResourceResolver.java#L127-L132[`ConstructionResourceResolver`]
+| `resolveResourceRefFilter`
+| Resolving dynamic `resourceRef` filters in constructions
+
+| https://github.com/Evolveum/midpoint/blob/d0f186a07b9e57faad99e19da4d711ef1bcfa5e6/model/model-impl/src/main/java/com/evolveum/midpoint/model/impl/lens/projector/policy/evaluators/ConstraintReferenceMatcher.java#L110-L114[`ConstraintReferenceMatcher`]
+| `filterMatches`
+| Resolving dynamic filters in policy constraints: `ExclusionConstraintEvaluator`, `HasAssignmentConstraintEvaluator`.
+
+| https://github.com/Evolveum/midpoint/blob/d0f186a07b9e57faad99e19da4d711ef1bcfa5e6/model/model-impl/src/main/java/com/evolveum/midpoint/model/impl/lens/projector/policy/scriptExecutor/ScriptingTaskCreator.java#L106-L110[`ScriptingTaskCreator`]
+| `createTaskFilterEvaluator`
+| Looking for task templates for "execute script" policy action execution.
+
+| https://github.com/Evolveum/midpoint/blob/d0f186a07b9e57faad99e19da4d711ef1bcfa5e6/model/model-impl/src/main/java/com/evolveum/midpoint/model/impl/scripting/actions/UnassignExecutor.java#L129-L133[`UnassignExecutor`]
+| `resolveFilter`
+| Filtering for assignments to be unassigned via bulk action.
+
+| https://github.com/Evolveum/midpoint/blob/d0f186a07b9e57faad99e19da4d711ef1bcfa5e6/provisioning/provisioning-impl/src/main/java/com/evolveum/midpoint/provisioning/impl/ProvisioningContext.java#L259-L262[`ProvisioningContext`]
+| `getProtectedAccountPatterns`
+| Resolving protected accounts patterns.
+
+| https://github.com/Evolveum/midpoint/blob/d0f186a07b9e57faad99e19da4d711ef1bcfa5e6/repo/repo-common/src/main/java/com/evolveum/midpoint/repo/common/query/SelectorToFilterTranslator.java#L73-L77[`SelectorToFilterTranslator`]
+| `createFilter`
+| Resolving filters in object selectors; currently used for linked objects (link source resolution).
+
+| https://github.com/Evolveum/midpoint/blob/d0f186a07b9e57faad99e19da4d711ef1bcfa5e6/repo/security-enforcer-impl/src/main/java/com/evolveum/midpoint/security/enforcer/impl/AuthorizationEvaluation.java#L453-L456[`AuthorizationEvaluation`]
+| `createFilterEvaluator`
+| Resolving filters in authorizations.
+
+| https://github.com/Evolveum/midpoint/blob/d0f186a07b9e57faad99e19da4d711ef1bcfa5e6/model/workflow-impl/src/main/java/com/evolveum/midpoint/wf/impl/processors/primary/aspect/BasePrimaryChangeAspect.java#L134-L137[`BasePrimaryChangeAspect`]
+| `resolveReferenceFromFilter`
+| Resolves approver references from various sources (policy rules, system configuration, etc).
+
+| https://github.com/Evolveum/midpoint/blob/d0f186a07b9e57faad99e19da4d711ef1bcfa5e6/gui/admin-gui/src/main/java/com/evolveum/midpoint/web/page/admin/configuration/PageRepositoryQuery.java#L600-L602[`PageRepositoryQuery`]
+| `updateRequestWithMidpointQuery`
+| Query playground in GUI
+
+| https://github.com/Evolveum/midpoint/blob/d0f186a07b9e57faad99e19da4d711ef1bcfa5e6/model/model-common/src/main/java/com/evolveum/midpoint/model/common/expression/evaluator/AbstractSearchExpressionEvaluator.java#L300-L309[`AbstractSearchExpressionEvaluator`]
+| `createQuery`
+| Queries in search-based evaluators (they have their expression profile determined anyway).
+
+| https://github.com/Evolveum/midpoint/blob/d0f186a07b9e57faad99e19da4d711ef1bcfa5e6/model/model-impl/src/main/java/com/evolveum/midpoint/model/impl/correlator/filter/FilterCorrelator.java#L252-L261[`FilterCorrelator`]
+| `evaluateQueryExpressions`
+| Traditional filter correlator (expression comes from resource but sometimes from system configuration).
+
+| https://github.com/Evolveum/midpoint/blob/d0f186a07b9e57faad99e19da4d711ef1bcfa5e6/model/model-impl/src/main/java/com/evolveum/midpoint/model/impl/scripting/expressions/SearchEvaluator.java#L111-L114[`SearchEvaluator`]
+| `evaluate`
+| The `search` action in traditional (non-iterative) bulk actions.
+
+| https://github.com/Evolveum/midpoint/blob/d0f186a07b9e57faad99e19da4d711ef1bcfa5e6/model/model-impl/src/main/java/com/evolveum/midpoint/model/impl/tasks/AdvancedActivityRunSupportImpl.java#L103-L106[`AdvancedActivityRunSupportImpl`]
+| `evaluateQueryExpressions`
+| Resolving expressions in search-based activities (many of them).
+
+| https://github.com/Evolveum/midpoint/blob/d0f186a07b9e57faad99e19da4d711ef1bcfa5e6/provisioning/provisioning-impl/src/main/java/com/evolveum/midpoint/provisioning/impl/resourceobjects/ResourceObjectReferenceResolver.java#L137-L140[`ResourceObjectReferenceResolver`]
+| `resolve`
+| Resolving base context in provisioning.
+|===
+
+Other places:
+
+[%header]
+[%autowidth]
+|===
+| Component | Use
+| GUI
+a|. operation result scripting hook
+. expressions for allowed values
+. configurable expressions columns / containerable name column
+. filter expression in `PropertySearchItemWrapper`
+. flexible label model
+. user display name from expression
+. ExpressionValidator
+| Cases
+a| . Delegator reference resolution
+. Comment formatting (also in certifications)
+| Certifications
+a|. cases generation (item selection expression)
+. reviewers reference resolution
+. delegators reference resolution
+| Expressions support
+a| Custom functions evaluation (two places): see `FunctionExpressionEvaluator` (from XML) and `CustomFunctions` (from code)
+| Value policy processor
+a| both generating and validating values
+| Dashboard service
+a| dashboard variation (condition)
+| Object merger
+a| value expression
+| Correlation
+a|. confidence expression,
+. expression-based correlator,
+. confirmation expression,
+. metric to confidence expression
+| Clockwork (privileged profile)
+a|. audit property/recording expressions,
+. clockwork hooks,
+. provisioning operation context (for auditing)
+| Lens (various)
+a| . policy rule condition,
+. conditions in various policy constraints,
+. localizable messages templates,
+. iteration condition and token value,
+. provisioning scripts,
+. indexing (normalized properties),
+. lifecycle transition conditions,
+. scripting task creator,
+. bulk action (initial) variables,
+. simulation metrics computation,
+. simulation metric domain/selection predicate matching,
+. synchronization reaction condition,
+. synchronization sorter evaluation,
+| Notifications
+a|. event filtering condition,
+. cc, bcc, body, subject, general recipient address, from, content-type expressions, generalized recipient, message attachments,
+. custom notifier expression,
+. custom message transport expressions,
+. validating to/cc/bcc addresses,
+. various expressions in SMS transport,
+. lot of expressions in legacy transports,
+| Provisioning
+a|. configuration properties,
+. delineation conditions,
+. shadow tag generation,
+| UCF
+a|. Asynchronous provisioning: some transformation of outbound messages,
+. Asynchronous update: processing of inbound messages
+| Reports
+a|. generic scripts in reports,
+. post-reports scripts
+. #TODO# (inbound reports?)
+| Workflows
+a| . auto-completion expressions,
+. approver expressions,
+. applicability condition (legacy change processor config)
+|===
+
+Interesting cases:
+
+. Expressions coming from various sources
+.. correlators (resource, system configuration)
+.. compiled collections/views
+.. policy rules
+.. approval schema fragments
+.. ?
+
+==== How to Authorize Management of Template-Based Objects
+
+There are objects that could be derived from templates (or super-objects): resources, archetypes, later maybe others.
+Do we need to specify authorization statements like:
+
+. You can create/modify _only_ resources derived from given template?
+. You can/cannot create/modify resources derived from given template?
