@@ -18,7 +18,8 @@ upkeep-status: yellow
 Connector for Grouper access management system.
 
 Group membership management, management of the "Subject" object type and also
-capabilities to read additional extension attributes of all object types.
+capabilities to read additional extension attributes of all object types. PostgreSQL database JDBX driver
+is a part of the connector distribution.
 
 == Capabilities and Features
 
@@ -37,6 +38,7 @@ as configuration property.
 | Live Synchronization
 | Yes
 |
+Using last modification timestamps. Supports "Group", "Subject" and "All" object classes.
 
 | Password
 | NO
@@ -47,12 +49,12 @@ as configuration property.
 |
 
 | Filtering changes
-| TODO
+| NO
 |
 
 | Paging support
-| TODO
-|
+| YES
+| Pagination using the Private Key which represents object ID
 
 | Native attribute names
 | YES
@@ -74,15 +76,17 @@ as configuration property.
 
 == Interoperability
 
-TODO: Grouper versions. etc ...
-
+* ConnId 1.5.1.3 (Evolveum release), which is part of midPoint 4.6.
+* PostgreSQL 15.2 and higher
+* TODO: Grouper versions. etc ...
 
 == Support
 
 This connector is _supportable_ by Evolveum.
 
 Evolveum can provide support for this connector.
-However, support for this connector is not provided on a routine basis and some special arrangements and customizations may be needed.
+However, support for this connector is not provided on a routine basis and some special arrangements
+and customizations may be needed.
 Please contact Evolveum representative for the details.
 
 == Configuration parameters
@@ -132,7 +136,17 @@ Please contact Evolveum representative for the details.
 | Yes , Configuration discovery will offer possible values.
 
 | Exclude Objects marked as Deleted
-| This option if set tp 'True' excludes the objects marked as Deleted from search results. If set to 'False' this could cause the IAM to misinterpret the object as 'not deleted' in the event of a reconciliation.
+| This option if set to 'True' excludes the objects marked as Deleted from search results. If set to 'False' this could cause the IAM to misinterpret the object as 'not deleted' in the event of a reconciliation.
+| True
+| Yes , Configuration discovery will offer possible values.
+
+| Enable ID based Paging
+| Id based pagination using the Private Key representing object ID for pagination. [default value is false]
+| True
+| Yes , Configuration discovery will offer possible values.
+
+| Maximum Page Size
+| The maximum number of records which will be returned by any connector operation, after which is processed a next set of records will be requested from the resource for further processing. [Used when 'Enable ID based Paging' is set to true]
 | True
 | Yes , Configuration discovery will offer possible values.
 
@@ -142,8 +156,25 @@ Please contact Evolveum representative for the details.
 * https://github.com/Evolveum/connector-grouper/blob/main/samples/resources/template/resource-template-grouper.xml[Resource Template]
 
 == Notes
-Currently under development.
+
 Connector working with the PostgreSQL based deployments of Grouper.
+
+Connector supports pagination and a 'max page size' configuration parameter. This will divide the query into multiple ones
+with outputs containing smaller number of rows (based on page size or the 'max page size' configuration parameter).
+There still can be the possibility of higher number of rows returned in case of an object having a large number of members or
+group memberships or a large number of auxiliary attributes.
+
+With 'Exclude Objects marked as Deleted' set to true the rows marked as 'deleted' are handled as not present.
+In case of rows present in the 'main' object tables, the objects will be handled as deleted. In case of
+rows present in the membership or auxiliary attributes tables the lack of the row will mean a removal of parameter value.
+
+The "Configuration discovery" operation among other functions will provide you with a list of possible names
+of auxiliary attributes which if selected will be incorporated in the attribute schema. This list of attributes can
+be changed in the resource configuration, after which the schema should be 'regenerated' ('refreshed').
+
+The "members" and "member_of" ("virtual" attributes) are not retrieved by default, the attribute configuration
+in the IAM has to explicitly request these attributes. The same applies to attributes originating from
+other tables as the main ones (Tables referred to as the main tables: "gr_mp_subjects" and "gr_mp_groups").
 
 == See Also
 TODO
