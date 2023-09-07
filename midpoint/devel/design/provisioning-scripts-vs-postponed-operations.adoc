@@ -1,0 +1,27 @@
+= Provisioning Scripts vs Postponed Operations
+
+MidPoint supports xref:/midpoint/reference/synchronization/consistency/[operation postponing], for example during resource maintenance, unavailability, or when grouping the operations.
+However, as of 4.8, this postponing does _not_ involve execution of provisioning scripts.
+
+See e.g. bug:MID-8942[].
+
+The primary reason is that the scripts to be executed are simply not recorded in `PendingOperationType` structure.
+They are computed by the `DeltaExecutor` in `model-impl` (just like the deltas) and then passed to `provisioning-impl` for execution.
+(They rely on the lens context, hence it is not possible to prepare their execution without it.)
+
+NOTE: There are also special `reconcile` scripts that are executed outside any provisioning operation.
+We don't talk about these here.
+They are not postpone-able at all.
+
+The more general reason for this is that we are not sure how exactly should the script execution postponing should look like.
+
+There are two kinds of scripts: "before" and "after" operation ones.
+Hence, in general, one can have a set of scripts to be executed before any operation, then there is the operation itself, and after it, another set of scripts to be executed.
+
+There are a lot of questions:
+
+* Should we keep track of what scripts were executed successfully, and postpone only those that were not?
+* Is this safe and error-proof enough?
+* If the operation itself fails, what scripts should be re-executed?
+* ...
+
