@@ -25,14 +25,6 @@ NOTE: We need to have user lifecycle figured, and mostly implemented/pre-configu
 The lifecycle management starts with HR import.
 But this is the point where it has to work well.
 
-TODO When to actually clean up the orphaned/inconsistent data?
-[loweralpha]
-. at the end of Step 2 (Assessment)
-. in Step 3 (Automation, Off-boarding phase)
-
-TODO It makes sense in Step 2, as we are doing clean up, but deleting orphaned accounts is irreversible.
-It also makes sense in Step 3, as this is where we already intend to modify the AD.
-
 == Username Generation
 
 We have previously imported all existing Active Directory usernames which became midPoint usernames.
@@ -40,13 +32,14 @@ Now it's time to prepare automation for this step.
 
 . Disable (or remove) the inbound mapping in HR resource which populates midPoint username
 . Disable (or remove) the inbound mapping in Active Directory resource which populates midPoint username
-. Choose and enable (or create your own) username mapping in object template for `Person` archetype which will generate username based on given name and family name (e.g. `jsmith`, including duplicate username resolution, such as `jsmith2`)
-.. If you wish to use midPoint username for Active Directory's `sAMAccountName`, keep its length to 20 characters or less.
-.. Keep this mapping _weak_. Usernames should never automatically change.
+. Choose and activate (or create your own) username mapping in `Person Object Template` (object template for `Person` archetype) which will generate username based on given name and family name (e.g. `jsmith`, resolving duplicate usernames with suffixes, e.g. `jsmith2`)
++
+TIP: The mapping can be used for `sAMAccountName` as it keeps the username under 20 characters (actually 8 + 2 digits for iterator)
+. Keep this mapping _weak_. Usernames should never automatically change.
 
 The new username policy is active from now on: for all new users created in the future.
 
-.Naming convention
+.Naming convention notes
 [NOTE]
 ====
 Make sure your naming convention is good enough to not collide with existing AD/LDAP accounts (or other objects) that won't be imported to midPoint.
@@ -59,181 +52,53 @@ In case you would like to have more automated solution, you may want to create y
 
 If your HR source already contains new records which have not yet been imported to midPoint, you can use the following mechanisms to double-check the username generator before going live:
 
-* single HR account import with preview (Production configuration)
-* simulated HR import task (Production configuration)
+* single HR account Import with preview action (_Production_ configuration)
+* simulated HR import task (_Production_ configuration)
 
 == On-Boarding Automation (Provisioning)
 
-*##TODO TODO TODO: How exactly we would do "joiners-only" without update and delete? If there is no state of user, or if we do not have DELETED reaction, we can avoid delete, but how to avoid Update/how to "tolerate" it? We have already AD outbound mappings. Even if we configure account to be kept (by having inducement for former employees too) or via disable instead of delete, there are still attribute mappings.##*
-
-In this step, turn on the on-boarding automation for the joiners ##(the accounts will be only created)##.
-##The existing accounts will be kept "as is".##
+In this step, turn on the on-boarding automation for the joiners ##(TODO TODO TODOthe accounts will be only created)##.
+##TODO TODO TODO The existing accounts will be kept "as is".##
 If, however, your data are good, you may roll out the automatic account updates as well.
 This is the right time to suspend your legacy on-boarding/provisioning process (e.g. scripts or manual processes).
 If the accounts will be also updated, the behaviour in midPoint will be set as "tolerant" for the account attributes which may be still managed by other solution(s), e.g. access rights managed by request/approve process using tickets etc.
 After the access right management is moved to midPoint, this tolerance should be turned off.
 
-Until any roles are created and conditions for their automatic assignment are defined, the on-boarding automation may simply create accounts in Active Directory for all active people from HR:
+Until any roles are created and conditions for their automatic assignment are defined, the on-boarding automation may simply create accounts in Active Directory for all people from HR:
 
 . Edit *Person* archetype
 . Add inducement for Active Directory resource account for all users with Person archetype
 . Create scheduled reconciliation task for HR resource
 
 
-TODO: one option is to specify conditions (probably in Archetypes/auxiliary archetypes) at least for active employees. We do not want that for former employees. (Temporarily) inactive employees are questionable.
-
-.Lifecycle-based idea from discussion 8.4.2022 updated 10.7.2023:
-====
-All people present in HR resource will have `Person` (structural) archetype assigned.
-
-Updated 10.7.2023: midPoint 4.8 won't have this table-like mapping feature. Standard expression mapping will be used.
-
-User's `lifecycleState` will be set using an inbound mapping in HR resource schema handling.
-We know the target property (`lifecycleState`), but we don't know the source attribute.
-The expression would be TODO: *NEW FEATURE REQUIRED* https://jira.evolveum.com/browse/MID-8828[MID-8828] new expression evaluator to specify the values using a "table" (configuration in the expression; but also Lookup table may be used).
-
-Example:
-
-
-|===
-|HR Attribute |Value(s) |Meaning
-
-|status
-|1,5,7
-|Active employee
-
-|status
-|56,223
-|Temporarily inactive employee
-
-|status
-|18,2
-|Former employee
-|===
-
-
-We may need different names for the lifecycle values to cover:
-
-* `active` (we already have this state)
-* `suspended`
-* `former`
-* `archived` (we already have this state)
-
-Transitions between the states must be configurable.
-Using this configuration we can define:
-
-* if the user/accounts should be enabled/disabled
-* if the assignments should be enabled/disabled
-* if the assignments should be unassigned
-
-The goal is to provide configuration to achieve the following:
-
-. active users have active accounts
-. suspended users have disabled accounts, inducements are kept enabled
-. former employees have disabled accounts with optional delayed delete. Their assignments are disabled (not removed) too. (But all these operations are reversible.)
-. archived users are former employees after some period or users which are no more in HR source. Attribute mappings may be ignored. We keep these users mostly to keep their identifiers and avoid reusing them for others.
-
-[cols="h,1,1,1,1"]
-|===
-|State |User |Accounts |Inducements |Attribute mappings
-
-|active
-|enabled
-|enabled
-|enabled
-|applied
-
-|suspended
-|disabled
-|disabled
-|enabled
-|applied
-
-|former
-|disabled
-|disabled
-|disabled
-|applied
-
-|archived
-|disabled
-|disabled
-| ##? removed##
-|ignored
-
-|===
-
-====
-
-.Archetype-based idea from discussion with Radovan 5.4.2022:
-====
-TODO: rephrase this if we go this way.
-
-All people coming from HR resource will have `Person` (structural) archetype assigned.
-
-Based on person _status_, additional auxiliary archetypes may be assigned, such as:
-
-* `Active Employee`
-* `Temporarily Inactive Employee`
-* `Former Employee`
-* `Archived Employee` (see below)
-
-The auxiliary archetypes will contain the inducements to account construction (if no roles are used).
-
-Assignment of `Active Employee` auxiliary archetype may create the accounts.
-
-Assignment of `Inactive Employee` or `Former Employee` auxiliary archetype must _replace_ the `Active Employee` auxiliary archetype assignment.
-These archetypes may not have any inducements at all.
-This, with configuration of "disable instead of delete" in AD resource will deactivate the accounts when the person state changes.
-
-TODO: If no leavers should be processed by midPoint yet, we need a non-authoritative inbound mapping in HR resource for the auxiliary archetype assignment. That will keep the `Active Employee` archetype assigned, which is certainly not ideal.
-
-`Archive Employee` archetype _may_ be used for archival purposes, if we can have lifecycle state change from `Former Employee` -> `Archive Employee` somehow automated (with GDPR-like data clean-up etc.).
-Delayed delete of accounts may be needed.
-
-The archetype(s) (probably `Active Employee`) can be incrementally enhanced with more and more account inducement for joiners when new resources are integrated into the automation phase. (A recomputation of users may be needed.)
-
-*Advantage*: even when no roles are defined, archetypes are role-like objects.
-
-*Disadvantage*: definition of the archetypes and their assignments conditions are needed. Even if the structural archetype can be (later) assigned directly in the `<objectSynchronization>` element, this does not solve the auxiliary ones.
-
-*Questionable*: do we want to automate joiners but not leavers...?
-
-TODO: maybe we need a declarative way of specifying the conditions for specific archetypes (also auxiliary, perhaps conditional) in the `<objectSynchronization>`? Or simply a copy/paste mapping (set of mappings) will be needed in the HR resource?
-
-TODO: *Auxiliary archetypes are not yet claimed to be supported* (according to xref:/midpoint/reference/schema/archetypes/configuration/[], probably missing documentation, tracked as bug:MID-7515[] (TODO no fix version in JIRA!)).
-This will be needed.
-We will need to display it as well.
-Already tracked as bug:MID-7525[] (TODO no fix version in JIRA!).
-====
-
-TODO: if we want to allow updates only for accounts created by midPoint (not linked during initial reconciliations), we need to have some additional information/metadata in the shadows.
+##TODO##: if we want to allow updates only for accounts created by midPoint (not linked during initial reconciliations), we need to have some additional information/metadata in the shadows.
 Maybe even some marking - done before this phase, to mark existing shadows. Such accounts can be then handled similarly to protected accounts - just no errors to be printed, simply ignore provisioning for them.
-
-TODO: maybe start with reconciliation instead of Live Synchronization to allow thresholds. (Thresholds for Create-only are maybe not relevant, but for updates...) For small organizations, reconciliation should be fast enough to run daily/more often. Batch vs event-driven. In case the source data is deleted instead of disabled, we may need reconciliation for off-boarding phase anyway.
 
 == Off-Boarding Automation (Deprovisioning)
 
-* TODO we need to distinguish when to do off-boarding by some conditions (i.e. account assignment should be unassigned when employee is inactive) - need to figure out the entire recommended user lifecycle.
-+
-See the box above where archetypes are mentioned. This may be the solution.
-* TODO we prefer disabling users in midPoint rather than deleting, or even better: use lifecycle states
-* TODO archive midPoint users instead of just disabling? We would keep track of previous usernames this way.
-** This would not be possible using synchronization reaction. If we could distinguish that that account should be considered `archived` in HR (e.g. via configured capability?) we could have a new situation + new reaction *NEW FEATURE REQUIRED*
-** lifecycle transition to `archived` can clean up some attributes (GDPR-like)
-** delayed user deletion after X years in `archived` (optional; keeping usernames helps to prevent their reuse)
-* TODO always prefer disabling accounts rather than deleting. If delete is needed, use delayed delte (grace period).
-We certainly do *not* want to immediately delete accounts, as this may cause irreparable damage (e.g. deleted homedir or mailbox).
-Disabled account can be easily re-enabled, deleted account cannot.
-* TODO: This "disable instead of delete" should be pre-configured in the AD resource template.
+The automation between HR and midPoint covers on-boarding as well as off-boarding as data is transferred from HR to midPoint and then from midPoint to Active Directory.
+
+##TODO: mention how the lifecycle will behave for former employees. The accounts should be ideally disabled (indefinitely or for some time and then deleted)##
+
+If Lifecycle state is used, `Suspended` users' accounts in Active Directory will be disabled.
+
+Users will be kept in midPoint indefinitely.
 
 == Follow-Up Steps
 
-. *Automate scans* for orphaned accounts with automatic reaction (or reporting/notification).
+The next steps can include:
+
+. *Add additional source system* e.g. for additional populations
+
+. *Add additional target system*
+
+. *Automate scans* for orphaned accounts in Active Directory with automatic reaction (or reporting/notification).
 
 . *TODO: Start moving self-service (password change/reset) to midPoint? Probably makes not much sense if only AD is provisioned by midPoint.*
 
-. *Switch from batch mode to event-driven synchronization from HR*.
+. *Switch from batch mode to event-driven synchronization (Live synchronization) from HR*.
+
+. *Import existing Active Directory groups as roles and assign these roles* to midPoint users corresponding to the AD group members
 
 . (Probably in IGA phase) *Start creating roles* for request/approvals (based on existing roles in the organization). Move request/approval process to midPoint.
 
