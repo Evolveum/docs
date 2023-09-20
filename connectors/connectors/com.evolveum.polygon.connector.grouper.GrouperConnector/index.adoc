@@ -1,9 +1,9 @@
 ---
 layout: connector-page
 display-order: 200
-functionality-status: unknown
+functionality-status: stable
 development-status: active
-support-status: unknown
+support-status: supportable
 origin: Evolveum
 support-provided-by: Evolveum
 target-systems: Grouper (Internet2 et al.)
@@ -17,9 +17,11 @@ upkeep-status: yellow
 
 Connector for Grouper access management system.
 
-Group membership management, management of the "Subject" object type and also
+It supports group and group membership management, management of the "Subject" object type and also
 capabilities to read additional extension attributes of all object types. PostgreSQL database JDBX driver
 is a part of the connector distribution.
+
+Grouper is exporting data to intermediary PostgreSQL database using https://spaces.at.internet2.edu/display/Grouper/Grouper+MidPoint+provisioner[midPoint provisioner] from where this connector reads all the data. This architecture uses the grouper provisioning capabilities which are optimized for performance and throughput.
 
 == Capabilities and Features
 
@@ -34,6 +36,7 @@ as configuration property.
 | Provisioning
 | NO
 |
+This connector was designed as read-only.
 
 | Live Synchronization
 | Yes
@@ -85,8 +88,8 @@ Using last modification timestamps. Supports "Group", "Subject" and "All" object
 == Interoperability
 
 * ConnId 1.5.1.3 (Evolveum release), which is part of midPoint 4.6.
-* PostgreSQL 15.2 and higher
-* TODO: Grouper versions. etc ...
+* Any supported PostgreSQL version (tested with PostgreSQL 15.2)
+* TODO: Grouper version
 
 == Support
 
@@ -159,7 +162,8 @@ Please contact Evolveum representative for the details.
 | Yes , Configuration discovery will offer possible values.
 
 | Include in 'ALL' searches
-| Define a set of attributes which will be explicitly fetched in an 'ALL' object class search. This serves as an workaround for the lack of "ATTRS_TO_GET" operation options values.  (Please see 'notes' and also please see https://docs.evolveum.com/connectors/connid/1.x/connector-development-guide/#attributes-to-get[Attributes To Get] )
+| Define a set of attributes which will be explicitly fetched in an 'ALL' object class search. This serves as an workaround for the lack of "ATTRS_TO_GET" operation options values.  (Please see 'notes' and also please see https://docs.evolveum.com/connectors/connid/1.x/connector-development-guide/#attributes-to-get[Attributes To Get] ) +
+LiveSync task that work with all object classes requires this parameter to contain values 'members' and 'memberOf'.
 | members, memberOf
 | No
 
@@ -168,9 +172,15 @@ Please contact Evolveum representative for the details.
 == Resource Examples
 * https://github.com/Evolveum/connector-grouper/blob/main/samples/resources/template/resource-template-grouper.xml[Resource Template]
 
+
+== LiveSync Task Examples
+* https://github.com/Evolveum/connector-grouper/blob/main/samples/tasks/live-sync-grouper.xml[LiveSync Task Sample]
+* The liveSync task is processing both Groups and Subject object at the same time. That will prevent race condition types of conflicts when a new group is created and populated with users. In that case it's important to process the group before the subjects (and their memberships).
+* The LiveSync task which synchronizes both object classes requires 'Include in ALL searches' configuration parameter contains values 'members' and 'memberOf'. See https://jira.evolveum.com/browse/MID-8996[MID-8996] for details.
+
 == Notes
 
-Connector working with the PostgreSQL based deployments of Grouper.
+Connector requires PostgreSQL based intermediary database. Grouper might use arbitrary database engine. 
 
 Connector supports pagination and a 'max page size' configuration parameter. This will divide the query into multiple ones
 with outputs containing smaller number of rows (based on page size or the 'max page size' configuration parameter).
