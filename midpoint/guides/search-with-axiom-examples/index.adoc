@@ -6,7 +6,9 @@ Midpoint provides multiple mechanisms to xref:/midpoint/reference/concepts/query
 
 The document is intended for users who understand midPoint concepts and architecture (IDM operators, administrators, engineers,...). They can use the AXIOM language in deeper analysis and searching for the objects and their relations in GUI.
 
-Although this document specifies to GUI usage, AXIOM query language can be used not only there but also in other queries instead of XML query language.
+Although this document specifies to GUI usage, AXIOM query language can be used not only there but also in internal queries instead of XML query language.
+
+NOTE: The AXIOM query language is undergoing rename to Midpoint Query Language since midPoint version 4.8. As the AXIOM name is well known, it can and will be still referenced also with this name. Please consider _AXIOM query language_ and _Midpoint query language_ as synonyms.
 
 == Basic Information
 
@@ -43,13 +45,13 @@ image:axiom-save-search.png[Save filter]
 
 == AXIOM Query Examples
 
+=== Search by attributes in objects and references
+
 [options="header", cols="20, 30, 40"]
 |===
 |Request
 |AXIOM Query
 |Details
-
-3+|*Search by attributes in object*
 
 |Find users with specific given name
 |`givenName = "John"`
@@ -105,10 +107,17 @@ To search these attributes you need to include "extension/" in the attribute nam
 |Find users modified in specific second
 |`metadata/modifyTimestamp >= "2022-10-02T12:53:32"and metadata/modifyTimestamp < "2022-10-02T12:53:33"`
 |
+|===
 
-3+|*Search through assignments or inducements* +
+=== Search through assignments or inducements
+
 These searches are valid in views listing objects - users, roles, services. For searches in the object panels see below.
 
+[options="header", cols="20, 30, 40"]
+|===
+|Request
+|AXIOM Query
+|Details
 |Find users with specific roles directly assigned
 |`assignment/targetRef/@/name = "End user"`
 |
@@ -146,7 +155,7 @@ and intent = "default"
 )`
 |Resource is identified by OID
 
-Note: For detail explanation of the query please check additional xref:/midpoint/reference/concepts/query/axiom-query-language/examples/[Example AXIOM queries] page.
+Note: For detail explanation of the query please check additional xref:/midpoint/reference/concepts/query/axiom-query-language/examples/[example AXIOM queries] page.
 
 |Users with account on specific resource
 |`linkRef/@ matches ( +
@@ -160,9 +169,22 @@ and intent = "default" )`
 |In roles view, find all roles that are assigned to specific user
 |`. referencedBy (@type = UserType AND name = "adam" AND @path = assignment/targetRef)`
 | Dot is important in the query.
+|===
 
-3+|*Searching in All accesses panel (supported since version 4.7)* +
+=== Searching in All accesses panel
+
 View in "All accesses" panel displays content of "roleMembershipRef" attribute. So name of this attribute must be excluded from the queries.
+
+++++
+{% include since.html since="4.7" %}
+++++
+
+[options="header", cols="20, 30, 40"]
+|===
+|Request
+|AXIOM Query
+|Details
+
 |All assigned roles
 |`. matches (targetType = RoleType)`
 |You can also use ServiceType for services or OrgType for organizational units.
@@ -174,9 +196,21 @@ View in "All accesses" panel displays content of "roleMembershipRef" attribute. 
 |All applications where the user has access
 |`@/archetypeRef/@/name="Application"`
 |This searches for all references with archetype named "Application". The same way you can search for "Application role" or "Business role".
+|===
 
-3+| *Searching in user assignments* +
-Views in "Assignments" panels display content of "assignment" attribute. So name of this attribute must be excluded from the queries.
+=== Searching in Assignments panels
+
+Views in assignments panels display content of the "assignment" attribute. So name of this attribute must be excluded from the queries.
+
+++++
+{% include since.html since="4.7" %}
+++++
+
+[options="header", cols="20, 30, 40"]
+|===
+|Request
+|AXIOM Query
+|Details
 
 |All roles assigned directly
 |`targetRef matches (targetType = RoleType)`
@@ -184,7 +218,119 @@ Views in "Assignments" panels display content of "assignment" attribute. So name
 
 |All assignments (roles or other) with name starting with "C"
 |`targetRef/@/name startsWith "C"`
-|NOTE: Dereferencing (search with @) is working in the assignment panel only when xref:../assignment-repository-search/index.adoc[repository search is enabled]. This is not enabled by default.
+|Dereferencing (search with @) is working in the assignment panel only when xref:../assignment-repository-search/index.adoc[repository search is enabled].
+//TODO - here link to error message description.
+|===
+
+=== Searching in Tasks
+
+Standard structure of the task object was not prepared for searching.
+Therefore, additional element `affectedObjects` allowing convenient searching of the tasks by affected objects and their execution mode was induced in 4.8.
+
+++++
+{% include since.html since="4.8" %}
+++++
+
+[options="header", cols="20, 30, 40"]
+|===
+|Request
+|AXIOM Query
+|Details
+
+|All tasks acting on users
+|`affectedObjects/activity/objects/type = "c:UserType"`
+|
+
+|All tasks performing reconciliation
+|`affectedObjects/activity/activityType = "c:reconciliation"`
+| Include namespace specification "c:" in the activity type. +
+Technically, the reconciliation tasks may be searched also via archetype.
+
+|All tasks performing any operation with the resource XYZ
+|`affectedObjects/activity/resourceObjects/resourceRef/@/name = "XYZ"`
+|
+
+|All tasks performing reconciliation on the resource XYZ
+|`affectedObjects/activity/activityType = "c:reconciliation" and affectedObjects/activity/resourceObjects/resourceRef/@/name = "XYZ"`
+|You can use archetype and resource OIDs as well, just using dereferenced names is easier to read.
+
+|All simulation tasks
+|`affectedObjects/activity/executionMode = "preview"`
+|Simulation tasks are in the "preview" mode. Standard tasks that also execute changes have execution mode "full".
+
+|===
+
+=== Searching in Audit Events
+
+You can utilize AXIOM searches as well in Audit Log Viewer. It will allow you to review for failed events, select specific objects and operations.
+
+Instead of basic search, there is no specific timeframe defined for each search. Please use timestamp specification while searching in audit. It will increase search speed significantly. Especially in large audit searches.
+
+The search in deltas is available since version 4.8.
+++++
+{% include since.html since="4.8" %}
+++++
+
+[options="header", cols="20, 30, 40"]
+|===
+|Request
+|AXIOM Query
+|Details
+
+|All events initiated by specific user
+|`initiatorRef/@/name = "administrator"`
+|
+
+|All events related to specific object
+|`targetRef matches (oid = "a560613e-ce4c-4020-a7c7-3de1af706234")`
+| NOTE: Dereferencing doesn't work now - MID-9097. As a workaround, you can search via OID.
+// TODO: Checknut, ked bude vyriesena MID-9097, ci  `targetRef/@/name = "johndoe"` funguje. Ak ano, doplnit sem.
+
+|All events in specific day
+|`timestamp >= "2023-09-18" and timestamp < "2023-09-19"`
+|
+
+|All events within specific time range
+|`timestamp >= "2023-09-19T11:00:00" and timestamp < "2023-09-19T13:10:00"`
+|
+
+|All events of specific type
+|`eventStage = "request"`
+|
+
+|All failed events since specific date
+|`outcome != "success" and timestamp > "2023-09-18"`
+|You can't use scripting in GUI search. Therefore, the dates must be defined explicitly and updated if necessary.
+
+
+|All events related to resource "XYZ"
+|`delta matches (resourceName = "XYZ")`
+|This is also possible via resource OID, without dereferencing: `delta matches (resourceOid = "71dcd12f-dba3-437e-bc0d-b021d937832d" )`
+
+|All events related to account "john" on the resource "XYZ"
+|`delta matches (resourceName = "Target2-with-roles") and delta matches (shadowKind = "account" and objectName = "john")`
+|Delta components - "resourceName" and "objectName" contain values relevant during the event creation. These may be modified afterwards.
+
+|All events related to user "JohnDoe" on the resource "XYZ"
+|`delta matches (resourceName = "XYZ" and targetRef matches (oid = "a560613e-ce4c-4020-a7c7-3de1af706234")`
+|The previous select was searching of the modification of the defined account on the defined resource. This search is providing audit events on the specified resource related to specific user (not only accounts, but may be also entitlements or accounts with different names) +
+NOTE: Dereferencing of the user name doesn't work now - MID-9097. As a workaround, you can search via OID.
+
+|All events generated by specific task (any run)
+|`taskOID="4a9b055d-2d31-474a-8e39-6a2e6ac104a2"`
+|
+
+|All events generated by specific task (single run)
+|`taskIdentifier = "1695198082065-43516-1"`
+|The task identifier is individual for each run of the task.
+
+|All object modifications that didn't went well
+|`eventType = "modifyObject" and eventStage = "execution" and outcome != "success"`
+|
+
+|All events where accounts on the resource "XYZ" were created or modified
+|`delta matches (resourceName = "XYZ") and delta matches (shadowKind = "account")`
+|
 
 |===
 
