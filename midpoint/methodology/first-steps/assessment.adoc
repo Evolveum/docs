@@ -26,6 +26,12 @@ There will be accounts using maiden names of women that are married now.
 There will be strange accounts and identifiers that originated ages ago when your organization was still small and system administration was fun.
 There may be all kinds of weirdness and historical baggage frozen in time because nobody remembers what it does and everybody is scared to touch it.
 
+In general, when deploying identity management system to an existing environment, we need to take extra care of the following:
+
+. *usernames*: midPoint usernames should be the same as for the main target systems (e.g. Active Directory/LDAP)
+. *accounts*: we should not harm any existing accounts in an unexpected way
+. *passwords*: we should not alter (e.g. re-generate) any existing account password
+
 Taking HR data and simply forcing them to Active Directory will never work.
 We need much smarter approach.
 
@@ -65,39 +71,43 @@ We will import the usernames from AD/LDAP later.
 //You surely have some username convention (such as `jsmith`) in place.
 
 Start with importing a single HR account with preview option to see how the user would be created in midPoint.
-Then you can simulate the import using a _Development_ mode to see how all the users would be created in midPoint.
+Then you can xref:/midpoint/reference/simulation/[simulate] the import of all HR accounts using a simulated import task running with _Development_ configuration to see how all the users would be created in midPoint.
+
+You can continually improve your imported data by adding more attribute mappings.
 
 When finished, switch the HR resource to `Active` lifecycle state.
 
 Now you can import the HR data, creating user objects in midPoint.
 As we are working with simple data for now, the import should go well.
 
-You can continually improve your imported data by adding more attribute mappings.
-
-We recommend to set midPoint user's `lifecycleState` property based on HR data as either:
-
-* active
-* suspended (e.g. temporarily inactive employees - parental leave, long-term sickness etc.)
-* archived (e.g. former employees)
-
-.##User lifecycle##
+.User lifecycle
 [NOTE]
 ====
 This is where user lifecycle management starts.
 
 We need at least some basic framework for user lifecycle management at this point.
 
-If we can identify inactive HR persons, we can utilize this information when checking for accounts in target systems that should not be there (if we do not import inactive users from HR, we will see their accounts in target systems as simply orphaned).
+If we can identify inactive (former) HR persons, we can utilize this information when checking for accounts in target systems that should not be there (if we do not import inactive users from HR, we will see their accounts in target systems as simply orphaned).
 ====
+
+Instead of setting user's `administrativeStatus`, we recommend to set midPoint user's `lifecycleState` property based on HR data as either:
+
+* active
+* suspended (e.g. temporarily inactive employees - parental leave, long-term sickness etc.)
+* archived (e.g. former employees)
 
 [#connect-active-directory]
 == 3. Connect Active Directory
 
 *Set up your Active Directory (or LDAP) identity resource* in midPoint and keep it in `Proposed` lifecycle state.
 Create Object type definition for AD accounts and keep it in `Proposed` lifecycle state as well.
+
 Set up outbound mappings for the small data set that you have (given name, username and so on) and keep them in `Draft` lifecycle state (effectively disabled).
+
 Configure correlation rules for AD accounts.
+
 Configure synchronization configuration in `Proposed` lifecycle state.
+
 We do not want to change any data in Active Directory yet.
 
 .Resource templates
@@ -125,7 +135,7 @@ After configuring correlation and synchronization (while the resource, object ty
 If you maintained your identifier assignment conventions reasonably well, most identities should correlate well.
 MidPoint will show you correlation statistics for your accounts.
 
-Of course, if the correlation is not able to use the personal/employee numbers, there will be problems of `John Smith` and `Josh Smith` with their `jsmith` and `jsmith42` accounts.
+Of course, if the correlation is not able to use the personal/employee numbers, just users' names, there will be problems of `John Smith` and `Josh Smith` with their `jsmith` and `jsmith42` accounts.
 Let's leave that for later.
 For now just focus on correlating the bulk of users.
 
@@ -143,23 +153,24 @@ The orphaned accounts generally fall into the following categories:
 . *Obviously orphaned accounts*:
 Review the list of orphaned accounts (the accounts in Active Directory not having an owner in midPoint which should mean they are not related to HR data on which midPoint data is based) one by one and make sure these are _not_ system accounts (see the _System (service) accounts_ category).
 +
+Be careful if your HR system does not contain/export former employees data; in such situation you will not have the former employees in midPoint as users and their Active Directory accounts will be also considered orphaned.
++
 If you are absolutely sure the accounts should be deactivated, you do not need to mark them and leave them to their (later) fate.
 
 . *Orphaned accounts of unclear origin*:
 Review the list of orphaned accounts (the accounts in Active Directory not having an owner in midPoint which should mean they are not related to HR data on which midPoint data is based) one by one and make sure these are _not_ system accounts (see the _System (service) accounts_ category).
 +
-xref:/midpoint/methodology/first-steps/solution/#explicitly_marking_accounts_for_decommissioning[_Mark_ the undesired ones as Decommission later] to be deactivated eventually (but not immediately).
+xref:/midpoint/reference/mark/[_Mark_ the undesired ones as Decommission later] to be deactivated eventually (but not yet).
 
 . *System (service) accounts*:
 For all accounts that are crucial for Active Directory, we need a different decision.
 +
-xref:/midpoint/methodology/first-steps/solution/#explicitly_marking_accounts_as_protected[_Mark_ the system accounts as Protected in midPoint] to keep track of them, but ignore them otherwise by midPoint.
+xref:/midpoint/reference/mark/[_Mark_ the system accounts as Protected in midPoint] to keep track of them, but ignore them otherwise by midPoint.
 
 . *Accounts unmatched because of data inconsistencies.*
 Review the rest of accounts which have not been matched or decided in the previous steps.
 This is the time to take care of the Smiths, Johnsons and Browns if no reasonably unique attribute could have been used for their correlation.
-Have a look at all the `jsmith`, `smithj` and `jsmith2` accounts.
-If possible, update your correlation configuration to use more attributes to find matching users.
+If possible, update your correlation configuration to use more attributes to find matching users (e.g. Given name, Family name, Location, ...).
 +
 You can also try to figure out which account belongs to which user and correlate them manually.
 +
@@ -171,13 +182,13 @@ Sometimes there are several accounts (or groups of accounts) which need to be re
 To avoid getting stuck in this phase, you may simply mark these accounts for later review ("Do not touch") and ignore any provisioning for them fow now.
 (This is actually similar to the concepts of protected accounts, but having a different mark allows us to differentiate the accounts. We want them marked only temporarily, and they will be reported.)
 
-We also recommend to *review the accounts marked in previous iterations* to avoid a constant increase of their numbers.
+TIP: We recommend to *review the accounts marked in previous iterations* to avoid a constant increase of their numbers.
 
 After you have finished marking of your accounts, you can run the simulated _reconciliation_ task with _Development_ configuration again.
 Your marked accounts should not be reported to be deactivated anymore.
-Not marked orphaned accounts should be still reported as to be deactivated.
+Orphaned accounts which are not marked should be still reported as to be deactivated.
 
-Switch the resource, object type configuration and all synchronization actions except `Unmatched` to `Active` lifecycle state, and:
+Switch the resource, object type configuration and all synchronization actions except for `Unmatched` situation to `Active` lifecycle state, and:
 
 . Run the simulated _reconciliation_ task on AD resource using _Production_ configuration.
 . Then have a look at the simulation results in midPoint GUI (interactively). Orphaned accounts should not be touched anymore - we will resolve them later, the synchronization configuration for them won't be used now (just in simulations).
@@ -195,21 +206,17 @@ You may even need to update your HR resource configuration (e.g. if you forgot t
 Therefore, we assume you will work in iterations.
 Simulations will guide you all the way.
 
-//In case of deeper problem, it is still OK to scrap your AD resource and do it again (go back to <<connect-active-directory,step 3>>).
-//Maybe you need to grab more data from HR feed (e.g. you may have forgotten to map employee number to midPoint).
-//In that case you still can purge all identity data from midPoint, adjust HR configuration and import everything again (go back to <<import-users-from-hr,step 2>>).
-
 == 5. Import Active Directory usernames
 
 Until now, users in midPoint have been created with employee number (or similar) attribute from HR.
 But your users already have Active Directory usernames.
 We can reuse them also for midPoint users - the advantage will be more obvious later, if we switch the midPoint authentication mechanism to use Active Directory.
 
-Re-configure the original HR inbound mapping for midPoint username: set its strength to weak.
-This way it will be still possible to create midPoint users who have no Active Directory account, but AD username will have higher priority.
+Re-configure the original HR inbound mapping for midPoint username: set its strength to _weak_.
+This allows to still create midPoint users who have no Active Directory account, but AD username will have higher priority.
 
 Re-configure your Active Directory resource: add a new _inbound_ mapping from AD's login attribute to midPoint username.
-The mapping will be created as strong by default, to take precedence over HR, but keep the mapping lifecycle state `Proposed` for now.
+The mapping will be created as _strong_ by default, to take precedence over HR, but keep the mapping lifecycle state `Proposed` (simulation) for now.
 
 Simulate the username import:
 
@@ -237,7 +244,7 @@ Import the usernames now:
 
 . Run the _reconciliation_ task on AD resource.
 . Majority of your midPoint users should be renamed according to their Active Directory usernames.
-. Users without accounts in Active Directory will keep their original usernames from HR (based on e.g. employee number). Such users (without Active Directory accounts) can be easily found in midPoint.
+. Users without accounts in Active Directory (e.g. still uncorrelated) will keep their original usernames from HR (based on e.g. employee number). Such users (without Active Directory accounts) can be easily found in midPoint using GUI.
 
 == 6. Clean Up The Accounts
 
@@ -250,7 +257,7 @@ Unmarked orphaned accounts should be indicated for deactivation.
 
 You are ready for clean up procedure:
 
-. re-configure synchronization action for `Unmatched` situation: set it to `Active` lifecycle state
+. re-configure synchronization action for `Unmatched` situation: set it to `Active` lifecycle state. By this change we are moving the configuration from simulation to the reality.
 . run _reconciliation_ task with Active Directory with _Production_ configuration to see what would happen one last time. If the simulation results correspond to what you have seen earlier with _Development_ configuration, continue.
 . run _reconciliation_ task with Active Directory
 . unmarked orphaned accounts should be deactivated
@@ -270,7 +277,7 @@ Attempts to automate processes with unreliable data are futile, they invariably 
 Speaking from a couple of decades of identity management experience, there is no such thing as reliable data, unless the data are cleaned up and systematically maintained with an assistance of identity management platform.
 Simply speaking: you may think that our data is good, but they are not.
 
-== 7. Prepare Active Directory for provisioning
+== 7. Prepare Active Directory for Provisioning
 
 Before turning on automation, we need to ensure the provisioning configuration for Active Directory resource is correct.
 Especially if you are preparing the configuration in iterations, you need to make sure you are going right direction.
@@ -278,24 +285,22 @@ Simulations will guide you all the way.
 
 Prepare / update outbound attribute mappings for your Active Directory attributes that you wish to provision.
 If you want to force midPoint policy for attributes, you would need to make your mappings strong (this is default if you use GUI to create the mappings).
-Set your mappings' lifecycle state to `Proposed` to allow simulations.
+Set your mappings' lifecycle state attributes to `Proposed` to allow simulations.
 
 Prepare / update outbound password mapping(s) for your Active Directory:
 
 . to generate _initial_ (strength: weak) random password for any _new_ Active Directory account from now on.
 The password will be forgotten; users need to cooperate with AD administrators or Helpdesk to gain their first credentials.
-. to allow passing midPoint password changes to Active Directory (if you wich to use midPoint for AD password changes).
-
-Set your credentials mappings' lifecycle state to `Proposed` to allow simulations.
+. to allow passing midPoint password changes to Active Directory (if you wish to use midPoint for AD password changes).
+. set your credentials mappings' lifecycle state to `Proposed` to allow simulations.
 
 Passwords may be also changed via Active Directory as usual (or both).
 
 Prepare / update outbound activation mapping(s) for your Active Directory:
 
 . to enable/disable Active Directory accounts based on midPoint user's Lifecycle state
-. (optional) configuration for Disable instead of delete, Delayed delete etc. - if needed
-
-Set your activation mappings(s') lifecycle state to `Proposed` to allow simulations.
+. (optional) xref:/midpoint/reference/resources/resource-configuration/schema-handling/activation/#predefined-activation-mapping/[configuration] for Disable instead of delete, Delayed delete etc. - if needed
+. set your activation mappings(s') lifecycle state to `Proposed` to allow simulations.
 
 NOTE: midPoint authentication against Active Directory (or LDAP) is assumed for later steps.
 
@@ -303,13 +308,13 @@ Then you can start your simulations:
 
 . Run the simulated _reconciliation_ task on AD resource using _Development_ configuration.
 . Then have a look at the simulation results in midPoint GUI (interactively).
-. Inspect the results: if midPoint would change existing attributes, states or even passwords in Active Directory or add new values, there should be a reason for, e.g.: policy vs data inconsistency
+. Inspect the results: if midPoint would change existing attributes, states or even passwords in Active Directory or add new values, there should be a reason for, e.g.: policy vs data inconsistency, such as:
 .. Active Directory attributes are incorrect/missing, midPoint attributes based on HR data are correct.
 .. Active Directory attributes are correct, midPoint attributes based on HR data are incorrect
 .. mappings have errors (you need to correct them)
 . Fix data vs policy inconsistency by using one or several mechanisms:
 .. let midPoint to override data in Active Directory
-.. fix data in HR/midPoint and reimport
+.. fix data in HR/midPoint and reimport the user(s)
 .. adjust midPoint policies (e.g. outbound attribute mappings)
 .. define exceptions for specific accounts (e.g. using marks)
 .. escalate the situation to let someone help (or decide)
@@ -318,7 +323,7 @@ Then you can start your simulations:
 *When all the inconsistencies are resolved, you are prepared.*
 You can turn on the provisioning:
 
-. Set all outbound mappings to `Active` lifecycle state
+. Set all required outbound mappings including the mappings for activation and credentials to `Active` lifecycle state
 . Run the simulated _reconciliation_ task on AD resource using _Production_ configuration
 . Then have a look at the simulation results in midPoint GUI (interactively) one last time.
 . Run the _reconciliation_ task on AD resource
