@@ -50,30 +50,80 @@ Custom repository needs to be added to use snapshot builds:
 
 == Release Procedure
 
-. update information about studio version
-.. edit `studio-idea-plugin/README.md` if needed (plugin description)
-.. update `studio-idea-plugin/CHANGELOG.md`, this will show up in what's new
-. check `studio-idea-plugin/gradle.properties`
-.. validate `pluginSinceBuild` and `pluginUntilBuild` values
-.. make sure `platformVersion` contains lowest possible version of supported IDE (based on pluginSinceBuild)
-.. make sure `pluginVerifierIdeVersions` contains list of all supported IDE versions, their last patched versions
-.. make sure newest `EAP` version is included in `pluginVerifierIdeVersions` if it's available
-. align git branches
-.. `master` -> `snapshot` if snapshot build is being published
-.. `snapshot` -> `stable` if stable build is being published
-. in project run `./gradlew clean buildPlugin verifyPlugin runPluginVerifier`
-.. check validation results in `studio-idea-plugin/build/reports/pluginVerifier/*/report.html`
-. execute jenkins job `midpoint-studio-release` with `PUBLISH=true` and proper release branch
-.. go to `https://plugins.jetbrains.com/plugin/13809-midpoint-studio/versions`
-* validate published plugins/versions
-.. go to `https://github.com/Evolveum/midpoint-studio/releases`
-* validate created git tags for each published build
-.. notifications from Jetbrains Marketplace will be sent after:
-... plugin was uploaded
-... plugin compatibility was checked
-... plugin was approved
-. if stable version was released
-.. on `master` branch update plugin version in `build.gradle` and change notes in `plugin.xml`
+. Pre-release
++
+[.purple]#Changes should be done on `master` branch.#
++
+.. Update information about studio version
+... Edit `studio-idea-plugin/README.md`, this text will be shown in plugin description.
+... Update `studio-idea-plugin/CHANGELOG.md`, this will show up in what's new.
+.. Review `studio-idea-plugin/gradle.properties`
+... Check `pluginSinceBuild` and `pluginUntilBuild` values.
+... Check `settings.gradle.kts` and midPoint version dependency.
++
+Make sure no snapshot version is used.
+Major and minor version of midpoint must match major and minor version of studio.
+We currently support 3 latest IDE versions (4 if there's EAP version available).
+... Make sure `platformVersion` contains lowest possible version of supported IDE (based on pluginSinceBuild).
+... Make sure `pluginVerifierIdeVersions` contains list of all supported IDE versions, their last patched versions.
+... Make sure newest `EAP` version is included in `pluginVerifierIdeVersions` if it's available.
+.. Run clean & build if there were changes:
++
+[source, bash]
+----
+./gradlew clean buildPlugin verifyPlugin runPluginVerifier
+----
++
+. Release
+.. Align git branches
+... If *snapshot* build is being released: `master` -> `snapshot`. Use git merge:
++
+[source, bash]
+----
+git checkout snapshot
+git pull
+git merge origin/master
+----
++
+... If *stable* build is being released: `snapshot` -> `stable`
+Stable build should be released from `stable` branch using changes done in `snapshot`.
+This means snapshot build was already published and tested by users.
++
+[source, bash]
+----
+git checkout stable
+git pull
+git merge origin/snapshot
+----
++
+.. Compile and verify plugin locally
++
+[source, bash]
+----
+./gradlew clean buildPlugin verifyPlugin runPluginVerifier
+----
++
+... Review verification results in `studio-idea-plugin/build/reports/pluginVerifier/*/report.html`.
+.. Execute jenkins job https://jenkins.evolveum.com/view/midPoint-studio/job/midpoint-studio/[midpoint-studio]
++
+Use `PUBLISH=true` and proper release branch (`snapshot` or `stable`).
+.. Go to `https://plugins.jetbrains.com/plugin/13809-midpoint-studio/versions`
++
+Validate published plugin, mainly: version, description, compatibility and _What's new_.
+. Post-release
+.. After plugin was published to marketplace (and is publicly available), ask someone from engineering team to re-test it.
+.. If *stable* version was released:
+... Notify marketing team about new release (after it's publicly available).
+... Create git tag for released version in format `vX.Y.Z` and push it to `origin`.
+... Go to `https://github.com/Evolveum/midpoint-studio/releases`
+.... Create new release for tag created in previous step.
+.... Add release notes, use notes from `studio-idea-plugin/CHANGELOG.md`.
+... On `master` branch
+.... Update plugin version in `build.gradle`, key `pluginVersion`.
+.... Update `settings.gradle.kts` - midPoint version dependency.
++
+Major and minor version of midPoint must match major and minor version of studio plugin.
+
 
 === Issues
 
