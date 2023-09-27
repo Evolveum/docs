@@ -1,0 +1,126 @@
+= Policies Are Easy
+
+There is this cybersecurity trinity of _subject-action-object_.
+Combine the triplets together, and you have a policy.
+It is used everywhere: firewalls, access control lists, ... everywhere.
+Oh, yes, sometimes it may be a bit more complex, then we just add _constraint_ to the triplet, and we are done.
+Easy!
+
+== Policy Language
+
+Indeed, it is partially true that policy _language_ is not complicated - in theory.
+Of course, the triplet version (_subject-action-object_) is obviously quite naive.
+When combined with the _constraint_, the language suddenly gets some serious expressive power.
+It is ideal for firewalls and such simple low-level stuff.
+Even LDAP servers can benefit from policy expressed in access control lists (ACL).
+
+However, when we try to do something even a little bit complex, we are getting into trouble.
+Let's try this: "allow delegation of privilege `P` from user `A` to user `B`".
+We can model that as (subject:`A`, action:`delegation`, object:`B`, constraint:(privilege=`P`)).
+The trick here is to hide all the complexity in the _constraint_ part.
+That part becomes a bit confusing, yet the overall model still works - at least for simple cases.
+Now, let's tweak the case a bit: "allow members of `Group C` delegation of privilege `P` from user `A` to user `B`".
+We can use the same trick again: (subject:`Group C`, action:`delegation`, object:`A`, constraint:(privilege=`P` and target=`B`)). Or perhaps the other way around: (subject:`Group C`, action:`delegation`, object:`B`, constraint:(privilege=`P` and donor=`A`)).
+It is getting quite confusing and ambiguous, isn't it?
+Let's try one more: list all the privileges that can be delegated from user `A` to `B` by a logged-in user.
+Feasible, but ... is it still easy?
+
+== Practical Problems
+
+Let's make a bold assumption that we have an unambiguous, understandable policy language with enough power to express any policy.
+Now let's get to real business, let's write down our policy.
+Where do we start?
+"Do not boil the ocean" they say, therefore let's start with something simple.
+Let's write down a policy for Active Directory (AD) accounts.
+We are going to write down a policy specifying who should have an AD account, then we are going to delete all accounts that do not match the policy.
+The policy is very simple: "only _employees_ should have AD account".
+Well, not exactly.
+There is Alice, she is not employee, but she works on a research project and needs to access our files.
+How do we describe that in the policy?
+Should we hard-code `alice` as a username in the policy?
+Probably not a good idea.
+Should we introduce concept of "project" to the policy?
+How do we distinguish which project should grant access to AD and which not?
+Things are getting complex already.
+And there is Bob, a contractor, as we have outsourced PC maintenance to him.
+He needs AD access as well, including some administration privileges.
+How do we specify that in the policy?
+We definitely do not want to model all contractors and business partners with all the relationships at this point.
+We are not boiling the ocean, not yet.
+Should we introduce a `PC Administrator` role in the policy?
+That could work.
+However, it starts to look like xref:/iam/rbac/[RBAC].
+
+Oh, wait a minute!
+What do we do about `administrator` account in AD?
+We do not have any policy statement that would allow such account to exist.
+Should we delete it?
+The system would certainly be more difficult to attack if we delete such a high-risk account ...
+
+// TODO: policy changes: a nightmare
+
+== What We Do (Not) Know
+
+This looks cumbersome enough already.
+Unfortunately, there is one more critical problem with policy-based approach.
+The big problem is:
+
+If we want to specify the policy, we need to _know_ what the policy is.
+
+Is that really a problem?
+Everybody is supposed to know what the policy is!
+All the users have signed user agreement, they know what the company guidelines are, they have detailed knowledge of all applicable regulations, they are aware of all the management decisions that were ever made.
+How else could they do their daily jobs?
+
+We are all supposed to know all the legislation applicable in our country.
+Do we really know?
+Of course not, otherwise we would not need lawyers.
+At least the legislation is clear and unambiguous, isn't it?
+Of course not.
+All attempts to codify the legislation in machine-processable form fail miserably.
+Lawyers cannot be replaced by machines.
+That is some serious job security there.
+
+The situation with organizational policies is similar - with one serious complication.
+While the legislation is usually written down, company policies are not.
+Significant part of company policies is based on common sense, usual practice, subjective consideration and management decisions that do not even get recorded in meeting minutes.
+
+Now, we want to get the policy in _exact, complete, understandable, up-to-date, maintainable and machine-executable_ form.
+How realistic is that?
+
+Is it still easy?
+
+== The Way Out
+
+Realistically, we cannot hope to have complete policy in ready-to-use form.
+The knowledge of policy is distributed among many people in the organization.
+Everybody knows a bit, and most of them are acting in accord with the policy.
+Together they all have a "collective knowledge" of the policy.
+We can use that.
+
+One way would be to go out and ask all these people.
+They will tell us the pieces, we will analyze them, combine them, codify them, refine them ... and we will have a policy!
+It will take _years_ of hard work, but it is certainly worth the effort.
+When we are finally done, we can celebrate our success - by discarding our results.
+The results would be useless by then, as the policy was changed in the meantime.
+This is not a good way.
+We need something faster, something smarter.
+
+We have existing data, we can _mine_ the information.
+It is good chance that we have managed privileges using _groups_ and _roles_ all this time.
+We may have cumbersome, yet working xref:/iam/rbac/[RBAC] system in place.
+We have current group membership and role assignment data.
+As long as our organization works properly, we can safely assume that majority of the roles were assigned according to policy.
+We can use this information to _mine_ the policy, to determine what the policy actually is.
+Of course, it is only approximate technique.
+Current access is most likely over-provisioned, the policy is not applied in a perfectly consistent way and so on.
+However, _mining_ can give us practical approximations to start from.
+Mined policy can be incrementally refined, reviewed and optimized.
+It is better to have a practical approximate approach than to rely on exact yet infeasible method.
+_Done_ is better than _perfect_.
+
+== See Also
+
+* xref:/iam/rbac/[]
+
+* xref:/midpoint/reference/roles-policies/pdrbac/[]
