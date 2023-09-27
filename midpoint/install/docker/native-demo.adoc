@@ -1,6 +1,7 @@
 = Native repository demo
 :toc:
 :page-since: "4.4"
+:page-since-improved: [ "4.8" ]
 
 Native repository implementation can only be operated on postgres DB system so it is not possible to "simply run" the docker image to test it. 
 Until the H2 DB backend will be available, you can run docker image directly but generic DB backend will be utilized.
@@ -19,14 +20,14 @@ There is a dependency, which can't be handled automatically anyway.
 In the distribution archive with midpoint (and also docker image) there is a doc folder available, which contain required SQL structure.
 To keep docker part independent from application, the structure is taken from these files so its maintaining is realized through the distribution of midpoint.
 
-NOTE: The files are located at */opt/midpoint/doc/config/sql/native-new* folder.
+NOTE: The files are located at */opt/midpoint/doc/config/sql/native* folder.
 
 There are more files located and the order is important - some files contain structure, which extends other existing structure.
 
 === config.xml
 
 To connect with the database there is a need to set a type for repository and for audit too.
-Especially because of audit it is not possible to set just using *-D* parameter.
+Especially because of audit it is not possible to set just using *-D* parameter or environment variables (which is transformed to *-D*).
 
 The sample (and "core" part) of configuration is also available under doc folder.
 With this file the rest can be handled with *-D* parameter.
@@ -245,36 +246,35 @@ For the specific version you can set this variable before (or during) the docker
 
 .example of run with default (latest) version
 [source,bash]
-docker-compose up
+docker compose up
 
 .example of run with specific version
 [source,bash]
-MP_VER=4.4 docker-compose up
+MP_VER=4.4 docker compose up
 ====
 
-.example of "simple" environment with post-initial-objects & root CA cert used by Let's encrypt
+=== pull DB repository init
+
+The data have to be ready on DB side at the moment of the first run of the database container.
+Once the database is initiated the init files are ignored (e.g. during the restart).
+
+This example can be used in the use cases when both midpoint and DB with repository is operated locally.
+
+.example of "simple" environment with post-initial-objects & root CA cert used by Let's encrypt (pull init data)
 [source,docker-compose]
 ----
 version: "3.3"
 
 services:
   data_init:
-    image: evolveum/midpoint:${MP_VER:-latest}
-    command: >
-        bash -c "
-        chmod 777 /opt/db-pw/ ;
-        touch /opt/db-pw/db_init_in_progress ;
-	echo -e '#!/bin/sh\ntouch /opt/db-pw/db_init' >/opt/db-init/000-start.sh ;
-        echo -e '#!/bin/sh\necho DB structure init process has finished...\nrm -f /opt/db-pw/db_init_in_progress /opt/db-pw/db_init' > /opt/db-init/999-finish.sh ;
-        /opt/midpoint/bin/midpoint.sh init-native
-        "
+    image: evolveum/midpoint:${MP_VER:-latest}-alpine
+    command: /opt/midpoint/bin/midpoint.sh init-native
     environment:
-     - MP_CHECK=/opt/db-pw/init_in_progress
      - MP_INIT_DB_CONCAT=/opt/db-init/010-init.sql
-     - MP_INIT_CFG=/opt/mp-home
+     - MP_INIT_CFG=/opt/midpoint/var
      - MP_DB_PW=/opt/db-pw/dbpassword
-     - MP_PW_DEF=/opt/mp-home/keystorepw
-     - MP_KEYSTORE=/opt/mp-home/keystore.jceks
+     - MP_PW_DEF=/opt/midpoint/var/keystorepw
+     - MP_KEYSTORE=/opt/midpoint/var/keystore.jceks
      - |
        MP_CERT=-----BEGIN CERTIFICATE-----
        MIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw
@@ -310,35 +310,17 @@ services:
     volumes:
      - db_init:/opt/db-init
      - db_pw:/opt/db-pw
-     - midpoint_home:/opt/mp-home
+     - midpoint_home:/opt/midpoint/var
 
   midpoint_data:
     image: postgres:13-alpine
-    command: >
-        bash -c "
-        while [ ! -s /opt/db-pw/dbpassword -o -e /opt/db-pw/init_in_progress ] ; do 
-         echo 'Waiting to the end of the init process...'; 
-         sleep 1; 
-        done ; 
-        { 
-         sleep 2 ; 
-         if [ ! -e /opt/db-pw/db_init -a -e /opt/db-pw/db_init_in_progress ] ; 
-          then echo 'DB init did not start...' ; 
-          rm -f /opt/db-pw/db_ini*; 
-          echo 'The lock files has been removed...'; 
-         fi ; 
-        } & 
-        docker-entrypoint.sh postgres
-        "
-    user: "70:70"
     depends_on:
-     - data_init
+      data_init:
+        condition: service_completed_successfully
     environment:
      - POSTGRES_PASSWORD_FILE=/opt/db-pw/dbpassword
      - POSTGRES_USER=midpoint
      - POSTGRES_INITDB_ARGS=--lc-collate=en_US.utf8 --lc-ctype=en_US.utf8
-    ports:
-     - 5432:5432
     networks:
      - net
     volumes:
@@ -347,15 +329,16 @@ services:
      - db_pw:/opt/db-pw
 
   midpoint_server:
-    image: evolveum/midpoint:${MP_VER:-latest}
+    image: evolveum/midpoint:${MP_VER:-latest}-alpine
     depends_on:
-     - data_init
-     - midpoint_data
+      data_init:
+        condition: service_completed_successfully
+      midpoint_data:
+        condition: service_started
     command: [ "/opt/midpoint/bin/midpoint.sh", "container" ]
     ports:
       - 8080:8080
     environment:
-     - MP_CHECK=/opt/db-pw/db_init_in_progress
      - MP_SET_midpoint_repository_jdbcUsername=midpoint
      - MP_SET_midpoint_repository_jdbcPassword_FILE=/opt/db-pw/dbpassword
      - MP_SET_midpoint_repository_jdbcUrl=jdbc:postgresql://midpoint_data:5432/midpoint
@@ -377,6 +360,133 @@ networks:
 volumes:
   db_init:
   db_pw:
+  midpoint_data:
+  midpoint_home:
+----
+
+=== push DB repository init
+
+++++
+{% include since.html since="4.8" %}
+++++
+
+The data is pushed to DB remotely.
+This option is only alternative in case you have not your DB under control (e.g. hosting).
+The init content is pushed to the DB using DB connection - client side.
+
+Partial support has been added also in latest 4.4.x and 4.7.x releases but it may not fully work as expected.
+
+.example of "simple" environment with post-initial-objects & root CA cert used by Let's encrypt (push init data)
+[source,docker-compose]
+----
+version: "3.3"
+
+services:
+  midpoint_data:
+    image: postgres:13-alpine
+    environment:
+     - POSTGRES_PASSWORD=db.secret.pw.007
+     - POSTGRES_USER=midpoint
+     - POSTGRES_INITDB_ARGS=--lc-collate=en_US.utf8 --lc-ctype=en_US.utf8
+    networks:
+     - net
+    volumes:
+     - midpoint_data:/var/lib/postgresql/data
+
+  data_init:
+    image: evolveum/midpoint:${MP_VER:-latest}-alpine
+    command: >
+        bash -c "
+        cd /opt/midpoint ;
+        bin/midpoint.sh init-native ;
+        echo ' - - - - - - ' ;
+        if [ $$(bin/ninja.sh verify 2>&1 | grep -c 'ERROR' ) -gt 0 ] ;
+        then
+        bin/ninja.sh run-sql --create --mode REPOSITORY ;
+        bin/ninja.sh run-sql --create --mode AUDIT ;
+        else
+        echo -e '\\n Repository init is not needed...' ;
+        fi ;
+        "
+    depends_on:
+     - midpoint_data
+    environment:
+     - MP_SET_midpoint_repository_jdbcUsername=midpoint
+     - MP_SET_midpoint_repository_jdbcPassword=db.secret.pw.007
+     - MP_SET_midpoint_repository_jdbcUrl=jdbc:postgresql://midpoint_data:5432/midpoint
+     - MP_SET_midpoint_repository_database=postgresql
+     - MP_INIT_CFG=/opt/midpoint/var
+     - MP_PW_DEF=/opt/midpoint/var/keystorepw
+     - MP_KEYSTORE=/opt/midpoint/var/keystore.jceks
+     - |
+       MP_CERT=-----BEGIN CERTIFICATE-----
+       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
+       -----END CERTIFICATE-----
+    networks:
+     - net
+    volumes:
+     - midpoint_home:/opt/midpoint/var
+
+  midpoint_server:
+    image: evolveum/midpoint:${MP_VER:-latest}-alpine
+    container_name: midpoint_server
+    hostname: midpoint-container
+    depends_on:
+      data_init:
+        condition: service_completed_successfully
+      midpoint_data:
+        condition: service_started
+    command: [ "/opt/midpoint/bin/midpoint.sh", "container" ]
+    ports:
+      - 8080:8080
+    environment:
+     - MP_SET_midpoint_repository_jdbcUsername=midpoint
+     - MP_SET_midpoint_repository_jdbcPassword=db.secret.pw.007
+     - MP_SET_midpoint_repository_jdbcUrl=jdbc:postgresql://midpoint_data:5432/midpoint
+     - MP_SET_midpoint_repository_database=postgresql
+     - MP_SET_midpoint_keystore_keyStorePassword_FILE=/opt/midpoint/var/keystorepw
+     - MP_UNSET_midpoint_repository_hibernateHbm2ddl=1
+     - MP_NO_ENV_COMPAT=1
+     - MP_ENTRY_POINT=/opt/midpoint-dirs-docker-entrypoint
+    networks:
+     - net
+    volumes:
+     - midpoint_home:/opt/midpoint/var
+     - ./entrypoint:/opt/midpoint-dirs-docker-entrypoint/:ro
+
+networks:
+  net:
+    driver: bridge
+
+volumes:
   midpoint_data:
   midpoint_home:
 ----
