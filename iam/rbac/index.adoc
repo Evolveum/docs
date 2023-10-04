@@ -2,9 +2,8 @@
 :page-nav-title: RBAC
 :page-keywords: [ 'RBAC' ]
 :page-toc: top
-:page-upkeep-status: orange
+:page-upkeep-status: green
 
-NOTE: WORK IN PROGRESS
 
 == Introduction
 
@@ -596,26 +595,219 @@ Policy mining is likely to the ultimate tool for bottom-up approach to policy-dr
 
 == Miscellaneous Notes
 
-// TODO == Misc Notes
-// TODO: misc: SoD, role model versioning (note benefit from independenet roles)
-// TODO: NIST RBAC sessions/active roles, which is seldom implemented
-// TODO: RBAC important for calculating role exposure
-// TODO: meta-roles, relation for role governance, roles+orgs
-// TODO: birthright - can be done with roles, but not recommended
-// TODO: access request - approved when it "looks good"; requesting same roles as colleague has
-// TODO: roles *are* the policy
+RBAC model provides elegant way to implement segregation of duties (SoD) functionality.
+Simple role exclusion rules are sufficient, mutually excluding several business roles.
+
+Ideally, roles in RBAC model should be independent.
+Such approach allows dependent modification of any role in the system, without risking interference or undesirable inconsistencies in the system.
+However, dependencies between roles cannot be entirely avoided, especially in complex role hierarchies.
+Some systems provide role model versioning and staging features.
+Modification of several roles can be applied as a single atomic unit.
+
+Complete RBAC models (such as NIST RBAC standard) include concept of sessions and active roles.
+At the start of every session, user is asked to select roles that should be active for the duration of the session.
+However, this feature is often not implemented, even in applications that claim full compliance with RBAC model.
+As for IGA systems, this feature cannot be fully supported for provisioning/fulfilment, as IGA systems do not have direct control over user's session.
+If necessary, this feature has to be implemented by the applications.
+
+Role structure of RBAC is an important tool to support risk exposure calculations.
+Users are assigned to roles, roles imply permissions, hence the relation between users and permissions is known.
+Risk exposure of individual permissions can be projected to users, identifying risk hot-spots.
+RBAC makes this process relatively straightforward, while other models (namely PBAC/ABAC) do not easily support this functionality.
+
+In addition to the usual RBAC hierarchy, RBAC model can get yet another dimension.
+RBAC model can be applied to itself, roles can have roles, creating meta-roles.
+For example `Business role` and `Application role` may be meta-roles, applied to business and application roles respectively.
+Functionality that is common to particular role type may be specified in the meta-role, reducing duplication of policy definitions.
+For example, xref:/midpoint/reference/schema/archetypes/[archetypes in midPoint] work as meta-roles.
+
+While RBAC deals primarily with roles, other types of objects may have functionality similar to roles.
+For example organizational units may act as roles, directly granting permissions for all members of the unit.
+Such approach allows to apply benefits of RBAC directly to other object types, reducing number and complexity of policy statements.
+For example, xref:/midpoint/reference/org/[organizational structure] and xref:/midpoint/reference/misc/services/[services] in midPoint act as roles.
+
+User-role assignments can be extended to support advanced use-cases, such as role governance.
+For example parametrized user-role assignment may indicate that user is an _owner_ of a role rather than a plain member.
+Such unified approach allows re-use of many RBAC-related mechanisms, re-applying them to role governance as well.
+For example, users may request to be role _owners_ using the same _access request_ process as for ordinary role membership.
+Role ownership may be certified using the same access certification mechanism as is applied for role membership.
+
+Roles are sometimes used to provide _birthright permissions_ to users.
+This approach is not entirely correct, it should be avoided if possible.
+_Birthright permissions_ are given by user type, or similar inherent quality of the user.
+E.g. a user may gain certain access just because the user exists (is _registered_) or because the identity is of type _employee_.
+_Birthright_ should be granted by the same mechanism or policy that determined user type.
+For example, in midPoint, _birthright_ is provided by xref:/midpoint/reference/schema/archetypes/[archetypes].
+
+Proponents of other access models (particularly PBAC) contrast _policy-based_ access control models with _role-based_ access control, implying that RBAC is not policy-based.
+However, roles, role structure and assignment of roles to users *are* policy.
+These data structure specify access control rules, and hence the policy of who can have access to what.
+This policy is not _algorithmic_, it is rather _declarative_, yet it is a policy anyway.
+Moreover, dynamic RBAC models provide means to implement _algorithmic_ policy as well.
+
 
 == Common RBAC Problems
 
-// TODO: == Common RBAC Problems:
-// * Overuse of application roles - certification nightmare
-// ** requesting roles "as my colleague has"
-// ** approving when the request "looks good"
-// * Business role duplication - employ hierarchy
-// * Role explosion
-// * Nobody knows anything
-// * Disrepair - roles must be maintained, owners, etc.
-// * Centralized role management by IT people
+RBAC is an access control mechanism that looks simple.
+However, it can create unexpected complexities - and complications - if not used correctly.
+This section summarizes common mistakes, misconceptions and problems related to use of RBAC mechanisms.
+
+* *Overuse of application roles* is perhaps the most common mistake.
+It is a very common (and correct) practice to import application permissions and entitlements into IGA platform in a form of application roles.
+Application roles are assigned to users, following existing assignment of application permissions/entitlements to application accounts.
+Such practice is a good one, as it provides very good _starting point_ for RBAC deployment.
+The problem is that this is considered by many as a finished RBAC deployment, which it is not.
+Application roles are IGA equivalent of permissions.
+Assigning application roles directly to users means assignment of _permissions_ directly to users.
+This is not RBAC structure, as the _roles_ are barely involved.
+What you have at this point is not RBAC.
++
+The effort should continue by introducing _business roles_, which is the first step to create RBAC model.
+Policies should be applied to automate business role assignments and minimize direct use of application roles.
+Direct assignment of application role to a user should not be considered a norm, it should be regarded as policy exception, as a liability that should be cleaned-up eventually.
+Practical deployments will have some residual amount of direct application role assignments, as it is not worth the effort to sort out such special cases into business roles.
+However, that should be kept to the minimum, and it should be carefully monitored to avoid overuse of application roles.
+
+* *Access request frenzy* is another very common issue.
+Once _access request_ process is in place, there is tendency to use it as a universal tool to solve every problem.
+Users are often requesting number of roles without any real understanding what the roles mean and why do they need them.
+Very common practice is blindly requesting the same set of roles that a colleague has.
+Also, the approvers often do not know whether the request for application roles is substantiated, as they do not understand the purpose of such roles.
+They approve the request as long as it "looks good", without much consideration.
+This inevitably leads to endless spaghetti of application role assignments.
++
+Wild use of _access request_ process may be acceptable at the start of IGA deployment, when there is very little RBAC structure in place yet.
+Later in the project the _access request_ process should be tuned to prefer business role requests.
+Use of recommenders and other advanced techniques can further improve the process in the future.
+However, the most important success factor is to proceed with engineering of business roles, and automatic policies for their management.
+Role mining can be a very useful tool to clean up the mess that was caused by uncontrolled use of _access request_ process early in the deployment.
+
+* *Rubber-stamp certifications* are a huge and pointless exercise, which is usually a consequence of _access request_ process abuse.
+_Access request_ process is a quick and very convenient method to get access to applications.
+However, there is little motivation to _remove_ the access when it is no longer needed.
+Certification campaigns are used to remove excessive access.
+Every role that was granted by the means of _access request_ process has to be certified at regular intervals.
+Responsible persons has to _certify_ that the access is still needed.
+However, if huge number of roles were granted to users, the certification campaigns are also huge.
+It is beyond the capabilities of the certifiers to responsibly judge every role granted to every user, and repeat that process at regular intervals.
+Certification campaigns turn into a _rubber-stamping_ exercise, where most of the certifiers accept all the roles without much consideration.
+Which means that very little access gets removed.
+As new access is constantly granted, and the access is not removed, certification campaigns get larger, which increases the motivation for rubber-stamping - resulting in vicious spiral.
++
+There are methods to treat the symptoms once they occur.
+Risk-based certifications may be used in attempt to focus certifier attention to sensitive roles, trying to reduce rubber-stamping of high-risk roles at the very least.
+This may be a good first step.
+Some IGA platforms provide artificial intelligence mechanisms that assist in certification decisions.
+However, when rubber-stamping practice is already the norm, even artificial intelligence will follow such practice.
+This approach can make rubber-stamping more efficient, yet it may not address the core of the problem.
++
+The best solution is not focused on treating the symptoms, it addresses the root cause of the problem.
+The solution is to reduce number of application role assignments by introducing business roles and policy-driven automation.
+The solution is basically the same as solution to other problems, as the root causes are essentially the same.
+
+* *xref:/iam/role-explosion/[Role explosion]* is a well-known problem of static RBAC models.
+It may have several causes.
+Perhaps the worst cause is a desire to describe dynamic and multidimensional concepts using a static model.
+For example, an attempt to include both the responsibility and location in roles occur in explosion of role combinations, e.g. `New York Supervisor`, `New York Director`, `Boston Supervisor`, `Boston Director`, ...
+Also, attempts to overdo principle of least privilege at the business role level, or attempt to cover all policy exceptions and anomalies with systemic business roles may lead to xref:/iam/role-explosion/[role explosion].
++
+The best approach to fight the systemic causes of role explosion is to use algorithmic policies.
+For example, xref:/midpoint/reference/roles-policies/pdrbac/[dynamic role expressions and parameters] are very efficient method to avoid explosion caused by dynamic and multidimensional concepts.
+Role explosion caused by overzealous role modeling are relatively easy to address, by admitting that the model will never be perfect, and there will always be some exceptions and leftovers.
+
+* *Business role duplication* is a less common problem.
+It occurs when role engineering is distributed among several people, or when the model gets very complicated and outdated.
+The same business role is created by two people, or it is re-created long time after the original was created - and forgotten.
+It may also occur by purpose, when part of one role is copied to another role, usually due to neglect or limited knowledge of role engineer.
++
+Unintentional role duplication can be partially addressed by role engineering process, mandating that the engineer has to check for existence of similar roles before creating a new business role.
+However, this is increasingly difficult to do as the RBAC model grows.
+The ideal solution would be a support in IGA tooling, which will warn the engineer that the new role is very similar to another existing role.
+Intentional business role duplication is different, though.
+Parts of role definition should not be copied.
+A small role hierarchy should be created instead, with both roles sharing a common sub-role.
+
+* *Role decay* is a problem of older deployments.
+It is hard enough to define the roles in the first place.
+However, role definitions need to be reviewed and maintained, otherwise they diverge from the business reality eventually.
+Role review and maintenance is a hard and somehow boring task, which means it is often neglected.
++
+It is usually not possible for one person to properly maintain entire RBAC model.
+The solution would be to distribute the work.
+Assign _owners_ to roles, persons responsible for maintaining role definition.
+For business roles, the owners would be usually business people.
+Set up a regular process to review and update role definitions, focused especially at removing excessive privileges from roles and decommissioning outdated roles.
++
+However, the ultimate solution is to be aware of your own capabilities.
+Do not over-complicate the model to the point where it cannot be maintained any longer.
+If you (and your team) are not able to maintain full RBAC model, consider compromise approaches.
+Maybe it would be lesser evil to build simpler and "bigger" roles, allowing some controlled over-provisioning.
+Outdated role definitions are likely to result in over-provisioning too, however it is likely to be hidden.
+It may be wise to accept some amount of known risk rather than suspect huge amount of unknown risks in the system.
+
+* *Phantom policy* is a common organizational problem, it is not limited to RBAC.
+Theoretically, access control policy in any organization should be well-known, clearly-formulated, documented and properly maintained.
+This is usually not the case.
+The policy is undocumented, ambiguous, based on subjective considerations and ad-hoc decisions.
+Can such a "policy" be expresses using any access control mechanism?
++
+Clearly, top-down approach is not going to work here.
+However, the organizations works in some way, therefore some kind of semi-systemic policy has to be in place, even though it is not obvious.
+We have to discover the policy, or at least some parts of it.
+Desperate times call for desperate measures.
+Although combination of application roles and access request process often leads to a disaster, it may be worth applying in this case.
+We can get some data from the access request process, analyze the role using mining tools and try to distill some parts of the policy.
+It is not going to be easy, but it is a start.
++
+The important thing is that this is a _start_.
+The process must not stop there.
+The organization won't get very far if it sticks to its _phantom_ policy.
+As parts of the policy are discovered, it has to be documented, reviewed and improved.
+Both IGA methods _and_ business must adapt to each other.
+If business part cannot change, this whole IGA effort will turn into a death march eventually.
+
+* *Centralized role management by IT department* is a common practice when deploying IGA solution.
+It is also wrong practice.
+True, _application_ roles can, and should, be managed by IT department.
+However, IT department does not have the necessary knowledge to manage _business_ roles.
+Attempts of IT department to define business roles are pointless.
+Resulting roles will be useless for business units, they will not match their needs, they will be just yet another confusing obstacle to get access to the applications, they will make everythign worse.
++
+Business roles must be aligned to business concepts.
+Only business people know business concepts.
+Therefore, business people must be involved in business role engineering.
+Period.
++
+Obviously, business people usually do not have technical skill to define the role - especially at the beginning of role engineering effort, when even IT people may be a bit lost.
+Therefore, it is critical that the role engineering process starts as a close cooperation between IT and business.
+As the team gains more experience it is likely that more and more effort can be delegated to business people.
+Yet, the role engineering process will always be a cooperative effort, involving both the business and IT.
+
+* *Roles for everything*.
+Once an engineer grasps concept of roles, everything starts looking like a role.
+Of course, there are roles for `Branch supervisor` and `Marketing assistant`.
+However, suddenly there are roles for `Employee`, `Marketing department`, `New York Branch` and `Project X member`.
+And then there are the rules: any user who has `location` attribute with a value of `NY` will get `New York Branch` role.
+Eventually there are going to be avalanche of roles, rules, naming conventions and categories.
+Welcome to the RBAC labyrinth.
++
+While this approach looks sound at the first sight, it is not.
+There is a lot of duplication.
+`Employee` is not a role, it is most likely a user type.
+_Birthright permissions_ that belong to employees should not be by a role, it should be assigned by the same mechanism that decided that a user should be an employee.
+That is usually some kind of HR synchronization, or a built-in typing mechanism of IGA platform.
+There is a good reason we do not want that as a role: what happens if such a role gets unassigned?
+`Marketing department` is not a role, it is an organizational unit.
+We do not want to have both `Marketing department` organizational unit and `Marketing department` role in our system, it would be a recipe for confusion.
+The privileges needed to work in Marketing department should be granted by `Marketing department` _organizational unit_, not a role.
+Similarly, `New York Branch` and `Project X` are just different forms of organizational units.
+The same reasoning applies here.
++
+Do not try to model your organizational structure using roles, use real organizational structure instead.
+Do not try to model locations using roles, use location directory instead.
+Do not try to model applications using roles, use application catalog instead.
+Choose the right tool for the job.
+_Role_ is not a golden hammer.
 
 == See Also
 
