@@ -111,6 +111,8 @@ This improves flexibility when defining authorizations for them.
 See also xref:/midpoint/reference/security/authorization/configuration/selectors/type-and-parent/[].
 Various legacy authorizations like `#readOwnCertificationDecisions` are now https://docs.evolveum.com/midpoint/devel/design/schema-cleanup-4.8/authorizations/[deprecated], as they can be written in the new, flexible, style.
 
+* The new fine-grained `bulk-3#` xref:/midpoint/reference/security/authorization/bulk-actions/[authorizations] were introduced, replacing now-deprecated `#executeScript` one.
+
 * OIDC authentication module was improved.
 See https://docs.evolveum.com/midpoint/reference/security/authentication/flexible-authentication/configuration/#module-oidc[the documentation] for more configuration details.
 
@@ -353,6 +355,7 @@ We reserve the right not to support customized web browsers.
 
 == Important Bundled Components
 
+.Important bundled components
 [%autowidth]
 |===
 | Component | Version | Description
@@ -549,28 +552,130 @@ On-line version can be found in https://github.com/Evolveum/midpoint/tree/v{rele
 
 === Schema Changes Since 4.7
 
-// NOTE: This section is relevant to the majority of midPoint deployments.
-// It mostly describes what data items were marked as deprecated, or removed altogether from the schema.
-// (Additions are not described here.)
-// You should at least scan through it - or use the `ninja` tool to check the deprecations for you.
-//
-// * `name` attribute is deprecated for AuthenticationSequenceType, `identifier` is added to be used instead of name as a unique sequence identifier.
-// * `name` attribute is deprecated for AuthenticationSequenceModuleType, `identifier` is added to be used instead of name as a unique sequence module identifier.
-// * `name` attribute is deprecated for CredentialsResetPolicyType, `identifier` is added to be used instead of name as a unique credentials reset identifier.
-// * `name` attribute is deprecated for AbstractAuthenticationModuleType, `identifier` is added to be used instead of name as a unique authentication module identifier.
-// * `securityPolicyRef` attribute is added to ArchetypeType. For now only structural archetypes can have a reference to a security policy.
-// * Several authentication modules were added in order to be used for user identification or user authentication. For now the modules are used within password reset process. Following attributes are added to AuthenticationModulesType type: `attributeVerification` (used to verify user's attributes values), `focusIdentification` (used to identify the user comparing their identifier(s) value), `hint` (used to give the user a possibility to remember their password). The related to flexible authentication functionality types were also extended to make the new modules work properly. So, CredentialsPolicyType type was extended with attributeVerification elements, each of them services the corresponding module.
-// * Necessity of the authentication modules was extended with more values, therefore `required`, `requisite` and `optional` values can be used for AuthenticationSequenceModuleNecessityType type.
-// * AuthenticationSequenceModuleType type was extended with `acceptEmpty` element, so that module can be skipped in case of empty credentials with acceptEmpty=true.
+NOTE: This section is relevant to the majority of midPoint deployments.
+It describes what data items were marked as deprecated, or removed altogether from the schema.
+You should at least scan through it - or use the `ninja` tool to check the deprecations for you.
 
-* New _identityRecovery_ element appears in security policy object, intended for identity recovery flow configuration. Please, see _IdentityRecoveryPolicyType_ for more details.
-* New _archetypeSelection_ authentication module type appears in the _authentication_ part of the security policy object. Please, see _ArchetypeSelectionModuleType_ for more details.
-* New _correlation_ authentication module type appears in the _authentication_ part of the security policy object. Please, see _CorrelationAuthenticationModuleType_ for more details.
-* _CredentialsResetPolicyType_ and _AbstractRegistrationPolicyType_ extend now _UserInterfaceFeatureType_ so that _display_ attribute can be used within self registration and password reset flows.
+.Items being deprecated
+[%autowidth]
+|===
+| Type | Item or value | Note
+
+| `UserType`
+| `employeeNumber`
+| Use `personalNumber` instead.
+
+| `ActivationStatusType`
+| `archived`
+| The "archival" state is to be managed through the object lifecycle state instead.
+Since 4.8, this value will not be put into "effectiveStatus" property anymore.
+
+| `AbstractMappingType`
+| `enabled`
+| Use value `draft` for `lifecycleState` property instead to disable the mapping.
+
+| `ExpressionType`, `ScriptExecutionPolicyActionType`
+| `runAsRef`
+| Use `privileges/runAsRef` instead.
+
+| `LegacyCorrelationDefinitionType`, `CorrelationCasesDefinitionType`
+| (whole type)
+| Use the new correlation definition in `schemaHandling` container.
+
+| `GroupSelectionType`
+| `searchFilterTemplate`, `userDisplayName`, `autocompleteMinChars`
+| Use `autocompleteConfiguration` instead.
+
+| `RoleCatalogType`
+| `showRolesOfTeammate`
+| Use `rolesOfTeammate` instead.
+
+| `OidcResourceServerAuthenticationModuleType`
+| `realm`, `issuerUri`, `jwkSetUri`, `nameOfUsernameClaim`, `singleSymmetricKey`, `trustedAlgorithm`, `trustingAsymmetricCertificate`, `keyStoreTrustingAsymmetricKey`
+| #TODO @Lukas please explain#
+
+| `AbstractRegistrationPolicyType`
+| `name`, `displayName`
+| Use `UserInterfaceFeatureType.identifier` and `UserInterfaceFeatureType.display.label` instead.
+
+| `ActivityProfilingDefinitionType`
+| `interval`
+| Use `beforeItemCondition` instead.
+(Experimental functionality.)
+
+| task extension
+| `retryLiveSyncErrors`
+| Use `controlFlow/errorHandling` with the reaction of `ignore` instead.
+
+| `WorkItemNotificationActionType`
+| `handler`
+| Experimental feature.
+|===
+
+.Removed items
+[%autowidth]
+|===
+| Type | Item or value
+
+| `CaseType`
+| `taskRef`
+
+| `PersonaConstructionType`
+| `targetSubtype`
+
+| `ArchetypePolicyType`
+| `propertyConstraint`
+
+| `RoleManagementConfigurationType`
+| `roleCatalogRef`, `roleCatalogCollections`, `defaultCollection`
+
+| `CleanupPoliciesType`
+| `objectResults`
+
+| `ModelExecuteOptionsType`
+| `reconcileAffected`
+
+| `IdMatchCorrelatorType`
+| `followOn`
+
+| `AdminGuiConfigurationType`
+| `objectForms`, `userDashboard`
+
+| `GuiObjectDetailsPageType`
+| `forms`, `container`
+
+| `GuiObjectListViewType`
+| `additionalPanels`
+
+| `SearchBoxConfigurationType`
+| `defaultScope`, `defaultObjectType`
+
+| `SearchItemType`
+| `displayName`
+
+| `GuiActionType`
+| `name`
+
+| `GuiObjectListViewAdditionalPanelsType`
+| (the whole type)
+
+| `LensProjectionContextType`
+| `accountPasswordPolicy`, `accountPasswordPolicyRef`
+
+| `ModuleSaml2KeyTypeType`
+| `encryption`
+
+| `TaskType`
+| `category`, `recurrence`, `modelOperationContext`, `policyRule`, `errorHandlingStrategy`
+
+| `StringWorkSegmentationType`
+| `boundaryCharacters`
+|===
 
 _Actions required:_
 
 * Inspect your configuration for deprecated items, and replace them by their suggested equivalents.
+Make sure you don't use any removed items.
 You can use `ninja` tool for this.
 
 === Behavior Changes Since 4.7
@@ -637,8 +742,6 @@ Previously shadows without such timestamps were removed right away if there were
 NOTE: As for the Java API, this section describes changes in `midpoint` and `basic` function libraries.
 (MidPoint does not have explicitly defined Java API, yet.
 But these two objects are something that can be unofficially considered to be the API of midPoint, usable e.g. from scripts.)
-
-// * There were only minor API changes in this release
 
 * Some of `javax` namespaces were migrated to `jakarta` namespaces, due to upgrade of Spring and Groovy 4. This may affect your scripts / overlays if you were using them. Most notable is `javax.xml.bind`, which was migrated to `jakarta.xml.bind`.
 ** Most notable rename for Groovy scripts is `javax.xml.bind.JAXBElement` to `jakarta.xml.bind.JAXBElement`
