@@ -1,0 +1,110 @@
+= Docker and Docker compose
+:page-nav-title: Docker and Docker compose
+:toc: right
+:toclevels: 4
+
+This page is related to the midPoint in container context of documentation.
+Here will be dedicated samples related to the docker and / or docker compose.
+
+You may be interested in :
+
+* common xref:..[container]  related information
+* kubernetes related information
+
+== Stating the environment
+
+As we need postgreSQL for the native repository we are not able to use only midPoint image / container itself.
+There is need to utilize docker compose to define the environment.
+
+.docker compose file to start midPoint in docker environment
+[source,yaml]
+----
+version: "3.3"
+
+services:
+  midpoint_data:
+    image: postgres:16-alpine
+    environment:
+     - POSTGRES_PASSWORD=db.secret.pw.007
+     - POSTGRES_USER=midpoint
+     - POSTGRES_INITDB_ARGS=--lc-collate=en_US.utf8 --lc-ctype=en_US.utf8
+    networks:
+     - net
+    volumes:
+     - midpoint_data:/var/lib/postgresql/data
+
+  data_init:
+    image: evolveum/midpoint:${MP_VER:-latest}-alpine
+    command: >
+        bash -c "
+        cd /opt/midpoint ;
+        bin/midpoint.sh init-native ;
+        echo ' - - - - - - ' ;
+        if [ $$(bin/ninja.sh verify 2>&1 | grep -c 'ERROR' ) -gt 0 ] ;
+        then
+        bin/ninja.sh run-sql --create --mode REPOSITORY ;
+        bin/ninja.sh run-sql --create --mode AUDIT ;
+        else
+        echo -e '\\n Repository init is not needed...' ;
+        fi ;
+        "
+    depends_on:
+     - midpoint_data
+    environment:
+     - MP_SET_midpoint_repository_jdbcUsername=midpoint
+     - MP_SET_midpoint_repository_jdbcPassword=db.secret.pw.007
+     - MP_SET_midpoint_repository_jdbcUrl=jdbc:postgresql://midpoint_data:5432/midpoint
+     - MP_SET_midpoint_repository_database=postgresql
+     - MP_INIT_CFG=/opt/midpoint/var
+    networks:
+     - net
+    volumes:
+     - midpoint_home:/opt/midpoint/var
+
+  midpoint_server:
+    image: evolveum/midpoint:${MP_VER:-latest}-alpine
+    container_name: midpoint_server
+    hostname: midpoint-container
+    depends_on:
+      data_init:
+        condition: service_completed_successfully
+      midpoint_data:
+        condition: service_started
+    command: [ "/opt/midpoint/bin/midpoint.sh", "container" ]
+    ports:
+      - 8080:8080
+    environment:
+     - MP_SET_midpoint_repository_jdbcUsername=midpoint
+     - MP_SET_midpoint_repository_jdbcPassword=db.secret.pw.007
+     - MP_SET_midpoint_repository_jdbcUrl=jdbc:postgresql://midpoint_data:5432/midpoint
+     - MP_SET_midpoint_repository_database=postgresql
+     - MP_SET_midpoint_administrator_initialPassword=Secret.007
+     - MP_UNSET_midpoint_repository_hibernateHbm2ddl=1
+     - MP_NO_ENV_COMPAT=1
+    networks:
+     - net
+    volumes:
+     - midpoint_home:/opt/midpoint/var
+
+networks:
+  net:
+    driver: bridge
+
+volumes:
+  midpoint_data:
+  midpoint_home:
+----
+
+[NOTE]
+====
+You can find "static" password for the database in the docker compose definition - *db.secret.pw.007* .
+In case we would like to have generated password there would be two containers for initiation - one for generating the password and other for the repository structure init.
+Password has to be ready before DB starts and structure can be initiated once the DB is running.
+
+This configuration is less secure (known password) but the focus is for "quick start" - the simplicity.
+====
+
+Once this file is stored in the file with "default" name *docker-compose.yml* the usage is easier.
+In case other name is used there have to be defined explicitly the filename in all docker compose command with parameter *-f*.
+
+To quickly start the environment the command `docker compose up` should be used.
