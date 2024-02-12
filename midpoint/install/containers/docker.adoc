@@ -5,18 +5,22 @@
 
 This page is related to the midPoint in container context of documentation.
 Here will be dedicated samples related to the docker and / or docker compose.
+The content can be used also out of the docker environment (e.g. cluster) but small syntax update may be needed.
 
 You may be interested in :
 
-* common xref:..[container]  related information
-* kubernetes related information
+* common xref:..[container]  related information +
+There is information contains possibilities of customization of the installation.
 
-== Stating the environment
+* xref:../kubernetes[Kubernetes] related information +
+Sample configuration related to the kubernetes environment.
+
+== Starting environment
 
 As we need postgreSQL for the native repository we are not able to use only midPoint image / container itself.
 There is need to utilize docker compose to define the environment.
 
-.docker compose file to start midPoint in docker environment
+.docker compose file to start midPoint in docker environment | link:https://raw.githubusercontent.com/Evolveum/midpoint-docker/docker-compose.yml[Github]
 [source,yaml]
 ----
 version: "3.3"
@@ -36,18 +40,17 @@ services:
   data_init:
     image: evolveum/midpoint:${MP_VER:-latest}-alpine
     command: >
-        bash -c "
-        cd /opt/midpoint ;
-        bin/midpoint.sh init-native ;
-        echo ' - - - - - - ' ;
-        if [ $$(bin/ninja.sh verify 2>&1 | grep -c 'ERROR' ) -gt 0 ] ;
-        then
-        bin/ninja.sh run-sql --create --mode REPOSITORY ;
-        bin/ninja.sh run-sql --create --mode AUDIT ;
-        else
-        echo -e '\\n Repository init is not needed...' ;
-        fi ;
-        "
+      bash -c "
+      cd /opt/midpoint ;
+      bin/midpoint.sh init-native ;
+      echo ' - - - - - - ' ;
+      bin/ninja.sh -B info >/dev/null 2>/tmp/ninja.log ;
+      grep -q \"ERROR\" /tmp/ninja.log && (
+      bin/ninja.sh run-sql --create --mode REPOSITORY  ;
+      bin/ninja.sh run-sql --create --mode AUDIT
+      ) ||
+      echo -e '\\n Repository init is not needed...' ;
+      "
     depends_on:
      - midpoint_data
     environment:
@@ -78,7 +81,7 @@ services:
      - MP_SET_midpoint_repository_jdbcPassword=db.secret.pw.007
      - MP_SET_midpoint_repository_jdbcUrl=jdbc:postgresql://midpoint_data:5432/midpoint
      - MP_SET_midpoint_repository_database=postgresql
-     - MP_SET_midpoint_administrator_initialPassword=Secret.007
+     - MP_SET_midpoint_administrator_initialPassword=Test5ecr3t
      - MP_UNSET_midpoint_repository_hibernateHbm2ddl=1
      - MP_NO_ENV_COMPAT=1
     networks:
@@ -107,4 +110,113 @@ This configuration is less secure (known password) but the focus is for "quick s
 Once this file is stored in the file with "default" name *docker-compose.yml* the usage is easier.
 In case other name is used there have to be defined explicitly the filename in all docker compose command with parameter *-f*.
 
-To quickly start the environment the command `docker compose up` should be used.
+Basic operation with the docker using compose are following:
+|====
+|operation | command
+
+| start environemnt
+| `docker compose up`
+
+| list running containers
+| `docker ps`
+
+| stop environment
+| `docker compose down`
+
+| stop & clean related objects
+| `docker compose down -v`
+|====
+
+Once started the midPoint web GUI is reachable on URL link:http://localhost:8080/[].
+
+== Clustered environment with reverse proxy
+
+This is advanced scenario.
+Prepared docker compose file using profiles so you can decide which sub-scenario you want currently run.
+
+To run midPoint in clustered configuration two variables has to be set:
+
+[source]
+----
+    environment:
+     - MP_SET_midpoint_nodeIdSource=hostname
+     - MP_SET_midpoint_taskManager_clustered=true
+----
+For more information related to clustering and HA see the dedicated docs page - xref:/midpoint/reference/deployment/clustering-ha/[].
+
+The pre-prepared docker compose file is available on the link:https://raw.githubusercontent.com/Evolveum/midpoint-docker/docker-compose-cluster.yml[Github] with the name docker-compose-cluster.yml.
+This file contain all the setting.
+It supposed to be used for demo purpose.
+Some part of the file could be dedicated to the separate file (e.g. proxy setting) and referenced in the docker compose file.
+
+There are utilized profiles.
+The services without profile definition are processed in all the cases.
+The service with defined profile is processed only in case the profile is requested.
+
+[NOTE]
+====
+If you don't prefer to use the profiles you can customize the file - remove unwanted services and remove the profile definition.
+====
+
+[WARNING]
+====
+In case of proxy profile there is generated self signed certificate with the first run.
+Parameters could be set in the proxy-init service in the docker compose file.
+
+If you prefer to use own certificate it can be mounted to the container and referenced in the configuration of the proxy.
+update the configuration to not overwrite the certificate.
+
+.Read-only mount of the certificate directory to the container
+[source]
+----
+volumes:
+ - ./certificate:/etc/nginx/certs:ro
+----
+====
+
+There are available following profiles:
+|====
+| profile name | command| environment
+
+|  _(no profile)_
+| `docker compose -f docker-compose-cluster.yml up`
+| - repository +
+ - 1 midPoint ins tance +
+ * link:http://localhost:8081/[]
+
+| node2
+| `docker compose -f docker-compose-cluster.yml --profile node2 up`
+| - repository +
+ - 2 clustered midPoint instances +
+ * link:http://localhost:8081/[] +
+ * link:http://localhost:8082/[]
+
+| node 3
+| `docker compose -f docker-compose-cluster.yml --profile node3 up`
+| - repository +
+ - 3 clustered midPoint instances +
+ * link:http://localhost:8081/[] +
+ * link:http://localhost:8082/[] +
+ * link:http://localhost:8083/[]
+
+| node4
+| `docker compose -f docker-compose-cluster.yml --profile node4 up`
+| - repository +
+ - 4 clustered midPoint instances +
+ * link:http://localhost:8081/[] +
+ * link:http://localhost:8082/[] +
+ * link:http://localhost:8083/[] +
+ * link:http://localhost:8084/[]
+
+| proxy
+| `docker compose -f docker-compose-cluster.yml --profile proxy up`
+| - repository +
+ - 4 clustered midPoint instances +
+ * link:http://localhost:8081/[] +
+ * link:http://localhost:8082/[] +
+ * link:http://localhost:8083/[] +
+ * link:http://localhost:8084/[] +
+ - reverse proxy (nginx) +
+ * link:http://localhost/[] +
+ * link:https://localhost/[] (self signed cert)
+|====
