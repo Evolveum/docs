@@ -35,7 +35,15 @@ Object marks, improved password reset, and numerous user experience improvements
 
 == Changes With Respect To Version 4.7.3
 
-** TODO
+** Fixed the issue with authorizations being checked too late during the operation processing.
+In specific situations the user-supplied code could be executed before the authorization checks took place.
+See bug:MID-9459[].
+
+** Added missing authorizations checks for some less frequently used operations.
+See xref:_behavior_changes_since_4_7_3[] and bug:MID-9460[].
+
+** Introduced fine-grained authorizations that grant access at the level of a single REST operation.
+See xref:/midpoint/reference/before-4.8/security/authorization/service/[].
 
 To see full list of fixes see https://support.evolveum.com/projects/midpoint/work_packages?query_props=%7B%22c%22%3A%5B%22id%22%2C%22subject%22%2C%22type%22%2C%22status%22%2C%22priority%22%2C%22assignee%22%2C%22customField6%22%5D%2C%22hi%22%3Afalse%2C%22g%22%3A%22%22%2C%22is%22%3Atrue%2C%22tv%22%3Afalse%2C%22hla%22%3A%5B%22status%22%2C%22priority%22%5D%2C%22t%22%3A%22priority%3Adesc%2Cid%3Aasc%22%2C%22f%22%3A%5B%7B%22n%22%3A%22customField6%22%2C%22o%22%3A%22%3D%22%2C%22v%22%3A%5B%2273%22%5D%7D%5D%2C%22ts%22%3A%22PT0S%22%2C%22pp%22%3A20%2C%22pa%22%3A1%7D[Evolveum Issue Tracker]
 
@@ -350,6 +358,10 @@ Please refer to the xref:/midpoint/reference/upgrade/upgrade-guide/[] for genera
 The guide describes the steps applicable for upgrades of all midPoint releases.
 Following sections provide details regarding release {release-version}.
 
+=== Upgrade From MidPoint 4.7.x
+
+Please check if there is a need to add authorizations to specific users due to xref:_behavior_changes_since_4_7_3[].
+
 === Upgrade From MidPoint 4.6.x
 
 MidPoint {release-version} data model is backwards compatible with previous midPoint version.
@@ -497,6 +509,26 @@ _Actions required:_
 
 * Inspect your configuration for deprecated items, and replace them by their suggested equivalents.
 You can use `ninja` tool for this.
+
+[#_behavior_changes_since_4_7_3]
+=== Behavior Changes Since 4.7.3
+
+* The following authorizations were added into the `+http://midpoint.evolveum.com/xml/ns/public/security/authorization-model-3+` namespace:
+** `test`: test resource,
+** `importFromResource`: importing a single shadow or the whole object class,
+** `recompute` recomputing a user or other object (with limited support for now),
+** `notifyChange`.
+
++
+If there are users that need to execute these operations, make sure they get the appropriate authorization.
+
+* Invocation of "empty" modification operations, i.e. operations that make no change to the midPoint state, now require at least minimal authorizations.
+One of `add`, `modify`, `delete`, `recompute`, `assign`, `unassign`, `delegate`, `changeCredentials`
+(all in the `+http://midpoint.evolveum.com/xml/ns/public/security/authorization-model-3+` namespace) suffices to start such "empty" modification operation.
++
+The rationale behind this change is that execution of even a seemingly "empty" operation is a complex process.
+In order to minimize the possibility of interfering with it, we restricted the set of users that are able to start such an operation.
+This change should not affect standard midPoint users, as usually they should have at least one of these authorizations to carry out any meaningful work in midPoint.
 
 === Behavior Changes Since 4.6
 

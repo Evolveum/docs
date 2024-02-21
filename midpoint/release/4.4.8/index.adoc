@@ -1,6 +1,7 @@
 ---
 layout: release
 release-version: '4.4.8'
+visibility: hidden
 ---
 = MidPoint 4.4 LTS "Tesla" Update 8
 :release-version: 4.4.8
@@ -36,7 +37,15 @@ The {release-version} release brings Ninja tool and miscellaneous bugfixes.
 
 == Changes with Respect to Version 4.4.7
 
-** TODO
+** Fixed the issue with authorizations being checked too late during the operation processing.
+In specific situations the user-supplied code could be executed before the authorization checks took place.
+See bug:MID-9459[].
+
+** Added missing authorizations checks for some less frequently used operations.
+See xref:_behavior_changes_since_4_4_7[] and bug:MID-9460[].
+
+** Introduced fine-grained authorizations that grant access at the level of a single REST operation.
+See xref:/midpoint/reference/before-4.8/security/authorization/service/[].
 
 To see full list of fixes see https://support.evolveum.com/projects/midpoint/work_packages?query_props=%7B%22c%22%3A%5B%22id%22%2C%22subject%22%2C%22type%22%2C%22status%22%2C%22priority%22%2C%22assignee%22%2C%22customField6%22%5D%2C%22hi%22%3Afalse%2C%22g%22%3A%22%22%2C%22is%22%3Atrue%2C%22tv%22%3Afalse%2C%22hla%22%3A%5B%22status%22%2C%22priority%22%5D%2C%22t%22%3A%22priority%3Adesc%2Cid%3Aasc%22%2C%22f%22%3A%5B%7B%22n%22%3A%22customField6%22%2C%22o%22%3A%22%3D%22%2C%22v%22%3A%5B%2263%22%5D%7D%5D%2C%22ts%22%3A%22PT0S%22%2C%22pp%22%3A20%2C%22pa%22%3A1%7D[Evolveum Issue Tracker]
 
@@ -582,6 +591,8 @@ as https://docs.evolveum.com/midpoint/reference/upgrade/database-schema-upgrade/
 There are no table changes, but database procedures were improved (support for partition creation for the past)
 and missing org closure triggers added. (Generic repository does not require any upgrade.)
 
+* Please check if there is a need to add authorizations to specific users due to xref:_behavior_changes_since_4_4_7[].
+
 === Upgrade From MidPoint 4.3.x
 
 MidPoint {release-version} data model is not completely backwards compatible with midPoint version earlier than 4.4.
@@ -745,6 +756,26 @@ See xref:/connectors/connectors/com.evolveum.polygon.connector.ldap.LdapConnecto
 
 * DatabaseTable connector was upgraded to the latest available version 1.4.9.0.
 See xref:/connectors/connectors/org.identityconnectors.databasetable.DatabaseTableConnector/[DatabaseTable connector page] for details.
+
+[#_behavior_changes_since_4_4_7]
+=== Behavior Changes Since 4.4.7
+
+* The following authorizations were added into the `+http://midpoint.evolveum.com/xml/ns/public/security/authorization-model-3+` namespace:
+** `test`: test resource,
+** `importFromResource`: importing a single shadow or the whole object class,
+** `recompute` recomputing a user or other object (with limited support for now),
+** `notifyChange`.
+
++
+If there are users that need to execute these operations, make sure they get the appropriate authorization.
+
+* Invocation of "empty" modification operations, i.e. operations that make no change to the midPoint state, now require at least minimal authorizations.
+One of `add`, `modify`, `delete`, `recompute`, `assign`, `unassign`, `delegate`, `changeCredentials`
+(all in the `+http://midpoint.evolveum.com/xml/ns/public/security/authorization-model-3+` namespace) suffices to start such "empty" modification operation.
++
+The rationale behind this change is that execution of even a seemingly "empty" operation is a complex process.
+In order to minimize the possibility of interfering with it, we restricted the set of users that are able to start such an operation.
+This change should not affect standard midPoint users, as usually they should have at least one of these authorizations to carry out any meaningful work in midPoint.
 
 === Behavior Changes Since 4.3
 
