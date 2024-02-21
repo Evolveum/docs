@@ -4,6 +4,8 @@
 :toclevels: 4
 :page-keywords:  [ 'insatll', 'kubernetes' ]
 
+{% for v in site.data.midpoint-versions %}{% if v.status == null or v.status == "released" %}{% assign lastReleased = v %}{% endif %}{% endfor %}
+
 This page is related to the midPoint in container context of documentation.
 Here will be dedicated samples related to the vanilla kubernetes.
 
@@ -25,7 +27,7 @@ Please check the page soon for new content.
 
 When we are starting the environment we have to address few steps to have successful start of application.
 
-* <<_namespace>> (optional) +
+* <<namespace>> (optional) +
 There is native isolation concept in kubernetes to group the objects - namespaces.
 Even it is not mandatory we recommend to create the namespace to keep the configuration logically grouped.
 
@@ -59,6 +61,204 @@ If you need any additional content (e.g. certificate to establish secured connec
 
 ** access "hidden files" behind the mount points
 
+== Starting the environment
+
+To start the environment we need several objects.
+We can group them by the type / purpose:
+
+* StatefulSet +
+Control objects which provide template for the pods including the scale - amount of requested instance.
++
+.repository definition without persistent storage | link:https://raw.githubusercontent.com/Evolveum/midpoint-kubernetes/main/base-environment/statefulset-db-w_o-init.yaml[Github]
+[%collapsible]
+====
+[source,yaml]
+----
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mp-demo-db
+  namespace: mp-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mp-demo-db
+  template:
+    metadata:
+      labels:
+        app: mp-demo-db
+    spec:
+      containers:
+        - name: mp-demo-db
+          image: 'postgres:16-alpine'
+          ports:
+            - name: db
+              containerPort: 5432
+              protocol: TCP
+          env:
+            - name: POSTGRES_INITDB_ARGS
+              value: '--lc-collate=en_US.utf8 --lc-ctype=en_US.utf8'
+            - name: POSTGRES_USER
+              value: midpoint
+            - name: POSTGRES_PASSWORD
+              value: SuperSecretPassword007
+          imagePullPolicy: IfNotPresent
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 10
+  serviceName: mp-demo-db
+----
+====
++
+.midPoint without persistent storage
+[%collapsible]
+====
+[source,yaml]
+----
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mp-pg-demo
+  namespace: mp-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mp-pg-demo
+  template:
+    metadata:
+      labels:
+        app: mp-pg-demo
+    spec:
+      volumes:
+        - name: mp-home
+          emptyDir: {}
+      initContainers:
+        - name: mp-config-init
+          image: 'evolveum/midpoint:{{ lastReleased.version }}-alpine'
+          command: [ "/bin/bash", "-c" ]
+          args:
+            - cd /opt/midpoint ;
+              bin/midpoint.sh init-native ;
+              echo ' - - - - - - ' ;
+              bin/ninja.sh -B info >/dev/null 2>/tmp/ninja.log ;
+              grep -q "ERROR" /tmp/ninja.log && (
+              bin/ninja.sh -B run-sql --create --mode REPOSITORY  ;
+              bin/ninja.sh -B run-sql --create --mode AUDIT
+              ) ||
+              echo -e '\\n Repository init is not needed...' ;
+          env:
+            - name: MP_SET_midpoint_repository_database
+              value: postgresql
+            - name: MP_SET_midpoint_repository_jdbcUsername
+              value: midpoint
+            - name: MP_SET_midpoint_repository_jdbcPassword
+              value: SuperSecretPassword007
+            - name: MP_SET_midpoint_repository_jdbcUrl
+              value: jdbc:postgresql://mp-demo-db.mp-demo.svc.cluster.local:5432/midpoint
+          volumeMounts:
+            - name: mp-home
+              mountPath: /opt/midpoint/var
+          imagePullPolicy: IfNotPresent
+      containers:
+        - name: mp-pg-demo
+          image: 'evolveum/midpoint:{{ lastReleased.version }}-alpine'
+          ports:
+            - name: gui
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: MP_SET_midpoint_repository_database
+              value: postgresql
+            - name: MP_SET_midpoint_repository_jdbcUsername
+              value: midpoint
+            - name: MP_SET_midpoint_repository_jdbcPassword
+              value: SuperSecretPassword007
+            - name: MP_SET_midpoint_repository_jdbcUrl
+              value: jdbc:postgresql://mp-demo-db.mp-demo.svc.cluster.local:5432/midpoint
+            - name: MP_UNSET_midpoint_repository_hibernateHbm2ddl
+              value: "1"
+            - name: MP_NO_ENV_COMPAT
+              value: "1"
+          volumeMounts:
+            - name: mp-home
+              mountPath: /opt/midpoint/var
+          imagePullPolicy: IfNotPresent
+  serviceName: mp-pg-demo
+----
+====
+
+* Service +
+"Meeting point" for the use case.
+As pods has dynamic IPs there are not available IP addresses in advance.
+The service "scan" for the pods with the specific set of the labels (metadata).
+Once the match is found the IP is added to the endpoint list for the service.
+The name of service is known and it can be used for the connection (e.g. midPoint contact the repository using service definition).
++
+.repository
+[%collapsible]
+====
+[source,yaml]
+----
+kind: Service
+apiVersion: v1
+metadata:
+  name: mp-demo-db
+  namespace: mp-demo
+  labels:
+    app: mp-demo-db
+spec:
+  ports:
+    - protocol: TCP
+      port: 5432
+      targetPort: 5432
+  selector:
+    app: mp-demo-db
+  type: ClusterIP
+  sessionAffinity: None
+----
+====
++
+.midPoint
+[%collapsible]
+====
+[source,yaml]
+----
+kind: Service
+apiVersion: v1
+metadata:
+  name: mp-demo-mp
+  namespace: mp-demo
+  labels:
+    app: mp-demo-mp
+spec:
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+  selector:
+    app: mp-demo-mp
+  type: ClusterIP
+  sessionAffinity: None
+----
+====
+
+* Ingress +
+Entry point for the user.
+It is reverse proxy - first point of contact for the communication from outside on shared ports (http - TCP/80, https - TCP/443).
+Once the definition match the communication is passed to the defined service.
+
+* _pod_ +
+The pods is not defined directly by default.
+It is result of the statefulSet definition.
+
+.base object used for the environment
+image::kubernetes-diagram.png[]
+
+
+== Used object for the definition
+
+[#namespace]
 === Namespace
 
 To have grouped configuration logically separated from the rest of the objects it is good approach to create the namespace.
@@ -82,7 +282,47 @@ Once you remove the namespace object from Kubernetes all the objects located in 
 
 === Repository
 
+With the repository there are two expected cases where we will need to do some operation.
 
+==== Init repository (DB schema)
+
+Ther
+
+[source,yaml]
+----
+  volumes:
+    - name: mp-home
+      emptyDir: {}
+  initContainers:
+    - name: mp-config-init
+      image: 'evolveum/midpoint:4.8.1-alpine'
+      command: [ "/bin/bash", "-c" ]
+      args:
+        - cd /opt/midpoint ;
+          bin/midpoint.sh init-native ;
+          echo ' - - - - - - ' ;
+          bin/ninja.sh -B info >/dev/null 2>/tmp/ninja.log ;
+          grep -q "ERROR" /tmp/ninja.log && (
+          bin/ninja.sh -B run-sql --create --mode REPOSITORY  ;
+          bin/ninja.sh -B run-sql --create --mode AUDIT
+          ) ||
+          echo -e '\\n Repository init is not needed...' ;
+      env:
+        - name: MP_INIT_CFG
+          value: /opt/midpoint/var
+        - name: MP_SET_midpoint_repository_database
+          value: 'postgresql'
+        - name: MP_SET_midpoint_repository_jdbcUsername
+          value: 'midpoint'
+        - name: MP_SET_midpoint_repository_jdbcPassword
+          value: 'SuperSecretPassword007'
+        - name: MP_SET_midpoint_repository_jdbcUrl
+          value: 'jdbc:postgresql://midpoint-data:5432/midpoint'
+      volumeMounts:
+        - name: mp-home
+          mountPath: /opt/midpoint/var
+      imagePullPolicy: IfNotPresent
+----
 
 == configuration files
 For the native repository there is need to have proper configuration for the db connection.
