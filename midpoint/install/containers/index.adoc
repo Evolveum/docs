@@ -2,9 +2,11 @@
 :page-nav-title: Containers
 :page-display-order: 20
 :page-liquid:
-:toc: float-right
+:page-toc: float-right
 :toclevels: 4
 :page-keywords:  [ 'install', 'container' ]
+
+{% for v in site.data.midpoint-versions %}{% if v.status == null or v.status == "released" %}{% assign lastReleased = v %}{% endif %}{% endfor %}
 
 == Quick Start
 
@@ -41,19 +43,175 @@ Small customization of the configuration for the specific environment may be nee
 
 == Running environment
 
-There is need to have available repository to store the data.
-Currently there is available implementation of the native repository only for postgreSQL.
-This is causing external dependency which cannot be handled by the container itself.
+For the regular operation the repository (relation DB) is needed.
+There is required native repository schema which is available for postgreSQL.
+As far as we are in container environment, this is covered by additional container with PostgreSQL instance.
 
-To be able to start environment there have to be started another container with postgresql and make the initiation of the repository.
+The structure (schema) have to be initiated in advance.
+Once the correct schema version is ready, the midPoint is checking the initial object (content) and push it if necessary.
 
-As this is environment related please see focused pages:
+[NOTE]
+====
+There is available generic repository implementation which cover also other than PostgreSQL DB.
+This repository schema is deprecated.
+The available feature set is limited and no new features are available with these repository schema.
+In case you are historically using this repository schema we strongly recommend to migrate to native repository.
+
+The availability of deprecated generic repository schema may require the active subscription.
+
+====
+
+.Schema of the containerized environment (base setup)
+image::containerized_env.png[]
+
+In basic setup there are 3 containers needed.
+
+* *repository* - *midpoint_data* in the diagram +
+Currently there is no explicit requirements next to _running_ instance where is possible to connect.
++
+Image : postgres +
+Tag : see xref:/midpoint/release/{{ lastReleased.version }}/#databases[release] notes for recommended version (e.g. 16-alpine)
+
+* initialization of the environment - *data_init* in the diagram +
+There have to be initialized the structure of the repository (*repository schema*) if needed.
+Next to it there have to be proper config.xml configuration for midPoint.
+All the required information is ready in the midPoint's container image.
+For more information see <<envinit,dedicated chapter>>.
++
+The requirement is to use the same version of the image as for container with midPoint.
+
+* midPoint instance - *midpoint_server* in the diagram +
+Once the environment is ready the midPoint itself can be started.
++
+Image : evolveum/midpoint +
+Tag : <released version> (e.g. {{ lastReleased.version }}-alpine )
+
+Based on used environment there could be different approach how to cover the functionality.
+For the specific information see the dedicated subpage:
 
 * xref:./docker[docker / docker compose] related page
 * xref:./kubernetes[kubernetes] page
 
-.Schema of the containerized environment (base setup)
-image::containerized_env-4_8_1.png[]
+[#envinit]
+== Environment init
+
+For successful start of the midPoint the basic configuration have to be done.
+First part is related to the basic information about the environment like where is the keystore or how to connect to the repository.
+Second part is related to repository structure (schema) which have to be prepared in advance.
+
+=== configuration
+
+The most of the information can be used in default values.
+Alternatively there is possibility of using <<mpset,*MP_SET_*>> environment variables to customize (overwrite) the values without changing the files on filesystem.
+The exception is values which is multi value type - in that case we are not overwriting but adding another value.
+
+For the most of the cases the sample config.xml file is suitable with MP_SET_ variables to customize for the specific environment setting.
+This file is available in the image (under doc directory structure) and can be used if it is copied to "proper" location.
+
+To handle it there is available function in *midpoint.sh* starting script which can copy out the sample config.xml to midpoint home directory.
+
+.initiate config.xml - use the sample available in the image
+[source,bash]
+----
+MP_INIT_CFG=/opt/midpoint/var
+/opt/midpoint/bin/midpoint.sh init-native
+----
+
+To see other option to customize the environment see the <<customization,dedicated chapter>>.
+
+=== Repository
+
+Repository is located in the separated container.
+All the interaction is from "client" side.
+For the common situation no specific interaction on repository container is needed.
+
+With the repository usage we can face to cases:
+
+* init new repository schema +
+This is valid once the new environment is start - one time operation.
+Can be conditionally executed with the environment start (e.g. demo environment) or run as separate one time operation (e.g. permanent test).
+
+* upgrade the repository schema +
+This may be required with midPoint upgrade as one time operation.
+Not all version change have to require the schema upgrade.
+See the xref:/midpoint/release/[release] notes for more information if is needed.
+
+[WARNING]
+====
+For the proper run of ninja there have to be used the same connection setting as for "regular" run of the midPoint.
+It mean the same *config.xml* and also *MP_SET_* env variable if it is used.
+====
+
+==== Init new repository
+
+The repository structure (schema definition) is available in form of SQL script in midPoint image.
+To apply we can use ninja tool which is available in the image for repository maintenance purpose.
+
+.initiate the repository using ninja
+[source,bash]
+----
+# it have to be run from midpoint installation path
+cd /opt/midpoint
+
+# There is separated initialization for repository and audit
+#    ... as it can be separated
+bin/ninja.sh -B run-sql --create --mode REPOSITORY
+bin/ninja.sh -B run-sql --create --mode AUDIT
+----
+
+There is also option to have the definition conditionally executed with the every start.
+In that case we can use ninja to check if the initialization is needed.
+
+For this purpose we can ask ninja for the information about the repository.
+The operational information we need is sent to error output as the standard output is used for the operation output itself.
+For the simplicity we can check for the presence of "keyword" ERROR.
+
+[NOTE]
+====
+In the theory we can differ between root cause of the error to filter really just the specific situation.
+Technically if there is no issue with schema itself (e.g. connection issue) the initialization would not proceed anyway with the error.
+
+We can define the requirement to successful execution for the start of other containers so simplification would not cause any issue.
+====
+
+.example of the conditional execution for the repository init
+[source,bash]
+----
+# it have to be run from midpoint installation path
+cd /opt/midpoint ;
+
+# test for the repository status
+bin/ninja.sh -B info >/dev/null 2>/tmp/ninja.log
+
+#check for the presence of the "keyword" ERROR
+grep -q "ERROR" /tmp/ninja.log && (
+bin/ninja.sh -B run-sql --create --mode REPOSITORY
+bin/ninja.sh -B run-sql --create --mode AUDIT
+)
+----
+
+==== Upgrade the repository schema
+
+The repository schema upgrade may be required in case of midPoint upgrade.
+In case you need to proceed with this operation the ninja is here to help.
+
+.upgrade repository schema
+[source,bash]
+----
+# it have to be run from midpoint installation path
+cd /opt/midpoint
+
+bin/ninja.sh -B run-sql --upgrade --mode REPOSITORY
+bin/ninja.sh -B run-sql --upgrade --mode AUDIT
+----
+
+[WARNING]
+====
+In case you are doing upgrade the repository schema upgrade not necessary have to be all required steps for midPoint upgrade.
+On the other side repository schema upgrade not necessary have to be required with all the version upgrade.
+
+Please check xref:/modpoint/release[release notes] for more information.
+====
 
 [#customization]
 == Customization of the containers
@@ -68,7 +226,7 @@ There are two ways how the file can be used .
 * <<mpset,*MP_SET_*>> environment variable +
 This part cover the most flexible part of the possible customization of the image.
 
-* `<<initNative,Environment initiation>>` +
+* `<<initnative,Environment initiation>>` +
 This part covert all the common needs related to the init of the environment (first run).
 
 [NOTE]
@@ -80,7 +238,7 @@ With the defined TRAPs signal properly reach the midPoint application and the op
 From user point of view the termination of the container doesn't need to wait 10s timeout before environment forcing to kill the container and in read the termination take just few seconds.
 ====
 
-[#initNative]
+[#initnative]
 === Environment initiation
 
 This section is focused on handling available files.
@@ -103,6 +261,7 @@ MP_CHECK=/opt/midpoint/var/init_in_progress
 The usage is mainly in advanced scenarios when there is need to force midPoint to wait until the external condition is met.
 In the most common use cases this option will not be useful.
 
+[#initcfg]
 * *MP_INIT_CFG* +
 The default config.xml file is prepared for the generic repository.
 Sample config.xml file for the native repository contain all we need to have set.
