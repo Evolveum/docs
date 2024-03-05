@@ -12,6 +12,9 @@ Consider HR system that models persons and their employment relations to the org
 .HR structure
 image::source-hr.drawio.png[HR structure]
 
+NOTE: Maybe "contract" is a better word than "employment".
+The figure will be updated.
+
 There are many more conceivable types of objects, like addresses of a person: permanent, temporary, correspondence, and so on.
 
 .Addresses in HR
@@ -63,7 +66,14 @@ Again, also here we would like to query, and probably update the associated obje
 
 == Proposed ConnId Design
 
-=== Structured Source Information & Rich Membership
+There are two new concepts there:
+
+. Associated objects
+. Associations
+
+=== Associated Objects
+
+==== Structured Source Information & Rich Membership Cases
 
 . The `employment`, `address`, `accessRight` will be fully functional connector objects.
 
@@ -79,17 +89,17 @@ For example, when retrieving a `person`, the client could request returning also
 The client would request which behavior (ignore, return identifiers, return full values) it desires.
 The full objects could be returned in the form of `ConnectorObject` instances, embedded in the item values being returned.
 +
-NOTE: It is not clear if the item containing reference or references to the associated objects (e.g., the `employment` item) should be an attribute or something different, like an object reference.
-It could be an attribute of a specific non-primitive type: ObjectReference.
+NOTE: It is not clear if the item containing reference or references to the associated objects (e.g., the `employment` item) should be an attribute or something different, like an association, or a reference.
+It could be an attribute of a specific non-primitive type: `ObjectAssociation` or maybe `ObjectReference`.
 There are reasons for both approaches.
-For the time being, let us talk about them as reference attributes.
+For the time being, let us talk about them as association attributes or reference attributes.
 
 . In theory, the client could request also deeper resolution, like providing also resolved `orgUnit` objects in the `employment` objects returned.
 But in the near future this probably won't be necessary.
 
 . When updating, there are three cases:
 .. _Adding associated objects_.
-This is most naturally done by providing the reference attribute values with the embedded objects (in object `create` or `modify` operation).
+This is most naturally done by providing the association/reference attribute values with the embedded objects (in object `create` or `modify` operation).
 .. _Deleting associated objects_.
 This can be done by providing identifiers of the embedded objects to be dis-associated from the owning object.
 (The question if the associated objects should be deleted or not.
@@ -100,50 +110,50 @@ This will have to be a modification operation against the associated object clas
 But the primary identifier (`Uid` in the ConnId language) won't be necessarily a single attribute.
 For associated objects like `accessRight` in the DMS example, it will be a composite identifier, consisting of `uid`, `storeId`, and `accessLevel` attributes.
 
-=== Plain Membership
+==== Plain Membership Case
 
 There won't be any extra object classes.
 
-=== References
+=== Associations / References
 
-What is needed, though, is a new concept of a _reference attribute_ / _object reference_.
+What is needed, though, is a new concept of an _association_ / _reference_ [_attribute_].
 It is a kind of link between objects that can be queried and updated in a flexible way.
-For example, a link between AD user and AD group is a reference.
+For example, a link between AD user and AD group is an association/reference.
 
-A reference always has two ends.
+An association/reference always has two ends.
 It can be one-to-one, one-to-many, or many-to-many.
 If it's one-to-X, the "one" end may be optional or mandatory.
 
-The reference will have a name that is potentially different on its ends.
+The association/reference will have a name that is potentially different on its ends.
 
-=== Plain Membership Case
+==== Plain Membership Case
 
-For example, the reference implementing the group membership in AD can be named `member` or `members` on the group side and `group` or `groups` on the user (member) side.
+For example, the association/reference implementing the group membership in AD can be named `member` or `members` on the group side and `group` or `groups` on the user (member) side.
 Both these sides will be multivalued.
 
-=== Structured Source Information & Rich Membership
+==== Structured Source Information & Rich Membership Case
 
-Here, there will be references between the ordinary objects (`person`, `orgUnit`, `costCenter` in HR, and `user`, `documentStore` in DMS) and the associated objects (`employment` in HR, `accessRight` in DMS).
+Here, there will be associations/references between the ordinary objects (`person`, `orgUnit`, `costCenter` in HR, and `user`, `documentStore` in DMS) and the associated objects (`employment` in HR, `accessRight` in DMS).
 
-For example, a `person` will have a reference named `employment` that will point to its associated `employment` objects.
-There may or may not be a manifestation of this reference at the `employment` side.
+For example, a `person` will have an association/reference named `employment` that will point to its associated `employment` objects.
+There may or may not be a manifestation of this association/reference at the `employment` side.
 (It is not necessary mainly because it probably won't be addressed, as it is not updated from the outside.)
 
-The `employment` will have references named `orgUnit` and `costCenter` pointing to the `orgUnit` and `costCenter` objects, respectively.
-Again, there need not be manifestations of these references at the target sides, for the same reason as above.
+The `employment` will have associations/references named `orgUnit` and `costCenter` pointing to the `orgUnit` and `costCenter` objects, respectively.
+Again, there need not be manifestations of these associations/references at the target sides, for the same reason as above.
 
-For the DMS case, the `user` will have a reference named `accessRight` pointing to its associated `accessRight` objects.
+For the DMS case, the `user` will have an association/reference named `accessRight` pointing to its associated `accessRight` objects.
 As the `accessRight` objects will be probably queried and/or updated separately from the `user` objects, this reference will be represented also in `accessRight` object, probably as `user` item. The same is true for the `documentStore` side of `accessRight`.
 
 === Summary
 
 For ConnId, we need two more or less independent new concepts:
 
-. associated object class,
-. reference.
+. association/reference,
+. associated object class.
 
-The reference can exist without an associated object class, like in plain membership cases.
-But associated object class requires references to bind the associated objects to their owners.
+The association/reference can exist without an associated object class, like in plain membership cases.
+But associated object class requires associations/references to bind the associated objects to their owners.
 
 == Proposed MidPoint Design
 
@@ -152,13 +162,13 @@ How should all of this be represented in midPoint?
 === Sources with Associated Object Classes
 
 For strictly source resources, like HR, this situation is quite simple.
-For each associated object class, we can define association type (or types), and create the binding to midPoint data.
+For each associated object class, we can define object type (or types), and create the binding to midPoint data.
 
 For simplicity, we can assume that the associated objects will be retrieved together with the owner object.
 (This means that there won't be any import tasks dealing with `employment` object class.
 But that's OK.)
 
-Each association type will be mapped to a specific focus item.
+Each associated object type will be mapped to a specific focus item.
 For example,
 
 * The `employment` will be mapped to `assignment`, with the subtype (in the future, archetype) of `employment`.
@@ -177,7 +187,7 @@ It will be the `assignment` value into which we are mapping the respective `empl
 (This is very similar to the behavior of `addFocus` and `deleteFocus` synchronization reactions at the ordinary resource object level.)
 So, we only need to know what are the _keys_ for the target item, i.e. when there is a change in the `employment` object - assuming that it has no externally visible ID - whether we have to create a new assignment, or just update the existing one.
 
-=== Sources with Plain Relations
+=== Sources with Plain Associations/Relations
 
 #TODO#
 
