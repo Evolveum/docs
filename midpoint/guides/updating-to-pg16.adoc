@@ -1,0 +1,102 @@
+= Upgrading PostgreSQL Database with Native PostgreSQL Repository
+:since: 4.8
+
+This guide will walk you through migrating your midPoint 4.8 PostgreSQL database to newer version of PostgreSQL for use with midPoint Native repository.
+It assumes you were using Native PostgreSQL repository with older PostgreSQL database and you just want to upgrade to  PostgreSQL 16.
+
+IMPORTANT: If you were using Generic Repository with PostgreSQL this guide is not for you, please consult xref:/midpoint/reference/repository/native-postgresql/migration/[Migration to Native PostgreSQL Repository].
+
+
+
+Unfortunatelly it is not possible to easily migrate midPoint PostgreSQL database using `pg_dump` and `pg_restore` with their basic options. This guide assumes basic knowledge of `pg_dump` and `pg_restore` tools.
+
+This guide does not deal with performance optimizing migration process, but to rather show simplest form and principles neccessary to perform it.
+
+== Process Overview
+
+. Exporting only data from older PostgreSQL version using `pg_dump`
+. Creating new database & Initializing database schema
+. Importing data using into new database using `pg_restore`
+. Changing midPoint `config.xml` to use new database
+
+
+=== `pg_dump` and `pg_restore` complications
+
+MidPoint Native Repository heavily uses more advanced concepts present in PostgreSQL such as `GENERATED` and table inheritance. midPoint also uses insert triggers, which may bit complicate reimport.
+
+* `GENERATED` - prevents `pg_restore` from using `COPY` statements (faster import), `INSERT` needs to be used. This requires to switching to `INSERT` statements using `--column-inserts` statements.
+
+* PostgreSQL had incompatible change how `GENERATED` can be used in PostgreSQL 16 and older PostgreSQL. So midPoint database schema used prior to version 16 can not be imported directly into PG 16, so you need to do data only export (using option `-ab` in `pg_dump` and `pg_restore`).
+
+* Since you need to use `INSERT` statements, these have triggers - you have two options - let triggers be run, or disable it.
+** Table `m_object_oid` is normally populated by triggers on inserts into `m_object` and concrete object tables. You need to have triggers disabled during reimport. Disabling triggers also require access to `SUPERUSER` role in PostgreSQL 16.
+
+
+== Data Export from older PostgreSQL
+
+First step is to export data from older PostgreSQL database. 
+Based on discussed complications, you need to perform export using `pg_dump` with following options:
+
+`-ab`::
+  Export data only, export large objects.
+`--column-inserts`::
+  Use `INSERT` SQL statements instead of `COPY` statements
+`-Fc`::
+  Use `pg_dump` custom file format for dump
+
+You also need to specify connections options.
+Assuming your database is running at `localhost` port `5432`, you have database user `midpoint` and database used is `midpoint_prod` . The dump will be stored into `database.dump` file.
+
+
+The command is:
+[source, sh]
+----
+pg_dump -h localhost -p 5432 -U midpoint -ab --column-inserts -Fc midpoint_prod > database.dump
+----
+
+After command successfully finishes, you will have dump of old database.
+
+== Creating PG16 Dabatase
+
+As mentioned before, you need to create new database and initialize it with database schema (you can not import schema from database older than PG16). This steps are similar as to creating database for the first time.
+
+This could be done using `psql`.
+See xref:/midpoint/reference/repository/native-postgresql/usage/#database-preparation[Native PostgreSQL Repository: Database Preparation] for how to prepare blank database. 
+ 
+IMPORTANT: Do not start any midPoint instance which will connect to new database.
+
+== Data Import into new database
+
+Based on discussed complications, you need to perform export using `pg_dump` with following options:
+
+`-S superuser`::
+    PostgreSQL superuser account name, which should be used to disable triggers.
+`--disable-triggers`::
+    Disables triggers during import. Prevents double inserts into `m_object_oid`.
+`-a`::
+    Data only import.
+
+Now you can import data into new database. Assuming your new database is running at `localhost` port `5431`, and you have database user `midpoint` and the database used is `midpoint_prod`. Lets assume `midpoint` user is also superuser. The dump is  stored in `database.dump` file.
+
+[source, sh]
+----
+pg_restore -h localhost -p 5431 -S midpoint -U midpoint --disable-triggers -a -d midpoint_prod < database.dump
+----
+
+Once the command successfully completes, You should have all data in new PG 16 database. And it is time to update configuration.
+
+== Updating midPoint `config.xml`
+
+Now, you have all data in new PostgreSQL database it is time to update `config.xml` to point to new DB.
+
+
+
+== Appendix: Upgrade / migration using Ninja
+
+IMPORTANT: This step is not neccessary if you performed upgrade using `pg_dump` and `pg_restore`. IT documents only alternative way.
+
+You could treat upgrading PostgreSQL database also as a migration to native Repository, even if you were using Native Repository before. This can be achieved using built-in midPoint tool *Ninja* (`bin/ninja.sh`) to perform database migration.
+
+IMPORTANT: Simulated Objects in Simulatations are not migrated using Ninja. These objects will be lost during upgrade / migration.
+
+The details how to perform migration using Ninja could be found at xref:/midpoint/reference/repository/native-postgresql/migration/[Migration to Native PostgreSQL Repository]. 

@@ -1,5 +1,5 @@
 = First Steps With MidPoint: Assessment
-:page-nav-title: '2. Assessment'
+:page-nav-title: 'Assessment'
 :page-display-order: 110
 :page-toc: top
 :experimental:
@@ -28,7 +28,7 @@ There may be all kinds of weirdness and historical baggage frozen in time becaus
 
 In general, when deploying identity management system to an existing environment, we need to take extra care of the following:
 
-. *usernames*: midPoint usernames should be the same as for the main target systems (e.g. Active Directory/LDAP)
+. *usernames*: midPoint usernames should be the same as for the principal authentication system. In this methodology, we assume that company's Active Directory or LDAP which will be connected as the first target system is used as the source of usernames.
 . *accounts*: we should not harm any existing accounts in an unexpected way
 . *passwords*: we should not alter (e.g. re-generate) any existing account password
 
@@ -39,10 +39,19 @@ We need much smarter approach.
 
 This is what you have to do:
 
-== 1. Connect HR System
+== Connect HR System
 
 *Connect HR* data source to midPoint.
 Set up your HR identity resource in midPoint, using CSV or DatabaseTable connector.
+
+.Please refer to the following documentation:
+
+* xref:/midpoint/reference/admin-gui/resource-wizard/[]
+
+You can see this step in action in the First Steps Methodology webinar video:
+
+video::suo775ym_PE[youtube,title="Step 2: Connect Source System (HR)",start="1216"]
+
 Deal with just the very basic data items for now:
 
 * Names (given name, family name)
@@ -55,17 +64,33 @@ We can get back to them later.
 The resource is created in `Proposed` lifecycle status by default.
 Keep it that way at this stage.
 
-Configure the resource to create users in midPoint with `Person` archetype assigned.
+We recommend to use resource capabilities to disable `Create`, `Update` and `Delete` operations on the resource.
+
+Create a new object type for HR accounts to allow creation of users in midPoint with `Person` archetype assigned.
+
+.Please refer to the following documentation:
+
+* xref:/midpoint/reference/admin-gui/resource-wizard/#object-type-configuration[Resource wizard - part Object type configuration]
+
+WARNING: Make sure you select the proper archetype before importing the users. Change of archetype is not supposed to be a straightforward process as archetypes are expected to work as object classes in the future.
 
 Preview your HR records which will be imported to see if you want to import all of them, or you want to import only a subset of them using a classification filter (e.g. if you want to ignore non-IT personnel).
 While the resource is in `Proposed` lifecycle state, you can redefine classification filters and reclassify your HR accounts as many times as you wish.
 
 [#import-users-from-hr]
-== 2. Import Users From HR To MidPoint
+==  Import Users From HR To MidPoint
 
 *Import users* to midPoint, using HR data.
 For simplicity, use HR person identifier (e.g. employee number) as the midPoint username.
 We will import the usernames from AD/LDAP later.
+
+.Please refer to the following documentation:
+
+* xref:/midpoint/reference/admin-gui/resource-wizard/#wizard-for-task-creation[Resource wizard - part Wizard for task creation]
+
+You can see this step in action in the First Steps Methodology webinar video:
+
+video::suo775ym_PE[youtube,title="Step 3: Import from HR",start="1541"]
 
 //Select appropriate algorithm for midPoint username.
 //You surely have some username convention (such as `jsmith`) in place.
@@ -76,6 +101,12 @@ Then you can xref:/midpoint/reference/simulation/[simulate] the import of all HR
 You can continually improve your imported data by adding more attribute mappings.
 
 When finished, switch the HR resource to `Active` lifecycle state.
+
+.Please refer to the following documentation:
+
+* xref:/midpoint/reference/admin-gui/resource-wizard/#how-to-use-lifecycle-state[Resource wizard - part How to use lifecycle state]
+
+WARNING: Make sure you have selected the proper archetype for users before importing them. Change of archetype is not supposed to be a straightforward process as archetypes are expected to work as object classes in the future.
 
 Now you can import the HR data, creating user objects in midPoint.
 As we are working with simple data for now, the import should go well.
@@ -96,11 +127,32 @@ Instead of setting user's `administrativeStatus`, we recommend to set midPoint u
 * suspended (e.g. temporarily inactive employees - parental leave, long-term sickness etc.)
 * archived (e.g. former employees)
 
+.If you have imported users with incorrect archetype
+[NOTE]
+====
+If you have managed to import users from source system with an incorrect archetype, please do the following:
+
+. Delete all imported users from midPoint (make sure you do not delete `administrator` user)
+.. midPoint will attempt to delete the source accounts in HR as well, if you have disabled `Create`, `Update` and `Delete` operations in resource capabilities, errors will be displayed (this is expected)
+. Re-configure HR resource to use a correct archetype for user creation.
+. Re-run the import task from HR resource.
+====
+
 [#connect-active-directory]
-== 3. Connect Active Directory
+== Connect Active Directory
 
 *Set up your Active Directory (or LDAP) identity resource* in midPoint and keep it in `Proposed` lifecycle state.
 Create Object type definition for AD accounts and keep it in `Proposed` lifecycle state as well.
+
+.Please refer to the following documentation:
+
+* xref:/midpoint/reference/admin-gui/resource-wizard/[]
+
+TIP: You can see this step in action in https://youtu.be/suo775ym_PE?t=1898&si=In5OAmPHUM9p7YdW[Step 4: Connect Target System in the First Steps Methodology Webinar] video.
+
+You can see this step in action in the First Steps Methodology webinar video:
+
+video::suo775ym_PE[youtube,title="Step 4: Connect Target System",start="1898"]
 
 Set up outbound mappings for the small data set that you have (given name, username and so on) and keep them in `Draft` lifecycle state (effectively disabled).
 
@@ -110,6 +162,12 @@ Configure synchronization configuration in `Proposed` lifecycle state.
 
 We do not want to change any data in Active Directory yet.
 
+.Please refer to the following documentation:
+
+* xref:/midpoint/reference/admin-gui/resource-wizard/#synchronization[Resource wizard - part Synchronization]
+* xref:/midpoint/reference/admin-gui/resource-wizard/#correlation[Resource wizard - part Correlation]
+* xref:/midpoint/reference/admin-gui/resource-wizard/#mappings[Resource wizard - part Mappings]
+
 .Resource templates
 [NOTE]
 ====
@@ -118,12 +176,26 @@ Resource templates can be prepared in advance.
 Creating a new resource based on resource template instead of creating it from scratch can save your time as the basic configuration would be pre-defined, and you can enable/update it as necessary.
 ====
 
-== 4. Correlate Active Directory Accounts
+TIP: Please refer to our https://github.com/Evolveum/midpoint-samples/tree/master/samples/resources/ad-ldap/AD[Active Directory resource sample] for more information. This sample was tested with our First Steps Methodology.
+
+
+==  Correlate Active Directory Accounts
 
 *Correlate Active Directory accounts* with midPoint users.
 If you have employee numbers (or similar unique attributes from HR) stored in your Active Directory, then use that for correlation.
 As an alternative if no such data can be used or if data is unreliable, you may want to use several attributes for _approximate_ correlation such as names, locality, department etc.
 Manual confirmation using midPoint correlation cases can be used to specify midPoint user who should own the Active Directory account if the match is ambiguous.
+
+.Please refer to the following documentation:
+* xref:/midpoint/reference/admin-gui/resource-wizard/#synchronization[Resource wizard - part Synchronization]
+* xref:/midpoint/reference/admin-gui/resource-wizard/#correlation[Resource wizard - part Correlation]
+* xref:/midpoint/reference/admin-gui/resource-wizard/#wizard-for-task-creation[Resource wizard - part Wizard for task creation]
+
+
+You can see this step in action in the First Steps Methodology webinar video:
+
+video::suo775ym_PE[youtube,title="Step 5: Target System Integration",start="2027"]
+
 
 After configuring correlation and synchronization (while the resource, object type and synchronization configuration is in `Proposed` lifecycle state):
 
@@ -144,7 +216,7 @@ If you get 80-90% users to correlate well, you are done here.
 There will be also orphaned accounts (`Unmatched` synchronization situation).
 Based on your resource configuration, midPoint may report they will be deactivated (but we are still in `Proposed` lifecycle state - just simulating).
 
-We will analyze the accounts here, but we will take final decision later in <<6. Clean Up The Accounts>> to not stop us from progressing.
+We will analyze the accounts here, but we will take final decision later in <<Clean Up The Accounts>> to not stop us from progressing.
 
 TIP: You can analyze/clean up the data in several iterations.
 
@@ -160,12 +232,12 @@ If you are absolutely sure the accounts should be deactivated, you do not need t
 . *Orphaned accounts of unclear origin*:
 Review the list of orphaned accounts (the accounts in Active Directory not having an owner in midPoint which should mean they are not related to HR data on which midPoint data is based) one by one and make sure these are _not_ system accounts (see the _System (service) accounts_ category).
 +
-xref:/midpoint/reference/mark/[_Mark_ the undesired ones as Decommission later] to be deactivated eventually (but not yet).
+xref:/midpoint/reference/concepts/mark/[_Mark_ the undesired ones as Decommission later] to be deactivated eventually (but not yet).
 
 . *System (service) accounts*:
 For all accounts that are crucial for Active Directory, we need a different decision.
 +
-xref:/midpoint/reference/mark/[_Mark_ the system accounts as Protected in midPoint] to keep track of them, but ignore them otherwise by midPoint.
+xref:/midpoint/reference/concepts/mark/[_Mark_ the system accounts as Protected in midPoint] to keep track of them, but ignore them otherwise by midPoint.
 
 . *Accounts unmatched because of data inconsistencies.*
 Review the rest of accounts which have not been matched or decided in the previous steps.
@@ -188,7 +260,8 @@ After you have finished marking of your accounts, you can run the simulated _rec
 Your marked accounts should not be reported to be deactivated anymore.
 Orphaned accounts which are not marked should be still reported as to be deactivated.
 
-Switch the resource, object type configuration and all synchronization actions except for `Unmatched` situation to `Active` lifecycle state, and:
+Switch the resource, object type configuration and all synchronization actions except for `Unmatched` situation to `Active` lifecycle state.
+Switch the synchronization action for `Unmatched` situation to `Draft` lifecycle state (to keep the reaction temporarily disabled), and:
 
 . Run the simulated _reconciliation_ task on AD resource using _Production_ configuration.
 . Then have a look at the simulation results in midPoint GUI (interactively). Orphaned accounts should not be touched anymore - we will resolve them later, the synchronization configuration for them won't be used now (just in simulations).
@@ -206,11 +279,21 @@ You may even need to update your HR resource configuration (e.g. if you forgot t
 Therefore, we assume you will work in iterations.
 Simulations will guide you all the way.
 
-== 5. Import Active Directory usernames
+== Import Active Directory usernames
 
 Until now, users in midPoint have been created with employee number (or similar) attribute from HR.
 But your users already have Active Directory usernames.
 We can reuse them also for midPoint users - the advantage will be more obvious later, if we switch the midPoint authentication mechanism to use Active Directory.
+
+.Please refer to the following documentation:
+* xref:/midpoint/reference/admin-gui/resource-wizard/#mappings[Resource wizard - part Mappings]
+* xref:/midpoint/reference/admin-gui/resource-wizard/#wizard-for-task-creation[Resource wizard - part Wizard for task creation]
+
+
+You can see this step in action in the First Steps Methodology webinar video:
+
+video::suo775ym_PE[youtube,title="Step 6: Import Usernames from Target System",start="2461"]
+
 
 Re-configure the original HR inbound mapping for midPoint username: set its strength to _weak_.
 This allows to still create midPoint users who have no Active Directory account, but AD username will have higher priority.
@@ -246,24 +329,35 @@ Import the usernames now:
 . Majority of your midPoint users should be renamed according to their Active Directory usernames.
 . Users without accounts in Active Directory (e.g. still uncorrelated) will keep their original usernames from HR (based on e.g. employee number). Such users (without Active Directory accounts) can be easily found in midPoint using GUI.
 
-== 6. Clean Up The Accounts
+== Clean Up The Accounts
 
 After the majority of the accounts have been correlated and usernames imported, we can handle the orphaned accounts (in situation `Unmatched`).
+You have already marked your accounts (and intentionally not marked some of them).
 
-As you have already marked your accounts (and intentionally not marked some of them), you can run the simulated _reconciliation_ task with _Development_ configuration once again to see what will happen.
+.Please refer to the following documentation:
 
-The accounts you have marked previously should not be attempted to be deactivated.
-Unmarked orphaned accounts should be indicated for deactivation.
+* xref:/midpoint/reference/admin-gui/resource-wizard/#synchronization[Resource wizard - part Synchronization]
+
+You can see this step in action in the First Steps Methodology webinar video:
+
+video::suo775ym_PE[youtube,title="Step 6.1: Clean Up Orphaned Accounts",start="2723"]
+
 
 You are ready for clean up procedure:
 
-. re-configure synchronization action for `Unmatched` situation: set it to `Active` lifecycle state. By this change we are moving the configuration from simulation to the reality.
+. re-configure synchronization action for `Unmatched` situation: set it to `Active` lifecycle state.
 . run _reconciliation_ task with Active Directory with _Production_ configuration to see what would happen one last time. If the simulation results correspond to what you have seen earlier with _Development_ configuration, continue.
 . run _reconciliation_ task with Active Directory
 . unmarked orphaned accounts should be deactivated
 . additionally, the policy for orphaned accounts is set from now on, but the marked accounts will not be harmed.
 
-TIP: You should periodically review your marked accounts, especially those "temporary" states such as "To be decommissioned", "Do not update" and "Correlate later".
+During the clean up part (now or in one of the later iterations), you should check if there are any uncorrelatable accounts that can be correlated using additional correlation rules and/or operator intervention.
+
+You can see this step in action in the First Steps Methodology webinar video:
+
+video::suo775ym_PE[youtube,title="Step 6.2: Correlation with Operator Confirmation",start="2833"]
+
+You should periodically review your xref:/midpoint/reference/concepts/mark/[marked accounts], especially those "temporary" states such as "To be decommissioned", "Do not update" and "Correlate later".
 
 You should also periodically run reconciliation task with your Active Directory to detect and deactivate any future orphaned accounts.
 Unmarking those accounts and running _reconciliation_ task with Active Directory will remove them.
@@ -275,13 +369,25 @@ However, assessment is all but pointless.
 Automation can be done only after the assessment phase is done.
 Attempts to automate processes with unreliable data are futile, they invariably lead to failures, usually a very expensive failures.
 Speaking from a couple of decades of identity management experience, there is no such thing as reliable data, unless the data are cleaned up and systematically maintained with an assistance of identity management platform.
-Simply speaking: you may think that our data is good, but they are not.
+Simply speaking: you may think that your data is good, but it is not.
 
-== 7. Prepare Active Directory for Provisioning
+== Prepare Active Directory for Provisioning
 
 Before turning on automation, we need to ensure the provisioning configuration for Active Directory resource is correct.
 Especially if you are preparing the configuration in iterations, you need to make sure you are going right direction.
 Simulations will guide you all the way.
+
+.Please refer to the following documentation:
+
+* xref:/midpoint/reference/admin-gui/resource-wizard/#mappings[Resource wizard - part Mappings]
+* xref:/midpoint/reference/admin-gui/resource-wizard/#activation[Resource wizard - part Activation]
+* xref:/midpoint/reference/admin-gui/resource-wizard/#credentials[Resource wizard - part Credentials]
+* xref:/midpoint/reference/admin-gui/resource-wizard/#wizard-for-task-creation[Resource wizard - part Wizard for task creation]
+
+
+You can see this step in action in the First Steps Methodology webinar video:
+
+video::suo775ym_PE[youtube,title="Step 7: Enable Provisioning to Target System",start="3088"]
 
 Prepare / update outbound attribute mappings for your Active Directory attributes that you wish to provision.
 If you want to force midPoint policy for attributes, you would need to make your mappings strong (this is default if you use GUI to create the mappings).
@@ -332,3 +438,16 @@ Your Active Directory resource is now configured.
 Data inconsistency has been fixed.
 Policy is defined, applied and will be followed from now on.
 There is no automation between HR and midPoint yet, but we are already prepared for it.
+
+.Simulation notes
+[NOTE]
+====
+. When switching from `Proposed` to `Active` lifecycle state, use also simulation with _Production_ configuration before using the feature in real execution, if possible (usually when the real execution task is not yet running) - this is as close to the real task execution as possible.
+
+. When switching the configuration from `Proposed` to `Active` lifecycle state, be sure to switch all relevant configuration. Otherwise, you might see different behaviour when simulating with _Development_ configuration and _Production_ configuration / real task execution.
+
+. Try not to simulate several unrelated scenarios at the same time, otherwise switching just parts of the configuration from `Proposed` to `Active` lifecycle state may be challenging. You might see different behaviour when simulating with _Development_ configuration and _Production_ configuration / real task execution.
+
+====
+
+You can continue to xref:automation/[Automation] step or return to xref:kick-off/[Kick-off] step.

@@ -1,0 +1,182 @@
+= Certifications
+:page-nav-title: Certifications
+:page-toc: top
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 3
+
+This document contains description for upgrade of design of certifications.
+It is prepared for planning of development of *midPoint version 4.9* and later.
+
+
+// [#_access_removal_vs_certification_triggered_by_business_user]
+== Access removal vs microcertification vs certification
+
+The removal of access can be addressed by directly removing a certain access (your own, someone's specific, or access of a group of people) or by requesting certification of the access.
+
+.Access removal
+If I perform the access removal myself, it should be a standard xref:../user-stories-access-removals.adoc[access removal]. However, if I want to ask someone else to remove the access or make a decision about it, it needs to be handled as a certification.
+
+.Certification
+Certification relates to individual objects (certify assignments of one user) or to multiple objects at once.
+Although the concept is the same, user interface and handling should be slightly different.
+
+Full scale certifications run in certification campaigns - e.g. "All managers, certify all assignments of your direct subordinates users in your org unit". The certifier must review all assignments of all of his subordinates and respond to each assignment.
+This may take time, and requires quite a lot of work. Multiple people are required to participate and review access of multiple users.
+
+.Microcertification
+The certification request can be specified on much smaller scope - e.g. "Certify assignments of this user."
+Such certification of individual objects is called microcertification. Microcertification is targeted to one object - a user typically. It may contain one or multiple assignments.
+
+Microcertification should be started ad-hoc by some decision or by events.
+Each microcertification case is individual.
+
+The person who performs the microcertification should respond to the request very easily - ideally on one page.
+
+
+== Types of Certification
+
+The subject of certification can vary. A certification campaign may aim to certify the following:
+
+* Assignments:
+    ** All users' assignments (classic)
+    ** Members of a role
+    ** Application access
+    ** Accounts and group membership in a specific system (e.g., AD accounts and groups)
+* Role Definitions:
+    ** Roles and their inducements
+    ** Inducements of roles in the organizational structure
+    ** Rules (autoassignment rules)
+
+Certification campaigns may involve a combination of multiple certification types. For instance, when certifying membership in an application role, it may be necessary to certify not only the direct assignments of the role but also the indirect assignments. Indirect assignments can be certified through the certification of roles, organizations (ORGs), and rules that assign the certified role.
+
+MidPoint should offer templates for such campaigns, designed to assist engineers.
+
+=== Direct vs Indirect Assignments
+
+MidPoint provides interface for certification of direct assignments.
+
+In some scenarios (e.g. Certify all members of a role) this is not enough.
+The certifier needs to understand that there is not 10 users having role ABC:Account, but that 10 users have the role assigned directly via request and another 100 users have the role assigned because of business role "Teller".
+Hiding indirect assignments may obscure certifiers' judgment and hinder their ability to make the right decision.
+
+At the same time we do not want to display all assignments because users may obtain a large number of indirect assignments, and it is not the goal to show a huge list of assignments to the user.
+
+User interface should provide the information in balanced way.
+// TODO - link to the example use-case.
+
+=== Provide Decision Support
+
+MidPoint collects lots of data. These data may be utilized for displaying additional hint for the user for certification decisions.
+The hint can provide information that the user is outlier (identified by specific role-mining process), or from other statistics or thresholds defined and computed by midPoint.
+
+Some examples:
+
+* Revoke the assignment, because all users of this category have this assignment revoked last month.
+* You can revoke this assignment. This user has this role assigned also indirectly via role "Teller".
+
+.Do it for Me
+
+When midPoint collects enough information about specific certification case and decisions, it can be configured to switch to performing automatic certification decisions. Certifier would be in this case informed about the certification and can revoke the automatic decision.
+
+== Remediation
+
+MidPoint provides interface to collect certification decisions of the users about certified "relation" (assignment, inducement or rule).
+When these decisions are collected, the remediation can start.
+
+The remediation depends on type of certification.
+While certifying direct role assignments, the remediation is just *automatic deprovisioning* of user assignments defined for removal.
+Or, in slightly complex scenario, setting validity period for the certified assignment.
+Both these actions can be done easily by midPoint.
+
+But recertification of indirect assignments may be much more complex.
+For example, if assignments of an application role assigned indirectly via business role are certified, then managers may decide to remove this indirect assignment for some users and keep it for others.
+In this case, the remediation requires modification of the business role (removal of inducements from the business role), and direct assignment of the certified application role to the users who should keep this role.
+
+In some midPoint environments or resources, the remediation can't be performed automatically by midPoint.
+In this case the *remediation must be performed manually*.
+MidPoint should provide xref:#_remediation_report[*Remediation report*] that describes the roles to be removed on particular information systems.
+
+
+== Certification reporting
+The reporting between certifications and microcertification cases differs.
+Certifications are ran in campaigns, microcertifications are individual.
+
+=== Certification dashboard
+Certification dashboard should provide fast overview which chertifications ran oduring defined time period and some statistics to them (e.g. success rate).
+The stats should be able to be split by certification campaing type ("template"?).
+
+==== Possible metrics for certifications
+
+Certification metrics should be done per certification campaign / or type.
+
+.Certification overview/results
+* All certifications requested/started in the defined time period.
+    ** certifications by campaign & date
+    ** certifications by template
+
+* number of assignments to certify
+* number of responses
+* count of answers (Accept / Revoke / Not decided / remove after )
+
+* percentiles (?) calculate something other than averages +
+Utilizing percentiles provides a better overview than averages, but algorithms are not straightforward, and explaining them is more challenging.
+    ** e.g. 90% of certifications removed below 2 assignments
+    ** e.g. 90% of responses ion this campaign were finished within 2 weeks.
+    *** despite average can be 3 days - the percentile provides better overview about process
+
+==== Possible metrics for microcertifications
+
+Metrics for microcertification should be computed for defined interval (e.g. month)
+
+.Certification throughput
+How many microcertification were performed in organization (e.g. 1000 last month)
+* requested
+* in progress (certification) - kolko je aktualne v procese certifikacie
+* certifications by trigger
+
+.Certification speed
+* avg. certification speed -
+* 90% certification speed - how long it took to respond (see precentiles above)
+
+.Certification responses rate
+Percentage of certification decision for each response - accept/revoke/ ...
+
+
+=== Certification reports
+
+//TODO - describe reports, which reports could we have
+//-top 10 most removed objects
+
+==== Basic certification report
+
+One report out of certification campaign.
+CSV/Excel - with all responses, for further processing. (users can process it manually - flexibility) +
+For more sophisticated environments, an engineer can modify it.
+
+[#_remediation_report]
+==== Remediation report
+
+As written above, remediation must be performed manually in some environments or resources.
+These cases include environments and resources where midPoint can't manage objects - from whatever reason.
+
+It is good to tell, that while certification works in business language, the remediation, must be performed technically. So, it means that the person performing remediation must know what does the "Remove role ABC:End User for the user John Smith on the resource AD" means and what has to be done.
+
+MidPoint should provide technical details in the remediation report helping with identification of objects. These details should include account on the resource and entitlements (e.g. resource groups) that has to be removed.
+
+Remediation report may be used as a certification result in environments where the deprovisioning path is not fully deployed.
+It is good to understand that flexibility of midPoint and also flexibility of the environments limits details that can be described in the remediation report.
+
+Therefore, the remediation report results should be carefully reviewed by IGA administrator and the deprovisioning steps should be agreed with administrators of resources prior passing it for processing.
+If multiple resources are encountered in the remediation report, it could be split by resource.
+
+Example of remediation report structure:
+[options="header"]
+|===
+|User name |Role |Decision |Resource |Account |Entitlement
+|John Smith | ABC:End User |revoke  | Active directory | jsmith3 | cn=app_abc_user,ou=groups,...
+|===
+
+The report can't provide exact detail what needs to be done. Resource administrator should translate this to his operational procedure on the specific resource.
+In this case the procedure could be: +
+"Remove the user _jsmith3_ from group _app_abc_user_. If this is his last application group, disable the account."

@@ -1,0 +1,217 @@
+= Shadow Caching: Repository Queries
+
+This purpose of this document is to describe the repository queries related to shadow management in the `provisioning-impl` module.
+
+We first describe the most frequent processing path, related to the `search` operation, and the operations that are usually carried out here.
+
+Then, we go through all shadow-related repository queries in the current implementation.
+
+== Search Operation
+
+During a search operation, the provisioning module issues a ConnId `search` operation, and then processes each object found;
+that is where the majority of repository shadow search operations are undertaken.
+
+Each object found goes through the following processing layers:
+
+=== UCF
+
+A `UcfObjectFound` is created by the `ConnIdConvertor`.
+
+No repository queries are here.
+
+=== Resource Objects
+
+A lazily-initializable `ResourceObjectFound` is created from `UcfObjectFound`.
+
+During the initialization, things like protected flag (#provisioning policies?#), activation, and entitlements are processed.
+(See `AbstractResourceEntity.processResourceObject` method.)
+
+No repository queries are here.
+
+[NOTE]
+====
+We do not need to query the shadows during entitlement reading, not even in object-to-subject direction.
+The reason is that the query is executed against the resource, and the eventual shadowization of entitlement values occurs in `shadows` package.
+====
+
+=== Shadows
+
+A lazily-initializable `ShadowedObjectFound` is created from `ResourceObjectFound`.
+
+It is initialized right now, along with its prerequisite (`ResourceObjectFound`).footnote:[In the future, we plan this initialization could be invoked in a multithreaded way from the caller to speed up the processing without the need of employing multiple worker tasks.]
+
+During the initialization:
+
+. The repository shadow is acquired via `ShadowAcquisition` -> `ShadowFinder.lookupLiveShadowByPrimaryId` -> `createQueryByPrimaryId`, i.e.
+.. `attributes/<primary-identifier-name>`
+.. `objectClass`
+.. `resourceRef`
++
+with the `distinct` option enabled.
+. If the shadow is not found, it is created by `ShadowCreator.addDiscoveredRepositoryShadow`.
+(If there is a conflict, `ShadowFinder.lookupLiveShadowByPrimaryId` is called again.)
+. After the acquisition, the shadow is updated by `ShadowUpdater.updateShadowInRepository`
+(this could perhaps be skipped for newly created shadows).
+The index-only attributes are explicitly fetched from the repository, if necessary.
+No other queries should be there, only the shadow update operation.
+. Finally, a "shadowed object" is created by merging the repo shadow with the resource object in `ShadowedObjectConstruction`.
+.. Here, the process of shadow acquisition is repeated for each association value present.
+(See `ShadowedObjectConstruction.acquireEntitlementRepoShadow`.)
+Besides what was described for the subject shadow, this may involve also calling `ShadowFinder.lookupLiveShadowByAllAttributes` and/or `ResourceObjectConverter.locateResourceObject`.
+
+== All Shadow-Related Repository Queries
+
+Here we summarize all repository queries related to shadows (in the whole `provisioning-impl` module).
+
+=== Getting by OID
+
+- for `modifyObject` (provisioning service level)
+- for `deleteObject` (provisioning service level)
+- in `ShadowAuditHelper.auditEvent` and in name resolver in the same class
+- resolving base context specified by OID (quite rare for now I think, as we do not store the resolved OID)
+- when applying definitions to a shadow delta (`DefinitionsHelper.applyDefinition`)
+- when resolving association OID to association identifiers (shadow `add` and `modify` operations)
+- when resolving `runAsAccountOid` property
+- when normalizing shadow attributes after classification, in `ShadowUpdater.normalizeShadowAttributesInRepositoryAfterClassification` (this could perhaps be avoided)
+- when constructing `ShadowedChange` for DELETE changes (where the resource object is gone)
+- when re-reading the shadow after pending operations are recorded
+- when re-reading the newly created proposed shadow
+- when getting the repository shadow as part of regular `get` operation
+- when updating the repo shadow, when delta and index-only cached attributes are involved
+
+All except the first three are through `ShadowFinder`.
+
+=== Searching by Primary Identifier
+
+*Target: `attributes/xxx`* (primary identifier)
+
+*Frequency: Often (main use case)*
+
+- When looking up live shadow during acquisition in `ShadowAcquisition` using `lookupLiveShadowByPrimaryId`.
++
+NOTE: This query could perhaps be changed to simpler lookup using primary key _value_, as we are dealing only with live shadows - but not sure about various borderline lifecycle states.
+
+*Frequency: Rare*
+
+- When looking up shadow for deletion change in `ShadowedChange` using `lookupLiveOrAnyShadowByPrimaryIds`.
++
+(Presumably not very frequent.)
+
+- When looking up for dead shadows with the same primary identifier as the one in a resource object being added, using `searchForPreviousDeadShadows`.
++
+(Even less frequent, occurring on "shadow add" operation when there is a conflict on the resource.)
+
+=== Searching by Primary Identifier Value (`lookupShadowByIndexedPrimaryIdValue`)
+
+*Target: `primaryIdentifierValue`*
+
+*Frequency: Very rare*
+
+- When dumping error report on "object already exists error even after we double-checked shadow uniqueness".
+- When recovering from `ObjectAlreadyExistsException` that we obtained while we tried to set `primaryIdentifierValue` for a shadow.
+
+=== Searching by a Set of Attributes (`lookupLiveShadowByAllAttributes`)
+
+*Target: `attributes/xxx`* (mostly single attribute - a secondary identifier)
+
+*Frequency: Often (for some kinds of entitlements)*
+
+When acquiring entitlement shadows during `ShadowedObjectConstruction`, i.e., when preparing `ShadowType` by combining the resource object with its repo shadow.
+The resource objects layer provides identifiers for the entitlement, and here the entitlement shadow is looked up by them:
+
+- When the entitlement object is really looked up on the resource (for "object to subject" direction without shortcuts), the full object is provided by the lower layer, so this search is avoided.
+- But for other cases (subject to object direction, or shortcuts present), the search is done.
+From the code analysis it seems that only a single attribute is present for each association value.
+Usually, it is a secondary identifier.
+But nothing precludes the use of primary identifier.
+Or, it may be the case that the referencing attribute is not an identifier at all.
++
+(There is some explicit support for automatically caching such attributes, see `ProvisioningContext.shouldStoreAttributeInShadow` method.
+But, overall, this scenario is only partially supported, see the comment in `ShadowedObjectConstruction.acquireEntitlementRepoShadow`.)
+
+=== Searching by Any Secondary Identifier (`searchShadowsByAnySecondaryIdentifier`)
+
+*Target: `attributes/xxx`* (ORed set of secondary identifiers)
+
+*Frequency: Presumably not very often (see below)*
+
+This search is used when resolving secondary identifier(s) to primary one by `ResourceObjectReferenceResolver.resolvePrimaryIdentifier`.
+This resolver is currently called only from a single place:
+in `EntitlementsConverter`, when creating a resource object with object-to-subject entitlements, or when adding or deleting such entitlements to/from existing resource object.
+(See `EntitlementsConverter.collectObjectOps`.)
+
+Normally, these association values contain the primary identifier, because the identifiers are provided when resolving association shadow OID to attributes in `EntitlementsHelper.provideEntitlementIdentifiers` (in shadows module).
+
+But if the association value provided by the ultimate caller contains only the secondary identifiers, the OID is not used (it may be ever missing), and we try to determine the primary identifier using this query.
+
+Note that we could move this responsibility to the `shadows` package, but that is questionable if that would be correct.
+For example, in the future we may want to resolve the secondary identifiers against the resource (not against the repository only), and this logically belongs to "resource objects" package.
+
+[NOTE]
+====
+#The query constructed is an OR one, i.e. any of the identifiers can match.#
+
+- #What about the performance implications?#
+- #Why the approach is different from `ResourceObjectConverter.locateResourceObject`, which is used when repo shadow is being acquired for the entitlement identifiers (this time, when completing object with its subject-to-object or shortcutted entitlements), by searching on the resource, after `lookupLiveShadowByAllAttributes` finds nothing?#)
+====
+
+=== Searching by Pending Operations and Resource Reference in `MultiPropagationActivityRun`
+
+*Target: pending operations*
+
+*Frequency: Depends on whether multi-propagation feature is used*
+
+=== Searching by Individual Identifiers (Constraints Check)
+
+*Target: `attributes/xxx`* (single attribute, mostly primary or secondary identifer for query)
+
+*Frequency: On each projection computation in model?
+(Unless turned off.)
+Also, on each shadow creation (in provisioning), if configured so.*
+
+=== Out of Scope of This Analysis
+
+- `compare` operation
+- queries issued from other parts of midPoint
+
+== Other: Unsorted Notes
+
+=== Shadow Accesses in `ResourceObjectsConverter`
+
+[%autowidth]
+|===
+| Method | Query
+
+| `fetchResourceObject`
+| none
+
+| `locateResourceObject`
+| none
+
+| `searchResourceObjects`
+| only the base context shadow determination (either by OID or by shadow facade search op)
+
+| `countResourceObjects`
+| like the search (if simulated), otherwise none
+
+| `addResourceObject`
+| none, except for object-to-subject entitlements identified by secondary IDs (using `ResourceObjectReferenceResolver.resolvePrimaryIdentifier`)
+
+| `modifyResourceObject`
+| as above (entitlements addition/deletion)
+
+| `deleteResourceObject`
+| none
+
+| `fetchCurrentToken`
+| none
+
+| `fetchChanges`
+| none
+
+| `listenForAsynchronousUpdates`
+| none
+
+| `refreshOperationStatus`
+| none
+|===
