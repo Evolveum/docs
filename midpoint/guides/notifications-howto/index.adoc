@@ -1148,8 +1148,459 @@ Please note how the default content was constructed:
 
 * message templates allow localization of the notification content based on *recipient's* `preferredLanguage` or `locale` properties. If recipient's properties do not match the localized configurations, the default localization of the template will be used
 
+== Approvals-Related Notifications
+
+This chapter will utilize the previously explained configuration concepts to achieve similar configuration also for approvals-related notifications.
+As not all midPoint users are required to use midPoint approvals mechanism, you can think of this chapter as an appendix.
+
+NOTE: Notifications for users involved in approvals require that their e-mail addresses are not empty.
+
+NOTE: In this examples, a single role is configured with approvals.
+This configuration is not included.
+
+The System configuration object is _extended_ with the following configuration:
+
+.(Show System configuration fragment)
+[%collapsible]
+====
+.Example System configuration object fragment
+[source,xml]
+----
+<notificationConfiguration>
+    <handler>
+    . . .
+        <simpleWorkflowNotifier><!--1-->
+            <name>notify-requester-about-workflow-start</name>
+            <category>workflowProcessEvent</category>
+            <description>Notification is sent to the requester (if he/she has e-mail address) when workflow starts.</description>
+            <operation>add</operation>
+            <messageTemplateRef oid="12ded411-8cc1-4322-b7a6-df8315591b95"/>
+            <transport>mail</transport>
+        </simpleWorkflowNotifier>
+
+        <simpleWorkflowNotifier><!--2-->
+            <name>notify-requester-about-workflow-end</name>
+            <category>workflowProcessEvent</category>
+            <description>Notification is sent to the requester (if he/she has e-mail address) when workflow ends.</description>
+            <operation>delete</operation>
+            <messageTemplateRef oid="b037aa68-cb6d-4cdd-8c5d-bb68de4fa03a"/>
+            <transport>mail</transport>
+        </simpleWorkflowNotifier>
+
+        <simpleWorkflowNotifier><!--3-->
+            <name>notify-assignee-about-workitem-creation</name>
+            <category>workItemAllocationEvent</category>
+            <description>Notification is sent to work item assignee (if he/she has e-mail address) when the work item is created</description>
+            <operation>add</operation>
+            <messageTemplateRef oid="59e32934-d240-4bc1-9276-0f6a7357e896"/>
+            <transport>mail</transport>
+        </simpleWorkflowNotifier>
+
+        <simpleWorkflowNotifier><!--4-->
+            <name>notify-assignee-about-workitem-modification</name>
+            <category>workItemAllocationEvent</category>
+            <description>Notification is sent to work item assignee (if he/she has e-mail address) when the work item is updated e.g. forwarded or because of deadline warning</description>
+            <messageTemplateRef oid="4c7d3fca-7a99-45ba-b6a6-110710b64b1f"/>
+            <operation>modify</operation>
+            <transport>mail</transport>
+        </simpleWorkflowNotifier>
+    </handler>
+</notificationConfiguration>
+----
+<1> Notification is sent when approval workflow starts (event category: `workflowProcessEvent`, operation: `add`).
+The notification is sent to the requester by default.
+<2> Notification is sent when approval workflow finishes (event category: `workflowProcessEvent`, operation: `delete`).
+The notification is sent to the requester by default.
+<3> Notification is sent when workitem is created and allocated to the assignee (event category: `workItemAllocationEvent`, operation: `add`).
+The notification is sent to the assignee by default.
+<4> Notification is sent when workitem is modified, e.g. forwarded to another approver or because of the deadline warning (event category: `workItemAllocationEvent`, operation: `modify`).
+The notification is sent to the assignee by default.
+
+====
+
+We also need message templates:
+
+.(Show Message template for workflow start)
+[%collapsible]
+====
+[source,xml]
+----
+<messageTemplate xmlns="http://midpoint.evolveum.com/xml/ns/public/common/common-3"
+                 oid="12ded411-8cc1-4322-b7a6-df8315591b95">
+    <name>message-template-workflow-event-started</name>
+    <description>Template for simple workflow notifier for workflow start, to be customized.</description>
+    <defaultContent>
+        <contentType>text/html; charset=UTF-8</contentType>
+        <subjectExpression>
+            <script>
+                <language>velocity</language>
+                <code>[IDM] Workflow Process $event.caseName started</code>
+            </script>
+        </subjectExpression>
+        <bodyExpression>
+            <script>
+                <language>velocity</language>
+                <code><![CDATA[
+<html>
+    <head>
+        <style>
+/* Use your CSS styles as needed */
+div.footer {
+    height: 64px;
+    width: 100%;
+    border-top: solid thin;
+    margin-left: auto;
+    margin-right: auto;
+    background-color: ivory;
+}
+
+body {
+    font: normal 14px Roboto, sans-serif;
+}
+
+.center {
+    text-align: center;
+}
+        </style>
+    </head>
+    <body>
+
+        <h1>Workflow Notification</h1>
+
+        <p>Workflow process $event.caseName <b>has been started</b>
+
+        <p>The process was started by $event.requesterDisplayName ($event.requesterName)</p>
+
+        <div class="footer">
+            <img src="http://localhost/midpoint/static-web/example-logo-s.png" alt="[Example logo]" width="64" height="64" style="float:left;"/>
+            <p class="center">This notification has been from an unmonitored mailbox.<br/>
+            <b>IT Department of Example, Inc.</b>
+            </p>
+        </div>
+    </body>
+</html>
+
+]]></code>
+            </script>
+        </bodyExpression>
+    </defaultContent>
+</messageTemplate>
+----
+====
+
+.(Show Message template for workflow end)
+[%collapsible]
+====
+[source,xml]
+----
+<messageTemplate xmlns="http://midpoint.evolveum.com/xml/ns/public/common/common-3"
+                 oid="b037aa68-cb6d-4cdd-8c5d-bb68de4fa03a">
+    <name>message-template-workflow-event-finished</name>
+    <description>Template for simple workflow notifier for workflow end, to be customized.</description>
+    <defaultContent>
+        <contentType>text/html; charset=UTF-8</contentType>
+        <subjectExpression>
+            <script>
+                <language>velocity</language>
+                <code>[IDM] Workflow Process $event.caseName has been completed#if ($event.statusAsText) with outcome $event.statusAsText #end</code>
+            </script>
+        </subjectExpression>
+        <bodyExpression>
+            <script>
+                <language>velocity</language>
+                <code><![CDATA[
+<html>
+    <head>
+        <style>
+/* Use your CSS styles as needed */
+div.footer {
+    height: 64px;
+    width: 100%;
+    border-top: solid thin;
+    margin-left: auto;
+    margin-right: auto;
+    background-color: ivory;
+}
+
+body {
+    font: normal 14px Roboto, sans-serif;
+}
+
+.center {
+    text-align: center;
+}
+        </style>
+    </head>
+    <body>
+
+        <h1>Workflow Notification</h1>
+
+        <p>Workflow $event.caseName <b>has been completed</b> #if ($event.statusAsText)with outcome <b>$event.statusAsText</b>#end</p>
+
+        <p>The process was started by $event.requesterDisplayName ($event.requesterName)</p>
+
+        <div class="footer">
+            <img src="http://localhost/midpoint/static-web/example-logo-s.png" alt="[Example logo]" width="64" height="64" style="float:left;"/>
+            <p class="center">This notification has been from an unmonitored mailbox.<br/>
+            <b>IT Department of Example, Inc.</b>
+            </p>
+        </div>
+    </body>
+</html>
+
+]]></code>
+            </script>
+        </bodyExpression>
+    </defaultContent>
+</messageTemplate>
+----
+====
+
+.(Show Message template for workitem creation)
+[%collapsible]
+====
+[source,xml]
+----
+<messageTemplate xmlns="http://midpoint.evolveum.com/xml/ns/public/common/common-3"
+                 oid="59e32934-d240-4bc1-9276-0f6a7357e896">
+    <name>message-template-workitem-added</name>
+    <description>Template for simple workflow notifier for work item creation, to be customized.</description>
+    <defaultContent>
+        <contentType>text/html; charset=UTF-8</contentType>
+        <subjectExpression>
+            <script>
+                <language>velocity</language>
+                <code>[IDM] Work Item has been allocated to you for $event.requesteeDisplayName ($event.requesteeName) by $event.requesterDisplayName ($event.requesterName)</code>
+            </script>
+        </subjectExpression>
+        <bodyExpression>
+            <script>
+                <language>velocity</language>
+                <code><![CDATA[
+<html>
+    <head>
+        <style>
+/* Use your CSS styles as needed */
+div.footer {
+    height: 64px;
+    width: 100%;
+    border-top: solid thin;
+    margin-left: auto;
+    margin-right: auto;
+    background-color: ivory;
+}
+
+body {
+    font: normal 14px Roboto, sans-serif;
+}
+
+.center {
+    text-align: center;
+}
+        </style>
+    </head>
+    <body>
+
+        <h1>Workflow Notification - Your action is required</h1>
+
+        <p><b>Work item has been allocated to you.</b></p>
+
+        <p>The work item is for $event.requesteeDisplayName ($event.requesteeName)
+        <p>The process was started by $event.requesterDisplayName ($event.requesterName)</p>
+
+        <p>Please visit <a href="$event.workItemUrl" target="_blank">this link</a> to approve or reject the work item.</p>
+
+        #if ( $event.getWorkItem().getDeadline() )
+        <p><b>NOTE</b>: The work item must be acted upon before: <b>$event.getWorkItem().getDeadline()</b> or it will be automatically completed, rejected or escalated.</p>
+        #end
+        <div class="footer">
+            <img src="http://localhost/midpoint/static-web/example-logo-s.png" alt="[Example logo]" width="64" height="64" style="float:left;"/>
+            <p class="center">This notification has been from an unmonitored mailbox.<br/>
+            <b>IT Department of Example, Inc.</b>
+            </p>
+        </div>
+    </body>
+</html>
+
+]]></code>
+            </script>
+        </bodyExpression>
+    </defaultContent>
+</messageTemplate>
+----
+====
+
+.(Show Message template for workitem modification)
+[%collapsible]
+====
+[source,xml]
+----
+<messageTemplate xmlns="http://midpoint.evolveum.com/xml/ns/public/common/common-3"
+                 oid="4c7d3fca-7a99-45ba-b6a6-110710b64b1f">
+    <name>message-template-workitem-modified</name>
+    <description>Template for simple workflow notifier for work item modification (e.g. time out warning), to be customized.</description>
+    <defaultContent>
+        <contentType>text/html; charset=UTF-8</contentType>
+        <subjectExpression>
+            <script>
+                <language>velocity</language>
+                <!-- Work item will be automatically completed in 2 minutes -->
+                <code>[IDM] Notice: Work Item will be automatically marked as $event.getOperationKind() on $event.getWorkItem().getDeadline()</code>
+            </script>
+        </subjectExpression>
+        <bodyExpression>
+            <script>
+                <language>velocity</language>
+                <code><![CDATA[
+<html>
+    <head>
+        <style>
+/* Use your CSS styles as needed */
+div.footer {
+    height: 64px;
+    width: 100%;
+    border-top: solid thin;
+    margin-left: auto;
+    margin-right: auto;
+    background-color: ivory;
+}
+
+body {
+    font: normal 14px Roboto, sans-serif;
+}
+
+.center {
+    text-align: center;
+}
+        </style>
+    </head>
+    <body>
+
+        <h1>Workflow Notification #if ( $event.getCause().getType() == "TIMED_ACTION")- Act before deadline#end</h1>
+
+        <p><b>Work item has been allocated to you, but you have not made any decision yet.</b></p>
+
+        <p>The work item is for $event.requesteeDisplayName ($event.requesteeName)
+        <p>The process was started by $event.requesterDisplayName ($event.requesterName)</p>
+
+        <p>Please visit <a href="$event.workItemUrl" target="_blank">this link</a> to approve or reject the work item.</p>
+
+        #if ( $event.getWorkItem().getDeadline() )
+        <p><b>NOTE</b>: The work item must be acted upon before: <b>$event.getWorkItem().getDeadline()</b> or it will be automatically completed, rejected or escalated.</p>
+        #end
+        <div class="footer">
+            <img src="http://localhost/midpoint/static-web/example-logo-s.png" alt="[Example logo]" width="64" height="64" style="float:left;"/>
+            <p class="center">This notification has been from an unmonitored mailbox.<br/>
+            <b>IT Department of Example, Inc.</b>
+            </p>
+        </div>
+    </body>
+</html>
+
+]]></code>
+            </script>
+        </bodyExpression>
+    </defaultContent>
+</messageTemplate>
+----
+====
+
+If you assign an approvable role to your testing user `test-notification10` with e-mail `test.notification10@example.com` in midPoint, the following notification will be created and delivered to the requester:
+
+image::simpleWorkflowNotifier-workflow-start.png[simpleWorkflowNotifier - workflow start]
+
+Please note how the default content was constructed:
+
+* *From*: _idm@example.com_ (configured in _messageTransportConfiguration_ as `defaultFrom`)
+* *To*: _administrator@example.com_ (the requester, used as default if that user has e-mail address)
+* *Subject*: _[IDM] Workflow Process Assigning role "Approvable Role 1" to user "Test Notification10 (test-notification10)" started_ (created in _message-template-workflow-event-started_, used by _simpleWorkflowNotifier_ with category: _workflowProcessEvent_ and operation: _add_)
+* *Message body*: created in _message-template-workflow-event-started_, includes the following information:
+** information about the case name (also in subject) which includes information what is being assigned to whom
+** information that the process has been started
+
+The second notification is constructed and delivered to the role assignment approver:
+
+image::simpleWorkflowNotifier-workitem-added.png[simpleWorkflowNotifier - workitem created and allocated to approver]
+
+Please note how the default content was constructed:
+
+* *From*: _idm@example.com_ (configured in _messageTransportConfiguration_ as `defaultFrom`)
+* *To*: _administrator@example.com_ (the workitem assignee (role approver), used as default if that user has e-mail address)
+* *Subject*: _[IDM] Work Item has been allocated to you for Test Notification10 (test-notification10) by midPoint Administrator (administrator)_ (created in _message-template-workitem-added_, used by _simpleWorkflowNotifier_ with category: _workItemAllocationEvent_ and operation: _add_)
+* *Message body*: created in _message-template-workitem-added_, includes the following information:
+** information that you need to act upon the workitem and that is has been allocated to you
+** information about the requestee (_test-notification10_ user)
+** information about the requester (_administrator_ user)
+** link to the workitem to approve/reject it
+** *Only if a deadline has been configured*: information about the workitem deadline
+
+If the approvals are configured with a deadline for automatic workitem completion (e.g. automatic reject) and reminders, the approver will receive one or several reminder notifications:
+
+image::simpleWorkflowNotifier-workitem-modified.png[simpleWorkflowNotifier - workitem modified because of timeout reminder]
+
+Please note how the default content was constructed:
+
+* *From*: _idm@example.com_ (configured in _messageTransportConfiguration_ as `defaultFrom`)
+* *To*: _administrator@example.com_ (the workitem assignee (role approver), used as default if that user has e-mail address)
+* *Subject*: _[IDM] Work Item will be automatically marked as COMPLETE on 2024-03-07T11:23:34.879Z_ (created in _message-template-workitem-modified_, used by _simpleWorkflowNotifier_ with category: _workItemAllocationEvent_ and operation: _modify_)
+* *Message body*: created in _message-template-workitem-modified_, includes the following information:
+** information that you need to act upon the workitem but you did not act yet
+** information about the requestee (_test-notification10_ user)
+** information about the requester (_administrator_ user)
+** link to the workitem to approve/reject it
+** information about the workitem deadline
+
+If the approver rejects the request or if the approvals are configured with a deadline for automatic workitem completion and approver fails to act in time, the workflow will be finished with reject:
+
+image::simpleWorkflowNotifier-workflow-finished-rejected.png[simpleWorkflowNotifier - workflow finished - rejected]
+
+Please note how the default content was constructed:
+
+* *From*: _idm@example.com_ (configured in _messageTransportConfiguration_ as `defaultFrom`)
+* *To*: _administrator@example.com_ (the requester, used as default if that user has e-mail address)
+* *Subject*: _[IDM] Workflow Process Assigning role "Approvable Role 1" to user "Test Notification10 (test-notification10)" has been completed with outcome Rejected_, used by _simpleWorkflowNotifier_ with category: _workflowProcessEvent_ and operation: _delete_)
+* *Message body*: created in _message-template-workflow-event-finished_, includes the following information:
+** information that the workflow has been completed with outcome Rejected
+** information about the requester (_administrator_ user)
+
+However, if the approver approves the work item, the workflow will be finished successfully:
+
+image::simpleWorkflowNotifier-workflow-finished-approved.png[simpleWorkflowNotifier - workflow finished - approved]
+
+Please note how the default content was constructed:
+
+* *From*: _idm@example.com_ (configured in _messageTransportConfiguration_ as `defaultFrom`)
+* *To*: _administrator@example.com_ (the requester, used as default if that user has e-mail address)
+* *Subject*: _[IDM] Workflow Process Assigning role "Approvable Role 1" to user "Test Notification10 (test-notification10)" has been completed with outcome Approved_, used by _simpleWorkflowNotifier_ with category: _workflowProcessEvent_ and operation: _delete_)
+* *Message body*: created in _message-template-workflow-event-finished_, includes the following information:
+** information that the workflow has been completed with outcome Approved
+** information about the requester (_administrator_ user)
+
+If the role assignmend caused any user/account modification and you have configured appropriate notifications, other notifications would be send after the workitem approval.
+
+TIP: You could change the `recipientExpression` for `simpleWorkflowNotifier` and category: `workflowProcessEvent` to (Groovy) `requestee?.emailAddress` to inform the requestee about the workflow start and finish.
+
 == Tips And Tricks
 
 * if recipient's e-mail address is not defined, e-mail is not sent
-//* some notifiers have default recipients, e.g. approval/workitem-related
-
+* some notifiers have default recipients, e.g. `simpleWorkflowNotifier` use by default:
+** `requester.emailAddress` for `workflowProcessEvent` events
+** `assignee.emailAddress` for `workflowAllocationEvent` events
+* when using Velocity template language, be careful about newlines! Newline in Velocity becomes newline in plain text content (e.g. in e-mail subject).
++
+To suppress a newline while still keeping your Velocity code in multiple lines, end the line in Velocity with a comment (`##`):
++
+.Suppressing newlines in Velocity
+[source,xml]
+----
+<subjectExpression>
+    <script>
+        <language>velocity</language>
+        <code>[IDM] Work Item has been allocated to you ##
+for $event.requesteeDisplayName ($event.requesteeName) ##
+by $event.requesterDisplayName ($event.requesterName)</code>
+    </script>
+</subjectExpression>
+----
+** this would produce the subject as: `[IDM] Work Item has been allocated to you for Test Notification10 (test-notification10) by midPoint
+Administrator (administrator)` (single line)
