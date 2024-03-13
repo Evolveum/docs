@@ -1,0 +1,227 @@
+= Indirect Access to Identity Resources
+:page-description: Creating a specialized table, database view or special-purpose API in from of your identity resource as a facade may look like a great idea, aligned with software architecture best practice. However, it usually complicates things quite a bit.
+:page-nav-title: Indirect Access
+:page-moved-from: /iam/antipatterns/indirect-access/
+:upkeep-status: yellow
+
+
+Identity management is not a new invention.
+The need for identity management was born when the first system administrator created the first user account.
+Since then, identity management was always there, in one form of another.
+Many organizations did everything manually, drowning in a sea of tickets, tasks, escalations, and endless misunderstanding.
+Some organizations tried xref:diy-idm.adoc[do-it-yourself] approach and developed homebrew identity management solutions - only to find out that their code mutated into an unmaintainable mess over the years.
+Other organizations tried to deploy over-complicated identity provisioning products sold by technology giants back in 2000s, hiring an army of consultants for many years, only to get perfectly mediocre results at the end.
+Many of the solutions created more problems that they have solved, but everybody has to do something.
+Otherwise their business would not be able to operate.
+
+Regardless of tools and methods, there were always some solutions to the identity management problems.
+Therefore, no new identity management deployment really starts on a green field.
+There are always some pre-existing processes, tools, scripts, database tables, views, spreadsheets - and mindsets.
+It is very tempting to re-use as many parts from the existing solution as possible.
+Such re-use will certainly reduce the implementation effort, it will limit the extent of cultural changes in the organization, all will be much nicer and easier.
+It is always a good idea to follow the path of least resistance.
+
+Or, is it?
+
+== Write Only
+
+Worst problems with any system have origins in the very beginning.
+No, it is not the _design_ of the systems that causes the worst problems.
+Most painful mistakes are made even before the first design diagram is sketched.
+The problem is not that the system is designed and built poorly.
+The problem is that an entirely wrong system is built.
+The problem is usually in the _requirements_, the specification of what system do we need.
+
+Identity management systems designed and built since early 2000s focused on one part of identity management field: glossref:identity-provisioning[provisioning].
+We need to create accounts for new employees.
+We need to quickly grant new privileges to users with new job responsibilities.
+We need to deploy new application, creating accounts for all users.
+It was all about creating accounts, enabling access, granting privileges.
+There were some thoughts about glossref:identity-deprovisioning[deprovisioning].
+Yet, deprovisioning was seen as necessary evil, as some annoying requirement from those paranoid security people.
+Deprovisioning (if there was any) was all about deleting accounts when an employee left.
+There was next to zero considerations about revoking privileges, auditing, visibility, or information security best practices.
+That was "somebody else's problem".
+As for personal data protection, as far as corporate IT was concerned, personal data were to be monetized, not protected.
+That was the life in 2000s, and to some extent in 2010s as well.
+These were the requirements for identity management solutions.
+It is perhaps no big surprise that identity management solutions did what they were expected to do.
+They were designed as _write-only_ systems.
+
+Early identity management solutions were build on an assumption that there is an absolute, authoritative truth, that needs to be propagated to all the applications.
+Many solutions were based on simple scripts that:
+
+. Fetched data from the human resource (HR) system.
+Stored the data in a CSV file or simple database table.
+
+. Transformed the data, using simple string operation, or simple SQL queries.
+
+. Uploaded the data to application databases and directories, overwriting all the old data.
+
+This process was repeated every day, or every hour.
+It worked, kind of.
+However, even the very first runs uncovered some problems.
+When it came to deprovisioning, simple overwrite is not enough.
+All the existing accounts must be deleted first.
+Except that one cannot simply delete all the accounts.
+Administration and application accounts must stay.
+Therefore, these were added to a whitelist, where they remain to this day.
+Then, deleting an account just be to re-created is not very efficient, it leaves a window when the account does not exist, and it cannot be used on systems where account delete is a complicated process.
+Simple overwrite has to be re-implemented using more complicated logic, but it still somehow worked.
+Then it turned out that there, in fact, is no single source of truth.
+There are several sources of almost-but-not-entirely authoritative information, that needs to be compared, merged, selected and post-processed.
+Therefore the scripts got more complex, more messy, while still not solving the root problem.
+
+== Feedback
+
+The vernacular identity management scripts were designed for a specific purpose, and they worked well for that purpose.
+They contained a simple "unified" view of the identity, usually in a form of database table or a CSV file.
+There is also a lot of knowledge about the target environment hardcoded in the scripts.
+It may be a very attractive option to re-use them in our new identity governance solution.
+Instead of dealing with all the xref:../ldap-survival-guide.adoc[messy details of directory service structure] we can just make an SQL insert, and the good old script does all the work.
+
+Well, it both does and it does not.
+
+Root of the problem with write-only systems is, of course, missing feedback.
+The vernacular identity management scripts were good at writing the data.
+However, they were not designed to retrieve and analyze the information.
+They were certain that an account exist in that LDAP server, because they have just created it!
+They did not need to list all the accounts.
+They did not need to fetch all the attributes.
+They did not need to check that state of that LDAP server.
+
+However, an identity governance system needs to list all the accounts, retrieve the attributes, checking state of the accounts.
+That is one of the primary responsibilities of identity governance.
+Even more than that, governance system needs to retrieve all the entitlements, analyze them, there may be interesting metadata or context, there may be identifiers assigned by the target system, there is so much data that a governance system needs.
+Write-only systems for indirect provisioning will not provide any of that.
+
+Identity governance and administration (IGA) is all about _feedback_.
+IGA platforms are creating, updating and deleting accounts, but they also need to _read_ the data.
+Typical process is to create an account, and then read it back.
+The target system sometimes assigns persistent identifiers such as `entryUUID` or `GUID`, there may be entitlements that are automatically assigned and so on.
+Even more importantly, IGA platform needs to list and scan all the accounts, identifying accounts that it does not know account, accounts that do not belong to anybody (glossentry:orphan-account[orphan accounts]), accounts with inappropriate entitlements and so on.
+Information retrieval is even more important than ability to write information.
+
+== To Re-Use Or Not To Re-use
+
+Reuse of existing solution may be a very attractive option.
+Project manager could see it as saving of time and money, engineers would like to avoid dealing with the messy details already addressed in existing solution, or there may simply be a sentiment "we have always done it like that".
+However attractive it may be, it is always a good idea to carefully consider all the options:
+
+* Existing solution may be a simple script which should be very easy to replace by a systematic IGA solution.
+Discarding the old solution and immediately replacing it with new solution is probably the best option here.
+
+* More likely, existing solution is a labyrinth of entangled scripts, SQL queries and procedures, created by people that are re-assigned to other tasks or retired.
+There is obviously a lot of domain knowledge hard-coded into that, but there is also huge technological debt.
+Replacing the old solution is clearly the best option.
+The big questions are _how_ to replace it, and _when_ to do it.
++
+Re-implementation of exactly the same algorithms in new IGA platform is certainly an option.
+However, it can take years to analyze the maze of undocumented scripts.
+Moreover, there are likely parts that were made for historic reasons, temporary solutions, or other parts that do not make any sense now.
+This is seldom a feasible option, much less a good option.
++
+Better option would be to let the old solution continue provisioning for some time.
+In the meantime, connect IGA platform to target systems directly, just for reading.
+Let the IGA platform read the data, correlate the identities and analyze the data.
+This can be used by the engineers to learn how the result should look like.
+Supplement this with some analysis of existing solution, business requirements and processes.
+This is likely to result in a working solution, that can eventually replace the old bag of scripts.
+
+* Sometimes, the situation is even more complex.
+Entire specialized identity management systems may be used to manage part of the infrastructure.
+Such solutions can be found in pockets of Microsoft or SAP systems, dedicated to management of complex entangled deployments.
+Such platforms are saturated with domain knowledge, often relying on proprietary and undocumented technologies.
+There are often specialized (and expensive) components in the solution, some of them are likely to be obsolete and impossible to upgrade.
+As such solutions have "vendor lock-in" written on them in huge burning letters, it is not easy to replace them.
++
+Honestly, there are no good options in such vendor lock-in situations.
+Perhaps the only feasible option is to keep the solution for the time being.
+However, IGA platform may be used to monitor what is going on inside the enclosure.
+IGA platform may be connected directly to Active Directory instances or SAP servers, monitoring the accounts, groups and roles.
+We should be able to detect orphaned accounts at the very least.
+IGA platform may provide some functionalities, that are usually missing in the proprietary identity management tools, such as ability to manage group ownership, role mining functions and general-purpose analysis of identity data.
++
+The vendor of proprietary solution may try to persuade you to take your data from the "aggregated" views of their identity management solution rather than connecting to the systems directly.
+This is usually not worth the effort, not for IGA purposes.
+Being an intermediary, the information provided by the proprietary aggregator has questionable fidelity.
+It is most likely filtered, it may be out of date, reliability of such data is questionable.
+It is much better idea to connect to individual systems directly and get a first-hand reliable information.
+Especially if these are business-critical systems, such as Active Directory.
+
+== Handmade Provisioning
+
+There is one more whole dimension of problems caused by indirect access, albeit the underlying technology is all different.
+Traditionally, huge part of identity management effort is manual.
+Accounts are created manually by systems administrators, entitlements are requested by using general-purpose ticketing systems and assigned manually by operators, passwords are reset by helpdesk agents.
+As identity management (IDM) platform is deployed, some of that work is automated.
+However, there are always limitations.
+IDM projects is almost always underfunded and the follow-up activities are almost always under-staffed.
+Therefore, some systems in the organization are not connected to the IDM platform directly.
+Manual administration is still used to manage such systems, even though now the tickets are created by the IDM system, rather than the user.
+
+There is nothing fundamentally wrong with such approach, if used correctly.
+There are indeed systems that are simply not worth the effort of connecting them to IDM system automatically.
+This may be a very specialized application that on a handful of users can access, with almost no fluctuation at all.
+It may be an obsolete system that is scheduled for decommissioning next year.
+There are valid cases for manual identity management.
+However, more often than not, the manual identity management is vastly over-used.
+
+Development of fully-automatic glossref:identity-connector[identity connector] is not an easy or cheap thing.
+Actually, connector is usually quite a small piece of code, and a developer who know what to do can develop the connector very quickly.
+The problem is to know what to do.
+The developer needs to know how target system works, needs to learn the interface, the procedures, limitations and peculiarities of target system.
+It takes time.
+And there is a large amount of testing, bugfixing and rework until the connector works well.
+The connector needs maintenance, it may need updates as the target system is upgraded.
+A connector is relatively small and simple piece of code, yet it is a code nevertheless.
+It needs development effort and long-term maintenance.
+It is not cheap.
+
+However, we also have to consider the cost of *not* developing a connector.
+If there is no connector to a particular system, using manual provisioning (or rather manual glossref:fulfillment[fulfillment]) is the next best option.
+There are costs associated with that, such as the time of system administrators creating the accounts.
+However, this is only a fraction of the real costs.
+The problem with manual provisioning is that it is effectively a write-only system.
+IDM system creates a ticket, but it has no idea what really happened in the target system, and it has no way to check.
+Therefore IDM system cannot be used to support auditing, audits must be made manually, the 20th century way.
+There are very likely to be security risks such as orphaned accounts.
+Orphaned accounts are surprisingly easy to create.
+It may be a testing account that was not deleted, or administrator deleted a wrong account by mistake, or perhaps a system was restored from backup, effectively rolling back the delete operation.
+Very limited visibility to target system is likely to be a source of misunderstanding, lot of time wasted in calls and meetings.
+However, perhaps the worst effect is lack of any meaningful analytics.
+As IDM system cannot see into the target system, at cannot analyze the data.
+It cannot issue warnings, there is no practical way for role mining, configuration of the system will never improve.
+It will be difficult to automate data protection policies.
+The system will be a liability, it will pull all other identity management and governance activities down.
+The costs will add up.
+
+It may not be possible to create connectors for all the systems, especially at the beginning of IAM program.
+However, some IDM systems (such as xref:/midpoint/reference/resources/manual/configuration/[midPoint]) provide ability to use _semi-manual_ connectors.
+Semi-manual connectors do provisioning activities manually, by creating a ticket for system administrator.
+However, they are able to _read_ data from target system automatically.
+Semi manual connector may connect directly to a database table in target system.
+More often, the connector reads the data from CSV file, exported from the target system.
+Either way the data are delivered to IDM system in an automatic (albeit scripted) way.
+The IDM system may compare the data with policies, detect orphaned accounts and other policy violations.
+It can also detect errors that operators did when creating/updating/deleting accounts, and immediatelly create a ticket to fix the error.
+Simply speaking, it provides the missing feedback loop.
+
+Semi-manual approach may be a temporary solution, or even a permanent one for smaller system.
+This is usually a low-cost solution, therefore there is seldom any real excuse not to use it.
+
+However, for systems that are important, systems with higher rates of changes, or systems with complicated security models there is no substitute for a real connector.
+If the real, fully-automatic connector cannot be implemented now, make plans for the future:
+
+* Plan to develop the connector later.
+
+* Plan to improve the application to connect to glossref:sso[SSO system], glossref:identity-data-store[identity data store] (such as LDAP or Active Directory), or use some kind of authentication/authorization framework that allows to manage the application indirectly.
+
+* Plan to replace the application.
+Applications that cannot be properly managed and cannot be improved are a liability, not a benefit.
+They will always be trouble-makers.
+The sooner they are gone the better.
+
+== See Also
+
+* xref:/iam/myths/universal-provisioning-interface/[]

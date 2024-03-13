@@ -6,7 +6,7 @@
 :page-wiki-metadata-modify-user: martin.lizner
 :page-wiki-metadata-modify-date: 2016-12-14T20:13:10.657+01:00
 :page-alias: { "parent" : "/midpoint/guides/" }
-:page-upkeep-status: red
+:page-upkeep-status: green
 
 This is a minimalistic HOWTO to demonstrate synchronization of groups between AD and midPoint.
 
@@ -55,6 +55,7 @@ Its most important parts are shown here:
                 <direction>objectToSubject</direction>
                 <associationAttribute>ri:member</associationAttribute>
                 <valueAttribute>icfs:name</valueAttribute>
+                <explicitReferentialIntegrity>false</explicitReferentialIntegrity>
             </association>
         </objectType>
 
@@ -128,70 +129,80 @@ Besides that, we define synchronization in order to synchronize users and roles/
 
     <!--
         Synchronization section describes the synchronization policy, timing,
-        reactions and similar synchronization settings.
+        reactions and similar synchronization settings based on correlator rules defined correlation section.
     -->
-    <synchronization>
-
-        <objectSynchronization>
-            <!-- Synchronizing users -->
-            <enabled>true</enabled>
-            <objectClass>ri:AccountObjectClass</objectClass>
-
             <correlation>
-                <q:equal>
-                    <q:path>c:name</q:path>
-                    <expression>
-                        <path>$shadow/attributes/sAMAccountName</path>
-                    </expression>
-                </q:equal>
+                <correlators>
+                    <items>
+                        <name>personalNumber-correlation</name>
+                        <description>Correlation using personalNumber. Please note: inbound mapping for personalNumber is used only during correlation.</description>
+                        <enabled>false</enabled>
+                        <item>
+                            <ref>personalNumber</ref>
+                        </item>
+                        <composition>
+                            <tier>21</tier>
+                        </composition>
+                    </items>
+                    <items>
+                        <name>samAccountName-correlation</name>
+                        <enabled>true</enabled>
+                        <item>
+                            <ref>c:name</ref>
+                            <search>
+                                <matchingRule>polyStringOrig</matchingRule>
+                            </search>
+                        </item>
+                        <composition>
+                            <tier>2</tier>
+                        </composition>
+                    </items>
+                </correlators>
             </correlation>
-            ...
-        </objectSynchronization>
-
-        <objectSynchronization>
-            <!-- Synchronizing groups with roles -->
-            <enabled>true</enabled>
-            <objectClass>ri:CustomGroupObjectClass</objectClass>
-            <kind>entitlement</kind>
-            <intent>group</intent>
-            <focusType>c:RoleType</focusType>
-
-           <correlation>
-                <q:equal>
-                    <q:path>c:name</q:path>
-                    <expression>
-                        <path>$shadow/attributes/samAccountName</path>
-                    </expression>
-                </q:equal>
-            </correlation>
-            <reaction>
-                <situation>linked</situation>
-                <synchronize>true</synchronize>
-            </reaction>
-            <reaction>
-                <situation>deleted</situation>
-                <synchronize>true</synchronize>
-                <action>
-                    <handlerUri>http://midpoint.evolveum.com/xml/ns/public/model/action-3#unlink</handlerUri>
-                </action>
-            </reaction>
-            <reaction>
-                <situation>unlinked</situation>
-                <synchronize>true</synchronize>
-                <action>
-                    <handlerUri>http://midpoint.evolveum.com/xml/ns/public/model/action-3#link</handlerUri>
-                </action>
-            </reaction>
-            <reaction>
-                <situation>unmatched</situation>
-                <synchronize>true</synchronize>
-                <action>
-                    <handlerUri>http://midpoint.evolveum.com/xml/ns/public/model/action-3#addFocus</handlerUri>
-                </action>
-            </reaction>
-        </objectSynchronization>
-
-    </synchronization>
+            <synchronization>
+                <reaction>
+                    <name>set-linked</name>
+                    <lifecycleState>active</lifecycleState>
+                    <situation>linked</situation>
+                    <actions>
+                        <synchronize/>
+                    </actions>
+                </reaction>
+                <reaction>
+                    <name>set-unlinked</name>
+                    <lifecycleState>active</lifecycleState>
+                    <situation>unlinked</situation>
+                    <actions>
+                        <link/>
+                    </actions>
+                </reaction>
+                <reaction>
+                    <name>set-unmatched</name>
+                    <lifecycleState>active</lifecycleState>
+                    <situation>unmatched</situation>
+                    <actions>
+                        <addFocus/>
+                    </actions>
+                </reaction>
+                <reaction>
+                    <name>set-deleted</name>
+                    <lifecycleState>active</lifecycleState>
+                    <situation>deleted</situation>
+                    <actions>
+                        <synchronize/>
+                    </actions>
+                </reaction>
+                <reaction>
+                    <name>set-disputed</name>
+                    <lifecycleState>active</lifecycleState>
+                    <situation>disputed</situation>
+                    <actions>
+                        <createCorrelationCase/>
+                    </actions>
+                </reaction>
+            </synchronization>
+        </objectType>
+        ...
 </c:resource>
 ----
 
