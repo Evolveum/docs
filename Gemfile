@@ -8,6 +8,8 @@ source "https://rubygems.org"
 # This will help ensure the proper Jekyll version is running.
 gem "jekyll", "~> 4.1.0"
 
+gem "webrick", "~> 1.7"
+
 # Theme
 gem "evolveum-jekyll-theme", "~> 0.1.0"
 
