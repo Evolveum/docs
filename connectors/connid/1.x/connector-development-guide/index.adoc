@@ -1783,6 +1783,20 @@ option to rather than re-try the whole bulk, continue from the last successfully
 For an example please see:
 link:https://docs.evolveum.com/midpoint/reference/master/resources/resource-configuration/capabilities/[Resource Capabilities]
 
+=== Latency of Create Operations and Rate Limits [review]
+
+A specific problem might occur in the case of distributed systems.
+Quite often create operations might be executed successfully yet a subsequent get of the created object might return empty because of delays in the propagation of changes between the nodes of a distributed system (e.q. a read from nodes where the data was not yet written).
+In this case, midPoint does not know if the missing object is such a delayed create operation or if the object was deleted right after it was created.
+If the connector can reliably decide that the case is a delayed create operation, for instance, a remote system indicates this via an exception, the reaction could be wrapping the original exception and throwing a RetryableException.
+MidPoint handles this exception as a communication exception, not marking the previously created shadow as “dead”.
+A subsequent reconciliation would fix any consistency issues.
+
+There are also cases when the get operation might be postponed because of some rate limit (e.g. throttling).
+If the limit is lifted in a reasonable amount of time (a remote system might communicate this as a part of the returned exception) implementing a loop might be a possible solution.
+In such a case, you should make sure that the connector configuration contains fields for the maximum wait period and the maximum number of attempts of such operation (with reasonable defaults set up).
+
+
 == Additional Information
 
 Unfortunately there is not much information about the ConnId framework.
