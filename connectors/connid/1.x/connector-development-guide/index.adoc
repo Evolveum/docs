@@ -151,7 +151,13 @@ This is usually human-readable identifier and as such it is often mutable.
 
 Both `pass:[__NAME__]` and `pass:[__UID__]` are hardcoded as single-valued string attributes.
 Both are supposed to be unique identifiers of the object.
-That means that there cannot be two objects that have the same `pass:[__UID__]` or the same `pass:[__NAME__]` (in one `ObjectClass`).
+That means that there should not be two objects that have the same `pass:[__UID__]` or the same `pass:[__NAME__]` in one `ObjectClass`.
+
+[NOTE]
+Strictly speaking, ConnId mandates uniqueness for `+__UID__+` but not for `+__NAME__+`.
+You may encounter resources where the names are not unique - it's important to let midPoint know.
+This problem is discussed later in the "Gotchas" section.
+
 The `pass:[__NAME__]` is specified by midPoint when a new object is created.
 The connector is supposed to return `pass:[__UID__]` as a result of the `create(...)` operation.
 The `pass:[__UID__]` is then used as an identifier for almost all other operations.
@@ -1414,6 +1420,36 @@ This can be a bit confusing, but it works.
 MidPoint is designed to handle that situation.
 Ideally you should also put both the `pass:[__UID__]` and `pass:[__NAME__]` attribute definitions to the schema and use the same `nativeName` for them.
 That is an additional indication that these two attributes are the same and midPoint will handle them as a single attribute.
+
+=== Name is not unique
+
+Some systems use names without enforcing their uniqueness, as from their perspective a single unique ID (used for `+__UID__+`) is enough.
+This situation is not a problem from ConnId perspective, as it does not mandate the `+__NAME__+` to be unique.
+But for midPoint, the name is a secondary identifier - unless we instruct it otherwise.
+So this Gotcha is more about midPoint and resources than ConnId and connectors, but let's talk about it.
+
+Sometimes you can find another good unique name-like attribute on the system and use that one.
+Other times, even if there is a unique attribute, it may be unusable as a "name".
+For instance, opaque UUID or some Base64 encoded string is not a useful name that you'd like to see in midPoint when listing the resource objects.
+In that case, go with the non-unique name and let midPoint know that it should not use it as a secondary identifier.
+
+This requires some resource configuration.
+At first, it may seem like the solution is to rewrite `ra:secondaryIdentifier` in the schema definition.
+But schema definition may be overwritten anytime when the schema is refreshed - so don't bother changing it.
+Instead, go to the `schemaHandling` and inside the relevant `objectType` (the one with non-unique name)
+define the `attribute` for `icfs:name` like this:
+
+[source,xml]
+----
+<attribute>
+    <ref>icfs:name</ref>
+    <!-- Name is not unique, so we need to disable this as a secondary identifier. -->
+    <secondaryIdentifier>false</secondaryIdentifier>
+    ... the rest of the attribute config, mappings, etc.
+</attribute>
+----
+
+// TODO later reference === Secondary Identifier section in midpoint's docs/resources/resource-configuration/schema-handling/index.adoc
 
 === Framework Handlers
 
