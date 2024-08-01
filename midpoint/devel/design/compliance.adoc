@@ -6,7 +6,9 @@ This page contains design notes on xref:/midpoint/compliance[compliance], though
 
 == Configuration/Schema Changes
 
-Changes we can make in 4.8 using configuration:
+Changes we can make in 4.9 using configuration:
+
+* [red]*(!!!)* Global policy rule which states that if role has any approvers, the approvers must approve the request.
 
 * Archetypes
 
@@ -25,17 +27,6 @@ Appropriate `assignmentRelation` for projects: members, managers, owners (stakeh
 
 * Views (meno,org): Projects, Locations, Teams?
 
-* Flag for org, whether it should be considered root of hierarchical org structure.
-We may not need root objects for many flat structures, such as projects or teams.
-Archetype is enough in this case.
-Automatic detection of org roots make problems in this case, as it detects all projects and teams as org roots.
-It may cause a different kind of problems when organizations are placed into locations, which makes the organization disappear as root of the tree.
-+
-Also, would be nice to choose a name for the orgstruct tab.
-E.g. we want top-level org to be named `World`, but we want to display it in tab labeled `Locations`.
-+
-Should we go back to explicit enumeration of org roots in system config? Or something similar?
-
 * `Underassigned`: Pre-defined mark for "understaffed", "staff shortage" or "vacancies", such as no manager for project, less than two members of critical team, etc.
 Can be used in pre-configured dashboard.
 (ISO 27001 5.2, 5.8, 8.6) ✓
@@ -45,6 +36,15 @@ Can be used in pre-configured dashboard.
 As opposed to regular `Underassigned` mark, this can be used in dashboards with higher severity, as security-related shortage is likely to pose high risk.
 (ISO 27001 5.2) ✓ (TODO: document)
 
+* Certification campaigns:
+
+** All manually assigned roles
+
+** All manually assigned application roles
+
+** All privileged role assignments
+
+** Business role definitions
 
 * `Information security` classification to mark all roles, apps and services that are related to information security.
 For roles and orgs there will be default minAssignee policy rule for `Understaffed security` mark.
@@ -117,6 +117,8 @@ It should include:
 
 ** `Unclassified` - applications without classification + policy rule (in Application archetype?)
 
+** `Misconfiguration` - e.g. application role without inducement to application
+
 == Missing Features
 
 (Roughly ordered by priority)
@@ -149,7 +151,19 @@ It should include:
 
 ** Check that we use "approved cryptographic techniques for passwords" (encryption, hashing) (ISO 27001 5.17)
 
-* [red]*(!!!)* Error messages and overall presentation of policy rule violations.
+* Flag for org, whether it should be considered root of hierarchical org structure.
+We may not need root objects for many flat structures, such as projects or teams.
+Archetype is enough in this case.
+Automatic detection of org roots make problems in this case, as it detects all projects and teams as org roots.
+It may cause a different kind of problems when organizations are placed into locations, which makes the organization disappear as root of the tree.
++
+Also, would be nice to choose a name for the orgstruct tab.
+E.g. we want top-level org to be named `World`, but we want to display it in tab labeled `Locations`.
++
+Should we go back to explicit enumeration of org roots in system config? Or something similar?
+
+
+* Error messages and overall presentation of policy rule violations.
 Current error message looks like:
 +
 `No assignment exists for role 09360ff0-d506-4751-b13f-4e01422693ac (after operation)`
@@ -255,6 +269,14 @@ Maybe click on "more info" should show description (with some nice icon) on top 
 
 ** Separators/rows in dashboards, or some other ways to organize widgets
 (nice to have)
+
+** `assignmentRelation` is ignored when specified directly in `assignment` in orgs.
+
+** `Type` field on organizational hierarchy should either be pre-set to `ObjectType`, or it should have sensible default settings based on `assignmentRelation`.
+
+** Applicable policies panel: display descriptions (e.g. as tooltips?)
+
+** Tooltips for object icons - should display archetype names when no explicit `tooltip` is defined in archetype
 
 * `display` specification for `ObjectType`.
 This is especially useful for one-off objects, such as roots of organizational hierarchies.
@@ -400,26 +422,27 @@ The connector may do more, such as check if directory is world-readable, whether
 
 * Policy rules to use marks instead of `policySituation` ✓
 
+* Auxiliary archetypes in GUI, they are almost useless now.
+Please, make them work! Pretty please.
+
 * `Privileged` classification for (application) roles and entitlements.
 Show that in GUI, at least in object details.
 Allow to search users/roles that have this classification.
 
-* Ability to mark object by arbitrary object mark in GUI. (#9842)
+* Ability to mark object by arbitrary object mark in GUI. (#9842) ✓
 
-* Show effective marks in object lists and object details (GUI). (#9843)
+* Show effective marks in object lists and object details (GUI). (#9843) ✓
 
 * Show effective assignment marks in list of all assignments (GUI). (#9844)
 E.g. show that a certain assignment has SoD violation mark.
 
 * Policy rules
 
-** `requirement` constraint (ISO 27001 5.13, 5.8)
+** `requirement` constraint (ISO 27001 5.13, 5.8) ✓
 
 ** Better GUI: At least show that `enforce` action is there
 
 ** Index/search all objects that have policy rule (specific constraint, markRef and enforcement)
-
-* Auxiliary archetypes in GUI, they are almost useless now.
 
 * Certifications: Make sure we can certify clearances
 
@@ -699,6 +722,10 @@ APIs, use of connectors, etc.
 Do we have this documented?
 Is it documented well?
 Emphasized enough?
+
+* Application must have an owner
+
+* Business role must have an owner
 
 * Audit: appropriate settings for audit log retention. Safe storage of audit trail, ensure non-tampering. Also: safe archival of audit trail. (ISO27001 5.28)
 
@@ -1015,6 +1042,10 @@ Etc. (ISO 27001 5.2)
 
 * Applications without classification. (ISO 27001 5.9, 5.12, 5.13, 5.14)
 
+* Application roles without inducement to application.
+Mark as configuration error?
+(would be nice to show in admin dashboard too, as config error?)
+
 * Requestable roles without approvers. (ISO 27001 5.2, 5.15, 5.18)
 
 * Active projects without managers (ISO 27001 5.8)
@@ -1266,7 +1297,13 @@ YES!
 
 == TODO list for 4.9
 
+* [red]*(!!!)* Global policy rule which states that if role has any approvers, the approvers must approve the request.
+
 * pre-defined applicable policies for approval
+
+** Approval by application owner
+
+* Improve `midpoint.getManagersOidsExceptUser(object)` to prefer archetyped orgs.
 
 * check certification "manual mode" in 4.9 - for classification certification.
 Pre-configure classification certification campaign.
@@ -1285,6 +1322,8 @@ Extend with approver info.
 * Consider archetypes for projects.
 
 * Test approval of policy rule exceptions.
+
+* Pre-defined certification campaigns
 
 * Example: additional approval level for high-classification applications
 
