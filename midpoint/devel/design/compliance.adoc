@@ -18,6 +18,10 @@ Not blockers, yet very painful and/or limiting:
 * bug:9914[] Certification campaign definition: PolicyType cannot be selected: Compliance-related certifications cannot be defined
 * bug:9951[] Default approval rules do not make sense any more: we cannot add any approval-related applicable policies to initial objects
 
+What we really need to address in 4.10:
+
+* bug:10002[] archetypes and GUI
+
 == Configuration/Schema Changes
 
 Changes we can make in 4.9 using configuration:
@@ -38,7 +42,7 @@ Appropriate `assignmentRelation` for projects: members, managers, owners (stakeh
 ** "Top org container" for top-level orgs for projects and locations? Or we need special-purpose archetypes for this?
 
 ** `Supplier`? org? user? (pre-configured certs)
-(ISO27001 5.19,5.20,5.21)
+(ISO27001 5.19,5.20,5.21,5.22)
 
 * Views (meno,org): Projects, Locations, Teams?
 
@@ -52,6 +56,11 @@ As opposed to regular `Underassigned` mark, this can be used in dashboards with 
 (ISO 27001 5.2) ✓ (TODO: document)
 
 * `Business-critical`: pre-defined classification for applications/assets?
+
+* `Incident response`: pre-defined classification for roles?
+This could be used to stricter requirements for assignment/owners, certifications.
+It could be used for reminders to regularly test incident response the scenarios?
+(ISO27001 5.24)
 
 * Certification campaigns:
 
@@ -129,6 +138,11 @@ It should include:
 * Classification for `Emergency access`? Similar to privileged access.
 
 * Classify security-relevant roles "Information security responsibility" ✓
+
+* type of service ?
+** origin: internally-sourced, purchased
+** deployment: on-prem, private cloud, domestic public cloud (EU), foreign public cloud (non-EU) - locations/zones ???
+** maintenance: self-provided (internal), managed service
 
 * Marks
 
@@ -259,6 +273,25 @@ E.g. I want to see that role has violated minAssignee constraint when I look at 
 ** Could we make the rules smarter to tolerate existing violations?
 E.g. if a user has SoD violations, we could still allow normal operations to proceed, as long as they are not creating new violation.
 
+** Use case of lost clearance: remove/deactivate all assignments that require the clearance.
+
+** Policy action: inactivate. E.g. automatic inactivation of user that lost required clearance.
+Question: inactivation of user? Or assignments?
+
+** Nice to have: Rule for requirements in team composition.
+E.g. a supplier must have at least on CISO-certifified (clearance) user in the team.
+A project must have at least one member from security department.
+
+** minAssignee/maxAssignee: ability to require _active_ assignees, not just any assignees.
+
+** minAssignee/maxAssignee: when it points to org, make sure that org has at least one active member.
+
+** Idea: new reaction to increase/decrease risk score (risk management)
+
+* Idea: policy rules could trigger _security event_ (whatever that means).
+Non-compliance with policy can be considered security event.
+This can lead to notification, sending of "signal", etc.
+
 * Marks
 
 ** Marks should have a "retention" setting, specifying whether the mark could be cleared automatically (e.g. by policy rule going "off"), or it should be retained until cleared manually by system administrator.
@@ -371,7 +404,11 @@ Note: Similar flow to GDPR consent.
 
 * Certifications
 
-** GUI: Easy certification of clearances and classifications: easy to select scope (all clearances, specific clearance/classification, etc.) (ISO27001 5.12, 5.13, 6.1, 6.3)
+** Ability to limit certification scope for targets (e.g. use specific archetype (classifications, clearances)) - filter for targets?
+Note: we have itemSelectionExpression, which could be probably used, but it is going to be very cumbersome and probably also quite slow?
+(ISO27001 5.12, 5.13, 6.1, 6.3)
+
+** GUI: Easy certification of clearances and classifications: easy to select scope (target archetypes: all clearances, specific clearance/classification, etc.) (ISO27001 5.12, 5.13, 6.1, 6.3)
 
 ** Certification of other parts of (abstract) role, most notably policy rules.
 For ISO 27001 5.12, re-certification of policy rules included in classification definitions. (ISO27001 5.12, 6.6)
@@ -638,15 +675,6 @@ This could be used to list all configurations that relate to a particular proces
 
 ** Warning if HTTPS is not used.
 
-* Self-certification.
-User has to certify its own assignments.
-User has to confirm that he still needs the privilege.
-Maybe as a "zero" stage of regular certification?
-+
-Important: do not update certification timestamp in this case (or use separate timestamp).
-This is not a formal certification, it is just a way to informally clean-up access.
-The access was not reviewed by another person in this case.
-
 * Emergency mode (see Incident response in notes below). (ISO27001 5.24, 5.29)
 
 * Temporary retention of privileges: temporarily keep user privileges (assignments) after organizational change.
@@ -730,6 +758,13 @@ Look at all failed login timestamps together, e.g. to detect password spraying a
 
 ** Lower risk for users that have MFA setup/requirement.
 
+** Location-based score, e.g. higher score for non-EU users, assignments of non-EU applications, etc.
+
+** Policy rules could increase/decrease risk score by special action
+
+** Risk score could be influenced by assignment/inducement, especially high-order inducements e.g. from classifications.
+This may be a generic method how to implement higher risk score given by privileged access.
+
 * Certification hint: show that the assignment is giving an account that was not used for a long time.
 Could show usage frequency as well.
 
@@ -802,11 +837,52 @@ Initiate re-verification of a person (workflow?) when needed: assignment of priv
 Would be a nice addition to "zero trust" approach.
 (ISO27001 5.14)
 
-* Re-approval / re-certification of policy rule exceptions.
 
-* Certification campaign schedule / calendar
+* Certifications
 
-* certifications: "conditionaly certified": they have to correct mistakes in 30 days - 2-stage certification
+** Self-certification.
+User has to certify its own assignments.
+User has to confirm that he still needs the privilege.
+Maybe as a "zero" stage of regular certification?
++
+Important: do not update certification timestamp in this case (or use separate timestamp).
+This is not a formal certification, it is just a way to informally clean-up access.
+The access was not reviewed by another person in this case.
+
+** Certification campaign schedule / calendar.
+Dedicated calendar-like page that shows when the campaigns are started, how long they are running, etc.
+
+** "conditionally certified" response: they have to correct mistakes in 30 days - 2-stage certification
+
+** re-certification of policy rule exceptions.
+
+** "Action plan" as a result of certification campaign.
+Summarize the responses that require follow-up actions into a post-campaign report.
+
+** Upload _evidence_ for certification campaign/decision, e.g. evidence that the facts were verified, testing report as a proof that procedure was tested, supplier certificate which was checked, etc.
+
+* Assign "maintainer" (e.g. `responsibility` relation?) for each application, to make sure it is maintained.
+Report applications that do now have active maintainer.
+(ISO27001 5.19, 5.20, 5.21, 5.22)
+
+* Analysis: which services are affected when terminating/changing supplier
+(ISO27001 5.19, 5.20, 5.21, 5.22)
+
+* Prepared actions (bulk tasks) for incident response (question: which tasks would be useful?)
+(ISO27001 5.24)
+
+* Should we relate role to "process"?
+To be able to report roles for particular process, e.g. show all roles that define responsibilities in particular process.
+Also certify the roles - even remind to "certify" the process (re-test).
+(ISO27001 5.24)
+
+* Concept of *security event* (event mark?).
+E.g. non-compliance with policy is considered to be security event.
+Can be triggered by policy rule.
+Detection of orphaned account can be security event.
+Question: what to do with such _event_?
+Should we record that in audit (event mark)? Notify? Send _signal_ (see Shared Signals)? What to do?
+(ISO27001 5.24)
 
 == Recommendations
 
@@ -1039,11 +1115,42 @@ The goal is not to remove the privileges, the goal is to make sure all trainings
 | ISO27001 5.12, 6.1, 6.3
 | Requirements partially clear
 
+| Supplier identity management
+| Process to manage supplier identities.
+How are they entered into midPoint?
+Assign a local "sponsor" (employee) for easy supplier identity.
+Sponsor would approve access requests (instead of manager), respond to certifications, etc.
+"access is granted to supplier identities only after all necessary contracts are in place (using clearance mechanism)" - NDA, or NDA induced from organizational status, etc.
+How would be supplier identity de-provisioned? What about lifecycle?
+Configuration: approval processes for suppliers, certification campaigns for supplier assignments: certification of both users and organizations, (e.g. whether organization is still compliant, require update of evidence, etc.).
+Set up a "ISO27001 certified" clearance that can be applied to supplier _organizations_.
+This could be reviewed every year (cert campaign) to make sure the ISO certification of supplier is still valid.
+Apply supplier (company) ISO27001 certification (clearance) to all users in that organization (high-order inducements?).
+Reports/dashboards/rules for suppliers (e.g. supplier identities without sponsors).
+Show sponsors/sponsored identities in home dashboard?
+Who/where/what report for supplier identities.
+Apply classifications to cloud services, e.g. require ISO certification (clearance) from supplier of "sensitive" services.
+Apply policy rules: every external service has active supplier (detect unmaintained services).
+Idea: make sure supplier has required expertise in the team, e.g. has at least one user with CISO certificate (clearance) active in its organization.
+| ISO27001 5.19, 5.20, 5.21, 5.22, 6.5
+| Requirements partially clear
+
 | Delegated administration for suppliers/partners
 | Provide delegated administration config for suppliers/partners.
 We need org struct representing external orgs, and users that will be acting as admins for their orgs (authorizations).
 Admins can add/delete users in their orgs, and manage some basic access (e.g. make other users admins).
 | ISO27001 5.19, 5.20, 6.5
+| Requirements partially clear
+
+| Cloud service management
+| Listing cloud services.
+Making sure each service has an owner (employee).
+Location zones for cloud services: e.g. EU vs non-EU.
+Classification of cloud services: information sensitivity.
+Information transfer rules: e.g. sensitive information only in EU cloud services.
+Prohibit high-sensitivity classification for applications in foreign (non-EU) cloud.
+Prohibit access to foreign cloud for high-risk users to avoid possibility to leak information.
+| ISO27001 5.14, 5.23
 | Requirements partially clear
 
 | Enforcing MFA
@@ -1344,9 +1451,12 @@ Strongly recommend use of org-based locations (possibly hierarchical), can be us
 
 * "Supply chain governance" (marketing)
 
+* cloud behavior monitoring: "monitoring, reviewing and evaluating the ongoing use of cloud services to manage information security risks"
+(ISO27001 5.23)
+
 === Asset Management
 
-* What is "assset"? definition of "asset".
+* What is "asset"? definition of "asset".
 This is harder than it seems!
 
 * `Asset` as auxiliary archetype? Or mark? Special flag? Hardcoded?
@@ -1495,7 +1605,7 @@ Do we have "custodians"?
 * Very clear identification who is internal (employee) and external.
 How to do it? Pre-defined archetypes? Flag? mark?
 Also: types of suppliers (ISO27001 5.19) to differentiate access - aux archetypes?
-(ISO27001 5.18, 5.19, 5.20)
+(ISO27001 5.18, 5.19, 5.20, 5.21, 5.22)
 
 * Internal "sponsors" for external identities, are they used? Can we pre-configure?
 Approver for access requests.
@@ -1510,6 +1620,40 @@ How to do it?
 (ISO27001 5.18)
 
 * Do we have last review/certification timestamp in metadata?
+
+* Relation `sponsor` for suppliers? Or can be reuse owner/manager?
+Maybe a new relation `responsibility` or `accountable`?
+(ISO27001 5.20, 5.21, 5.22)
+
+* How do we track contracts? Contract IDs in users? Orgs?
+Should "contract" be a separate object?
+Use case: make sure that all supplier accounts are covered by valid contract.
+(ISO27001 5.20, 5.21)
+
+* Could we use last login information to detect that supplier neglects maintenance?
+E.g. supplier was not logged-in to any system for more than a year.
+(ISO27001 5.20, 5.21, 5.22)
+
+* When clearance is assigned to org, how it is applied to users?
+E.g. how we can apply supplier (company) ISO27001 certification (clearance) to all users in that organization?
+Higher-order incudements, perhaps?
+(ISO27001 5.19, 5.20, 5.21, 5.22)
+
+* How to report (dashboard) users that no longer have necessary clearance?
+There is going to be `enforce` policy rule, which is going to fail.
+Will it set violation mark?
+
+* How to report _all_ policy violations?
+I.e. search for all marks that represent policy violations?
+Should we have some kind of property in the marks to mark the marks as _policy violations_?
+
+* Can we keep (long-term) summaries of past certification campaigns?
+We need that as an evidence that campaigns regularly happened, that the thing that they set up to review was reviewed.
+We do not need all the workitems (that information should be kept in metadata, referring to campaign ID), we need just the summaries: when it happened, what was the number of responses, how many items were removed, who participated, etc.
+(ISO27001 5.19, 5.20, 5.21, 5.22 and many others)
+
+* BYOA/BYOI (bring your own account/identity) and BYOD (bring your own device) use cases.
+E.g. how can midPoint manage access on github, using github accounts registered by the users themselves (personal accounts)?
 
 == Answered Questions
 
@@ -1553,3 +1697,43 @@ Extend with approver info.
 
 * Example: additional approval level for high-classification applications
 
+== TODO list for 4.10
+
+* Design sessions
+
+** Multi-identities/archetypes: Employee, Student, Supplier, Volunteer.
+Birthrights.
+
+** Supplier identity management scenarios.
+Linking suppliers to the services/applications that they are responsible for.
+
+** Orgstruct pre-defined archetypes/roots: functional, projects, teams?
+
+** Locations: model them as orgs, pre-defined archetype/root.
+Assign locations to users. How will it work with locale? What about old location _property_?
+Assign locations to services (e.g. location of cloud datacenters).
+Consider "jurisdiction" use cases: store sensitive data only on EU cloud services;
+data about EU users may be stored only on EU services;
+similar information transfer limitations; etc.
+Need GUI support? How much?
+Consider how this can be used in role mining/outliers out of the box.
+
+** Classifications and GUI, visibility, reporting, etc.
+
+** Concept of "Asset", ideas for implementation
+
+** Application inventory: cloud vs on-prem systems (locations/zones?), internally-sourced, purchased, managed service ... marking them, suppliers, etc.
+
+** Policy rules: Updates needed in 4.10.
+Handling of "enforce" rules when in violation.
+Use case of lost clearance: remove/deactivate all assignments that require the clearance.
+Policy action: inactivate.
+
+** Certification improvements
+
+* To consider/design
+
+** Clearance certification: use case:
+Supplier organization lost ISO27001 certification (clearance).
+This certification is required.
+How do we mark/inactivate all the identities in this organization?
