@@ -698,17 +698,9 @@ Can this be used to evaluate risk?
 E.g. user with lot of low-classification devices poses much more risk?
 (ISO27001 7.9, 7.14, 8.1)
 
-* Break-glass privileges: allow selected users to gain privileges by "breaking glass", an action in GUI initiated by the user.
-After "breaking glass", emergency privileges are assigned to the user for a limited duration.
-The "break glass" operation is recorded in the audit trail, metadata, and alarm is raised -> priority notifications are issued to relevant "overseers" (e.g. security team).
-We usually do not want any complicated authentication for the "break glass" operation, we want to it be simple, easy to operate under stress or in panic (availability takes priority over confidentiality/consistency).
-+
-Examples: Emergency access to system administrators/operators during security incident.
-Emergency access for medical staff to access medical records of a patient in order to save life.
-Access for emergency responders (e.g. voluntary firefighter team) to access some parts of infrastructure (e.g. to cut power to location) or enable physical access to rooms.
-(ISO27001 5.24, 5.26, 5.29, 5.30, 8.2)
+* "Reactive" privileges
 
-* On-demand privileges (just-in-time privileges): allow selected users to gain privileges by "activating" them in midPoint GUI.
+** On-demand privileges (just-in-time privileges): allow selected users to gain privileges by "activating" them in midPoint GUI.
 Activation of the privileges may require additional authentication of the user, e.g. use of additional authentication factor.
 Activation of the privileges assigns the privileges to user for a limited period of time.
 +
@@ -722,6 +714,29 @@ Use of on-demand privileges is normal operation, it is not an emergency.
 Examples: System administrator access to very powerful privileges, such as superuser accounts (`root`).
 Access of operators or power users to privileged actions that are rarely used, e.g. ability to explicitly start backup procedure or reboot a system.
 (ISO27001 5.15, 5.18, 8.2)
+
+** "event response" or "incident response" privileges: prepare security roles in such a way that there are powerful privileges, however they are not active during normal operation.
+When an event happens (e.g. security incident or disaster), special global system _mode_ is activated, activating the prepared privileges.
+The privileges are automatically inactivated when the event is handled and the _mode_ is returned to normal.
+The mode change and its effects activating the privileges is recorded in the audit trail and metadata.
+Audit trail should specially mark all events that happened while emergency _mode_ was active.
+We want to keep these audit records indefinitely, moving to special long-storage partition before they are deleted by regular cleanup.
+Certification to review of emergency roles: both assignments and role inducements (object-governance)
+Idea: can we somehow mark actions that were done using emergency access rights (audit and metadata)?
+Idea: "close" of incident response (turning off the emergency mode) may automatically trigger processes, such as collection of evidence, review of response plans, etc.
++
+Examples: Emergency access to system administrators/operators during security incident.
+(ISO27001 5.24, 5.26, 5.27, 5.29, 5.30, 8.2)
+
+** "Break-glass" privileges: allow selected users to gain privileges by "breaking glass", an action in GUI initiated by the user.
+After "breaking glass", emergency privileges are assigned to the user for a limited duration.
+The "break glass" operation is recorded in the audit trail, metadata, and alarm is raised -> priority notifications are issued to relevant "overseers" (e.g. security team).
+We usually do not want any complicated authentication for the "break glass" operation, we want to it be simple, easy to operate under stress or in panic (availability takes priority over confidentiality/consistency).
++
+Emergency access for medical staff to access medical records of a patient in order to save life.
+Access for emergency responders (e.g. voluntary firefighter team) to access some parts of infrastructure (e.g. to cut power to location) or enable physical access to rooms.
+(ISO27001 5.24, 5.26, 5.29, 5.30, 8.2)
+
 
 * Track login and _logout_ times, to determine _duration_ of access.
 Can be used to estimate effort spent in systems.
@@ -904,7 +919,10 @@ Emphasized enough?
 
 * Business role must have an owner
 
-* Audit: appropriate settings for audit log retention. Safe storage of audit trail, ensure non-tampering. Also: safe archival of audit trail. (ISO27001 5.28)
+* Audit: appropriate settings for audit log retention. Safe storage of audit trail, ensure non-tampering. Also: safe archival of audit trail.
+E.g. insert-only DB privileges for midpoint user.
+Recommend use of dedicated log server.
+(ISO27001 5.28)
 
 * Log collection: use log server to centrally collect the logs (ISO27001 5.28)
 
@@ -947,6 +965,14 @@ _Owner_ is responsible, states requirement, makes decisions and approves the rol
 _Custodian_ technically defines the role and "implements" it.
 "segregating the roles of approval and implementation of the access rights"
 (ISO27001 5.18)
+
+* Incident reposnse
+
+** Prepare emergency privileges in emergency (conditional) roles.
+
+** Explicitly conduct full reconciliation of all systems as an ex-post check after an incident is handled.
+This may reveal additional resources (accounts, privileges) that attacker has created.
+More importantly, it may reveal new accounts and excessive privileges that responsers have used during the response, which should be removed.
 
 == Examples and Configurations
 
@@ -1056,9 +1082,9 @@ set up distribution lists for all users of Cat.III systems (to spread awareness)
 | Incident response
 | Preparation: Use reporting to estimate effects, e.g. how many users will be affected when SSO system is breached?
 Use simulations to predict effects of incidents, e.g. what access would attacker gain if he gets role `Foobar`?
-Pre-configure emergency privileges for `incident responders` team, as non-active (conditional) inducements (break-glass).
+Pre-configure emergency privileges for `incident responders` team, as non-active (conditional) inducements (emergency mode).
 
-Containment: Quickly enable emergency privileges for responders.
+Containment: Quickly enable emergency privileges for responders - enable emergency mode, and _recompute_ users - how to do that quickly? Should there be a procedure to do it?
 Manually deactivate a user, e.g. after he was fired.
 We do it manually, because HR recon is slow.
 Quickly disable service accounts, isolating applications to limit spreading of incident.
@@ -1237,6 +1263,8 @@ Quickly disable the accounts on incident/malware to isolate the application.
 Supports "zero trust" concept.
 (ISO27001 8.7)
 
+* identifying users affected by a breach of all passwords on particular application, forcing them to change password.
+
 More ideas:
 
 * Classifications based on TLP protocol (ISO27001 5.12, 5.13)
@@ -1389,6 +1417,16 @@ Audit
 
 * Service (application) accounts with passwords that were not changed in a looong time (e.g. 5 years)
 
+Incident response dashboard (just a rough idea for now):
+
+* Currently active "emergency mode(s)"
+
+* Roles with special meaning for incident response, e.g. that include emergency privileges
+
+* Under-assigned roles with special meaning for incident response
+
+* Last activation of emergency mode (e.g. "X days without an incident")
+
 Later:
 
 * High-risk roles
@@ -1424,16 +1462,22 @@ Only active users should be considered valid owners.
 ** Use conditional roles to pre-configure emergency privileges for incident response.
 Q: what will trigger the condition?
 How to make sure such roles (their members) are automatically recomputed to immediately gain the privileges.
-Note: this may work both ways, granting more privileges to security staff and revoking some privileges to risky user populations (e.g. disabling external access on AM server). (ISO27001 5.24, 5.29)
+Note: this may work both ways, granting more privileges to security staff and revoking some privileges to risky user populations (e.g. disabling external access on AM server).
++
+Idea: Can we somehow use meta-roles (e.g. PolicyType)? The mode might not be global, could be in meta-role, reflecting to all roles affected by meta-role.
+(ISO27001 5.24, 5.29)
 
 ** Emergency mode: global mode, can be turned on by authorized users.
 It enables pre-defined elevated privileges for security and business continuity staff.
 All operations that happen during emergency mode have a special mark in the audit trail, can be used to investigate the incident.
 All assignments, accounts and associations that are created during emergency mode are marked.
 They can be discovered after the incident and cleaned up.
-This should also apply to role modification and possibly other operations. (ISO27001 5.24, 5.29)
+This should also apply to role modification and possibly other operations.
+Certification to review of emergency roles: both assignments and role inducements (object-governance)
+(ISO27001 5.24, 5.29)
 +
 Probably needs several modes: security incident, disruption, natural disaster, ...
+Idea: Can we somehow use meta-roles (e.g. PolicyType)? The mode might not be global, could be in meta-role, reflecting to all roles affected by meta-role.
 
 ** Guide: "Incident response with midPoint", recommending individual steps (containment, escalation, ...), referencing ISO controls.
 
@@ -1453,6 +1497,10 @@ Strongly recommend use of org-based locations (possibly hierarchical), can be us
 
 * cloud behavior monitoring: "monitoring, reviewing and evaluating the ongoing use of cloud services to manage information security risks"
 (ISO27001 5.23)
+
+=== ITDR
+
+* Emergency mode and autimatic activation of emergency privileges (activation of prepared emergency plans)
 
 === Asset Management
 
@@ -1654,6 +1702,8 @@ We do not need all the workitems (that information should be kept in metadata, r
 
 * BYOA/BYOI (bring your own account/identity) and BYOD (bring your own device) use cases.
 E.g. how can midPoint manage access on github, using github accounts registered by the users themselves (personal accounts)?
+
+* Does simulation evaluate policy rules? How it is reported?
 
 == Answered Questions
 
