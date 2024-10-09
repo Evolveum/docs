@@ -286,16 +286,71 @@ Maybe it is finally time to upgrade to midPoint 4.3?
 
 === Samples Macro
 
-Including code from midpoint samples can be achieved using the `sampleRef` block macro:
+Including code from midpoint samples can be achieved using the `sampleRef` block macro.
+Currently, we are supporting code and CSV files.
+When a code file is included, a code block is created.
+In the case of a CSV file, it will create a table from the CSV file.
+When you want to include only a specific part of the file, you can specify the lines as in the `include` macro: `[{startLine}..{endLine}]`.
+The only difference is that with the samples macro, you can omit the name of the attribute - `lines`.
+If you want to include a file from a selected line to the end of the file, you can use `-1` as the end of the range.
+When importing tables from CSV files from not the first line, you can specify if you want to include the header or not using the `includeHeader` parameter.
+The default is to include the header.
+
+Here are some examples:
+
+Default behavior—the whole file is included:
 
 [source,asciidoc]
 ----
-For example, this is how this resource is configured in the midpoint hogwarts demo: sampleRef::samples/demo/hogwarts/objects/003-resource-csv.xml
+sampleRef::samples/demo/hogwarts/objects/003-resource-csv.xml[]
 ----
 
-Currently, we are supporting code and CSV files.
-When including a code file, it will create a code block.
-In the case of a CSV file, it will create a table from the CSV file.
+[source,asciidoc]
+----
+sampleRef::samples/demo/hogwarts/accounts.csv[]
+----
+
+Including only specific part of the file:
+
+[source,asciidoc]
+----
+sampleRef::samples/demo/hogwarts/objects/003-resource-csv.xml[2..10]
+----
+
+[source,asciidoc]
+----
+sampleRef::samples/demo/hogwarts/accounts.csv[2..-1]
+----
+
+Including only specific part of the csv file without header:
+
+[source,asciidoc]
+----
+sampleRef::samples/demo/hogwarts/accounts.csv[2..-1, includeHeader=false]
+----
+
+WARNING: The `includeHeader` parameter must be specified after the lines range.
+
+=== Midpoint Macro
+
+With `midpointRef` you can include text from the midpoint repository.
+The macro is used in the same way as the xref:#samples_macro[Samples Macro].
+Only difference is that the first attribute is the branch from which the file should be included.
+The default branch is `master`.
+Other allowed branches are the ones that are currently used for reference documentation.
+
+Here are some examples:
+
+[source,asciidoc]
+----
+midpointRef::gui/admin-gui/testng-perf.xml[master, 2..12]
+
+midpointRef::gui/admin-gui/testng-perf.xml[master]
+
+midpointRef::gui/admin-gui/testng-perf.xml[]
+----
+
+WARNING: `branch` attribute must be specified as the first attribute, then the lines range can be specified.
 
 === Feature Macro
 
@@ -1437,17 +1492,17 @@ If you need a more sophisticated table column layout, there are https://asciidoc
 === Datatables
 
 To add functionalities like sorting, filtering, and pagination to tables, we use the DataTables library combined with our custom javascript.
-To use it with your table, you need to add the `[.datatable-config]` block with config before the table.
-Even for the default setup, it is necessary to specify the empty JSON `{}` - omitting it hides your table.
-At least one empty line must be placed between the datatable configuration and the table itself.
+To use it with your table, you need to add the `[.datatable-config]` block with the JSON config before the table.
+To use the defaults you can either omit the JSON or use empty JSON `{}` as shown below.
 
 [NOTE]
 Technically, the specification is stored in a hidden block that is pre-processed by the JavaScript in the browser.
 Line `[.datatable-config]` applies the class (`datatable-config`) to the following block - this is a standard AsciiDoc feature.
 If you omit the `{}`, the next block is the table itself and the class applied to it hides it.
-That's why both the non-empty block (empty JSON literal is non-empty block for AsciiDoc) and the empty line after it is important.
+However, the JavaScript processing the datatable configuration is smart to handle this situation,
+it removes the class from the table and applies the default datatable config to it - as you'd expect.
 
-Here is an example of a table with default configuration (with no JSON):
+Here is an example of a table with default configuration (with empty JSON, the empty line can be omitted):
 
 ----
 [.datatable-config]
@@ -1465,10 +1520,9 @@ Here is an example:
 [.datatable-config]
 {
     "paging": true,
-    "orderColumn": 1,
-    "orderDirection": "desc"
+    "order-column": 1,
+    "order-direction": "desc"
 }
-
 |===
 ... your table here ...
 |===
@@ -1483,15 +1537,31 @@ Here is an example:
 </table>
 ----
 
-[NOTE]
-Inside HTML (and also in the table below), the options are written with .
+If you want a narrow table, you must set the `auto-width` option in config to `false` and in the adoc file, you must define the table as `[%autowidth]`:
+
+----
+[.datatable-config]
+{
+    "auto-width": false
+}
+
+[%autowidth]
+|===
+... your table here ...
+|===
+----
+
+//[NOTE]
+//Inside HTML (and also in the table below), the options are written with .
 
 The following table lists the available options.
-The options are shown in https://en.wikipedia.org/wiki/Letter_case#Kebab_case[kebab-case] - as used in HTML (but without `data-` prefix).
-Use lower camel case (dromedaryCase) for JSON specification inside AsciiDoc (e.g. `pageLength` instead of `page-lenght`).
+The options are shown in https://en.wikipedia.org/wiki/Letter_case#Kebab_case[kebab-case] - as used in HTML (but without the `data-` prefix).
+Use lower camel case (dromedaryCase) for JSON specification inside AsciiDoc (e.g. `pageLength` instead of `page-length`).
 
 [.datatable-config]
-{}
+{
+  "original-order": true
+}
 
 |===
 | Option | Description | Default | Possible values
@@ -1543,8 +1613,43 @@ Use lower camel case (dromedaryCase) for JSON specification inside AsciiDoc (e.g
 
 | `order-column`
 | Default sorting column
-| 0
+| 1 - first column
 | integer
+
+| `original-order`
+| Preserve the original order of the rows at initialization; override `order` and `order-column` options
+| false
+| true, false
+
+| `custom-layout`
+| Enable custom layout of the table elements
+| false
+| true, false
+
+| `layout`
+| Layout of the table elements.
+The layout is defined as a JSON object.
+For more details, see https://datatables.net/reference/option/layout[DataTables library documentation].
+Format of this option is identical to the `layout` option in the DataTables library.
+To use this option, you need to set `custom-layout` to `true`.
+| `{
+    topStart: paging ? 'pageLength' : null,
+    topEnd: searchable ? 'search' : null,
+    bottomStart: paging ? 'info' : null,
+    bottomEnd: paging ? 'paging' : null
+}`
+
+This layout object is only available in javascript.
+When using the `layout` option in an adoc file, you must omit the logical conditions.
+| JSON object
+
+| `auto-width`
+| Enable or disable automatic column width calculation.
+This option is different than `%autowidth` in asciidoc tables.
+If enabled, it calculates the column width based on the content of the table cells, but the width is stuck at 100%.
+If disabled, the width from asciidoc is used. So when you want to use a narrow table, you must define the table in asciidoc as `[%autowidth]` and set `auto-width` in config to `false`.
+| true
+| true, false
 
 |===
 
