@@ -1,0 +1,91 @@
+= Incomplete Items (state in 4.9.1)
+
+MidPoint can indicate that an item has a value, but the value is not known at this moment or in this place.
+
+== The "incomplete" flag
+
+From the javadocs at the prism level - `Item#isIncomplete()`:
+
+----
+Flag that indicates incomplete item. If set to true then the values in this item are not complete.
+If this flag is true then it can be assumed that the object that this item represents
+has at least one value. This is a method how to indicate that the item really has some values,
+but are not here. This may be used for variety of purposes. It may indicate that the
+account has a password, but the password value is not revealed. This may indicate that
+a user has a photo, but the photo was not requested and therefore is not returned.
+This may be used to indicate that only part of the attribute values were returned from the search.
+And so on.
+----
+
+From the javadocs at ConnId level - `Attribute#attributeValueCompleteness`:
+
+----
+A status that indicates completeness of attribute values.
+Normal resources always return all values of the attribute. However there may be
+cases, when returning all the values is not an acceptable overhead
+(e.g. returning all group members for big groups). This status can also be used
+to indicate that an attribute has a value without revealing that value.
+E.g. resource may indicate that the account has a password without revealing
+that password.
+
+The interpretation: If there is no Attribute object in the ConnectorObject for any
+specific attribute, then the client should make no assumption about existence of
+the attribute (e.g. the attribute may exists, but it security policies deny reading
+of the attribute right now). If the Attribute object is returned then the client
+may assume that the attribute exists and it has at least one value. If the
+attributeValueCompleteness is set to COMPLETE then the client may also assume that
+the returned set of value is complete.
+----
+
+(Note that midPoint generally assumes that if an attribute was requested but not present in the returned data, it does not exist on the resource.)
+
+The flag is used at these places, among others:
+
+. Repository service uses it to indicate that there are some data that are not fetched, typically because of the performance.
++
+Examples: `jpegPhoto` in `FocusType`, `row` in `LookupTableType`, `result` in `TaskType`, and so on.
+
+. Connectors may use it to indicate there are some data that are not fetched, either because of the performance, or because of the security.
++
+Examples: members of large groups, account passwords.
+
+== Handling of the Flag
+
+Normally, the flag has to be explicitly set and re-set.
+
+However, since 4.9.1, there is a slight behavior change related to single-valued items:
+*If a value is added to such an item, the `incomplete` flag is automatically cleared*:
+
+[quote,ItemImpl#resetIncompleteFlagOnAddIfPossible]
+____
+When adding a specific value to a single-valued incomplete item, we can assume that the item is no longer incomplete.
+The reason is that it there is no other, unknown value, that would make the item incomplete.
+(As single-valued items can have only one value.)
+
+This is true regardless of whether the value being added is the same as the (unknown) value.
+If it's the same, the item is complete, as it will have one known value.
+If it's different, then the item is also complete, as the new value would overwrite the old one.
+
+It is also true, if the item contains (by mistake) any existing value; although that state is inconsistent by nature.
+____
+
+See also `TestDelta.testIncompleteFlagHandlingViaXXX` methods.
+
+== Open Questions
+
+Currently, there is no way how to manipulate this flag via deltas, except for the automatic clearing when a value for single-valued item is provided (see above).
+So, when needed to set/reset the flag, a work-around has to be done, like this:
+
+[source,java]
+----
+var password = ... // existing value of the "password" container
+ShadowUtil.setPasswordIncomplete(password); // setting the incomplete flag of "value" in "password"
+repositoryService.modifyObject(ShadowType.class, shadow1Oid,
+        prismContext.deltaFor(ShadowType.class)
+                .item(PATH_PASSWORD)
+                .replace(password) // replacing the whole "password" container
+                .asItemDeltas(),
+        result);
+----
+
+This should be resolved somehow.
