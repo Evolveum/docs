@@ -1,0 +1,241 @@
+= Methodology: Group Synchronization
+:page-nav-title: 'Group synchronization'
+:page-display-order: 110
+:page-toc: top
+:experimental:
+:page-since: "4.9"
+
+== Introduction
+
+Evolveum's xref:/midpoint/methodology/first-steps/[First Steps with MidPoint methodology] has been created to deploy midPoint for users and their accounts quickly.
+However, it has been prepared to be universal.
+Group Synchronization Methodology extends First Steps Methodology with procession entitlements, typically groups, on connected systems.
+
+=== The Complexity of Group Management
+One could think that moving from users to groups won't be such a difference but in practice, there is a huge step in complexity.
+Groups typically don't have a single authoritative source that you can use and just provision the same groups everywhere.
+If there is an authoritative source, which is not always true, it contains groups representing business roles.
+But when you are connecting the target system, you need to provision groups representing application roles that are supported on a given system.
+
+Moreover, the integrated system usually has existing groups that cannot be simply overwritten, since there is no source of truth.
+This is especially true for Directory services which are typically the first systems you need to integrate with IGA solution.
+Therefore, the management of such groups need to be migrated to midPoint where they can be managed in an organized way.
+To complicate the situation even more, the groups in an integrated system are often managed using a combination of several approaches.
+It's not rare to have a combination of manual and automated management using different interfaces and organizational processes.
+
+=== Methodical Approach
+In order to untangle such chaos, we need to analyze the existing state and migrate the management of groups to midPoint not only on the technical level but also change the organizational processes related to that.
+The change in processes might include removing legacy automated management or updating user guides on how they can manually manage or request the roles.
+Changing processes is generally a complicated task, also in this case different groups might have different management processes associated which adds even more to the difficulty.
+That is leading us to an indisputable need to migrate the group management consequently one-by-one or in batches of groups with similar characteristics.
+
+To address the described complication, we will use the proved xref:/midpoint/methodology/first-steps/#the-idea[Connect -> Clean-up -> Automate] iterative approach.
+That will enable us to gradually migrate all the groups, including clean up in data and taking into account existing processes and operational needs.
+Such migration can be safely executed in a production environment without any negative impact on end users.
+To fully reflect the real needs the migration process is very flexible so it can be finalized in a single day in favourable conditions, but it also can last virtually indefinitely if there is a need to do so (e.g. when migrating from legacy IdM which requires a big change in the infrastructure).
+
+=== Added Values
+In summary, the Group Synchronization methodology will help in many areas and address potential pain-points, namely:
+
+* Working on production data with simulations will:
+** Speed up execution of individual steps, leading to saving time or utilizing the extra time on other project activities.
+** Boost confidence of engineers and eliminate stress from executing significant system change for both technical team and the leadership.
+* Ability to migrate groups in chunks will:
+** Help achieve partial results immediately.
+** Execute large part of migration without being blocked by special cases and exceptions.
+** Diversify and mitigate the risk related to change of organization processes.
+* Reducing the technical complexity and streamlining the process will:
+** Allow less experienced engineers to execute the process, saving time of the experts.
+** Get you on the right track towards IGA.
+* Increase in configuration flexibility will:
+** Enable to simultaneously have objects (e.g. users, groups) managed by midPoint with object of the same type managed externally, which is reflecting the needs of typical deployments.
+** Allow fine-tuning of reactions on unexpected changes (e.g. when a new group will appear) which will strengthen the cybersecurity.
+* Ability to synchronize groups into midPoint even when they are managed externally will:
+** Allow use midPoint's IGA features, like reporting or risk analysis, even for externally managed groups.
+** Move forward with following identity analytics steps, like role-mining or outlier detection, even before the migration is fully completed.
+
+== Group Synchronization & IGA Principles
+
+The Group synchronization methodology has been designed to be particularly useful for situations where there are some groups that _cannot be managed by midPoint_, either temporarily or permanently, but which are needed to be imported to midPoint to make them visible as roles.
+Marking the groups using the well-known `Protected` mark would not allow importing the groups as roles.
+However, the midPoint roles and their assignments are ultimately more visible in midPoint.
+They can be used to report user accesses, manage and optimize using midPoint's IGA-related features such as application roles, business roles, role mining etc.
+
+Therefore, by _group migration_ we mean two things:
+
+. migration of data: groups -> roles; group membership -> role assignments
+. migration of mindset: from group management to role management using midPoint
+
+Before continuing, please make yourself familiar with xref:/midpoint/methodology/first-steps/[First Steps with MidPoint methodology].
+
+== Connect Active Directory Resource for Groups
+
+Connect Active Directory as a group data source to midPoint.
+Decide which type of midPoint objects you want to use to represent the groups (Roles, Organizations, Services).
+Roles are most typically used to represent the groups.
+
+Establish a role naming convention that suits your environment.
+The role names are typically based on group identifiers, but there could be multiple systems with the same group identifiers, yet the role name must be unique.
+The simplest way how to achieve the uniqueness of the role name is to prefix the group name with the resource name.
+
+For example, for group `cn=administrators, . . .` in `AD` resource, you can create role `ad:administrators`.
+
+Create the new object type in `Proposed` lifecycle state to allow simulations.
+Configure the object type to create a new archetype for all roles created by its configuration.
+It will allow to quickly filter the roles and define provisioning behavior for them: the future roles will have a group projection and all role members will have account in resource and account associated with the group.
+
+Configure synchronization configuration to make Active Directory resource authoritative for role creation and deactivation/deletion based on new/deleted groups.
+
+Create inbound mappings to allow creation of midPoint roles for at least:
+
+* Name
+* Display name (optional)
+* Description (from group description, if it exists)
+* Identifier (from group identifier, e.g. `cn` or `dn`)
+
+The main idea is that you may use group identifier for correlation with midPoint roles and still have unique role name.
+Display name may be derived from group identifier and/or can be changed anytime by the administrators.
+
+Configure associations for group membership in `Proposed` lifecycle state.
+Create inbound association mappings to allow assignment of midPoint roles based on user accounts' associations (resource group membership) if the role is not already assigned indirectly.
+
+Configure Default operation policy as `Unmanaged` to automatically consider all resource groups as "inbound-only" objects.
+
+If there are _legacy_ groups that cannot be migrated to midPoint because they are still managed by another system (e.g. legacy IDM tool), create Marking rules to explicitly mark such groups as `Unmanaged`.
+
+== Import Groups
+
+Start with import simulation while the object type for groups is in `Proposed` lifecycle state.
+Adjust the inbound configuration as necessary.
+When finished, switch the object type to `Active` lifecycle state and import the groups to create midPoint roles.
+
+Scheduled reconciliation task can be created for AD resource groups to synchronize the groups with roles regularly.
+
+NOTE: Active Directory resource is authoritative for the groups and role creation.
+
+== Import Group Membership
+
+Start with import simulation while the association type configuration is in `Proposed` lifecycle state.
+Adjust the inbound configuration as necessary.
+When finished, switch the object type to `Active` lifecycle state and import the group membership to create midPoint role assignments.
+
+Scheduled reconciliation task can be created for AD resource accounts to synchronize the group membership with role assignments regularly.
+
+NOTE: Active Directory resource is authoritative for the group membership and role assignments/unassignments.
+
+== Migrate Group Management to MidPoint
+
+Configure the Active Directory resource outbound behavior for groups and their membership (associations).
+You don't need to use `Proposed` configuration while the Default operation policy is `Unmanaged` as the provisioning is completely ignored.
+We recommend using the role `Identifier` as a source of group identifiers for the following reasons:
+
+. it has been derived from group identifiers for existing groups
+. the role name or display name may be changed by administrators and it should not automatically rename the group
+
+The outbound association configuration basically allows account membership management using midPoint role assignments.
+
+The migration of the groups follows in several steps.
+
+=== Migrate the Management of Selected Groups to MidPoint
+
+This step allows to _test_ the configuration and/or to allow group-by-group approach: select one or several groups which have been already imported to midPoint as roles.
+
+. mark the selected group(s) with mark(s): *Managed* with lifecycle state: `Proposed`
+. edit the corresponding role and attempt to make a simulated modification (using Preview with development configuration) to allow outbound mappings to be evaluated in simulation
+. run reconciliation with Active Directory resource accounts with development configuration to allow outbound association mappings to be evaluated in simulation
+. update the *Managed* marks: change their lifecycle state to: `Active`
+
+NOTE: MidPoint is now authoritative for the groups with `Managed` mark.
+If the groups are updated in Active Directory resource, midPoint will overwrite the group attributes and maintain the group membership according to the role assignments.
+
+NOTE: MidPoint cannot create new groups yet, as the Default operation policy is still `Unmanaged`.
+
+=== Migrate the Management of Non-legacy Groups to MidPoint
+
+After you have performed migration of one or several groups in the previous step, you can migrate all non-legacy groups in a single step by changing Default operation policy, while the marking rule for _legacy_ groups is still in place and allows their management outside midPoint.
+
+. change Default operation policy: set the lifecycle state for `Unmanaged` to: `Deprecated` and add a new policy: `Managed` with lifecycle state: `Proposed`
+
+. run reconciliation with Active Directory resource groups with development configuration to allow outbound mappings to be evaluated in simulation
+
+. run reconciliation with Active Directory resource accounts with development configuration to allow outbound association mappings to be evaluated in simulation
+
+. if the simulations do not show any incorrect behavior, change the Default operation policy again: set the lifecycle state for `Unmanaged` to: `Archived` and lifecycle state for `Managed` to: `Active`
+
+NOTE: MidPoint is now authoritative for all groups and their membership except the _legacy_ groups which have `Unmanaged` mark.
+
+== Automate Group Integration
+
+Even with _legacy_ groups in place, midPoint is now able to create new groups.
+
+TIP: By editing the group role archetype, you can add focus mappings to only ask administrators for role Identifier and automatically fill in other role properties, such as Name and Display name.
+
+By creating new roles with the group role archetype, the new groups will be automatically created in the Active Directory resource.
+
+After the _legacy_ groups are not created by IDM tool anymore, processes have been updated and administrators trained, restrictions for _legacy_ roles can be removed:
+
+. delete marking rules specific for _legacy_ groups to make midPoint handle them using the Default operation policy (now `Managed`)
+. update synchronization configuration to stop  Active Directory resource being authoritative for roles.
+Instead, configure midPoint to either delete unmatched groups or mark them automatically.
+Also, configure midPoint to re-create any groups forcibly deleted in Active Directory resource.
+
+NOTE: Migration of the Active Directory resource group management to midPoint has been finished.
+From now on, midPoint is authoritative for the group creation and deletion and for the group membership based on the role assignments.
+
+=== Use Person Archetype for Birthrights
+
+If there are any groups (roles) which should be automatically assigned to _all_ users, `Person` archetype can be modified to allow this automation:
+
+. edit `Person` archetype
+. edit inducement for the Active Directory resource account and set its lifecycle status to: `Deprecated`
+. add new inducements for roles that should be automatically assigned and set their lifecycle status to: `Proposed`
+. run a simulated reconciliation task for HR resource with development configuration
+. edit `Person` archetype once again, remove (or archive) the inducement for Active Directory account and activate the inducements for the roles that should be automatically assigned to all users of `Person` archetype
+
+You can also do a cleanup - unassign the roles that are now being induced by `Person` archetype, from all users.
+For each such role:
+
+. edit the role in midPoint
+. unassign all its members (direct role assignments)
+
+== Limitations
+
+There are some inherent limitations that you should keep in mind when using this methodology.
+
+. *_Protected_ groups won't be imported as roles:* as _Protected_ mark makes midPoint ignore inbound mappings entirely, such groups won't be imported as roles.
+MidPoint will simply ignore such roles.
+
+. *_Protected_ group membership won't be imported as role assignments:* similar to the previous statement, _Protected_ mark makes midPoint ignore inbound association mappings entirely.
+Tolerance for _Protected_ groups is automatically set to true.
+*MidPoint will not handle such membership, it will keep it untouched.*
+This is a safety mechanism - _Protected_ groups should be simply not touched and that is true also for their members.
+
+. *Unknown members of groups won't be handled by midPoint:* if group contains members (accounts), which are not projections of midPoint users, midPoint won't handle them.
+They will not be automatically created as users.
+We recommend to minimize number of such user and prefer to import such accounts to midPoint as users to improve the visibility of their group membership by using the role assignments and allow other IGA features.
+
+== Conclusion
+
+The approach presented here is not limited just for groups and roles.
+In fact, it can be used to synchronize any resource objects with any focal objects in midPoint, for example:
+
+* resource groups with midPoint organization structure
+* resource organizational units with midPoint organization structure
+* resource printer objects with midPoint services
+
+With a good naming convention, multiple resources having the same names (identifiers, `cn`, `dn` etc.) of resource objects can be connected to unique role-like objects.
+One example of such naming convention is suggested in this methodology.
+
+The approach presented here is also not limited to a single group type.
+You can define multiple object types to differentiate how midPoint handles the groups, for example:
+
+* groups with different object classes
+* groups located in different subtrees and/or different naming conventions
+
+You need to follow the recommendations for the naming conventions and use different archetypes for different group roles.
+
+== Follow-Up Steps
+
+The possible follow-up steps include:
+
+* xref:/midpoint/methodology/iga/processes/role-engineering/[Role engineering and maintenance process]
