@@ -9,7 +9,7 @@
 
 Evolveum's xref:/midpoint/methodology/first-steps/[First Steps with MidPoint methodology] has been created to deploy midPoint for users and their accounts quickly.
 However, it has been prepared to be universal.
-Group Synchronization Methodology extends First Steps Methodology with procession entitlements, typically groups, on connected systems.
+Group Synchronization Methodology extends First Steps Methodology with processing of  entitlements, typically groups, on connected systems.
 
 === The Complexity of Group Management
 One could think that moving from users to groups won't be such a difference but in practice, there is a huge step in complexity.
@@ -45,7 +45,7 @@ In summary, the Group Synchronization methodology will help in many areas and ad
 ** Execute large part of migration without being blocked by special cases and exceptions.
 ** Diversify and mitigate the risk related to change of organization processes.
 * Reducing the technical complexity and streamlining the process will:
-** Allow less experienced engineers to execute the process, saving time of the experts.
+** Allow less experienced engineers to execute the process safely, saving time of the experts.
 ** Get you on the right track towards IGA.
 * Increase in configuration flexibility will:
 ** Enable to simultaneously have objects (e.g. users, groups) managed by midPoint with object of the same type managed externally, which is reflecting the needs of typical deployments.
@@ -71,6 +71,7 @@ Before continuing, please make yourself familiar with xref:/midpoint/methodology
 == Connect Active Directory Resource for Groups
 
 Connect Active Directory as a group data source to midPoint.
+Decide which type of groups represents the access.
 Decide which type of midPoint objects you want to use to represent the groups (Roles, Organizations, Services).
 Roles are most typically used to represent the groups.
 
@@ -80,7 +81,7 @@ The simplest way how to achieve the uniqueness of the role name is to prefix the
 
 For example, for group `cn=administrators, . . .` in `AD` resource, you can create role `ad:administrators`.
 
-Create the new object type in `Proposed` lifecycle state to allow simulations.
+Create the new object type configuration in `Proposed` lifecycle state to allow simulations.
 Configure the object type to create a new archetype for all roles created by its configuration.
 It will allow to quickly filter the roles and define provisioning behavior for them: the future roles will have a group projection and all role members will have account in resource and account associated with the group.
 
@@ -96,18 +97,25 @@ Create inbound mappings to allow creation of midPoint roles for at least:
 The main idea is that you may use group identifier for correlation with midPoint roles and still have unique role name.
 Display name may be derived from group identifier and/or can be changed anytime by the administrators.
 
-Configure associations for group membership in `Proposed` lifecycle state.
-Create inbound association mappings to allow assignment of midPoint roles based on user accounts' associations (resource group membership) if the role is not already assigned indirectly.
-
 Configure Default operation policy as `Unmanaged` to automatically consider all resource groups as "inbound-only" objects.
 
 If there are _legacy_ groups that cannot be migrated to midPoint because they are still managed by another system (e.g. legacy IDM tool), create Marking rules to explicitly mark such groups as `Unmanaged`.
 
+.Please refer to the following documentation:
+
+* xref:/midpoint/reference/admin-gui/resource-wizard/#object-type-configuration[Resource wizard - part Object type configuration]
+* xref:/midpoint/reference/admin-gui/resource-wizard/#mappings[Resource wizard - part Mappings]
+* xref:/midpoint/reference/admin-gui/resource-wizard/#synchronization[Resource wizard - part Synchronization]
+* xref:/midpoint/reference/admin-gui/resource-wizard/#policies[Resource wizard - part Policies]
+
 == Import Groups
 
 Start with import simulation while the object type for groups is in `Proposed` lifecycle state.
+
 Adjust the inbound configuration as necessary.
+
 When finished, switch the object type to `Active` lifecycle state and import the groups to create midPoint roles.
+The roles representing Active Directory groups are visible in midPoint can be distinguished from other roles by their archetype defined in object type definition and automatically assigned during the role creation process.
 
 Scheduled reconciliation task can be created for AD resource groups to synchronize the groups with roles regularly.
 
@@ -115,9 +123,28 @@ NOTE: Active Directory resource is authoritative for the groups and role creatio
 
 == Import Group Membership
 
+Configure associations for group membership in `Proposed` lifecycle state.
+Specify subject and object of the association (which objects can be associated with which objects).
+
+TIP: You can create several association configurations for different group types.
+Just define new association types for different subject/object combinations.
+Each of the association type configurations will be using different association reference attribute name.
+
+We recommend to configure association tolerance as _undefined_ (defaults to tolerant; will be overridden by marks in later steps).
+
+Create inbound association mappings to allow assignment of midPoint roles based on user accounts' associations (resource group membership) if the roles are not already assigned indirectly.
+
+.Please refer to the following documentation:
+
+* xref:/midpoint/reference/admin-gui/resource-wizard/#association-type-configuration[Resource wizard - part Association type configuration]
+
 Start with import simulation while the association type configuration is in `Proposed` lifecycle state.
-Adjust the inbound configuration as necessary.
-When finished, switch the object type to `Active` lifecycle state and import the group membership to create midPoint role assignments.
+
+Adjust the inbound association configuration as necessary.
+
+When finished, switch the association type to `Active` lifecycle state and import the group membership to create midPoint role assignments.
+
+Role assignments representing group membership in Active Directory are now visible in midPoint.
 
 Scheduled reconciliation task can be created for AD resource accounts to synchronize the group membership with role assignments regularly.
 
@@ -125,25 +152,40 @@ NOTE: Active Directory resource is authoritative for the group membership and ro
 
 == Migrate Group Management to MidPoint
 
-Configure the Active Directory resource outbound behavior for groups and their membership (associations).
+Configure the Active Directory resource outbound behavior for groups and their memberships (associations).
 You don't need to use `Proposed` configuration while the Default operation policy is `Unmanaged` as the provisioning is completely ignored.
 We recommend using the role `Identifier` as a source of group identifiers for the following reasons:
 
 . it has been derived from group identifiers for existing groups
 . the role name or display name may be changed by administrators and it should not automatically rename the group
 
-The outbound association configuration basically allows account membership management using midPoint role assignments.
+The outbound association configuration basically allows to populate account membership management using midPoint role assignments.
 
-The migration of the groups follows in several steps.
+.Please refer to the following documentation:
+
+* xref:/midpoint/reference/admin-gui/resource-wizard/#mappings[Resource wizard - part Mappings]
+* xref:/midpoint/reference/admin-gui/resource-wizard/#association-type-configuration[Resource wizard - part Association type configuration]
+
+The migration of the groups follows in several steps explained in the next chapters.
 
 === Migrate the Management of Selected Groups to MidPoint
 
-This step allows to _test_ the configuration and/or to allow group-by-group approach: select one or several groups which have been already imported to midPoint as roles.
+This step allows to _test_ the outbound configuration and migrate specific groups using a group-by-group approach.
+This will be achieved by individual group marking using mark's `Proposed` lifecycle state.
+
+Any background tasks, such as scheduled reconciliation with HR source, will keep using the production configuration and will ignore processing of objects with marks in `Proposed` lifecycle state.
+
+Select one or several groups which have been already imported to midPoint as roles.
 
 . mark the selected group(s) with mark(s): *Managed* with lifecycle state: `Proposed`
 . edit the corresponding role and attempt to make a simulated modification (using Preview with development configuration) to allow outbound mappings to be evaluated in simulation
 . run reconciliation with Active Directory resource accounts with development configuration to allow outbound association mappings to be evaluated in simulation
-. update the *Managed* marks: change their lifecycle state to: `Active`
+. if the simulation results correspond to your expectations, update the *Managed* marks: change their lifecycle state to: `Active`
+
+.Please refer to the following documentation:
+
+* xref:/midpoint/reference/admin-gui/resource-wizard/#policies[Resource wizard - part Policies]
+
 
 NOTE: MidPoint is now authoritative for the groups with `Managed` mark.
 If the groups are updated in Active Directory resource, midPoint will overwrite the group attributes and maintain the group membership according to the role assignments.
@@ -154,30 +196,42 @@ NOTE: MidPoint cannot create new groups yet, as the Default operation policy is 
 
 After you have performed migration of one or several groups in the previous step, you can migrate all non-legacy groups in a single step by changing Default operation policy, while the marking rule for _legacy_ groups is still in place and allows their management outside midPoint.
 
+Any background tasks, such as scheduled reconciliation with HR source, will keep using the production configuration and will ignore processing of objects with Default operation policy in `Proposed` lifecycle state.
+
 . change Default operation policy: set the lifecycle state for `Unmanaged` to: `Deprecated` and add a new policy: `Managed` with lifecycle state: `Proposed`
 
 . run reconciliation with Active Directory resource groups with development configuration to allow outbound mappings to be evaluated in simulation
 
 . run reconciliation with Active Directory resource accounts with development configuration to allow outbound association mappings to be evaluated in simulation
 
-. if the simulations do not show any incorrect behavior, change the Default operation policy again: set the lifecycle state for `Unmanaged` to: `Archived` and lifecycle state for `Managed` to: `Active`
+. if the simulation results correspond to your expectations, change the Default operation policy again: set the lifecycle state for `Unmanaged` to: `Archived` and lifecycle state for `Managed` to: `Active`
+
+.Please refer to the following documentation:
+
+* xref:/midpoint/reference/admin-gui/resource-wizard/#policies[Resource wizard - part Policies]
 
 NOTE: MidPoint is now authoritative for all groups and their membership except the _legacy_ groups which have `Unmanaged` mark.
 
 == Automate Group Integration
 
 Even with _legacy_ groups in place, midPoint is now able to create new groups.
+Configuration is already prepared in role archetype and outbound mappings/outbound association mappings.
 
 TIP: By editing the group role archetype, you can add focus mappings to only ask administrators for role Identifier and automatically fill in other role properties, such as Name and Display name.
 
 By creating new roles with the group role archetype, the new groups will be automatically created in the Active Directory resource.
 
-After the _legacy_ groups are not created by IDM tool anymore, processes have been updated and administrators trained, restrictions for _legacy_ roles can be removed:
+*After the _legacy_ groups are not created by IDM tool anymore, processes have been updated and administrators trained, restrictions for _legacy_ roles can be removed*:
 
-. delete marking rules specific for _legacy_ groups to make midPoint handle them using the Default operation policy (now `Managed`)
-. update synchronization configuration to stop  Active Directory resource being authoritative for roles.
-Instead, configure midPoint to either delete unmatched groups or mark them automatically.
-Also, configure midPoint to re-create any groups forcibly deleted in Active Directory resource.
+. delete marking rules specific for _legacy_ groups to remove exceptions and make midPoint handle the groups using the Default operation policy (now `Managed`)
+. update synchronization configuration to stop Active Directory resource being authoritative for roles.
+Instead, configure midPoint to either delete unmatched groups or mark them automatically (situation: `Unmatched`).
+Also, configure midPoint to re-create any groups forcibly deleted in Active Directory resource (situation: `Deleted`).
+
+.Please refer to the following documentation:
+
+* xref:/midpoint/reference/admin-gui/resource-wizard/#policies[Resource wizard - part Policies]
+* xref:/midpoint/reference/admin-gui/resource-wizard/#synchronization[Resource wizard - part Synchronization]
 
 NOTE: Migration of the Active Directory resource group management to midPoint has been finished.
 From now on, midPoint is authoritative for the group creation and deletion and for the group membership based on the role assignments.
@@ -187,16 +241,17 @@ From now on, midPoint is authoritative for the group creation and deletion and f
 If there are any groups (roles) which should be automatically assigned to _all_ users, `Person` archetype can be modified to allow this automation:
 
 . edit `Person` archetype
-. edit inducement for the Active Directory resource account and set its lifecycle status to: `Deprecated`
-. add new inducements for roles that should be automatically assigned and set their lifecycle status to: `Proposed`
-. run a simulated reconciliation task for HR resource with development configuration
-. edit `Person` archetype once again, remove (or archive) the inducement for Active Directory account and activate the inducements for the roles that should be automatically assigned to all users of `Person` archetype
+. edit inducement for the Active Directory resource account and set its lifecycle state to: `Deprecated`
+. add new inducements for roles that should be automatically assigned and set their lifecycle state to: `Proposed`
+. run a simulated reconciliation task for HR resource with development configuration and examine the simulation results (no changes in user assignments should be indicated)
+. edit `Person` archetype once again, set the lifecycle state of the inducement for Active Directory account to: `Archived` and set the lifecycle state of the role inducements to: `Active`
 
 You can also do a cleanup - unassign the roles that are now being induced by `Person` archetype, from all users.
 For each such role:
 
 . edit the role in midPoint
 . unassign all its members (direct role assignments)
+. wait until the background unassignment task finishes
 
 == Limitations
 
