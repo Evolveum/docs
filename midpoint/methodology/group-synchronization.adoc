@@ -83,9 +83,38 @@ For example, for group `cn=administrators, . . .` in `AD` resource, you can crea
 
 Create the new object type configuration in `Proposed` lifecycle state to allow simulations.
 Configure the object type to create a new archetype for all roles created by its configuration.
-It will allow to quickly filter the roles and define provisioning behavior for them: the future roles will have a group projection and all role members will have account in resource and account associated with the group.
+It will allow to quickly filter the roles and define provisioning behavior for them:
 
-Configure synchronization configuration to make Active Directory resource authoritative for role creation and deactivation/deletion based on new/deleted groups.
+* *Create inducement*: select *true* to allow creation of new resource entitlements for all roles with this archetype
+* *Create inducement for membership*: select the object type for account that will be created in AD resource and associated with the group for the entitlement that is provisioned by the role with this archetype.
++
+TIP: If you do not select any value, existing members of the role with this archetype, that already have account in AD resource, will be associated with the corresponding group.
+If the role is assigned to users without AD resource account, new account won't be created.
+
+Configure synchronization configuration to make Active Directory resource authoritative for role creation and deactivation/deletion based on new/deleted groups:
+
+|===
+|Situation |Action |Notes
+
+|Unmatched
+|Add focus
+|Create a new focus object (role) from entitlement
+
+|Unlinked
+|Link
+|Link the entitlement object to correlated focus object (role)
+
+|Linked
+|Synchronize
+|Synchronize data between entitlement and focus object (role) using mappings.
+
+|Deleted
+|Inactivate focus
+|Disable focus object (role).
+|===
+
+TIP: Instead of _Inactivate focus_, it is also possible to use _Delete focus_.
+Dangling role assignments will be cleared during user recomputation or reconciliation automatically.
 
 Create inbound mappings to allow creation of midPoint roles for at least:
 
@@ -190,6 +219,8 @@ Select one or several groups which have been already imported to midPoint as rol
 NOTE: MidPoint is now authoritative for the groups with `Managed` mark.
 If the groups are updated in Active Directory resource, midPoint will overwrite the group attributes and maintain the group membership according to the role assignments.
 
+NOTE: If you assign user a role which has `Unmanaged` projection, the role will be assigned, but user's projection won't be created/updated as the outbound configuration is not used at all.
+
 NOTE: MidPoint cannot create new groups yet, as the Default operation policy is still `Unmanaged`.
 
 === Migrate the Management of Non-legacy Groups to MidPoint
@@ -268,6 +299,10 @@ This is a safety mechanism - _Protected_ groups should be simply not touched and
 . *Unknown members of groups won't be handled by midPoint:* if group contains members (accounts), which are not projections of midPoint users, midPoint won't handle them.
 They will not be automatically created as users.
 We recommend to minimize number of such user and prefer to import such accounts to midPoint as users to improve the visibility of their group membership by using the role assignments and allow other IGA features.
+
+. *If you assign user a role which has `Unmanaged` projection:* the role will be assigned, but user's projection won't be created/updated as the outbound configuration is not used at all.
+There is currently no simple way of reporting such users with midPoint (user with role assigned, but technically not applied for given resource object)
+
 
 == Conclusion
 
