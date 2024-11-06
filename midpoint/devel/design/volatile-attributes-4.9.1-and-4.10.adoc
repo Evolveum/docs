@@ -1,0 +1,151 @@
+= Volatile Attributes (Shadow Items) in 4.9.1 and 4.10
+
+Volatile attributes are ones that can change on the resource without midPoint initiating (or even knowing about) that particular change.
+
+== Typical Cases
+
+There are several typical cases of volatile attributes.
+(Some of these do overlap.)
+
+. Various kinds of default values can be set up on the *object creation*.
+The ConnId primary identifier (if different from the secondary identifier) is a typical example.
+It is harmless, though, as midPoint is well adapted to treat it in this way.
++
+Other examples are LDAP `uid` (determined from the DN), Microsoft Exchange e-mail address, Dummy Resource `internalId` (used by various tests), and so on.
+See, e.g., bug:MID-2436[].
+
+. An attribute may change unexpectedly *when it's modified* by midPoint.
++
+For example, when `SMTP:x@y.z` is added to the list of Exchange addresses, the former primary e-mail alias (marked by `SMTP:` prefix) is automatically downgraded to a secondary alias (marked by `smtp:` prefix).
+So the equation `old + delta = new` does not hold here.
+There is a hidden resource-side processing occurring after the delta is applied.
++
+A different (rather wild) example is described in bug:MID-3727[]:
+eDirectory provides nested groups behavior meaning that a user that is a member of the child group, is automatically a member of the parent one.
+Assuming a user `U` is a member of child group `CG`, *it's automatically a member of its parent `PG` as well*.
+This complicates things significantly.
+For example, if there's a delta of removing the membership of `U` in `CG` and adding the membership in `PG`, the first part of the delta is executed, while the second part is ignored by midPoint, as `U` is apparently member of `PG` now.
+The result of the execution is not as expected, then: after the delta application, `U` is no longer a member of `CG` nor `PG`.
+
+. There may be dependencies *between attributes*, e.g., LDAP `uid` may change if the DN changes.
+
+. There may be dependencies *between attributes of related objects*.
+For example, let's assume a role has a projection to an LDAP OU and an LDAP group residing in that OU.
+When the role is renamed, LDAP OU's distinguished name is changed.
+This, however, implicitly changes also the group's DN.
+See, e.g., bug:MID-8929[].
+
+== Problems
+
+- *Shadow caching and inbounds:*
+When midPoint does not know about the change, the cached data is incorrect.
+The problem is more visible when `useCachedOrFresh` case use strategy is in effect: wrong data is used, e.g., for inbound mappings.
+This problem is new in midPoint 4.9.
+
+- *Relative inbounds processing:*
+If there is an inbound for a volatile attribute, it may get incorrect data when inbounds are executed on a delta, i.e., not on the absolute state.
+This is a known problem for years.
+There are some options to deal with it, see below.
+
+- *Inconsistent shadow identifiers:*
+Dependencies between attributes of related objects can lead to errors when updating shadows using their identifiers, as described, e.g., in bug:MID-8929[].
+
+== Current Configuration Options
+
+. `volatilityTrigger` property on an *attribute*.
++
+When set, then any modification of that attribute (as part of resource object `MODIFY` operation) triggers the *read-modify-read* behavior.
+It means that the object is first fetched from the resource, then the modification is done, and the object is fetched again.
+These two states (before/after) are used to determine the actual delta, i.e., what was changed during the operation.
++
+The delta is then used, e.g., for updating the shadow cache, for auditing (TODO: check) and for inbound processing (TODO: check).
+
+. `volatility` property on the *object type*.
++
+It can have two non-default values:
+
+.. `unpredictable` - this automatically turns on the `doReconciliation` flag on particular projection context, causing account to be re-read by the context loader in future projection waves.
+It was designed, e.g., to solve the problem with Exchange SMTP addresses.
+
+.. `explosive` - this invokes full focus recompute/reconcile after an operation finishes.
+This is meant for the hardest situations like the eDirectory nested groups (bug:MID-3727[]).
+
+. `dataBinding` property on the dependency configuration.
++
+For example, the configuration below specifies that `entitlement/group` depends on `entitlement/org` (see case #4 above).
+If `entitlement/org` changes, the `entitlement/group` has to be reloaded, as there is potentially an induced change directly on the resource.
++
+[source,xml]
+----
+<objectType>
+    <kind>entitlement</kind>
+    <intent>group</intent>
+    ...
+    <dependency>
+        <kind>entitlement</kind>
+        <intent>org</intent>
+        <strictness>strict</strictness>
+        <dataBinding>some</dataBinding>
+    </dependency>
+</objectType>
+----
++
+This feature was created to address bug:MID-8929[].
+
+== Proposed Configuration Options in 4.9.1/4.10
+
+Things to improve:
+
+. From the point of shadow caching, first two typical cases are not covered adequately.
+We have no way of telling midPoint that an attribute may be filled-in (or modified) when a resource object is created (case #1).
+We also have no easy way of telling midPoint that there is a hidden processing connected to the modification of a specified attribute (case #2).
+
+. Existing configuration methods were built in incremental fashion, and are quite incoherent.
+We should unify the ways of configuring attribute volatility.
+
+How to do it?
+
+NOTE: Even if we are speaking of attributes, there's no reason why other items, e.g., activation information, could not be volatile.
+But let's deal with the attributes only for now.
+
+One option is to define the volatility characteristics of an attribute as precisely as possible, e.g., like this:
+
+#TODO#
+
+// [source,xml]
+// ----
+// <objectType>
+//     <kind>...</kind>
+//     <intent>...</intent>
+//     ...
+//     <attribute>
+//         <ref>ri:uid</ref>
+//         ...
+//         <volatility>
+//             <objectCreation>
+//                 <thisItem>unpredictable</thisItem> <!--1-->
+//             </objectCreation>
+//             <thisItemModification>
+//                 <thisItem>none</thisItem> <!--2-->
+//                 <otherItems>unpredictable</otherItems> <!--3-->
+//                 <otherObjects>none</otherObjects> <!--4-->
+//             </thisItemModification>
+//             <otherItemsModification>
+//
+//             </otherItemsModification>
+//         </volatility>
+//     </attribute>
+// </objectType>
+// ----
+// <1> When the object (account) is created, `uid` can be set to any value.
+// <2> This item is - by itself - predictable, i.e., what is written there, remains there.
+// <3> But, it can change as a result of changing other items.
+// <4> Changes in other objects have no effect on this item.
+//
+// The `unpredictable` means that the value of this object can be set by the resource to anything.
+
+(Maybe it would be good to postpone the redesign of volatility specification until lightweight processing is considered.)
+
+== See Also
+
+- xref:/midpoint/reference/resources/weird/[]
