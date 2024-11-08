@@ -275,6 +275,12 @@ Can be used in searching or GUI.
 
 ** Ability to set `Privileged Access` classification on application roles that originated from groups marked as privileged by the connector.
 
+* authorization and classifications: consider classification level (e.g. privileged) in assign/unassign authorization statements.
+E.g. grant ability to assign roles to delegated administrators, except for roles that contain privileged access.
+Do we need _mark_ here instead of _classification_?
+How we are going to distinguish _business_ roles that have privileged access?
+They are not explicitly classified as privileged.
+(ISO27001 8.2)
 
 === Policy rules
 
@@ -490,6 +496,19 @@ E.g. we need to prove to an auditor that we have re-certified clearances every y
 E.g. an action to remove `suspicious` mark, once the suspicious object was reviewed.
 (ISO27001 6.8)
 
+* Highlight/mark privileged access in certification decisions.
+Make sure that the certifier is aware that the assignment includes privileged access.
+(ISO27001 8.2)
+
+* Mark the campaigns and microcertification rules somehow, to be able to find related objects.
+E.g. list all certifications that deal with privileged access.
+Can we somehow use references to regulations? E.g. look for all "things" that deal with ISO27001-8.2 should provide all "things" that deal with prvileged access.
+(ISO27001 8.2)
+
+* Ability to review item values.
+E.g. certification campaign that makes sure privileged roles have valid description/documentation.
+(ISO27001 8.2)
+
 === Lifecycle state model
 
 * Extend lifecycle states for `pilot` and `roll-out`?
@@ -530,6 +549,46 @@ Is is (is it related to) the "Application component" concept that sometimes use?
 * Default risk of application role may be given by application information label, e.g. all category III applications imply high risk for their application roles.
 
 === Other
+
+* "Reactive" privileges
+
+** On-demand privileges (just-in-time privileges): allow selected users to gain privileges by "activating" them in midPoint GUI.
+Activation of the privileges may require additional authentication of the user, e.g. use of additional authentication factor.
+Activation of the privileges assigns the privileges to user for a limited period of time.
++
+The goal is to limit standing privileges, especially very strong privileges (such as superuser access to operating systems) that are not used often.
+Benefits: less risk of unintentional use of privileges (e.g. deleting entire disk); use of privilege may require stronger authentication, stronger that the OS can provide; privileged users are less obvious (not members of "Domain Admins" group), it is more difficult to find targets for attacker
++
+As this mechanism is not used often and involves strong privileges, its activation may be quite demanding - it can take some time and may be reasonably inconvenient (confidentiality/consistency takes priority over availability).
+This mechanism is similar to "break glass", except that no alarm is raised (no priority notification).
+Use of on-demand privileges is normal operation, it is not an emergency.
++
+Examples: System administrator access to very powerful privileges, such as superuser accounts (`root`).
+Access of operators or power users to privileged actions that are rarely used, e.g. ability to explicitly start backup procedure or reboot a system.
+(ISO27001 5.15, 5.18, 8.2)
+
+** "event response" or "incident response" privileges: prepare security roles in such a way that there are powerful privileges, however they are not active during normal operation.
+When an event happens (e.g. security incident or disaster), special global system _mode_ is activated, activating the prepared privileges.
+The privileges are automatically inactivated when the event is handled and the _mode_ is returned to normal.
+The mode change and its effects activating the privileges is recorded in the audit trail and metadata.
+Audit trail should specially mark all events that happened while emergency _mode_ was active.
+We want to keep these audit records indefinitely, moving to special long-storage partition before they are deleted by regular cleanup.
+Certification to review of emergency roles: both assignments and role inducements (object-governance)
+Idea: can we somehow mark actions that were done using emergency access rights (audit and metadata)?
+Idea: "close" of incident response (turning off the emergency mode) may automatically trigger processes, such as collection of evidence, review of response plans, etc.
++
+Examples: Emergency access to system administrators/operators during security incident.
+(ISO27001 5.24, 5.26, 5.27, 5.29, 5.30, 8.2)
+
+** "Break-glass" privileges: allow selected users to gain privileges by "breaking glass", an action in GUI initiated by the user.
+After "breaking glass", emergency privileges are assigned to the user for a limited duration.
+The "break glass" operation is recorded in the audit trail, metadata, and alarm is raised -> priority notifications are issued to relevant "overseers" (e.g. security team).
+We usually do not want any complicated authentication for the "break glass" operation, we want to it be simple, easy to operate under stress or in panic (availability takes priority over confidentiality/consistency).
++
+Emergency access for medical staff to access medical records of a patient in order to save life.
+Access for emergency responders (e.g. voluntary firefighter team) to access some parts of infrastructure (e.g. to cut power to location) or enable physical access to rooms.
+(ISO27001 5.24, 5.26, 5.29, 5.30, 8.2)
+
 
 * Flag for org, whether it should be considered root of hierarchical org structure.
 We may not need root objects for many flat structures, such as projects or teams.
@@ -655,6 +714,10 @@ E.g. show that a certain assignment has SoD violation mark.
 
 * Make sure we can read and use last login from the resources (e.g. report unused accounts/users)
 
+* Detect extra (unknown) members in groups.
+This is critical especially for groups that provide privileged access.
+(ISO27001 8.2)
+
 === Medium Priority
 
 * Make `Privileged Access` label (classification) much more visible in GUI.
@@ -718,6 +781,12 @@ We may not need root objects for many flat structures, such as projects or teams
 Archetype is enough in this case.
 Automatic detection of org roots make problems in this case, as it detects all projects and teams as org roots.
 
+* On-demand privileges (just-in-time privileges): allow selected users to gain privileges by "activating" them in midPoint GUI.
+ISO27001 is _very_ explicit (8.2) about _not_ assigning privileged access permanently.
+E.g. ""allocating privileged access rights to users as needed and on an event-by-event basis", "defining and implementing requirements for expiry of privileged access rights".
+See description below for more details.
+(ISO27001 5.15, 5.18, 8.2)
+
 
 == Feature Ideas
 
@@ -769,6 +838,10 @@ We might be able to do that with a global policy rule for now.
 
 Nice to have features:
 
+* Ability of UNIX connector to review log of "sudo" operations, provide timestamps of last use of privileges for each user.
+Can be used to detect unused privileged access.
+(ISO27001 8.2)
+
 * Initial configuration wizard, executed at first login of administrator after installation.
 
 ** Change administrator password (if it was not generated)
@@ -802,7 +875,14 @@ This could be used to list all configurations that relate to a particular proces
 * Use midScribe to generate documentation for a specific purpose.
 E.g. generate documentation for all rules that deal with ISO compliance.
 Generate documentation for all configuration aspects that deal with 'disciplinary' mark.
-(ISO27001 6.4 and many other)
+Generate documentation of privileged access (list, description/documentation and owners of all roles providing privileged access, all policy rules in `Privileged access` classification, all policy rules dealing with the classification/mark, related approval rules, certifications, etc.)
+(ISO27001 6.4, 8.2, and many other)
+
+* Detect privileged access assigned to "common" (non-admin) persona (when admin personas are used).
+(ISO27001 8.2)
+
+* Detect direct use of superuser accounts (root/adminstrator): use last login timestamp.
+(ISO27001 8.2)
 
 * Compliance checklist: dashboard-like page, that checks for presence of configuration for individual compliance frameworks. (ISO27001 5.31) E.g. it can check for:
 
@@ -870,44 +950,6 @@ E.g. ability to easily set up owner.
 E.g. if we can detect that a device was used at particular time/location, and that device is assigned to user, consider this time/location as an activity of the user.
 (ISO27001 8.1(m))
 
-* "Reactive" privileges
-
-** On-demand privileges (just-in-time privileges): allow selected users to gain privileges by "activating" them in midPoint GUI.
-Activation of the privileges may require additional authentication of the user, e.g. use of additional authentication factor.
-Activation of the privileges assigns the privileges to user for a limited period of time.
-+
-The goal is to limit standing privileges, especially very strong privileges (such as superuser access to operating systems) that are not used often.
-Benefits: less risk of unintentional use of privileges (e.g. deleting entire disk); use of privilege may require stronger authentication, stronger that the OS can provide; privileged users are less obvious (not members of "Domain Admins" group), it is more difficult to find targets for attacker
-+
-As this mechanism is not used often and involves strong privileges, its activation may be quite demanding - it can take some time and may be reasonably inconvenient (confidentiality/consistency takes priority over availability).
-This mechanism is similar to "break glass", except that no alarm is raised (no priority notification).
-Use of on-demand privileges is normal operation, it is not an emergency.
-+
-Examples: System administrator access to very powerful privileges, such as superuser accounts (`root`).
-Access of operators or power users to privileged actions that are rarely used, e.g. ability to explicitly start backup procedure or reboot a system.
-(ISO27001 5.15, 5.18, 8.2)
-
-** "event response" or "incident response" privileges: prepare security roles in such a way that there are powerful privileges, however they are not active during normal operation.
-When an event happens (e.g. security incident or disaster), special global system _mode_ is activated, activating the prepared privileges.
-The privileges are automatically inactivated when the event is handled and the _mode_ is returned to normal.
-The mode change and its effects activating the privileges is recorded in the audit trail and metadata.
-Audit trail should specially mark all events that happened while emergency _mode_ was active.
-We want to keep these audit records indefinitely, moving to special long-storage partition before they are deleted by regular cleanup.
-Certification to review of emergency roles: both assignments and role inducements (object-governance)
-Idea: can we somehow mark actions that were done using emergency access rights (audit and metadata)?
-Idea: "close" of incident response (turning off the emergency mode) may automatically trigger processes, such as collection of evidence, review of response plans, etc.
-+
-Examples: Emergency access to system administrators/operators during security incident.
-(ISO27001 5.24, 5.26, 5.27, 5.29, 5.30, 8.2)
-
-** "Break-glass" privileges: allow selected users to gain privileges by "breaking glass", an action in GUI initiated by the user.
-After "breaking glass", emergency privileges are assigned to the user for a limited duration.
-The "break glass" operation is recorded in the audit trail, metadata, and alarm is raised -> priority notifications are issued to relevant "overseers" (e.g. security team).
-We usually do not want any complicated authentication for the "break glass" operation, we want to it be simple, easy to operate under stress or in panic (availability takes priority over confidentiality/consistency).
-+
-Emergency access for medical staff to access medical records of a patient in order to save life.
-Access for emergency responders (e.g. voluntary firefighter team) to access some parts of infrastructure (e.g. to cut power to location) or enable physical access to rooms.
-(ISO27001 5.24, 5.26, 5.29, 5.30, 8.2)
 
 
 * Track login and _logout_ times, to determine _duration_ of access.
@@ -1180,6 +1222,10 @@ Make sure you keep logs/metadata at least 100 days.
 * Cerification: annual certification (e.g. health&safety): run two campaigns in a year, certify all people that are about to exprire in next 6 months.
 (ISO27001 6.3)
 
+* Privileged roles should have proper description/documentation, specifying what kind, extent and scope of privileged access is granted by the role.
+Use midScribe.
+(ISO27001 8.2)
+
 == Examples and Configurations
 
 Examples and configuration recommendations that we need to prepare:
@@ -1411,7 +1457,12 @@ Make sure that only users that have passed advanced security training (clearance
 Making sure that all privileged access has additional approval step when assigned (inducement in `Privileged` classification).
 Notification "you have privileged access now"
 Reporting/dashboarding all users with privileged access.
+Reporting/dashboarding all roles providing privileged access (application/business).
+Reporting/dashboarding all roles providing privileged access that do not have owners.
 Special certification of privileged access ("minimize number of privileged identities").
+Make sure all business roles containing privileged access have active owner.
+detect privileged access outside of common orgs that are supposed to have it (e.g. IT, security).
+Report/review privileged access outside of IT more frequently.
 | ISO27001 5.15, 5.18, 8.2, 8.3, 8.8, 8.9
 | Somehow clear
 
@@ -1625,13 +1676,41 @@ Mark as configuration error?
 (ISO 27001 5.16)
 
 * Identities with privileged access
+(ISO27001 8.2)
 
-* Dormant users / sleepers (users without any privileges) (ISO 27001 5.16)
+* Application roles providing privileged access.
+(ISO27001 8.2)
 
+* Business roles providing privileged access.
+(ISO27001 8.2)
+
+* Application roles providing privileged access without owners.
+(ISO27001 8.2)
+
+* Business roles providing privileged access without owners.
+This is more important than application roles, as we want to make sure there is someone to regularly re-certify role definitions.
+(ISO27001 8.2)
+
+* Application roles providing privileged access - summary per application/resource.
+(ISO27001 8.2)
+
+* Users with privileged access - summary per application/resource.
+"identifying users who need privileged access rights for each system or process"
+(ISO27001 8.2)
+
+* Privilege assignments to review - manual assignments that were not certified recently.
+(ISO 27001 5.18, 8.2)
+
+* Roles providing privileged access that were not certified in a long time.
+(Especially business roles)
+(ISO27001 8.2)
+
+* Privileged roles that do not have description/documentation.
+(ISO27001 8.2)
+
+* Dormant users / sleepers (users without any assignments/privileges) (ISO 27001 5.16)
 
 * "Standing privilege" - manual assignments, including access request (ISO 27001 5.15, 5.18)
-
-* Privilege assignments to review - manual assignments that were not certified recently (ISO 27001 5.18)
 
 
 * Unused accounts. Accounts not used for X months. (ISO 27001 5.32, 8.9)
