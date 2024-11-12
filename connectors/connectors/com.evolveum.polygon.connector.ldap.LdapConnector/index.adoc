@@ -68,6 +68,10 @@ Use `ri:entryUUID` instead of `icfs:uid`.
 | NO
 | Use of dedicated scripting connectors (SSH) is recommended.
 
+| Native references
+| YES
+|
+
 |===
 
 == Interoperability
@@ -102,11 +106,7 @@ It does not support SPR, VLV or referral-following functionality.
 This synchronization method is inherently inefficient and unreliable.
 It should be used only as a last resort, if no other method is available.
 
-* Native associations supported only for the subject to object direction, i.e. the 'memberOf' attribute
-residing in the subject object class is being evaluated each time. Only one object-object type is supported per subject-object type association attribute
-(i.e. only 'groupOfNames' type of object DN's will be present in the 'memberOf' attribute ).
-The memberOf and referential integrity module has to be enabled when native associations configuration is set up. Also, LiveSync is not capable
-of directly detecting native association events.
+* There are specific limitations for the xref:#_native_references[Native References] capability, see xref:#_native_references_limitations[below].
 
 == History
 
@@ -457,7 +457,7 @@ Improve processing of fetching existing entry when updating it in AD connector.
 | 1.5.3.0-M3
 | 4.9
 |
-Native association support.
+Native references support.
 Possibility to choose attributes that should not be returned by default.
 Possibility to choose to encode string values in case of the presence of non standard ASCII characters.
 Workaround for open-ldap mandatory member attribute.
@@ -529,7 +529,7 @@ The handlers needs to be explicitly disabled in the resource configuration.
 
 === Date and Time Formats
 
- You can control the way LDAP connecto presents dates and times by by using timestampPresentation configuration property.
+You can control the way LDAP connector presents dates and times by by using timestampPresentation configuration property.
 It has three possible values:
 
 * `native`: LDAP connector will present timestamps in native ConnId date format.
@@ -665,100 +665,120 @@ This may cause temporary fluctuations, where old data may be presented as curren
 However, both LDAP servers and midPoint are built for _eventual consistency_, converging data values _eventually_.
 However, data consistency has to be kept in mind, and proper method should be employed both at the LDAP side (e.g. replication failure recovery) and midPoint side (e.g. regular reconciliation) to make the entire system _eventually consistent_.
 
-[#_native_associations]
-=== Native Associations
+[#_native_references]
+== Native References
 
-Starting from the connector version 3.8 the LDAP connector is capable of constructing reference attributes that describe the relation between resource objects.
-By providing this information to the IAM client the connector supports the native association capability.
-This behavior is governed by the `managedAssociationPairs` multivalued attribute.
-The input for this attribute is a string following a convention.
-Based on this information the connector is capable of figuring out which object classes have a relation between each other and also which parameters should be used for such relation.
+Starting from the connector version 3.8, the LDAP connector is capable of working with _reference attributes_ that describe the relation between resource objects, like between accounts and groups they are members of.
 
+This behavior is governed by the `managedAssociationPairs` multivalued configuration property.
+
+Each value of this property is a string with a specific formatting convention.
+Based on this information the connector figures out which object classes have a relation between each other and also which attributes should be used for such relation.
+
+.An example: Defining a relation between `inetOrgPerson` and `groupOfNames`
 [#_example_m_association_pairs_one]
 [source,xml]
 ----
-    <connectorConfiguration>
-        <configurationProperties>
-            <host>primary.ldap.example.com</host>
-            <baseContext>dc=evolveum,dc=com</baseContext>
-            <operationalAttributes>memberOf</operationalAttributes>
-            <managedAssociationPairs>"inetOrgPerson"+memberOf -# "groupOfNames"+member</managedAssociationPairs>
-            ...
-        </configurationProperties>
-    </connectorConfiguration>
+<connectorConfiguration>
+    <configurationProperties>
+        <host>primary.ldap.example.com</host>
+        <baseContext>dc=evolveum,dc=com</baseContext>
+        <operationalAttributes>memberOf</operationalAttributes>
+        <managedAssociationPairs>"inetOrgPerson"+memberOf -# "groupOfNames"+member</managedAssociationPairs>
+        ...
+    </configurationProperties>
+</connectorConfiguration>
 ----
 
-The attribute value, in our case `"inetOrgPerson"+memberOf -# "groupOfNames"+member`,
-has the following convention `"Subject objectClass name"+Subject attribute -# "Object objectClass name" + Object attribute`.
+The value of `"inetOrgPerson"+memberOf -# "groupOfNames"+member` specifies that:
+
+* Object classes `inetOrgPerson` and `groupOfNames` are in a relationship.
+* `inetOrgPerson` is the *subject* (the one who receives an entitlement), while `groupOfNames` is the *object* (the entitlement being granted).
+* The binding attributes on the `inetOrgPerson` side is `memberOf`.
+The related groups for a given account are determined by looking at this attribute.
+* The binding attribute on the `groupOfNames` side is `member`.
+The related members are determined by looking at this attribute.
+Also, this attribute is used to update the membership information.
 
 [#_note_subject_object]
 [NOTE]
 ====
-*Subject and Object*
+*Subject and object*
 
-The words "subject" and "object" are being used in this and the xref:#_schema_for_native_associations[Schema for Native Associations] section.
+As mentioned above,
 
-* *Subject*, is the type of resource object which receives an entitlement, i.e. an "account".
-* *Object*, is the type of resource object which represent an entitlement, i.e. a "group".
+* *subject* is the resource object which receives an entitlement, typically an account;
+* *object* is the resource object which represents an entitlement, typically a group.
 
-The Subject and Object in our context have a relation between each other (i.e. subject being a member of a group).
-
-More information about this topic can be found in our document about xref:/midpoint/reference/resources/entitlements/[Entitlements and Associations].
+They have a relation between them, typically, a subject (an account) is member of a group.
+More information about this topic can be found in xref:/midpoint/reference/resources/entitlements/[Entitlements and Associations].
 ====
 
-* "Subject objectClass name", being the object class representing the "Subject" of this association.
-* "Subject attribute", being the attribute containing a list of entitlements of the subject (i.e. group of which an account is a member of).
-* "Object objectClass name", being the object class representing the "Object" of this association.
-* "Object attribute", which is the attribute containing a list of the members of an object.
+The `managedAssociationPairs` values have the following formatting convention:
 
-By using the above mentioned example, the connector will manage the relations between the object class `inetOrgPerson`
+     "SubjectObjectClassName"+SubjectAttribute -# "ObjectObjectClassName"+ObjectAttribute
+
+* `SubjectObjectClassName` is the object class representing the _subject_ of this relation.
+* `SubjectAttribute` is the attribute of that object class containing the list of related objects, typically groups that the account is a member of.
+* `ObjectObjectClassName` is the object class representing the _object_ of this relation.
+* `ObjectAttribute` is the attribute containing of that object class containing the list of related subjects, typically the members of the group.
+
+By using the above example, the connector will manage the relations between the object class `inetOrgPerson`
 and the object class `groupOfNames` based on the values present in the parameters `memberOf` (for `inetOrgPerson`) and `member` (for `groupOfNames`).
 
-This being a multivalued attribute means that you are capable of specifying multiple pairs of object types, having the relation
-between them marked as managed by the connector.
+As this is a multivalued property, you can specify multiple pairs of object types, each of them having a relation between them marked as managed by the connector.
 
+.An example: Defining a two relations between object classes
 [source,xml]
 ----
-    <connectorConfiguration>
-        <configurationProperties>
-            ...
-            <managedAssociationPairs>"inetOrgPerson"+memberOf -# "groupOfNames"+member</managedAssociationPairs>
-            <managedAssociationPairs>"groupOfNames"+memberOf -# "groupOfNames"+member</managedAssociationPairs>
-            ...
-        </configurationProperties>
-    </connectorConfiguration>
+<connectorConfiguration>
+    <configurationProperties>
+        ...
+        <managedAssociationPairs>"inetOrgPerson"+memberOf -# "groupOfNames"+member</managedAssociationPairs>
+        <managedAssociationPairs>"groupOfNames"+memberOf -# "groupOfNames"+member</managedAssociationPairs>
+        ...
+    </configurationProperties>
+</connectorConfiguration>
 ----
 
-The addition of this parameter will signal to the connector that it should use the native association handling,
-this also changes the way how the schema is generated by the connector.
-Regarding this please see xref:#_schema_for_native_associations[Schema for Native Associations].
+The addition of this parameter will signal to the connector that it should use the native references handling.
+This also changes the way the schema is generated by the connector, see below.
 
-If using "Operational Attributes" in the values for the `managedAssociationPairs` configuration property,
-please also specify these attributes in the `operationalAttributes` configuration property.
+=== Representation of Native References in the Schema
+
+When you define the relation between object classes, the following changes automatically occur:
+
+. The original attributes used to provide the relation, e.g. `memberOf` and `member` in the above examples, will disappear from the schema.
+. The subject-side attribute, e.g. `memberOf`, will be replaced by the reference attribute `group`.
+. The object-side attribute, e.g. `member`, will be replaced by the reference attribute `member`.
+
+//TODO @Matus: are these replacement names (`group`, `member`) hardcoded?
+
+Reference attributes are special kinds of attributes that do not have simple values (string, integer, and so on), but contain _references_ to other objects.
+
+NOTE: The new `member` attribute on the object (entitlement) side is marked as "not readable" and "not returned by default", because fetching of this attribute is not currently supported by midPoint.
+
+If you already have a schema generated before the xref:#_native_references[Native References] configuration has been set up, you have to refresh the connector schema.
+
+=== Other Things to Consider
+
+If you use operational attributes in the values for the `managedAssociationPairs` configuration property, please also specify these attributes in the `operationalAttributes` configuration property.
 As we can see in the xref:#_example_m_association_pairs_one[example] above.
 
-When using an "Object" object class (i.e. groupOfNames) which is extended via an "Auxiliary" object class (usually not the case), please also add the
-`auxiliaryObjectClasses` configuration property to your resource configuration, and specify the auxiliary object classes witch are used.
+In rare cases, when using an "Object" object class (i.e. `groupOfNames`) which is extended via an auxiliary object class, please also add the `auxiliaryObjectClasses` configuration property to your resource configuration, and specify the auxiliary object classes which are used.
 
-This feature also has some limitation, please see the xref:#_limitations[Limitations] section.
+[#_native_references_limitations]
+=== Limitations
 
-[#_schema_for_native_associations]
-=== Schema for Native Associations
+. This feature assumes that there is the `memberOf` (or equivalent) attribute on the subject size that is used to provide the membership information.
+On some LDAP servers this has to be provided by specific plugin (extension).
+Also, the referential integrity must be ensured, again, typically provided by specific "referential integrity" plugin.
++
+NOTE: If this attribute is missing, the native references feature of the connector cannot be used.
 
-One of the outcomes of the setting up of the configuration for xref:#_native_associations[Native Associations],
-is that some changes will be done also to the schema. If you are setting up the connector for the first time this
-should not concern you, yet if you are familiar with the original schema the following lines might be interesting.
+. Only one class of objects (entitlements) is supported per subject-object relation (e.g., for `memberOf` attribute of `inetOrgPerson`, we assume that all referenced objects will be of the object class `groupOfNames`).
 
-Please see this xref:#_note_subject_object[Note].
-
-The attributes originally used in the association i.e. `memberOf` and `member` will no longer be present in the schema.
-The subject-object class attribute i.e. `memberOf` will be replaced by the attribute `group`,
-the object-object class attribute will be replaced by an attribute (with a similar name) `member`.
-A "custom" type and some additional schema parameters are generated for such attributes.
-The new `member` attribute is marked as "not readable" and "not returned" by default, the fetch of this attribute is not currently supported.
-
-If you already have a schema generated before the xref:#_native_associations[Native Associations] configuration has been set up,
-you have to refresh the connector schema.
+. Events related to object relations (like adding or deleting a group membership to an account) cannot be currently detected by the live synchronization.
 
 == Resource Examples
 
