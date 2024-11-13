@@ -721,14 +721,14 @@ The `managedAssociationPairs` values have the following formatting convention:
 * `SubjectObjectClassName` is the object class representing the _subject_ of this relation.
 * `SubjectAttribute` is the attribute of that object class containing the list of related objects, typically groups that the account is a member of.
 * `ObjectObjectClassName` is the object class representing the _object_ of this relation.
-* `ObjectAttribute` is the attribute containing of that object class containing the list of related subjects, typically the members of the group.
+* `ObjectAttribute` is the attribute of that object class containing the list of related subjects, typically the members of the group.
 
 By using the above example, the connector will manage the relations between the object class `inetOrgPerson`
 and the object class `groupOfNames` based on the values present in the parameters `memberOf` (for `inetOrgPerson`) and `member` (for `groupOfNames`).
 
 As this is a multivalued property, you can specify multiple pairs of object types, each of them having a relation between them marked as managed by the connector.
 
-.An example: Defining a two relations between object classes
+.An example: Defining two relations between object classes
 [source,xml]
 ----
 <connectorConfiguration>
@@ -752,7 +752,7 @@ When you define the relation between object classes, the following changes autom
 . The subject-side attribute, e.g. `memberOf`, will be replaced by the reference attribute `group`.
 . The object-side attribute, e.g. `member`, will be replaced by the reference attribute `member`.
 
-//TODO @Matus: are these replacement names (`group`, `member`) hardcoded?
+Both of the attributes, `group` and `member`, are currently constants in the connector code.
 
 Reference attributes are special kinds of attributes that do not have simple values (string, integer, and so on), but contain _references_ to other objects.
 
@@ -765,7 +765,11 @@ If you already have a schema generated before the xref:#_native_references[Nativ
 If you use operational attributes in the values for the `managedAssociationPairs` configuration property, please also specify these attributes in the `operationalAttributes` configuration property.
 As we can see in the xref:#_example_m_association_pairs_one[example] above.
 
-In rare cases, when using an "Object" object class (i.e. `groupOfNames`) which is extended via an auxiliary object class, please also add the `auxiliaryObjectClasses` configuration property to your resource configuration, and specify the auxiliary object classes which are used.
+In rare cases, when using an "Object" object class (i.e. `groupOfNames`) which is extended via an auxiliary object class, please also add the `auxiliaryObjectClasses` xref:#_auxiliary_object_classes[configuration property] to your resource configuration, and specify the auxiliary object classes which are used.
+The reason for this is that, the object-side attribute (i.e. `member`) is, in some cases, explicitly removed from object searches.
+
+As there can be no empty groups, at least based on the LDAP specification, we had to implement a feature working around this.
+You can read about it the section, xref:#_no_member_native_references[Groups Without Members And Native References].
 
 [#_native_references_limitations]
 === Limitations
@@ -779,6 +783,74 @@ NOTE: If this attribute is missing, the native references feature of the connect
 . Only one class of objects (entitlements) is supported per subject-object relation (e.g., for `memberOf` attribute of `inetOrgPerson`, we assume that all referenced objects will be of the object class `groupOfNames`).
 
 . Events related to object relations (like adding or deleting a group membership to an account) cannot be currently detected by the live synchronization.
+
+[#_attributes_not_returned_by_default]
+=== Marking Attributes as Not Returned by Default
+
+The `attributesNotReturnedByDefault` parameter gives us the possibility to mark some of the standard attributes of the resource object with the `NOT_RETURNED_BY_DEFAULT` flag.
+Such attributes will be by default omitted from ldap search requests, unless the IAM explicitly requests them.
+We can use this configuration if some attributes are too large or expensive to retrieve (i.e. the `member` attribute).
+
+The attributes specified in this property will be marked as `NOT_RETURNED_BY_DEFAULT` for all object classes.
+
+If you are intending to use this configuration property, and your object classes are extended via an auxiliary object class, please also add the `auxiliaryObjectClasses` xref:#_auxiliary_object_classes[configuration property] to your configuration.
+
+[#_auxiliary_object_classes]
+=== Auxiliary Object Classes
+
+The current implementation of the connector uses a wildcard (`*`) to return all non-operational attributes of an object in a search request, operational attributes are added to the request explicitly.
+In some cases we need to explicitly enumerate the non-operational attributes as well (rather than use a wildcard).
+The only problem here is that the connector does now know about the Auxiliary Object Classes, and is not capable of requesting the proper non-structural objectClass attributes.
+
+The solution for this is to specify the Auxiliary Object Classes as values of the `auxiliaryObjectClasses` configuration property.
+Each value of this property is a string following a specific formatting convention.
+
+.An example: Defining the structural object class `inetOrgPerson` with an auxiliary object class `posixAccount`
+[source,xml]
+----
+<connectorConfiguration>
+    <configurationProperties>
+        ...
+        <auxiliaryObjectClasses>inetOrgPerson:posixAccount</auxiliaryObjectClasses>
+        ...
+    </configurationProperties>
+</connectorConfiguration>
+----
+
+What the value `inetOrgPerson:posixAccount` represents is:
+
+* `inetOrgPerson` is the name of the structural object class
+* `:` delimiter between the name of the structural object class and auxiliary object classes
+* `posixAccount` is the name of the auxiliary object class
+* Any number of additional auxiliary object classes may be added to the value by using the delimiter `,` between the names of the auxiliary object classes
+
+[#_no_member_native_references]
+=== Groups Without Members And Native References
+
+One of the requirements specified in the LDAP standard is that the group attribute `member` xref:/iam/ldap-survival-guide/#no-empty-groups[is mandatory].
+This can be problematic during the creation and modification of groups (i.e. no initial values in `member`, removal of the last value in `member`).
+
+If you are not using the native references configuration, you can work around this limitation with mappings in the resource configuration.
+With the native references, if you configure an object class amongst the values of the `managedAssociationPairs` property ,the schema for the `member` attribute of this object class changes.
+
+Because of this a workaround was implemented directly in the ldap connector, wherever a new group is created or the last member of a group is removed a `dummy` member is added to the group as a `placeholder`.
+
+This is mandated by the `placeholderMember` configuration property.
+The value of this property is a string representing the `DN` of a dummy member which is going to be used in the create or update operations.
+
+.An example: Usage of the `Placeholder Member` configuration property
+[source,xml]
+----
+<connectorConfiguration>
+    <configurationProperties>
+        ...
+        <placeholderMember>cn=dummy,o=whatever</placeholderMember>
+        ...
+    </configurationProperties>
+</connectorConfiguration>
+----
+
+This feature is currently supported only together with the `Native References` configuration.
 
 == Resource Examples
 
