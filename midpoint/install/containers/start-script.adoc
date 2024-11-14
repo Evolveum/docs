@@ -1,0 +1,367 @@
+= Start script
+:page-nav-title: Start script
+:page-display-order: 20
+:page-toc: float-right
+:toclevels: 4
+:page-keywords:  [ 'container', 'start' ]
+
+This page is meant for users without deeper knowledge of the container environment.
+It describes the start script, which should help users to start midPoint environment with easily reachable home file system.
+
+In case your knowledge is on advanced level feel free to follow other pages like:
+
+* xref:../../quickstart[Quick Start]
+* xref:../index.adoc[Installation Guides]
+
+== Requirements
+
+Even we are trying to make it as easy as possible, there are several requirements, which have to be met.
+These requirements can be checked in advance e.g. by IT support.
+
+* working *docker* environment +
+The script helps with starting parameter but working environment is simply needed. ^1)^ +
+The docker execution file should be located in PATH - once you write "simply" *docker* command the system should know where to find it.
+
+* *bash* +
+This is widely available Shell on the linux based systems.
+Usually no extra step is needed. +
+The script is written for the version^2)^ which would provide compatibility on both linux and MacOS systems. +
+
+* start script +
+Start script link:https://github.com/Evolveum/midpoint-docker/blob/master/midpoint-docker.sh[midpoint-docker.sh] is available in the *midpoint-docker* git repository. +
+The script can be located anywhere but the location of the script sets the default where the newly created directories / files will be located.
+
+* *internet* connection +
+Once everything is prepared and cached (e.g. run for the first time) the internet is not needed for the run itself.
+Unfortunately, the files have to reach your computer so for the first init phase the internet is needed.
+
+.technical note for the requirements
+[NOTE]
+====
+1) For working docker environment we need following components:
+
+- docker engine
+- docker compose plugin
+
+2) To address as wide campatibility level as possible the BASH version 3.2 has been used.
+The newer version is not an issue.
+====
+
+== Usage of the script
+
+The script is prepared to be customizable by the parameters.
+To run it, you should be in the same directory as the file is located.
+
+.generic format for the script run
+[source,bash]
+----
+./midpoint-docker.sh [options] [command]
+----
+
+[WARNING]
+====
+Behind the script, there is *docker compose* utilized, which use for newly created object the directory name as prefix.
+In case you have *more instances*, the last part of path (directory name) should differ.
+The different path with the same "last" directory name would cause reuse / overwrite the objects.
+
+* Incorrect names
+** /tmp/a/*mp*
+** /tmp/b/*mp*
+
+* Corrent names
+** /tmp/*mp_a*
+** /tmp/*mp_b*
+====
+
+=== Quick start
+
+Later, all options will be mentioned.
+At this point, the "basic" commands are listed.
+
+[%autowidth]
+|====
+| Operation | command
+
+| start environment
+| `./midpoint-docker.sh up`
+
+| stop environment (keeping repository)
+| `./midpoint-docker.sh down`
+
+| stop environment (removing repository)
+| `./midpoint-docker.sh clean-db`
+
+| clean up the environment
+| `./midpoint-docker.sh clean`
+
+|====
+
+==== Start environment
+
+.Starting environment
+[source,bash]
+----
+./midpoint-docker.sh up
+----
+
+Some technical information will temporarily end with "Waiting to midPoint start up..." message.
+Once the midPoint will fully start,  the information related to the URL and default username and password^3)^ will appear.
+
+.Access information in case od default values
+[%autowidth, cols="h,1"]
+|====
+| URL | http://localhost:8080/midpoint/
+| Username | administrator
+| Password | Test5ecr3t ^3)^
+|====
+
+.sample output of the start command
+[%collapsible]
+====
+[source]
+----
+$ ./midpoint-docker.sh up
+Starting the Inicialization process...
+Creating the directory "/mnt/repo/midpoint-docker/midpoint_home".
+Creating the directory "/mnt/repo/midpoint-docker/midpoint_home/post-initial-objects".
+Creating the directory "/mnt/repo/midpoint-docker/midpoint_home/connid-connectors".
+Creating the directory "/mnt/repo/midpoint-docker/midpoint_home/lib".
+Inicialization done.
+[+] Running 5/5
+ ✔ Network midpoint-docker_net                  Created                       0.2s
+ ✔ Volume "midpoint-docker_midpoint_data"       Created                       0.0s
+ ✔ Container midpoint-docker-midpoint_data-1    Started                       0.2s
+ ✔ Container midpoint-docker-data_init-1        Exited                       14.3s
+ ✔ Container midpoint-docker-midpoint_server-1  Started                      14.5s
+Waiting to midPoint start up...
+MidPoint has started...
+To access the WEB GUI go to http://localhost:8080/midpoint/ .
+ Username : administrator
+ Password : Test5ecr3t (if not changed yet - init Password)
+----
+====
+
+[NOTE]
+====
+3) By default, the password is generated and has to be found in the log.
+To make it easy for you to start, the init password is preset.
+You have option to set your own.
+In case you don't overwrite the parameter,  the script offers the password *Test5ecr3t*.
+
+Once you change the password in the application (it is more than recommended), init password is not valid anymore.
+====
+
+==== Clean up the environment
+
+.Clean up environment
+[source,bash]
+----
+./midpoint-docker.sh clean
+----
+
+In case the environment is running, it will firstly stop.
+Afterward, previously generated directories will be removed (the whole content).
+
+It includes (for example):
+
+* generated logs
+* connectors in "live" midPoint home directory
+* exported data
+* CSV resource file(s)
+
+.sample output of the clean command
+[%collapsible]
+====
+[source]
+----
+$ ./midpoint-docker.sh clean
+Starting the Clean up process...
+[+] Running 5/5
+✔ Container midpoint-docker-midpoint_server-1  Removed                       0.2s
+✔ Container midpoint-docker-data_init-1        Removed                       0.0s
+✔ Container midpoint-docker-midpoint_data-1    Removed                       0.1s
+✔ Volume midpoint-docker_midpoint_data         Removed                       0.0s
+✔ Network midpoint-docker_net                  Removed                       0.2s
+Removing "/mnt/repo/midpoint-docker/midpoint_home"
+Clean up process done.
+----
+====
+
+=== Customization
+
+There are several possible parameters and commands, which have an  impact on the resulting state.
+
+==== Commands
+
+The most often used command will be probably *up* and *clean*.
+Following table shows the possible commands.
+
+.Available commands
+[%autowidth]
+|====
+| Command | Description
+
+| init
+| Init environment +
+check and create the directory structure for midPoint home if needed +
+_It is part of "up/start" command._
+
+| clean
+| Clean environment +
+delete directory structure for midPoint home +
+
+| reset
+| Reset environment +
+delete and re-create directory structure for midPoint home +
+_Shortcat to *clean* and *init* command._
+
+| up / start
+| Start the environment +
+Init the environment (if needed) and start it up
+
+| down
+| Shutdown the environment +
+Stop environment, remove the container objects except volumes and data on "external" filesystem. +
+
+| clean-db
+| Remove container environment including volumes. +
+Clean environment - containers, volumes (db storage), etc. +
+
+| help
+| Show the help (this information)
+|====
+
+==== Attributes
+
+There is a set of default values predefined in the script.
+With the default values the application will run fine.
+As this script would be primarily a helper for you there is option to change it so you can customize it for your needs.
+
+Let's keep a focus on "first steps" with midPoint.
+In that case the "interesting" attributes will be :
+
+* initpw +
+This parameter can be used for the init password for administrator user object.
+
+.Password Policy
+[NOTE]
+====
+Once you decide to set up your own init password, please keep in mind that there is Password policy in place.
+In case you would set the init password, which does not correspond, the administrator user object will not be imported.
+
+It will not be possible to log into the system because the administrator is the only user in midPoint after the first start of the system.
+
+There is "workaround" how the user can be imported.
+Anyway the easiest way how to address the situation is to *clean* the environment and *start* (reinit) new one with the
+"proper" password.
+
+Even you could keep the "offered" password, it is recommended to change the password once the system is properly initialized / started.
+====
+
+* subdir +
+Comma separated list of directories which would be created during init process.
+There may be use case when you need additional directory - e.g. *exports*. +
+ +
+-subdir post-initial-objects,connid-connectors,lib,*exports*
+
+* port +
+Until the directory name is different (see the warning previously mentioned) the only "problem" in parallel environments is the "already used" port.
+With this parameter you can set the port used for the mapping to be different then TCP/*8080*. +
+ +
+-port *8090*
+
+* ver +
+The version of the midPoint to use.
+The tag published on public registry contain the version in the tag.
+Using this attribute you can easily change required version without specifying whole image name and complete tag (including the base OS). +
+ +
+-ver *4.8.5*
+
+The other attributes could be used once you will start with the advance scenario(s).
+
+
+.Available attributes
+[%autowidth]
+|====
+| Attribute | Description
+
+| -h
+| help - show available option(s)
+
+| -debug
+| Debug (show operation output for the troubleshooting purpose)
+
+| -fg
+| Foreground (keep attached / not starting on background)
+
+| -base <base_dir>
+| base directory (by default derived from the script location) +
+Used to calculate the location of the files
+
+| -initpw <init_password>
+| Initial administrator password +
+Initial password for the first run. This is not used for the password change once the user is created.
+
+| -home <home_dir>
+| home directory (related to base_dir) +
+The name of the directory - the root of the directory structure for the midPoint instance
+
+| -subdir <directories>
+| comma separated list of sub-directories to be created
+
+| -uid <uid>
+| User ID for the processes in the container +
+Default value is taken from the currently logged user (current session)
+
+| -gid <gid>
+| Group ID for the processes in the container +
+Default value is taken from the currently logged user (current session)
+
+| -port <port>
+| TCP port used for the forwarding. +
+TCP port used for redirec the communication. ( http://localhost:${midPoint_port}/midpoint/ )
+
+| -name <img_name>
+| Image name (without tag) +
+Used to construct final image name for the configuration.
+
+| -ver <img_version>
+| Image version +
+Used to construct final image name for the configuration.
+
+| -suffix <img_v_suffix>
+| Image version suffix +
+Used to construct final image name for the configuration.
+
+| -exec <env_exec_cmd>
+| Command to run / control env. +
+Default value is *docker* or *sudo docker* in case the used is not a member of the docker group.
+
+|====
+
+==== Exit codes
+
+In case you will decide to experiment with the script there are several exit codes which could be returned.
+Once you show the help it will be dynamically listed.
+At this moment following exit codes are "available":
+
+[%autowidth]
+|====
+^| Exit Code ^| Meaning
+
+^| 0
+| Normal exit (expected operation)
+
+^| 1
+| No command has been requested.
+
+^| 2
+| Can't create the directory.
+
+^| 3
+| Can't remove the directory.
+
+^| 101
+| Too short path to process (basic "security" check)
+
+|====
