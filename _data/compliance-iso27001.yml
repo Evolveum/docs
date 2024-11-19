@@ -2219,8 +2219,9 @@
   control: 'Information stored in information systems, devices or in any other storage media should be deleted when no longer required.'
   comment: 'erasure, privacy, secrecy'
   necessity: optional
+  igaOnlyWarning: true
   related: [ '5.34', '7.14' ]
-  relatedFrameworks: [ 'ISO27017', 'ISO27555' ]
+  relatedFrameworks: [ 'ISO27017', 'ISO27555', 'GDPR' ]
   features: [ 'identity-lifecycle', 'projection-link', 'provisioning', 'provisioning-script', 'audit-trail' ]
   implementation:
       overview: >
@@ -2232,6 +2233,7 @@
           Identity connectors are used to automatically delete or minimize identity data in all systems where the data were provisioned, as recorded by the links.
           Moreover, provisioning scripts can be used to delete associated data, such as home directories or mailboxes.
           Audit trail keeps record of all data management activities conducted by midPoint, including deletion.
+# TODO: meta-data
       rationale: >
           The scope of information deletion reaches beyond personal data, some parts of information deletion scope are obviously out of reach of IGA platform such as midPoint.
           However, personal data are subject to privacy regulations, which makes them on of the most important (and most difficult) information to manage.
@@ -2242,6 +2244,15 @@
               Therefore, audit trail can be used as a proof of information deletion.
               However, audit trails have limited lifetime, as all logging records, which has to be considered.
               Moreover, audit trail contains copy of deleted information (for the purposes of "re-playing" object history), which also needs to be considered.
+  evidence:
+      - "list of dead shadows"
+      - "list of recently deleted objects (audit)"
+      - "list of archived users"
+      - "list of account that should be deleted but are not (e.g. due to error)"
+  review: updating
+# TODO: midScribe: erasure (account deletion, lifecycle) - deprovisioning
+# TODO: lifecycle erasure - check, is experimental?
+# TODO: report: list of account that should be deleted but are not (e.g. due to error)
 
 - id: '8.11'
   title: 'Data masking'
@@ -2249,9 +2260,9 @@
   control: 'Data masking should be used in accordance with the organization’s topic-specific policy on access control and other related topic-specific policies, and business requirements, taking applicable legislation into consideration.'
   comment: 'anonymisation, pseudonymization'
   necessity: optional
-  related: [ '5.34', '8.33' ]
+  related: [ '5.15', '5.18', '5.34', '8.3', '8.33' ]
   relatedFrameworks: [ 'ISO27018', 'ISO20889' ]
-  features: [ 'mapping', 'expression', 'provisioning', 'projection-link', 'persona', 'authorization' ]
+  features: [ 'mapping', 'expression', 'provisioning', 'projection-link', 'persona', 'authorization', 'assignment-metadata', 'object-history', 'audit-trail' ]
   implementation:
       overview: >
           Provisioning flexibility of midPoint can be used to provide some data masking capabilities.
@@ -2262,6 +2273,9 @@
           Persona functionality could be used to create consistent masked data across several systems.
           Mappings can be used to select data elements to provision to target systems, minimizing the set of data stored in external systems.
           Similarly, authorization mechanism can be used to limit access to sensitive data in midPoint repository and user interface.
+# TODO: refer to access control (5.15,5.18,8.3), RBAC, certification, etc. "access controls to the processed data; agreements or restrictions on usage of the processed data;"
+# TODO: 'assignment-metadata': "keeping track of providing and receiving the processed data."
+# TODO: 'object-history', 'audit-trail'
       rationale: >
           While midPoint does not have off-the-shelf support for data masking, similar results can be achieved by using mappings and expressions.
       notes:
@@ -2272,6 +2286,9 @@
               Protect your development and test environments accordingly using access control techniques.
           - >
               MidPoint has a built-in mechanism for exporting anonymized data for the purposes of data mining research.
+  evidence:
+  review: updating
+# Nice to have: anonymisation, pseudonymization of data export for analytic tools
 
 - id: '8.12'
   title: 'Data leakage prevention'
@@ -2279,18 +2296,28 @@
   control: 'Data leakage prevention measures should be applied to systems, networks and any other devices that process, store or transmit sensitive information.'
   comment: 'communication monitoring'
   necessity: marginal
-  related: [ '5.12', '5.15', '5.34' ]
+  related: [ '5.12', '5.15', '5.18', '8.3', '5.34' ]
   relatedFrameworks: [  ]
-  features: [ 'information-classification', 'application-inventory', 'projection-link' ]
+  features: [ 'information-classification', 'application-inventory', 'projection-link', 'synchronization', 'synchronization-reaction', 'orphaned-account-management' ]
   implementation:
       overview: >
           MidPoint can provide supporting information for data leakage prevention.
       details: >
           Application inventory and information classification can provide information about the data that needs to be monitored for data leakage.
           Projection links can be used to track systems where person data were copied, which may help in selecting systems for data leakage monitoring.
+# TODO: midPoint may not be able to prevent leakage, it may be able to identify increased risk of leakage
+# TODO: synchronization as leakage *detection*: identify and monitor sensitive information at risk of unauthorized disclosure (e.g. in unstructured data on a user’s system);
+# TODO: refer to access control (5.15,5.18,8.3), RBAC, certification, etc.
       rationale: >
           Data leakage prevention is almost completely out of scope of identity management.
           MidPoint can only provide supplementary information.
+  evidence:
+      - "List of classifications, with description"
+      - "List of orphaned accounts"
+      - "Report of synchronization situations"
+  review: updating
+  # Example/question: Detect account that exist, are correlated, but are illegal - can we report that before deprovisioning?
+  # Report: users that have changed org, but were not certified
 
 
 - id: '8.13'
@@ -2298,10 +2325,11 @@
   category: technological
   control: 'Backup copies of information, software and systems should be maintained and regularly tested in accordance with the agreed topic-specific policy on backup.'
   comment: ''
-  necessity: necessary
+  necessity: optional
+  igaOnlyWarning: true
   related: [ '5.30', '8.1', '8.10' ]
   relatedFrameworks: [ 'ISO27040' ]
-  features: [ 'identity-repository', 'synchronization', 'orphaned-account-management', 'synchronization-reaction', 'provisioning', 'provisioning-consistency', 'simulation' ]
+  features: [ 'identity-repository', 'synchronization', 'live-synchronization', 'reconciliation', 'orphaned-account-management', 'synchronization-reaction', 'provisioning', 'provisioning-consistency', 'simulation' ]
   implementation:
       overview: >
           MidPoint contains up-to-date access control information which is essential for reliable restore procedures.
@@ -2316,12 +2344,23 @@
           MidPoint can also correct access privileges that have changed in the period which is not recorded in back-up image.
           Simulations can be used to preview changes that midPoint would do to the restored system, which can be precious indication about freshness and validity of restored data, before putting restored system into production.
           MidPoint can be instrumental in testing restoration procedures, automatically validating that user databases and access control data were correctly restored.
+# TODO: 'live-synchronization', 'reconciliation', - to make sure our data are up-to-date
+# TODO: caching?
       rationale: >
           System back-up images usually cannot be completely fresh, the images are created at regular interval.
           When a system is restored, some data are inevitably missing.
           This includes access control data as well.
           Outdated access control data are a major security risk, especially shortly after security incidents, at which time it is likely that data restoration procedures will be needed.
           MidPoint is a necessary tool to quickly update user databases, privileges and access control data of restored systems, to make sure they are secure.
+  evidence:
+      - "Synchronization/reconciliation schedule"
+      - "Accounts that were not synchronized for a long time"
+      - "Resources that were not synchronized for a long time"
+      - "List of resources with timestamp of last sync/recon"
+  review: updating
+# TODO: NOTE: midPoint can be restored from resource data, althouh it needs to be carefull (e.g. do not enforce)
+# TODO: Synchronization/reconciliation overview: flow direction, schedule, etc.
+# TODO: Accounts that were not synchronized for a long time
 
 
 - id: '8.14'
@@ -2332,7 +2371,7 @@
   necessity: optional
   related: [ '5.30' ]
   relatedFrameworks: [ 'ISOTS23167' ]
-  features: [ 'synchronization', 'provisioning', 'provisioning-consistency' ]
+  features: [ 'synchronization', 'live-synchronization', 'reconciliation', 'provisioning', 'provisioning-consistency', 'ha', 'auto-scaling', 'audit-trail' ]
   implementation:
       overview: >
           MidPoint provides synchronization functions for access control information in redundant components.
@@ -2342,10 +2381,18 @@
           In case of "hot" standby systems, midPoint can continually synchronize the data, making sure the standby systems is always prepared for production use.
           In case of "cold" standby systems, midPoint can quickly set up the system before it is prepared for production use.
           MidPoint can synchronize access control information even in heterogeneous systems, such as back-up cloud services that are not directly compatible with primary services.
+# TODO: 'live-synchronization', 'reconciliation', - to make sure our data are up-to-date
+# TODO: audit - to keep track of failures
+# TODO: caching?
       rationale: >
           Weak security of redundant and emergency components can be a serious problems, as suggested by this control.
           MidPoint can automate synchronization of access control information in such systems, lowering the risks.
-
+  evidence:
+      - "List of midPoint nodes"
+      - "List of recent failures (audit)"
+      - "List of resources with timestamp of last sync/recon"
+  review: updating
+# TODO: Note: 'ha', 'auto-scaling': "using multiple parallel instances of software components, with automatic load balancing betweenthem (between instances in the same data centre or in different data centres);"
 
 - id: '8.15'
   title: 'Logging'
@@ -2368,6 +2415,7 @@
           Especially security information and event management (SIEM) systems are meant to be consumers of midPoint audit trail data.
       rationale: >
           MidPoint records all changes regarding access control and policies in its audit trail, making it a prominent source of security-related information.
+  review: todo
 
 - id: '8.16'
   title: 'Monitoring activities'
@@ -2388,6 +2436,7 @@
           Moreover, midPoint can provide essential access control information (a.k.a. "who has access to what") to other detection systems by using midPoint application programming interface (API).
       rationale: >
           MidPoint is de facto monitoring system for identity administration and access control.
+  review: todo
 
 - id: '8.17'
   title: 'Clock synchronization'
@@ -2400,6 +2449,7 @@
   implementation:
       rationale: >
           MidPoint has no capabilities to deal with clock synchronization.
+  review: todo
 
 - id: '8.18'
   title: 'Use of privileged utility programs'
@@ -2423,6 +2473,7 @@
       notes:
           - >
               MidPoint contains internal mechanisms that are similar to privileged utility programs, namely runPrivileged and runAs mechanisms for expressions.
+  review: todo
 
 - id: '8.19'
   title: 'Installation of software on operational systems'
@@ -2446,6 +2497,7 @@
       rationale: >
           MidPoint can cover only a small part of this control.
           While actual enforcement of access control to software installation is in scope of operating systems and privileged access management (PAM) systems, midPoint can manage the access control rules and policies.
+  review: todo
 
 - id: '8.20'
   title: 'Networks security'
@@ -2471,6 +2523,7 @@
           While network security is a broad area and midPoint can cover only a small part of it, it is an essential part.
           Such as management of access to network device administration and management of network security roles and responsibilities.
 # Should we mention service accounts here? Probably not, this is just about the network and devices, not apps.
+  review: todo
 
 - id: '8.21'
   title: 'Security of network services'
@@ -2495,6 +2548,7 @@
       rationale: >
           Security of network services is mostly out of control of midPoint.
           However, midPoint can provide essential mechanisms for management of access to administration of network services.
+  review: todo
 
 - id: '8.22'
   title: 'Segregation of networks'
@@ -2507,6 +2561,7 @@
   implementation:
       rationale: >
           MidPoint has no significant capabilities that can assist with segregation of networks.
+  review: todo
 
 - id: '8.23'
   title: 'Web filtering'
