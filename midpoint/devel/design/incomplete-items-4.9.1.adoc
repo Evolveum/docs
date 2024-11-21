@@ -1,0 +1,112 @@
+= Incomplete Items (state in 4.9.1)
+
+MidPoint can indicate that an item has a value, but the value is not known at this moment or in this place.
+
+== The "incomplete" flag
+
+From the javadocs at the prism level - `Item#isIncomplete()`:
+
+----
+Flag that indicates incomplete item. If set to true then the values in this item are not complete.
+If this flag is true then it can be assumed that the object that this item represents
+has at least one value. This is a method how to indicate that the item really has some values,
+but are not here. This may be used for variety of purposes. It may indicate that the
+account has a password, but the password value is not revealed. This may indicate that
+a user has a photo, but the photo was not requested and therefore is not returned.
+This may be used to indicate that only part of the attribute values were returned from the search.
+And so on.
+----
+
+From the javadocs at ConnId level - `Attribute#attributeValueCompleteness`:
+
+----
+A status that indicates completeness of attribute values.
+Normal resources always return all values of the attribute. However there may be
+cases, when returning all the values is not an acceptable overhead
+(e.g. returning all group members for big groups). This status can also be used
+to indicate that an attribute has a value without revealing that value.
+E.g. resource may indicate that the account has a password without revealing
+that password.
+
+The interpretation: If there is no Attribute object in the ConnectorObject for any
+specific attribute, then the client should make no assumption about existence of
+the attribute (e.g. the attribute may exists, but it security policies deny reading
+of the attribute right now). If the Attribute object is returned then the client
+may assume that the attribute exists and it has at least one value. If the
+attributeValueCompleteness is set to COMPLETE then the client may also assume that
+the returned set of value is complete.
+----
+
+(Note that midPoint generally assumes that if an attribute was requested but not present in the returned data, it does not exist on the resource.)
+
+The flag is used at these places, among others:
+
+. Repository service uses it to indicate that there are some data that are not fetched, typically because of the performance.
++
+Examples: `jpegPhoto` in `FocusType`, `row` in `LookupTableType`, `result` in `TaskType`, and so on.
+
+. Connectors may use it to indicate there are some data that are not fetched, either because of the performance, or because of the security.
++
+Examples: members of large groups, account passwords.
+
+[#_handling]
+== Handling of the Flag
+
+Normally, the flag has to be explicitly set and re-set.
+
+However, https://github.com/Evolveum/prism/commit/4f45c7ac3319ab79d88c03b9fb71d98aa9cab924[since 4.9.1], there is a slight behavior change related to single-valued items:
+*If a value is added to such an item, the `incomplete` flag is automatically cleared*:
+
+[quote,ItemImpl#resetIncompleteFlagOnAddIfPossible]
+____
+When adding a specific value to a single-valued incomplete item, we can assume that the item is no longer incomplete.
+The reason is that it there is no other, unknown value, that would make the item incomplete.
+(As single-valued items can have only one value.)
+
+This is true regardless of whether the value being added is the same as the (unknown) value.
+If it's the same, the item is complete, as it will have one known value.
+If it's different, then the item is also complete, as the new value would overwrite the old one.
+
+It is also true, if the item contains (by mistake) any existing value; although that state is inconsistent by nature.
+____
+
+See also `TestDelta.testIncompleteFlagHandlingViaXXX` methods.
+
+NOTE: The state when an item has a single value and an incomplete flag can be seen as an illegal one.
+(For example, the current parser refuses to process such state.)
+
+== Open Questions
+
+=== Deltas
+
+Currently, there is no way how to manipulate this flag via deltas, except for the automatic clearing when a value for single-valued item is provided (see above).
+So, when needed to set/reset the flag, a work-around has to be done, like this:
+
+[source,java]
+----
+var password = ... // existing value of the "password" container
+ShadowUtil.setPasswordIncomplete(password); // setting the incomplete flag of "value" in "password"
+repositoryService.modifyObject(ShadowType.class, shadow1Oid,
+        prismContext.deltaFor(ShadowType.class)
+                .item(PATH_PASSWORD)
+                .replace(password) // replacing the whole "password" container
+                .asItemDeltas(),
+        result);
+----
+
+This should be resolved somehow.
+See bug:MID-10161[].
+
+=== The "tolerantMultivalueReduction" parameter
+
+There is an experimental feature of the LDAP connector that allows one to treat multivalued LDAP "multi-attributes" (i.e., those that are keyed by the language) gracefully even when they are mapped to single-valued midPoint polystring attributes.
+
+See bug:MID-5275[] and these commits: https://github.com/Evolveum/midpoint/commit/fc13f9685b3f4bdcd8dcd5d5ded18fdcc31da9aa[fc13f968] (midPoint) and https://github.com/Evolveum/connector-ldap/commit/bdf5111dc4fb2aed26c356ed13e40eab489ad9f8[bdf5111d] (LDAP connector).
+
+When enabled, the connector does not fail when it encounters multiple values for the particular language variant of the attribute, but selects a single value, and marks the corresponding attribute as incomplete.
+
+Unfortunately, this clashes with the behavior change xref:#_handling[mentioned above].
+See bug:MID-10168[].
+A temporary solution is that a single value is (randomly) selected, `incomplete` flag is set (i.e., there is no change in the LDAP connector), but midPoint clears the flag during the processing.
+I don't know of any part of midPoint code that would check this flag, but the user code might do it.
+The corresponding test code was https://github.com/Evolveum/midpoint/commit/1f3f7352fda6c34343320473dc6620817df53b32[disabled].

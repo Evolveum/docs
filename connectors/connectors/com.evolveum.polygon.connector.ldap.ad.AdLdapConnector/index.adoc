@@ -124,6 +124,9 @@ A symptom of this problem is usually an error: `000020EF: SvcErr: DSID-........,
 +
 In case you are facing this issue the solution would be setting *pagingStrategy* to *spr*.
 
+* There are specific limitations for the xref:#_native_references[Native References] capability, see xref:#_native_references_limitations[below].
+
+
 === MS Exchange Interoperability
 
 Technically, this connector can be used to provision Microsoft Exchange servers in an indirect way by using PowerShell scripts.
@@ -468,8 +471,20 @@ Various AD fixes around userParameters and flags.
 | 4.8.4
 | Update dependencies.
 
-Adding third error code for AD X_BIND_REQUIRED error.
-
+| 3.8
+| Evolveum
+| https://nexus.evolveum.com/nexus/repository/releases/com/evolveum/polygon/connector-ldap/3.8/connector-ldap-3.8.jar[download jar]
+| link:https://github.com/Evolveum/connector-ldap/tree/v3.8[GitHub]
+| 17th October 2024
+| 1.5.3.0-M3
+| 4.9
+|
+Native association support.
+Possibility to choose attributes that should not be returned by default.
+Possibility to choose to encode string values in case of the presence of non standard ASCII characters.
+Workaround for open-ldap mandatory member attribute.
+Possibility to specify used auxiliary object classes in connector configuration.
+Allow to send the LDAP_DIRSYNC_OBJECT_SECURITY flag in Active Directory sync request control.
 |===
 
 fixes handling of __ENABLE__ attribute
@@ -547,6 +562,165 @@ This search filter should work flawlessly on standard-compliance and correctly-c
 Therefore since connector version 3.2, use of such search filters is tuned on by default.
 However, such search filters may cause issues on non-compliant and/or incorrectly configured and populated servers.
 In such case, the behavior can be controlled by `includeObjectClassFilter` configuration property.
+
+[#_native_references]
+== Native References
+
+Starting from the connector version 3.8, the LDAP connector is capable of working with _reference attributes_ that describe the relation between resource objects, like between accounts and groups they are members of.
+
+This behavior is governed by the `managedAssociationPairs` multivalued configuration property.
+
+Each value of this property is a string with a specific formatting convention.
+Based on this information the connector figures out which object classes have a relation between each other and also which attributes should be used for such relation.
+
+.An example: Defining a relation between `user` and `group`
+[#_example_m_association_pairs_one]
+[source,xml]
+----
+<connectorConfiguration>
+    <configurationProperties>
+        <host>primary.ldap.example.com</host>
+        <baseContext>dc=evolveum,dc=com</baseContext>
+        <operationalAttributes>memberOf</operationalAttributes>
+        <managedAssociationPairs>"user"+memberOf -# "group"+member</managedAssociationPairs>
+        ...
+    </configurationProperties>
+</connectorConfiguration>
+----
+
+The value of `"user"+memberOf -# "group"+member` specifies that:
+
+* Object classes `user` and `group` are in a relationship.
+* `user` is the *subject* (the one who receives an entitlement), while `group` is the *object* (the entitlement being granted).
+* The binding attributes on the `user` side is `memberOf`.
+The related groups for a given account are determined by looking at this attribute.
+* The binding attribute on the `group` side is `member`.
+The related members are determined by looking at this attribute.
+Also, this attribute is used to update the membership information.
+
+[#_note_subject_object]
+[NOTE]
+====
+*Subject and object*
+
+As mentioned above,
+
+* *subject* is the resource object which receives an entitlement, typically an account;
+* *object* is the resource object which represents an entitlement, typically a group.
+
+They have a relation between them, typically, a subject (an account) is member of a group.
+More information about this topic can be found in xref:/midpoint/reference/resources/entitlements/[Entitlements and Associations].
+====
+
+The `managedAssociationPairs` values have the following formatting convention:
+
+     "SubjectObjectClassName"+SubjectAttribute -# "ObjectObjectClassName"+ObjectAttribute
+
+* `SubjectObjectClassName` is the object class representing the _subject_ of this relation.
+* `SubjectAttribute` is the attribute of that object class containing the list of related objects, typically groups that the account is a member of.
+* `ObjectObjectClassName` is the object class representing the _object_ of this relation.
+* `ObjectAttribute` is the attribute of that object class containing the list of related subjects, typically the members of the group.
+
+By using the above example, the connector will manage the relations between the object class `user`
+and the object class `group` based on the values present in the parameters `memberOf` (for `user`) and `member` (for `group`).
+
+As this is a multivalued property, you can specify multiple pairs of object types, each of them having a relation between them marked as managed by the connector.
+
+.An example: Defining two relations between object classes
+[source,xml]
+----
+<connectorConfiguration>
+    <configurationProperties>
+        ...
+        <managedAssociationPairs>"user"+memberOf -# "group"+member</managedAssociationPairs>
+        <managedAssociationPairs>"group"+memberOf -# "group"+member</managedAssociationPairs>
+        ...
+    </configurationProperties>
+</connectorConfiguration>
+----
+
+The addition of this parameter will signal to the connector that it should use the native references handling.
+This also changes the way the schema is generated by the connector, see below.
+
+=== Representation of Native References in the Schema
+
+When you define the relation between object classes, the following changes automatically occur:
+
+. The original attributes used to provide the relation, e.g. `memberOf` and `member` in the above examples, will disappear from the schema.
+. The subject-side attribute, e.g. `memberOf`, will be replaced by the reference attribute `group`.
+. The object-side attribute, e.g. `member`, will be replaced by the reference attribute `member`.
+
+Both of the attributes, `group` and `member`, are currently constants in the connector code.
+
+Reference attributes are special kinds of attributes that do not have simple values (string, integer, and so on), but contain _references_ to other objects.
+
+NOTE: The new `member` attribute on the object (entitlement) side is marked as "not readable" and "not returned by default", because fetching of this attribute is not currently supported by midPoint.
+
+If you already have a schema generated before the xref:#_native_references[Native References] configuration has been set up, you have to refresh the connector schema.
+
+=== Other Things to Consider
+
+If you use operational attributes in the values for the `managedAssociationPairs` configuration property, please also specify these attributes in the `operationalAttributes` configuration property.
+As we can see in the xref:#_example_m_association_pairs_one[example] above.
+
+In rare cases, when using an "Object" object class (i.e. `group`) which is extended via an auxiliary object class, please also add the `auxiliaryObjectClasses` xref:#_auxiliary_object_classes[configuration property] to your resource configuration, and specify the auxiliary object classes which are used.
+The reason for this is that, the object-side attribute (i.e. `member`) is, in some cases, explicitly removed from object searches.
+
+[#_native_references_limitations]
+=== Limitations
+
+. This feature assumes that there is the `memberOf` (or equivalent) attribute on the subject size that is used to provide the membership information.
++
+NOTE: If this attribute is missing, the native references feature of the connector cannot be used.
+
+. Only one class of objects (entitlements) is supported per subject-object relation (e.g., for `memberOf` attribute of `user`, we assume that all referenced objects will be of the object class `group`).
+
+. Events related to object relations (like adding or deleting a group membership to an account) cannot be currently detected by the live synchronization.
+
+. The connector does not handle 'primary groups' as a part of the entitlements managed by the native association handling.
+
+[#_attributes_not_returned_by_default]
+=== Marking Attributes as Not Returned by Default
+
+The `attributesNotReturnedByDefault` parameter gives us the possibility to mark some of the standard attributes of the resource object with the `NOT_RETURNED_BY_DEFAULT` flag.
+Such attributes will be by default omitted from ldap search requests, unless the IAM explicitly requests them.
+We can use this configuration if some attributes are too large or expensive to retrieve (i.e. the `member` attribute).
+
+The attributes specified in this property will be marked as `NOT_RETURNED_BY_DEFAULT` for all object classes.
+
+If you already have a schema generated and add or modify this property in your configuration, you will have to refresh the connector schema.
+
+If you are intending to use this configuration property, and your object classes are extended via an auxiliary object class, please also add the `auxiliaryObjectClasses` xref:#_auxiliary_object_classes[configuration property] to your configuration.
+
+[#_auxiliary_object_classes]
+=== Auxiliary Object Classes
+
+The current implementation of the connector uses a wildcard (`*`) to return all non-operational attributes of an object in a search request, operational attributes are added to the request explicitly.
+In some cases we need to explicitly enumerate the non-operational attributes as well (rather than use a wildcard).
+The only problem here is that the connector does not know about the Auxiliary Object Classes, and is not capable of requesting the proper non-structural objectClass attributes.
+
+The solution to this is to specify the Auxiliary Object Classes as values of the `auxiliaryObjectClasses` configuration property.
+Each value of this property is a string following a specific convention.
+
+.An example: Defining the structural object class `user` with an auxiliary object class `posixAccount`
+[source,xml]
+----
+<connectorConfiguration>
+    <configurationProperties>
+        ...
+        <auxiliaryObjectClasses>user:posixAccount</auxiliaryObjectClasses>
+        ...
+    </configurationProperties>
+</connectorConfiguration>
+----
+
+What the value `user:posixAccount` represents:
+
+* `user` is the name of the structural object class
+* `:` delimiter between the name of the structural object class and auxiliary object classes
+* `posixAccount` is the name of the auxiliary object class
+* Any number of additional auxiliary object classes may be added to the value by using the delimiter `,` between the names of the auxiliary object classes
+
 
 == Resource Examples
 

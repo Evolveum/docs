@@ -68,6 +68,10 @@ Use `ri:entryUUID` instead of `icfs:uid`.
 | NO
 | Use of dedicated scripting connectors (SSH) is recommended.
 
+| Native references
+| YES
+|
+
 |===
 
 == Interoperability
@@ -90,6 +94,7 @@ However, support for any specific server is not part of standard midPoint subscr
 If you are using this connector with a different directory server please let us know.
 We would like to know both about the positive and negative experiences.
 
+[#_limitations]
 === Limitations
 
 * Additional search filter does not work for "Sun changelog" synchronization strategy.
@@ -100,6 +105,8 @@ Client side application of filter is not straightforward due various complexitie
 It does not support SPR, VLV or referral-following functionality.
 This synchronization method is inherently inefficient and unreliable.
 It should be used only as a last resort, if no other method is available.
+
+* There are specific limitations for the xref:#_native_references[Native References] capability, see xref:#_native_references_limitations[below].
 
 == History
 
@@ -442,6 +449,19 @@ Improve processing of fetching existing entry when updating it in AD connector.
 | 4.8.4
 | Update dependencies.
 
+| 3.8
+| Evolveum
+| https://nexus.evolveum.com/nexus/repository/releases/com/evolveum/polygon/connector-ldap/3.8/connector-ldap-3.8.jar[download jar]
+| link:https://github.com/Evolveum/connector-ldap/tree/v3.8[GitHub]
+| 17th October 2024
+| 1.5.3.0-M3
+| 4.9
+|
+Native references support.
+Possibility to choose attributes that should not be returned by default.
+Possibility to choose to encode string values in case of the presence of non standard ASCII characters.
+Workaround for open-ldap mandatory member attribute.
+Possibility to specify used auxiliary object classes in connector configuration.
 |===
 
 
@@ -509,7 +529,7 @@ The handlers needs to be explicitly disabled in the resource configuration.
 
 === Date and Time Formats
 
- You can control the way LDAP connecto presents dates and times by by using timestampPresentation configuration property.
+You can control the way LDAP connector presents dates and times by by using timestampPresentation configuration property.
 It has three possible values:
 
 * `native`: LDAP connector will present timestamps in native ConnId date format.
@@ -517,7 +537,7 @@ This is the most natural and default setting.
 
 * `unixEpoch`: LDAP connector will present timestamps in UNIX epoch format (number of seconds since 1970)
 
-* `string`: LDAP connector will present timestamps in LDAP-native format (generalized time, ISO 8601
+* `string`: LDAP connector will present timestamps in LDAP-native format (generalized time, ISO 8601)
 
 In a normal case all timestamps in midPoint are in link:https://www.w3.org/TR/NOTE-datetime[W3C DateTime format]. When using the `native` time representation, MidPoint automatically converts all the date/time values to this format.
 
@@ -644,6 +664,195 @@ As the fail-over happens transparently in the connector, the application (midPoi
 This may cause temporary fluctuations, where old data may be presented as current data for a limited period of time.
 However, both LDAP servers and midPoint are built for _eventual consistency_, converging data values _eventually_.
 However, data consistency has to be kept in mind, and proper method should be employed both at the LDAP side (e.g. replication failure recovery) and midPoint side (e.g. regular reconciliation) to make the entire system _eventually consistent_.
+
+[#_native_references]
+== Native References
+
+Starting from the connector version 3.8, the LDAP connector is capable of working with _reference attributes_ that describe the relation between resource objects, like between accounts and groups they are members of.
+
+This behavior is governed by the `managedAssociationPairs` multivalued configuration property.
+
+Each value of this property is a string with a specific formatting convention.
+Based on this information the connector figures out which object classes have a relation between each other and also which attributes should be used for such relation.
+
+.An example: Defining a relation between `inetOrgPerson` and `groupOfNames`
+[#_example_m_association_pairs_one]
+[source,xml]
+----
+<connectorConfiguration>
+    <configurationProperties>
+        <host>primary.ldap.example.com</host>
+        <baseContext>dc=evolveum,dc=com</baseContext>
+        <operationalAttributes>memberOf</operationalAttributes>
+        <managedAssociationPairs>"inetOrgPerson"+memberOf -# "groupOfNames"+member</managedAssociationPairs>
+        ...
+    </configurationProperties>
+</connectorConfiguration>
+----
+
+The value of `"inetOrgPerson"+memberOf -# "groupOfNames"+member` specifies that:
+
+* Object classes `inetOrgPerson` and `groupOfNames` are in a relationship.
+* `inetOrgPerson` is the *subject* (the one who receives an entitlement), while `groupOfNames` is the *object* (the entitlement being granted).
+* The binding attributes on the `inetOrgPerson` side is `memberOf`.
+The related groups for a given account are determined by looking at this attribute.
+* The binding attribute on the `groupOfNames` side is `member`.
+The related members are determined by looking at this attribute.
+Also, this attribute is used to update the membership information.
+
+[#_note_subject_object]
+[NOTE]
+====
+*Subject and object*
+
+As mentioned above,
+
+* *subject* is the resource object which receives an entitlement, typically an account;
+* *object* is the resource object which represents an entitlement, typically a group.
+
+They have a relation between them, typically, a subject (an account) is member of a group.
+More information about this topic can be found in xref:/midpoint/reference/resources/entitlements/[Entitlements and Associations].
+====
+
+The `managedAssociationPairs` values have the following formatting convention:
+
+     "SubjectObjectClassName"+SubjectAttribute -# "ObjectObjectClassName"+ObjectAttribute
+
+* `SubjectObjectClassName` is the object class representing the _subject_ of this relation.
+* `SubjectAttribute` is the attribute of that object class containing the list of related objects, typically groups that the account is a member of.
+* `ObjectObjectClassName` is the object class representing the _object_ of this relation.
+* `ObjectAttribute` is the attribute of that object class containing the list of related subjects, typically the members of the group.
+
+By using the above example, the connector will manage the relations between the object class `inetOrgPerson`
+and the object class `groupOfNames` based on the values present in the parameters `memberOf` (for `inetOrgPerson`) and `member` (for `groupOfNames`).
+
+As this is a multivalued property, you can specify multiple pairs of object types, each of them having a relation between them marked as managed by the connector.
+
+.An example: Defining two relations between object classes
+[source,xml]
+----
+<connectorConfiguration>
+    <configurationProperties>
+        ...
+        <managedAssociationPairs>"inetOrgPerson"+memberOf -# "groupOfNames"+member</managedAssociationPairs>
+        <managedAssociationPairs>"groupOfNames"+memberOf -# "groupOfNames"+member</managedAssociationPairs>
+        ...
+    </configurationProperties>
+</connectorConfiguration>
+----
+
+The addition of this parameter will signal to the connector that it should use the native references handling.
+This also changes the way the schema is generated by the connector, see below.
+
+=== Representation of Native References in the Schema
+
+When you define the relation between object classes, the following changes automatically occur:
+
+. The original attributes used to provide the relation, e.g. `memberOf` and `member` in the above examples, will disappear from the schema.
+. The subject-side attribute, e.g. `memberOf`, will be replaced by the reference attribute `group`.
+. The object-side attribute, e.g. `member`, will be replaced by the reference attribute `member`.
+
+Both of the attributes, `group` and `member`, are currently constants in the connector code.
+
+Reference attributes are special kinds of attributes that do not have simple values (string, integer, and so on), but contain _references_ to other objects.
+
+NOTE: The new `member` attribute on the object (entitlement) side is marked as "not readable" and "not returned by default", because fetching of this attribute is not currently supported by midPoint.
+
+If you already have a schema generated before the xref:#_native_references[Native References] configuration has been set up, you have to refresh the connector schema.
+
+=== Other Things to Consider
+
+If you use operational attributes in the values for the `managedAssociationPairs` configuration property, please also specify these attributes in the `operationalAttributes` configuration property.
+As we can see in the xref:#_example_m_association_pairs_one[example] above.
+
+In rare cases, when using an "Object" object class (i.e. `groupOfNames`) which is extended via an auxiliary object class, please also add the `auxiliaryObjectClasses` xref:#_auxiliary_object_classes[configuration property] to your resource configuration, and specify the auxiliary object classes which are used.
+The reason for this is that, the object-side attribute (i.e. `member`) is, in some cases, explicitly removed from object searches.
+
+As there can be no empty groups, at least based on the LDAP specification, we had to implement a feature working around this.
+You can read about it the section, xref:#_no_member_native_references[Groups Without Members And Native References].
+
+[#_native_references_limitations]
+=== Limitations
+
+. This feature assumes that there is the `memberOf` (or equivalent) attribute on the subject size that is used to provide the membership information.
+On some LDAP servers this has to be provided by specific plugin (extension).
+Also, the referential integrity must be ensured, again, typically provided by specific "referential integrity" plugin.
++
+NOTE: If this attribute is missing, the native references feature of the connector cannot be used.
+
+. Only one class of objects (entitlements) is supported per subject-object relation (e.g., for `memberOf` attribute of `inetOrgPerson`, we assume that all referenced objects will be of the object class `groupOfNames`).
+
+. Events related to object relations (like adding or deleting a group membership to an account) cannot be currently detected by the live synchronization.
+
+[#_attributes_not_returned_by_default]
+=== Marking Attributes as Not Returned by Default
+
+The `attributesNotReturnedByDefault` parameter gives us the possibility to mark some of the standard attributes of the resource object with the `NOT_RETURNED_BY_DEFAULT` flag.
+Such attributes will be by default omitted from ldap search requests, unless the IAM explicitly requests them.
+We can use this configuration if some attributes are too large or expensive to retrieve (i.e. the `member` attribute).
+
+The attributes specified in this property will be marked as `NOT_RETURNED_BY_DEFAULT` for all object classes.
+
+If you already have a schema generated and add or modify this property in your configuration, you will have to refresh the connector schema.
+
+If you are intending to use this configuration property, and your object classes are extended via an auxiliary object class, please also add the `auxiliaryObjectClasses` xref:#_auxiliary_object_classes[configuration property] to your configuration.
+
+[#_auxiliary_object_classes]
+=== Auxiliary Object Classes
+
+The current implementation of the connector uses a wildcard (`*`) to return all non-operational attributes of an object in a search request, operational attributes are added to the request explicitly.
+In some cases we need to explicitly enumerate the non-operational attributes as well (rather than use a wildcard).
+The only problem here is that the connector does not know about the Auxiliary Object Classes, and is not capable of requesting the proper non-structural objectClass attributes.
+
+The solution to this is to specify the Auxiliary Object Classes as values of the `auxiliaryObjectClasses` configuration property.
+Each value of this property is a string following a specific convention.
+
+.An example: Defining the structural object class `inetOrgPerson` with an auxiliary object class `posixAccount`
+[source,xml]
+----
+<connectorConfiguration>
+    <configurationProperties>
+        ...
+        <auxiliaryObjectClasses>inetOrgPerson:posixAccount</auxiliaryObjectClasses>
+        ...
+    </configurationProperties>
+</connectorConfiguration>
+----
+
+What the value `inetOrgPerson:posixAccount` represents:
+
+* `inetOrgPerson` is the name of the structural object class
+* `:` delimiter between the name of the structural object class and auxiliary object classes
+* `posixAccount` is the name of the auxiliary object class
+* Any number of additional auxiliary object classes may be added to the value by using the delimiter `,` between the names of the auxiliary object classes
+
+[#_no_member_native_references]
+=== Groups Without Members And Native References
+
+One of the requirements specified in the LDAP standard is that the group attribute `member` xref:/iam/ldap-survival-guide/#no-empty-groups[is mandatory].
+This can be problematic during the creation and modification of groups (i.e. no initial values in `member`, removal of the last value in `member`).
+
+If you are not using the native references configuration, you can work around this limitation with mappings in the resource configuration.
+With the native references, if you configure an object class amongst the values of the `managedAssociationPairs` property ,the schema for the `member` attribute of this object class changes.
+
+Because of this a workaround was implemented directly in the ldap connector, wherever a new group is created or the last member of a group is removed a `dummy` member is added to the group as a `placeholder`.
+
+This is mandated by the `placeholderMember` configuration property.
+The value of this property is a string representing the `DN` of a dummy member which is going to be used in the create or update operations.
+
+.An example: Usage of the `Placeholder Member` configuration property
+[source,xml]
+----
+<connectorConfiguration>
+    <configurationProperties>
+        ...
+        <placeholderMember>cn=dummy,o=whatever</placeholderMember>
+        ...
+    </configurationProperties>
+</connectorConfiguration>
+----
+
+This feature is currently supported only together with the `Native References` configuration.
 
 == Resource Examples
 
