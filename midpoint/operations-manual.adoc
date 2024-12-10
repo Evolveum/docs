@@ -903,7 +903,11 @@ TIP: Start with turning on the cluster support on one of the nodes, then continu
 
 ==== Enabling clustered option
 
-Setup the following in the `config.xml` file in *all midPoint nodes*:
+Setup the clustered Task Manager in *all midPoint nodes* using *either*:
+
+* use environment variable `MP_SET_midpoint_taskManager_clustered=true`
+* use a command-line parameter `-Dmidpoint.taskManager.clustered=true`
+* use the element in `config.xml`
 
 .config.xml file:
 [source,xml,highlight='8']
@@ -926,6 +930,7 @@ Setup the following in the `config.xml` file in *all midPoint nodes*:
 
 Setup unique node identifiers for *all midPoint nodes* using *either*:
 
+* use environment variable `MP_SET_midpoint_nodeId` with a unique value, e.g. `MP_SET_midpoint_nodeId=node01`
 * use a command-line parameter `-Dmidpoint.nodeId` for midPoint process with a unique value, e.g.: `-Dmidpoint.nodeId=node01`
 * use the `<nodeId>` element in `config.xml`, e.g.:
 +
@@ -946,7 +951,9 @@ Setup unique node identifiers for *all midPoint nodes* using *either*:
 ----
 <1> enabling `clustered` option for this node
 <2> setting `nodeId` explicitly for this node
-* use a command-line parameter `-Dmidpoint.nodeIdSource=hostname` or `-Dmidpoint.nodeIdSource=random` to allow midPoint to generate the `nodeId` automatically based on server's hostname or a random string, respectively
+
+* use environment variable `MP_SET_midpoint_nodeIdSource=hostname`  or `MP_SET_midpoint_nodeIdSource=random` to allow midPoint to generate the `nodeId` automatically based on server's hostname or a random string, respectively
+* use a command-line parameter `-Dmidpoint.nodeIdSource=hostname` or `-Dmidpoint.nodeIdSource=random`
 * use the `<nodeIdSource>` element in `config.xml`, e.g.:
 +
 [source,xml,highlight='8,10']
@@ -2506,3 +2513,85 @@ The values for this parameters might be quite custom for each deployment while t
 
 //Make sure that the logger name (`MIDPOINT_LOG`) matches the definition in the `rootLoggerAppender`.
 
+=== Clean up the value for the attribute
+
+There may be situation when the values need to be clean up.
+The value need to be removed - not the item itself.
+
+There are two categories of the items with the impact on the approach:
+
+* Indexed item +
+There is list of indexed attribute in the link:https://docs.evolveum.com/midpoint/reference/concepts/query/midpoint-query-language/searchable-items/[docs].
+Once the item is indexed we can search and process only "affected" objects.
+It has positive impact on performance in case of bigger set of the objects.
++
+As an example of the item is `personalNumber` on *userType* object.
+The use case could be incorrect mapping.
++
+** Search for the objects to process +
+To make the processing effective the filter should be used.
++
+.search for the objects to process
+[%collapsible]
+====
+[source]
+----
+                <objects>
+                    <type>UserType</type>
+                    <query>
+                        <q:filter>
+                            <q:text>personalNumber exists</q:text>
+                        </q:filter>
+                    </query>
+                </objects>
+----
+====
+
+** iterate the filtered list of objects +
+Once we have the filtered list we can apply the delta (changes) for all of them.
++
+.apply the delta for the filtered objects - process the value removal
+[%collapsible]
+====
+[source]
+----
+                    <s:action>
+                        <s:type>modify</s:type>
+                        <s:parameter>
+                            <s:name>delta</s:name>
+                            <c:value xsi:type="t:ObjectDeltaType">
+                                <t:itemDelta>
+                                    <t:modificationType>replace</t:modificationType>
+                                    <t:path>personalNumber</t:path>
+                                </t:itemDelta>
+                            </c:value>
+                        </s:parameter>
+                    </s:action>
+----
+====
+
+The complete example of the task definition can be found as link:https://raw.githubusercontent.com/Evolveum/midpoint-samples/refs/heads/master/samples/tasks/bulk-actions/cleanup-indexed-attribute.xml[cleanup-indexed-attribute.xml] file on gitHub.
+
+* Non-indexed item +
+Once the item for value removal is not indexed we have to iterate over the all objects.
+For each object we have to decide if the object is subject to change or not.
+The easiest way how to manage it is utilizing of the script.
++
+Example of the use case could be *removal of the answer for security question* in case of question decommission.
++
+** known Question identifier +
+We can iterate over all *userObjects* and check if the identifier is present during object processing.
+If the identifier exists the delta can be applied.
+
+** Question identifier is not known in advance +
+The task should run in two phases.
+
+*** build up the list of active security questions +
+The security questions are defined in Security Policy.
+We can iterate over all Security Policy objects to build up the list of the defined questions.
+
+*** iterate over user Objects to identify invalid answers +
+Once we have available list of valid question identifiers, the list can be compared with the stored answers.
+If the answer for the question with unknown identifier is found, we have object to process the cleaning.
++
+The complete example of the task definition can be found as link:https://raw.githubusercontent.com/Evolveum/midpoint-samples/refs/heads/master/samples/tasks/bulk-actions/securityQuestion-answers.xml[securityQuestion-answers.xml] file on gitHub.
