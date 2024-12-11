@@ -417,17 +417,43 @@ Get-NetAdapter | Get-NetRoute
 Get-WmiObject -Class Win32_ComputerSystem
 ----
 
-.To check ACL on specific object of AD
+.Check ACL on specific object of AD
 [source,powershell]
 (Get-Acl -Path "AD:DC=ad2019,DC=lab,DC=evolveum,DC=com").Access | Where-Object {$_.IdentityReference -Like "AD2019\midpoint"}
 
-.to get information about user object
+.Get information about user object
 [source,powershell]
 Get-ADUser midpoint -Properties *
 
-.to get information about user's group membership(s)
+.Get list of Users on Path (subtree)
+[source,powershell]
+Get-ADUser -filter *  -SearchBase "CN=Users,DC=ad2019,DC=lab,DC=evolveum,DC=com" | Format-Table name,distinguishedName
+
+.Get information about user's group membership(s)
 [source,powershell]
 Get-ADPrincipalGroupMembership jack | % distinguishedName
+
+.Sample set of users and groups
+[source,powershell]
+----
+# Cretate OU test in root for test objects
+New-ADOrganizationalUnit -Name test -Path "DC=ad2019,DC=lab,DC=evolveum,DC=com" -ProtectedFromAccidentalDeletion $false
+New-ADOrganizationalUnit -Name groups -Path "OU=test,DC=ad2019,DC=lab,DC=evolveum,DC=com" -ProtectedFromAccidentalDeletion $false
+New-ADOrganizationalUnit -Name users -Path "OU=test,DC=ad2019,DC=lab,DC=evolveum,DC=com" -ProtectedFromAccidentalDeletion $false
+
+# Create test groups
+New-ADGroup -Name "Big Group" -SamAccountName big-group -GroupCategory Security -GroupScope Global -DisplayName "Big Group" -Path "OU=groups,OU=test,DC=ad2019,DC=lab,DC=evolveum,DC=com" -Description "Generated group for the test purpose with lot of users"
+$totalGroupCount = 10
+for ( $i = 0 ; $i -le $totalGroupCount ; $i++ ) { $value = $i.ToString('000000') ; New-ADGroup -Name "Group $value" -SamAccountName group$value -GroupCategory Security -GroupScope Global -DisplayName "Group $value (generated)" -Path "OU=groups,OU=test,DC=ad2019,DC=lab,DC=evolveum,DC=com" -Description "Generated group for the test purpose" }
+
+# Create test users
+$totalUserCount = 10
+for ( $i = 0 ; $i -le $totalUserCount ; $i++ ) { $value = $i.ToString('000000') ; New-ADUser -AccountPassword ( "qwe.123" | ConvertTo-SecureString -AsPlainText -Force) -DisplayName "User $value (generated)" -Enabled $true -Name "User $value" -PasswordNeverExpires $true -SamAccountName user$value -Surname $value -GivenName User -UserPrincipalName "user$value@ad2019.lab.evolveum.com" -Path "OU=users,OU=test,DC=ad2019,DC=lab,DC=evolveum,DC=com" ; Add-ADGroupMember -Identity 'CN=Big Group,OU=groups,OU=test,DC=ad2019,DC=lab,DC=evolveum,DC=com' -Members "CN=User $value,OU=users,OU=test,DC=ad2019,DC=lab,DC=evolveum,DC=com" }
+
+######
+# Clean up the test structure
+Remove-ADOrganizationalUnit -Identity "OU=test,DC=ad2019,DC=lab,DC=evolveum,DC=com" -Recursive -Confirm:$false
+----
 
 .LDAP troubleshooting
 [source,powershell]
