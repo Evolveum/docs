@@ -143,6 +143,8 @@ SoD with security officer (GDPR?)?
 ** Microcertification: certify privileged access on org change (enabled by default)
 (ISO27001 5.36, 8.2)
 
+** All assignments that were not certified for a long time.
+
 * Compliance dashboard ✓  (TODO: document)
 
 * Compliance reports
@@ -561,6 +563,9 @@ We have to finish this, otherwise we have strange things in GUI such as confusin
 * Introduce "asset" as a first-class citizen in midPoint (later, in synergy with risk assessment).
 What is relation to asset to application?
 Is is (is it related to) the "Application component" concept that sometimes use?
+
+* New field for applications: "Security measures" - allow writing down notes about applied security measures.
+May be useful especially for smaller orgs that do not have dedicated asset inventory.
 
 === Risk model
 
@@ -1181,6 +1186,27 @@ E.g. we want list of all screenings and trainings that user passed (chronologica
 * List of devices by user classification level - to detect which devices may contain sensitive data, e.g. detect where sensitive data could be stored in BYOD device - at least to use it to increase risk
 (ISO27001 8.1)
 
+=== Identity Security Posture Management (ISPM)
+
+Preventive security control.
+Detect (by heuristics, rules) dangerous situations in configuration and policies, such as:
+
+* No strong/multifactor auth for users with privileged access (admins)
+
+* Recent use of emergency account (root, administrator)
+
+* Large number of accounts with privileged access, large number of emergency accounts
+
+* Combinations of old passwords, no strong/multifactor auth, unused/orphaned account and privileged access
+
+* Inconsistent activation/lifecycle, e.g. inactive user with active account
+
+Maybe (if we can):
+
+* Interactive login (console, shell) for service accounts (NHI)
+
+Should be continuous evaluation/monitoring ("Real time Identity Posture Management" buzzword?)
+
 == Recommendations
 
 Recommendations for midPoint deployments:
@@ -1247,6 +1273,11 @@ _Owner_ is responsible, states requirement, makes decisions and approves the rol
 _Custodian_ technically defines the role and "implements" it.
 "segregating the roles of approval and implementation of the access rights"
 (ISO27001 5.18)
+
+* SoD: Exclude Security officer (CISO) and Privacy Officer (due to GDPR).
+Exclude Security officer (CISO) and IT Director (CTO/CIO/COO) (security best practice, any regulation?)
+
+* Security officer should report directly to top management (CEO, board, ...)
 
 * Incident reposnse
 
@@ -1550,6 +1581,10 @@ Setting policy rules, so only some departments may have access to personal data 
 | Somehow clear
 
 |===
+
+More scenarios:
+
+* Machine identities (NHI): management of service accounts
 
 Fit into some scenarios:
 
@@ -2035,6 +2070,10 @@ Grant access to other systems (service accounts) only to registered assets.
 E.g. current location of dossiers (office, work, on-premise/off-premise).
 (ISO27001 7.9)
 
+NOTE: (Martin) MidPoint should not be asset management tool - this is too broad area for identity management solution. Only assets that should be listed in midPoint are assets storing information we need manage access to - e.g. Applications or some data sources (file server shares, Confluence spaces, cloud drives). These assets may be linked to some inventory, but this should be another tool. +
+Midpoint may become a source for such assets (application registration) if an organization does not have good asset management tool. But only for this specific set of assets that are representing targets of user access.
+
+
 == Work Done So Far
 
 * xref:/midpoint/reference/roles-policies/classification/[]
@@ -2229,28 +2268,19 @@ YES!
 
 // * [red]*(!!!)*
 
-* Approval policy rules
-
-** ??? Global policy rule which states that if role has any approvers, the approvers must approve the request - replacing built-in approval magic.
-
-** ??? pre-defined applicable policies for approval
-
-** Approval by application owner
+* resolve issue https://support.evolveum.com/projects/midpoint/work_packages/10198[#10198]
 
 * Test mark for "privileged" users ("privileged access"?) set by policy rule in privileged classification.
 
 * Improve `midpoint.getManagersOidsExceptUser(object)` to prefer archetyped orgs.
 
 * check certification "manual mode" in 4.9.1 - for classification certification.
-Pre-configure classification certification campaign.
+Pre-configure classification certification campaign. (accept/remedy - to report)
 (ISO27001 5.9, 5.12, 5.13)
-
-* Update who has access to what and why report.
-Extend with approver info.
 
 * Apply minAssignee/maxAssignees rules for info on dashboards.
 
-* Role recompute task(s).
+* Role recompute task, User recompute task.
 
 * `Unclassified` mark?
 
@@ -2268,13 +2298,57 @@ Extend with approver info.
 
 ** Classifications
 
-* Example: additional approval level for high-classification applications
+* Reports:
+
+** list all privileged roles (roles that provide privileged access) +
+We don't know, how to do it for business roles - prepare jsut for application roles
+
+** list of users who have privileged access (marked by object mark)
+
+* Methodology and examples:
+
+** additional approval level for high-classification applications
+
+** methodology how to use policies and object marks
+
+*** SoD - documentation + initial objects (user just adds exclusion policy rule to roles - via XML probably at this moment)
+
+** example: easy start (just set policy to mark objects and recompute, manual unassign of the marks)
+(the example of gradual policy enforcement, just with manual steps and less objects)
 
 * Design sessions
 
 ** Policy rules, approvals
 
 ** Metadata, provenance
+
+* Compliance dashboard (examples):
+
+** Users:
+
+*** Marked users (that are marked by any object mark)
+
+*** Privileged users (marked by `Privileged` object mark)
+
+*** Suspicious users (marked by `Suspicious` object mark)
+
+** Roles:
+
+*** privileged (hi-risk) roles
+
+*** roles without owner
+
+*** requestable roles without approver (if possible)
+
+*** unassigned roles (not priority)
+
+*** empty/weak business roles (with zero role induced)
+
+** Policy violations: (here different widgets with policy violations, from examples) +
+technically objects with specific object marks
+
+*** Underassigned roles (requested count of asignees, but not applied, check whether the user is active!)
+
 
 == TODO list for 4.10
 
@@ -2323,3 +2397,42 @@ Policy action: inactivate.
 Supplier organization lost ISO27001 certification (clearance).
 This certification is required.
 How do we mark/inactivate all the identities in this organization?
+
+* Physical person:
+Use case: One physical person has more identities represented as users. Link person to these identities.
+Linked objects
+
+** Show all accesses of physical person
+
+** Reports over physical persons (IGA report)
+
+* Dashboard:
+
+** Users:
+
+*** Top assignees (who has over <XY> asignment of (application) roles - both direct and indirect) +
+The <XY> parameter is defined in configuration. It would be great if the parameter is configurable in gui in future versions.
+
+*** Top app access (who has access over <XY> assignments of applications - both direct and indirect) +
+The <XY> parameter is defined in configuration. It would be great if the parameter is configurable in gui in future versions.
+
+** Role:
+
+*** most complex business roles (over <XY> inducements)
+
+** Policy violations
+
+*** Applications with overassigned licenses (policy XY-app)
+
+* Approval policy rules
+
+** ??? Global policy rule which states that if role has any approvers, the approvers must approve the request - replacing built-in approval magic.
+
+** ??? pre-defined applicable policies for approval
+
+** Approval by application owner
+
+* Reports:
+
+** Update who has access to what and why report.
+Extend with approver info.

@@ -9,7 +9,7 @@ There are several typical cases of volatile attributes.
 
 . Various kinds of default values can be set up on the *object creation*.
 The ConnId primary identifier (if different from the secondary identifier) is a typical example.
-It is harmless, though, as midPoint is well adapted to treat it in this way.
+It is harmless, though, as this is the standard behavior, and midPoint is well adapted to treat it in this way.
 +
 Other examples are LDAP `uid` (determined from the DN), Microsoft Exchange e-mail address, Dummy Resource `internalId` (used by various tests), and so on.
 See, e.g., bug:MID-2436[].
@@ -26,6 +26,8 @@ Assuming a user `U` is a member of child group `CG`, *it's automatically a membe
 This complicates things significantly.
 For example, if there's a delta of removing the membership of `U` in `CG` and adding the membership in `PG`, the first part of the delta is executed, while the second part is ignored by midPoint, as `U` is apparently member of `PG` now.
 The result of the execution is not as expected, then: after the delta application, `U` is no longer a member of `CG` nor `PG`.
+Note that this is extra evil, because the membership is not represented as a user attribute at all!
+It is a simulated association, gathered from the group objects.
 
 . There may be dependencies *between attributes*, e.g., LDAP `uid` may change if the DN changes.
 
@@ -108,43 +110,148 @@ How to do it?
 NOTE: Even if we are speaking of attributes, there's no reason why other items, e.g., activation information, could not be volatile.
 But let's deal with the attributes only for now.
 
-One option is to define the volatility characteristics of an attribute as precisely as possible, e.g., like this:
+One option is to view volatility as a (hidden) graph of dependencies between attributes.
+Like:
 
-#TODO#
+- `ri:uid` depends on `ri:dn` (when creating or modifying an account)
+- `ri:emailAddresses` (Exchange) depends on unspecified attributes (when creating an account), because it is filled-in based on system-specific templates
+- `ri:emailAddresses` (Exchange) depends on itself (when creating or modifying an account), because it does the `SMTP:` vs `smtp:` prefix magic
 
-// [source,xml]
-// ----
-// <objectType>
-//     <kind>...</kind>
-//     <intent>...</intent>
-//     ...
-//     <attribute>
-//         <ref>ri:uid</ref>
-//         ...
-//         <volatility>
-//             <objectCreation>
-//                 <thisItem>unpredictable</thisItem> <!--1-->
-//             </objectCreation>
-//             <thisItemModification>
-//                 <thisItem>none</thisItem> <!--2-->
-//                 <otherItems>unpredictable</otherItems> <!--3-->
-//                 <otherObjects>none</otherObjects> <!--4-->
-//             </thisItemModification>
-//             <otherItemsModification>
-//
-//             </otherItemsModification>
-//         </volatility>
-//     </attribute>
-// </objectType>
-// ----
-// <1> When the object (account) is created, `uid` can be set to any value.
-// <2> This item is - by itself - predictable, i.e., what is written there, remains there.
-// <3> But, it can change as a result of changing other items.
-// <4> Changes in other objects have no effect on this item.
-//
-// The `unpredictable` means that the value of this object can be set by the resource to anything.
+The first rule can be specified like this:
 
-(Maybe it would be good to postpone the redesign of volatility specification until lightweight processing is considered.)
+[source,xml]
+----
+<objectType>
+    <kind>...</kind>
+    <intent>...</intent>
+    ...
+    <attribute>
+        <ref>ri:uid</ref>
+        ...
+        <volatility>
+            <incoming>
+                <source>
+                    <path>attributes/ri:dn</path>
+                </source>
+                <operation>add</operation>
+                <operation>modify</operation>
+            </incoming>
+        </volatility>
+    </attribute>
+</objectType>
+----
+
+The second and third like this:
+
+[source,xml]
+----
+<objectType>
+    <kind>...</kind>
+    <intent>...</intent>
+    ...
+    <attribute>
+        <ref>ri:emailAddresses</ref>
+        ...
+        <volatility>
+            <incoming>
+                <operation>add</operation>
+            </incoming>
+            <incoming>
+                <source>
+                    <path>attributes/ri:emailAddresses</path>
+                </source>
+                <operation>modify</operation>
+            </incoming>
+        </volatility>
+    </attribute>
+</objectType>
+----
+
+The dependency can be specified on the other side as well:
+
+[source,xml]
+----
+<objectType>
+    <kind>...</kind>
+    <intent>...</intent>
+    ...
+    <attribute>
+        <ref>ri:dn</ref>
+        ...
+        <volatility>
+            <outgoing>
+                <target>
+                    <path>attributes/ri:uid</path>
+                </target>
+                <!-- No operation: applies to both ADD and MODIFY -->
+            </outgoing>
+        </volatility>
+    </attribute>
+</objectType>
+----
+
+Or, this one is the equivalent of the current "volatility trigger" specification:
+
+[source,xml]
+----
+<objectType>
+    <kind>...</kind>
+    <intent>...</intent>
+    ...
+    <attribute>
+        <ref>ri:dn</ref>
+        ...
+        <volatility>
+            <outgoing>
+                <!-- no target specification: applies to everything -->
+                <operation>modify</operation>
+            </outgoing>
+        </volatility>
+    </attribute>
+</objectType>
+----
+
+In the future, the relations may be formulated also at the object level, like this:
+
+[source,xml]
+----
+<objectType>
+    <kind>...</kind>
+    <intent>...</intent>
+    ...
+    <attribute>
+        <ref>ri:dn</ref>
+        ...
+    </attribute>
+    <attribute>
+        <ref>ri:uid</ref>
+        ...
+    </attribute>
+    <volatilitySpecification> <!-- the item "volatility" is already taken -->
+        <dependency>
+            <source>
+                <path>attributes/ri:dn</path>
+            </source>
+            <target>
+                <path>attributes/ri:uid</path>
+            </target>
+        </dependency>
+    </volatilitySpecification>
+</objectType>
+----
+
+=== Open Question: Abstraction Level
+
+At what level of abstraction should we define the dependencies?
+
+Examples:
+
+- Simulated features (associations, references) or the "physical" attributes that implement them?
+
+- Associations or reference attributes?
+
+For now, the limitation will be that the volatile attributes must not deal with any simulated features nor associations.
+They must be simple attributes that are not translated between abstraction layers.
 
 == See Also
 

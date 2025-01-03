@@ -15,10 +15,10 @@ See the very end of this document for tl;dr/checklist version.
 
 == Install JAVA
 
-JDK 11 (LTS) is supported for midPoint 4.0 and newer.
+Since midPoint 4.8 preferred JDK version is 21 (LTS). JDK 17 (LTS) is supported for midPoint 4.4 and newer.
 You can download from http://www.oracle.com/technetwork/java/javase/downloads/index.html[Oracle JDK], but you better check the license.
 Or you can try more license-friendly releases like https://adoptopenjdk.net/[OpenJDK from AdoptOpenJDK]
-or https://www.azul.com/downloads/zulu-community/?version=java-11-lts&architecture=x86-64-bit&package=jdk[Zulu JDK from Azul].
+or https://www.azul.com/downloads/?version=java-21-lts&architecture=x86-64-bit&package=jdk#zulu[Zulu JDK from Azul].
 
 JDK (sometimes called SDK) is necessary for building - JRE (just the runtime) is not enough.
 
@@ -71,10 +71,10 @@ In the menu, choose *File | Project Structure...* to open the *Project Structure
 image:mp-idea-project-jdk.png[]
 
 1. Choose *Project* section in the *Project structure* window.
-2. Check that *Project SDK* shows JDK 11.
+2. Check that *Project SDK* shows JDK 21
 3. If not, click *Edit* and set JDK as described on https://www.jetbrains.com/help/idea/sdk.html[this help page].
 4. Alternatively you can access JDK setting via *SDKs* section on the left.
-5. Check the *Project language level* - normally it would be fine to use the level for JDK 11, but as of June 2020 we still secretly (but not officially anymore!) support JDK 8.
+5. Check the *Project language level* - normally it would be fine to use the level for JDK 17
 
 === Setting Maven build
 
@@ -113,7 +113,7 @@ image:mp-idea-marking-generated-sources.png[]
 
 1. To be sure, open a source file that uses the generated class, e.g. `Action` interface from *model-impl* module.
 Notice the unrecognized class.
-2. Locate `infra/schema/target/generated/cxf` directory, and right-click on it.
+2. Locate `infra/schema/target/generated-sources/prism` directory, and right-click on it.
 3. Open *Mark Directory as* submenu.
 4. Click on *Generated Sources Root*.
 
@@ -122,7 +122,6 @@ After a while (a click to an editor may be needed) the missing files are recogni
 == Running midPoint in IDEA
 
 We will run midPoint as standalone application which is a recommended deployment.
-It is possible to run midPoint as WAR in Tomcat, but it is more complicated, less realiable and - which is the most important reason - different from the recommended deployment.
 
 === Setting up the run configuration
 
@@ -132,9 +131,7 @@ To run the application:
 
 1. Locate the main class `MidPointSpringApplication`, for instance press `Ctrl+N`, type *mpsa* and press `Enter`.
 2. Click the green run icon.
-3. Choose *Run* (or *Debug*).
-4. The first time the application is run, it will likely fail with the classpath problem.
-We will fix it soon.
+3. Choose *Edit 'MidPointSpringApplication '...*.
 
 IDEA creates the run configuration and whenever the right run configuration is selected, it's easy to run it with the icons in the toolbar next to the name of the run configuration, or just press `Shift+F10`.
 Alternatively you can use `Alt+Shift+F10` to show the *Run...* popup.
@@ -149,17 +146,32 @@ image:mp-idea-run-configuration-provided-scope-and-shorten-classpath.png[]
 
 In the run configuration:
 
-1. Save the current configuration so it's not transient anymore.
-2. Check the checkbox named *Include dependencies with "Provided" scope*.
-3. (Optional) Running the application may also fail on the command line being too long (especially on Windows).
+. Give the configuration some name, e.g. _midpoint_ and save so it's not transient anymore.
+. Make sure java 21 is selected to be used to run the application.
+. Add VM options
++
+[source]
+----
+-Dserver.port=8080
+-Xms1g
+-Xmx4g
+-Dmidpoint.home=<PATH_TO_MIDPOINT_HOME>
+-Dmidpoint.nodeId=node1
+--add-opens
+java.base/java.io=ALL-UNNAMED
+-XX:ReservedCodeCacheSize=250m
+-Dmidpoint.administrator.initialPassword=qwer1234X!
+----
+. Check the checkbox named *Include dependencies with "Provided" scope*.
+. (Optional) Running the application may also fail on the command line being too long (especially on Windows).
 It is easy to fix with the option name *Shorten command line*.
 This is actually offered by IDEA if this happens, so there is no need to do it proactively.
 The application runs just fine with the shortened classpath, but the classpath information in the log is less helpful.
-4. Confirm the changes with *OK* and run the application again.
-5. This time it should not terminate and show log similar to the picture.
+. Confirm the changes with *OK* and run the application again.
+. This time it should not terminate and show log similar to the picture.
 You may ignore various warnings reported on stderr output (in red).
 
-After a while, open your browser and head to http://localhost:8080 - midPoint application should appear and you can log in with the traditional *administrator*/*5ecr3t* combo.
+After a while, open your browser and head to http://localhost:8080 - midPoint application should appear and you can log in with the traditional *administrator*/*qwer1234X!* combo.
 
 === Viewing logs
 
@@ -211,9 +223,9 @@ image:mp-idea-find-library-usage.png[]
 
 Essential setup tasks:
 
-* Use JDK 11.
+* Use JDK 11 (for midPoint up to 4.3) or JDK 17 (for midPoint 4.4 and later).
 * Run `mvn clean install -DskipTests -P -dist` at least once.
-* Import the project into IDEA as Maven project, set your JDK to 11.
+* Import the project into IDEA as Maven project, set your JDK to correct version (11/17).
 * Set Maven profiles, e.g. disable the *dist* profile.
 * Mark `infra/schema/target/generated/cxf` directory as generated sources.
 * Add run configuration for `MidPointSpringApplication` with *Provided* dependencies included on the classpath and try to run it (shorten the command line if necessary, e.g. using *JAR manifest*).
