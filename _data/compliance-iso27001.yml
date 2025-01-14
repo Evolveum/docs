@@ -2244,15 +2244,14 @@
               Therefore, audit trail can be used as a proof of information deletion.
               However, audit trails have limited lifetime, as all logging records, which has to be considered.
               Moreover, audit trail contains copy of deleted information (for the purposes of "re-playing" object history), which also needs to be considered.
+          - >
+              MidPoint has experimental data erasure mechanism bound to a lifecycle state model.
   evidence:
       - "list of dead shadows"
       - "list of recently deleted objects (audit)"
       - "list of archived users"
       - "list of account that should be deleted but are not (e.g. due to error)"
-  review: updating
-# TODO: midScribe: erasure (account deletion, lifecycle) - deprovisioning
-# TODO: lifecycle erasure - check, is experimental?
-# TODO: report: list of account that should be deleted but are not (e.g. due to error)
+  review: done
 
 - id: '8.11'
   title: 'Data masking'
@@ -2273,9 +2272,8 @@
           Persona functionality could be used to create consistent masked data across several systems.
           Mappings can be used to select data elements to provision to target systems, minimizing the set of data stored in external systems.
           Similarly, authorization mechanism can be used to limit access to sensitive data in midPoint repository and user interface.
-# TODO: refer to access control (5.15,5.18,8.3), RBAC, certification, etc. "access controls to the processed data; agreements or restrictions on usage of the processed data;"
-# TODO: 'assignment-metadata': "keeping track of providing and receiving the processed data."
-# TODO: 'object-history', 'audit-trail'
+          MidPoint access control mechanism (controls 5.15, 5.18 and 8.3) can be used to control access to the processed data, as required by this control.
+          Assignment metadata, as well as audit trail records, can be used to keep track of providing processed data to individual systems or applications (identity resources).
       rationale: >
           While midPoint does not have off-the-shelf support for data masking, similar results can be achieved by using mappings and expressions.
       notes:
@@ -2287,8 +2285,7 @@
           - >
               MidPoint has a built-in mechanism for exporting anonymized data for the purposes of data mining research.
   evidence:
-  review: updating
-# Nice to have: anonymisation, pseudonymization of data export for analytic tools
+  review: done
 
 - id: '8.12'
   title: 'Data leakage prevention'
@@ -2305,9 +2302,9 @@
       details: >
           Application inventory and information classification can provide information about the data that needs to be monitored for data leakage.
           Projection links can be used to track systems where person data were copied, which may help in selecting systems for data leakage monitoring.
-# TODO: midPoint may not be able to prevent leakage, it may be able to identify increased risk of leakage
-# TODO: synchronization as leakage *detection*: identify and monitor sensitive information at risk of unauthorized disclosure (e.g. in unstructured data on a user’s system);
-# TODO: refer to access control (5.15,5.18,8.3), RBAC, certification, etc.
+          While midPoint is not built to explicitly prevent data leakage, the usual access control mechanisms (controls 5.15, 5.18 and 8.3) may limit the possibility for leakage.
+          Moreover midPoint may be used to identify increased risk of data leakage.
+          Synchronization mechanisms mat be used to detect identity data leakage, e.g. by detecting accounts that should not exist.
       rationale: >
           Data leakage prevention is almost completely out of scope of identity management.
           MidPoint can only provide supplementary information.
@@ -2315,10 +2312,7 @@
       - "List of classifications, with description"
       - "List of orphaned accounts"
       - "Report of synchronization situations"
-  review: updating
-  # Example/question: Detect account that exist, are correlated, but are illegal - can we report that before deprovisioning?
-  # Report: users that have changed org, but were not certified
-
+  review: done
 
 - id: '8.13'
   title: 'Information backup'
@@ -2341,27 +2335,29 @@
           As midPoint data are always fresh, it can effectively re-play the changes that happened between taking a back-up image and failure of the system, which are missing in the restored data set.
           MidPoint can use orphan detection mechanism to de-activate any accounts that should not be active any more.
           Synchronization reactions can be used to re-create any new accounts.
+          Live synchronization and reconciliation can be used that the "backup" data stored in midPoint are kept up-to-date.
           MidPoint can also correct access privileges that have changed in the period which is not recorded in back-up image.
           Simulations can be used to preview changes that midPoint would do to the restored system, which can be precious indication about freshness and validity of restored data, before putting restored system into production.
           MidPoint can be instrumental in testing restoration procedures, automatically validating that user databases and access control data were correctly restored.
-# TODO: 'live-synchronization', 'reconciliation', - to make sure our data are up-to-date
-# TODO: caching?
       rationale: >
           System back-up images usually cannot be completely fresh, the images are created at regular interval.
           When a system is restored, some data are inevitably missing.
           This includes access control data as well.
           Outdated access control data are a major security risk, especially shortly after security incidents, at which time it is likely that data restoration procedures will be needed.
           MidPoint is a necessary tool to quickly update user databases, privileges and access control data of restored systems, to make sure they are secure.
+      notes:
+          - >
+              Attribute caching mechanism stores copies of account attributes in midPoint repository.
+              Even though it was not designed as a data backup mechanism, it could be potentially used as an emergency backup.
+          - >
+              Information stored in midPoint could be theoretically (partially) restored from account data in identity resources.
+              However, this process may be difficult and error prone (e.g. enforcement must be turned off), and some information may be lost.
   evidence:
       - "Synchronization/reconciliation schedule"
       - "Accounts that were not synchronized for a long time"
       - "Resources that were not synchronized for a long time"
       - "List of resources with timestamp of last sync/recon"
-  review: updating
-# TODO: NOTE: midPoint can be restored from resource data, althouh it needs to be carefull (e.g. do not enforce)
-# TODO: Synchronization/reconciliation overview: flow direction, schedule, etc.
-# TODO: Accounts that were not synchronized for a long time
-
+  review: done
 
 - id: '8.14'
   title: 'Redundancy of information processing facilities'
@@ -2371,7 +2367,7 @@
   necessity: optional
   related: [ '5.30' ]
   relatedFrameworks: [ 'ISOTS23167' ]
-  features: [ 'synchronization', 'live-synchronization', 'reconciliation', 'provisioning', 'provisioning-consistency', 'ha', 'auto-scaling', 'audit-trail' ]
+  features: [ 'synchronization', 'live-synchronization', 'reconciliation', 'provisioning', 'provisioning-consistency', 'ha', 'auto-scaling', 'audit-trail', 'attribute-caching' ]
   implementation:
       overview: >
           MidPoint provides synchronization functions for access control information in redundant components.
@@ -2381,18 +2377,22 @@
           In case of "hot" standby systems, midPoint can continually synchronize the data, making sure the standby systems is always prepared for production use.
           In case of "cold" standby systems, midPoint can quickly set up the system before it is prepared for production use.
           MidPoint can synchronize access control information even in heterogeneous systems, such as back-up cloud services that are not directly compatible with primary services.
-# TODO: 'live-synchronization', 'reconciliation', - to make sure our data are up-to-date
-# TODO: audit - to keep track of failures
+          Live synchronization and reconciliation can be used that the "backup" data stored in midPoint are kept up-to-date.
+          As all operations are recorded in audit trail, it can be used to keep track of failed operations and system failures.
 # TODO: caching?
       rationale: >
           Weak security of redundant and emergency components can be a serious problems, as suggested by this control.
           MidPoint can automate synchronization of access control information in such systems, lowering the risks.
+      notes:
+          - >
+              MidPoint supports high-availability (HA) configuration, including autoscaling ability.
+          - >
+              Attribute caching mechanism can be used to store account attribute data in midPoint repository, allowing midPoint to operate even if the corresponding identity resource is not available.
   evidence:
       - "List of midPoint nodes"
       - "List of recent failures (audit)"
       - "List of resources with timestamp of last sync/recon"
-  review: updating
-# TODO: Note: 'ha', 'auto-scaling': "using multiple parallel instances of software components, with automatic load balancing betweenthem (between instances in the same data centre or in different data centres);"
+  review: done
 
 - id: '8.15'
   title: 'Logging'
@@ -2420,12 +2420,6 @@
       - "Auditing configuration"
       - "Audit dashboards - audit log analysis and interpretation"
   review: updating
-# TODO: Question: audit logging about campaigns: start/stop, historical data about campaigns (as audit evidence), decisions of reviewers, etc.
-# TODO: check that there is audit record for denied access
-# TODO: check that refused access requests are audited
-# TODO: recommend storage audit trail/logs for 3 years (matching with 3 year ISO cycle), or at least 1 year (intermediate audit), also historical data (e.g. cert campaigns)
-# TODO: Question: "Controls should aim to protect against unauthorized changes to log information and operational problems with the logging facility including" - log server?
-# TODO: audit log: append only table?
 # TODO: check Slovak version of audit evidence in doc
 
 - id: '8.16'
@@ -2447,14 +2441,16 @@
           Moreover, midPoint can provide essential access control information (a.k.a. "who has access to what") to other detection systems by using midPoint application programming interface (API).
       rationale: >
           MidPoint is de facto monitoring system for identity administration and access control.
+      notes:
+          - >
+              Even though midPoint monitors identity administration and access control, it is not meant to be security information and event management (SIEM) system.
+              MidPoint keeps track of identity and access control, however its knowledge about user behavior is limited.
   evidence:
       - "'last login' report?"
       - "Report unused accounts"
       - "List of accounts used after a long dormant period"
       - "Audit trail, object history"
-  review: updating
-# TODO: Note: use of last login in midPoint - current limitations (e.g. audit log for logins to midPoint only), i.e. midPoint is not SIEM
-# TODO: Future idea: use policy rules to react to behavior, e.g. account unused for a long time
+  review: done
 
 - id: '8.17'
   title: 'Clock synchronization'
@@ -2491,13 +2487,12 @@
       notes:
           - >
               MidPoint contains internal mechanisms that are similar to privileged utility programs, namely runPrivileged and runAs mechanisms for expressions.
+          - >
+              MidPoint is identity governance and administration (IGA) platform, it is not privileged access management (PAM) system.
+              Capabilities of midPoint to directly control use of privileged utility programs are limited to the capabilities an IGA platform can provide.
   evidence:
       - "List of privileged access - privileged roles, and user with privileged roles"
-  review: updating
-# TODO: some marks may reduce access, e.g. reduce privileged access for users marked "disciplinary"
-# TODO: idea: policy rules that deactivate certain assignments?
-# TODO: Note: midPoint is not PAM.
-# TODO: Note: There are some limitations. If a utility program uses e.g., Active directory it may be difficult to detect such applications.
+  review: done
 
 - id: '8.19'
   title: 'Installation of software on operational systems'
@@ -2523,12 +2518,7 @@
           While actual enforcement of access control to software installation is in scope of operating systems and privileged access management (PAM) systems, midPoint can manage the access control rules and policies.
   evidence:
       - "List of applications, with versions and EOL"
-  review: updating
-# TODO: application inventory: version, EOL date, warn for EOL (close to EOL, exceeded EOL) - dashboard - stronger warning for high-classification apps
-# TODO: do we have time-sensitive policy rule? e.g. account going to expire, getting close to EOL, etc.
-# TODO: filter supplier activity from audit log? Audit log: filter by user archetype?
-# TODO: recommend special-purpose cert campaigns for suppliers
-# TODO: use case: grant access to PC admins to location only for a limited time period needed for system update -  privilege on demand
+  review: done
 # future: license management
 
 - id: '8.20'
