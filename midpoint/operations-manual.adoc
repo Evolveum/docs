@@ -1,4 +1,4 @@
-= Operations manual
+= Operations Manual
 //:source-highlighter: highlightjs
 //:source-highlighter: pygments
 :experimental:
@@ -2212,6 +2212,174 @@ Please include the *Caused by* exception in your log reports if reporting issues
 === Task Performance Troubleshooting
 
 See xref:/midpoint/reference/diag/troubleshooting/troubleshooting-task-performance/[].
+
+=== Recover Lost Configuration in midPoint 4.9.1
+
+Starting with midPoint 4.9.1, we changed the default schema for the repository structure to match the name of the user accessing the database, i.e., midPoint.
+This approach is currently recommended for PostgresSQL environments and replaces previous configurations that point to the public schema.
+The change may lead to an issue where you seemingly lose midPoint configuration if you re-initialize your environment.
+Don't worry, though, *your data is safe*, and *this guide is here to help you resolve the situation*.
+
+[NOTE]
+====
+If you've initialized your midPoint environment with a schema owned by the current user right from the start, this issue won't affect you even if you re-run the initialization script.
+====
+
+==== Affected Environment
+
+There are a few conditions for the issue to occur:
+
+. You have a working midPoint environment, possibly migrated from older midPoint versions. +
+    You don't have to worry about any of this if you're setting up a midPoint environment from scratch.
+. You run your midPoint using *Docker*. +
+    You should be fine if you xref:/midpoint/install/#traditional-installation[installed midPoint from a distribution package] because in such a case, the initialization script is usually run manually only once.
+. You executed the script for *repository initialization*. +
+    This usually happens automatically in Docker environments, and the issue is the result of improper detection of existing environments.
+
+==== How the Issue Manifests
+
+As a user, you see the default login form.
+Custom settings (e.g., self-registration, password reset) disappear from the login page.
+
+After providing valid credentials, login is denied with the notice `Invalid username and/or password`.
+
+===== Technical Reasons Behind the Issue
+
+Using the public schema used to be a recommended default for Postgres DBs.
+However, this has changed recently, and it's recommended to use the actual current user accessing the database instead.
+
+This isn't an issue for new deployments.
+For older deployments, there's a fall-back to the public schema to uphold the backward compatibility in case the current user's schema isn't available or is empty.
+
+This means that as long as the current user's schema is empty, the public schema is used without an issue.
+
+[TIP]
+====
+In the context of midPoint deployment, the _current user_ is always "midpoint".
+====
+
+However, if you run the initialization script and the check for an existing environment fails, the script initializes a new environment using the `CURRENT_USER` variable, which equals to `midPoint`.
+At this point, there's a fresh new schema in the current user's name as well as the old working public schema.
+And since using the current user is the new default, all requests end up in the new schema making it look like midPoint has been initialized from scratch and your data has been lost.
+
+Fortunately, *nothing is lost*.
+The public schema is still there.
+Read on to learn how to recover it.
+
+.PostgresSQL (repository) side of the issue
+[%collapsible]
+====
+[source]
+----
+# select table_schema, count(*) as count_of_tables from information_schema.tables where table_type = 'BASE TABLE' group by table_schema;
+
+    table_schema    | count_of_tables
+--------------------+-----------------
+ information_schema |               4
+ midpoint           |             100 <!--2-->
+ pg_catalog         |              64
+ public             |              88 <!--1-->
+(4 rows)
+
+# \dns *
+            List of schemas
+        Name        |       Owner
+--------------------+-------------------
+ information_schema | midpoint
+ midpoint           | midpoint <!--2-->
+ pg_catalog         | midpoint
+ pg_toast           | midpoint
+ public             | pg_database_owner <!--1-->
+(5 rows)
+
+----
+<1> Original content of the repository
+<2> Newly initiated repository
+====
+
+==== Solution to the Issue
+
+To solve this issue, *rename or remove the newly created schema*.
+To prevent repeating the situation, transfer the ownership of the public schema.
+
+* The public schema isn't mandatory and can be removed or transferred to the current user.
+  Some sources recommend doing so.
+* Operations are processed with preference for the current user's schema.
+
+===== Remove the New Schema
+
+If you want to clean up the database, this is the preferred option.
+
+. Remove the newly initialized schema owned by the current user.
+. Transfer the ownership of the functional public schema to the current user.
+. Rename the previously public schema to `midpoint`.
+
+All requests will land in the previously public schema now properly owned by the current user, i.e., `midpoint`.
+
+.PostgresSQL commands for this solution.
+[source]
+----
+DROP SCHEMA midpoint CASCADE;
+ALTER SCHEMA public OWNER TO midpoint;
+ALTER SCHEMA public RENAME TO midpoint;
+----
+
+.final state of the database
+[%collapsible]
+====
+[source]
+----
+# \dns *
+            List of schemas
+        Name        |       Owner
+--------------------+-------------------
+ information_schema | midpoint
+ midpoint           | midpoint
+ pg_catalog         | midpoint
+ pg_toast           | midpoint
+(4 rows)
+----
+====
+
+===== Rename the New Schema
+
+If you're not comfortable removing the newly created schema, you can use this solution instead.
+
+. Rename the newly created fresh schema.
+. Transfer the ownership of the functional public schema to the current user.
+. Rename the previously public schema to `midpoint`.
+
+The newly initialized repository will be available in the `midpoint_bcp` backup schema.
+All requests will, however, land in the previously public schema now properly owned by the current user, i.e., `midpoint`.
+
+.PostgresSQL commands for this solution.
+[source]
+----
+ALTER SCHEMA midpoint RENAME TO midpoint_bcp;
+ALTER SCHEMA public OWNER TO midpoint;
+ALTER SCHEMA public RENAME TO midpoint;
+----
+
+.final state of the database
+[%collapsible]
+====
+[source]
+----
+# \dns *
+            List of schemas
+        Name        |       Owner
+--------------------+-------------------
+ information_schema | midpoint
+ midpoint           | midpoint
+ midpoint_bcp       | midpoint
+ pg_catalog         | midpoint
+ pg_toast           | midpoint
+(5 rows)
+----
+====
+==== Relevant resources
+
+* xref:/midpoint/reference/repository/configuration/[]
 
 == Maintenance
 
