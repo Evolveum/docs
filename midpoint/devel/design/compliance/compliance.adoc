@@ -1,0 +1,2614 @@
+= Compliance Design Notes
+:page-nav-title: Compliance Design Notes
+:page-toc: top
+
+This page contains design notes on xref:/midpoint/compliance[compliance], thoughts, missing feature description, etc.
+
+== Wishlist
+
+=== Critical/Blockers
+
+* [RESOLVED] bug:9869[] Policy rules minAssignees/maxAssignees are not triggering: Majority of compliance-related policy rules does not work
+* [RESOLVED] bug:9925[] Marks not visible in GUI: It is really hard to find object that violates the policy
+* [RESOLVED] bug:9985[] Role owner authorization broken: delegated role administration does not work at all
+* bug:10061[] Safe expression language - critical for security (e.g. safe demo)
+* bug:10433[] Handling of "enforce" policy rules with pre-existing violation
+
+* Design discussions regarding archetypes, org roots and rules (initial objects)
+
+* Password management: to pass ISO27001 requirements
+
+Not blockers, yet very painful and/or limiting:
+
+* bug:9929[] Default marks for policy rules does not work: marks need to be always specified explicitly - which is more work, but also potential problem for upgrade
+* [RESOLVED] bug:9914[] Certification campaign definition: PolicyType cannot be selected: Compliance-related certifications cannot be defined
+* bug:9951[] Default approval rules do not make sense anymore: we cannot add any approval-related applicable policies to initial objects
+* bug:10432[] index policy rules
+
+=== Important
+
+What we really need to address in 4.10:
+
+* bug:10002[] archetypes and GUI - needed for basic management of birthright
+* bug:10429[] minAssignee/maxAssignee: active users only
+
+* Detect extra (unknown) members in groups.
+This is critical especially for groups that provide privileged access.
+(ISO27001 8.2)
+
+* `Privileged` classification for (application) roles and entitlements.
+Show that in GUI, at least in object details.
+Allow to search users/roles that have this classification.
+Allow to search for _users_ with privileged access at the very least.
+May be implemented by combination with a mark.
+
+* Improve `midpoint.getManagersOidsExceptUser(object)` to prefer archetyped orgs.
+Otherwise, the org-based expressions (e.g. approvers) does not work properly with multiple orgstructs.
+
+Good to have in 4.10:
+
+* bug:10431[] Transitional policy rules not removing marks
+
+To test in 4.10:
+
+* Certifications: Make sure we can certify clearances
+
+* Make sure we can read and use last login from the resources (e.g. report unused accounts/users)
+
+* Classifications: prominent place in GUI, pass through inducements, searching, reporting.
+See xref:/midpoint/features/planned/classification/[].
+(ISO27001 5.13)
+
+* check certification "manual mode" in 4.9.1 - for classification certification.
+Pre-configure classification certification campaign. (accept/remedy - to report)
+(ISO27001 5.9, 5.12, 5.13)
+
+* Policy rule exceptions
+
+=== Lower Priority
+
+* `Privileged` classification for (application) roles and entitlements.
+Show that in GUI, at least in object details.
+Allow to search users/roles that have this classification.
+(May be implemented by combination with a mark.)
+
+* Make `Privileged Access` label (classification) much more visible in GUI.
+Display it at prominent location in details page, maybe find a way how to mark it in lists.
+Mark privileged access in certifications. (ISO 27001 5.13, 5.18)
+
+* Policy rules
+
+** Better GUI: At least show that `enforce` action is there
+
+** Better GUI: overall improvement, probably custom widget?
+
+** min/max assignees: considering active users in orgs
+(ISO27001 5.36)
+bug:10430[]
+
+** Nicer messages when violated
+
+* Review database permissions. Can we make audit trail insert-only?
+(ISO27001 5.28)
+
+* ConnId pre-defined attribute `PRIVILEGED_ACCESS`, can be used for groups such as `Domain Administrators` or accounts such as `root`.
+
+* Ability to set `Privileged Access` classification on application roles that originated from groups marked as privileged by the connector.
+
+* Better GUI support for custom assignment panels.
+E.g. show assignments with particular archetype (classification,clearance), also the "assign" button should only list targets of that archetype.
+(ISO27001 5.13)
+
+* Negative assignment ("exception from rule") (ISO27001 6.4)
+
+* Approval improvements
+
+** Rule of 4 eyes: requestor cannot be approver, even if he is specified as approved in the policy
+(ISO 27001 5.15, 5.18)
+
+** Handling of situation when there are no valid approvers, e.g. in case the "rule of 4 eyes" disqualified the only approver.
+(ISO 27001 5.15)
+
+* New notification event, triggers when gaining access to something (e.g. first assignment of application, even indirectly).
+Can be used to deliver the acceptable use statement using notifications.
+Can be used for "you have privileged access now, you should behave" notification
+Pre-configuring notifications for this.
+(higher priority) (ISO 27001 5.10, 8.2)
+
+* Make sure we can read number of failed login attempts from the resources (CZ NIS 2)
+
+* Finish concept of "application inventory" (design)
+
+* Flag for org, whether it should be considered root of hierarchical org structure.
+We may not need root objects for many flat structures, such as projects or teams.
+Archetype is enough in this case.
+Automatic detection of org roots make problems in this case, as it detects all projects and teams as org roots.
+
+== Configuration/Schema Changes
+
+Changes we can make in 4.9 using configuration:
+
+* Archetypes
+
+** `Project` archetype and root org.
+Appropriate `assignmentRelation` for projects: members, managers, owners (stakeholders).
+
+** `Location` archetype and root org.
+(ISO27001 7.1, 7.2, 8.6)
+
+** `Organizational unit` (or department/section/division? or have them as auxiliary/subtypes?) Can we also create root org (functional orgstruct)?
+
+** `Organization` ... use this as a root org for `Organizational unit`s?
+
+** `Asset`? (variation of "App component" ... or is it something different?)
+
+** "Top org container" for top-level orgs for projects and locations? Or we need special-purpose archetypes for this?
+
+** `Supplier`? org? user? (pre-configured certs)
+(ISO27001 5.19,5.20,5.21,5.22)
+
+** `Category` for role catalog. Maybe `Role category`? `Catalog category`?
+
+* Views (meno,org): Projects, Locations, Teams?
+
+* Marks
+
+** `Underassigned`: Pre-defined mark for "understaffed", "staff shortage" or "vacancies", such as no manager for project, less than two members of critical team, etc.
+Can be used in pre-configured dashboard.
+(ISO 27001 5.2, 5.8, 6.5, 8.6) ✓
+
+** `Understaffed security`: Pre-defined mark for staff shortage in security-related role or organization.
+Can be used in pre-configured dashboard.
+As opposed to regular `Underassigned` mark, this can be used in dashboards with higher severity, as security-related shortage is likely to pose high risk.
+(ISO 27001 5.2, 6.5) ✓ (TODO: document)
+
+** `Disciplinary` or `investigation` mark, marking users that are being investigated, that are under disciplinary action, etc.
+Some (high-risk/privileged) roles may be disabled for such users (using inducement conditions).
+Not very certain about this mark, yet.
+(ISO27001 6.4)
+
+** `Personal information`/`Personal data`?
+(ISO27001 5.34)
+
+* Classifications
+
+** `Information security responsibility` classification to mark all roles, apps and services that are related to information security.
+For roles and orgs there will be default minAssignee policy rule for `Understaffed security` mark.
+For orgs, we will need an "understaffing" rule for manager as well.
+Maybe we can add rule for additional approval of role assignment by the security office?
+At least document such scenario in docs.
+(ISO 27001 5.2)
+
+** `Business-critical`: pre-defined classification for applications/assets?
+
+** `Incident response`: pre-defined classification for roles?
+This could be used to stricter requirements for assignment/owners, certifications.
+It could be used for reminders to regularly test incident response the scenarios?
+(ISO27001 5.24)
+
+** `Remote access` or `Remote work`. Does it make sense? Maybe everybody has remote access, at least technically?
+May be used to prohibit access to sensitive information, when a user has ability for remote working.
+May be used to enforce MFA (sometimes in the future).
+(ISO27001 6.7)
+
+** `Personal information`/`Personal data` for roles granting access to personal data, thus subject to GDPR?
+Also for applications dedicated to personal data?
+Setting up additional approval by DPO?
+Question: are we going to mark applications that have PII? These are pretty much all of them. Should we have two classifications?
+(ISO27001 5.34)
+
+** Classification for `Emergency access`? Similar to privileged access.
+
+** Classification for `Strong authentication required`.
+Can be used as a placeholder for AM MFA configuration, also used for reporting, etc.
+(ISO27001 8.5)
+
+** Classify security-relevant roles "Information security responsibility" ✓
+
+
+* Roles
+
+** `Role management administrator`: ability to create new roles, edit existing roles, set role owners, etc.
+Access to admin GUI to see/modify business/application roles, applications, etc.
+Full access to role details.
+Quite powerful privilege.
+
+** `Business role manager`: ability to create new business roles in a safe way.
+Access to admin GUI to see business/application roles, applications, etc.
+Role wizard, limited role details.
+Autoassign rules?
+"Delegated" access.
+
+** `Security officer`?
+
+** `Data protection officer` (DPO) / Privacy officer.
+SoD with security officer (GDPR?)?
+
+* Certification:
+
+** All manually assigned roles
+
+** All manually assigned application roles
+
+** All privileged role assignments
+(ISO27001 8.2)
+
+** Business role definitions
+
+** Inducements in orgs to (business/application) roles.
+(ISO27001 5.36)
+
+** Microcertification: certify all access on org change (disabled by default)
+(ISO27001 5.36)
+
+** Microcertification: certify privileged access on org change (enabled by default)
+(ISO27001 5.36, 8.2)
+
+** All assignments that were not certified for a long time.
+
+* Compliance dashboard ✓  (TODO: document)
+
+* Compliance reports
+
+* Pre-defined applicable policies:
+
+** Approval by manager (ISO 27001 5.15, 5.18)
+
+** Approval by role owner (ISO 27001 5.2, 5.15, 5.18)
+
+** Approval by application owner (ISO 27001 5.2, 5.15, 5.18)
+
+** Approval by security office? (Maybe create this only as an example) (ISO 27001 5.2, 5.15, 5.18)
+
+* minAssignee policy rule for owner in `Business role` archetype?
+
+* Default policy rule for roles checking whether role/app has an owner.
+TODO: which mark to use? `Understaffed` does not seem appropriate.
+Maybe `Neglacted` or `Unowned`?
+
+* _Environment_ (devel/test/prod) demarcation for ServiceType (mostly applications).
+"displaying appropriate environment identification labels in menus to reduce the risk of error" [ISO27001 8.31]
++
+Probably create `Environment` archetype for orgs (and root org as well, with pre-defined devel/test/prod), which is assigned to services (applications).
+Also apply to resources (ResourceType) and midPoint itself (SystemConfiguration?).
+How can application "inherit" environment from resource?
+However, we need option for application not to "inherit" environment, e.g. we can have testing apps that still use production AD for authentication.
+Inducement from app to resource, could this work?
+(ISO27001 8.25, 8.27, 8.31, 8.33)
+
+* Review database permissions. Can we make audit trail insert-only? (ISO27001 5.28)
+
+* Pre-define certification (campaigns and micro) for _privileged_ access rights.
+(ISO27001 5.36, 8.2)
+
+* Object mark "suspicious", can be used to mark objects for later investigation.
+(ISO27001 5.27, 5.28, 5.29, 6.8)
+
+* Object mark "investigation" or "disciplinary", can be used to mark people/roles that are under (disciplinary) investigation.
+Can we make conditions to disable parts of roles when under disciplinary/investigation?
+(ISO27001 6.4)
+
+* Object mark "leaderless", marking missing managers of org units, teams and projects.
+
+* Create `Teams` top-level org and archetype?
+Pre-configure `Cybersecurity team`, as a target for some default rule.
+E.g. "Approval by security team" applicable policy, policy rule in `Privileged` classification (at least in example)?
+
+* Relations for read, write, admin.
+For fine-grain access control.
+
+* Extend application/asset schema.
+It should include:
+(ISO 27001 5.9,8.8)
+** software vendor
+** software name
+** version numbers
+** current state of deployment (designed/devel/test/production/...)
+** Business purpose (important!): "why do we need this asset at all?", e.g. to document need for APIs/services, who is supposed to use them, etc. Indicates when we can decommission the asset.
+** Link to app entry point?
+** Maybe: installation target? Where is the app installed?
+** Later: reference to SBOM or other fine-grained BOM/versioning data.
+
+
+* type of service ?
+** origin: internally-sourced, purchased
+** deployment: on-prem, private cloud, domestic public cloud (EU), foreign public cloud (non-EU) - locations/zones ???
+** maintenance: self-provided (internal), managed service
+
+* Marks
+
+** `Unclassified` - applications without classification + policy rule (in Application archetype?)
+
+** `Misconfiguration` - e.g. application role without inducement to application
+
+** idea: pre-configured `Policy violation` mark, manage exceptions (temporary exceptions).
+We can set several marks at once, therefore we can set this in addition to any other mark that is more descriptive.
+Alternative: mark _types_? - this may not be ideal, as not all _underassignments_ may be policy violations.
+
+* _Owner_ column for application list
+
+* `Custodian` relation? (See below)
+
+== Missing Features
+
+
+=== Password management
+
+* dictionary check: enabled by default? Not showing in GUI. (ISO 27001 5.17)
+
+* dictionary check for combination of dictionary words. (ISO 27001 5.17)
+
+* Forcing password change on next login: how can we make it easier to set up? (ISO 27001 5.17)
+
+* Closer integration with AM/SSO? Force password change, last login, etc. (ISO 27001 5.17)
+
+* enforcing different passwords on resources (ISO 27001 5.17 (D))
+
+* enforcing different password for administrator personas (ISO 27001 8.2)
+
+* "users acknowledge receipt of authentication information" (ISO 27001 5.17)
+
+* [red]*(!!!)* Force change of pre-configured administrator password on first login (ISO 27001 5.17)
+
+* maximum number of password changes per time (e.g. per day) (ENISA-baseline)
+
+* "prevent the use of commonly-used passwords and compromised usernames, password combinations from hacked systems" (ISO 27001 5.17)
+
+* Guidance for end-users how to use password on pages that deal with passwords (ISO 27001 5.17)
+
+* Clean up documentation for password reset (it is in really bad shape)
+
+* Check that we use "approved cryptographic techniques for passwords" (encryption, hashing) (ISO 27001 5.17)
+
+* Password policy, finer granularity for application.
+E.g. if somebody has ability for remote access (role,classification), he should have stronger password policy.
+(ISO27001 6.7)
+
+
+=== Classifications
+
+xref:/midpoint/features/planned/classification/[] (ISO 27001 5.13, 5.8, 8.2)
+
+* Privileged access (ISO 27001 5.15, 5.18, 8.2, 8.9)
+
+** `Privileged` classification for (application) roles and entitlements.
+Document its use.
+
+** Make `Privileged Access` label (classification) much more visible in GUI.
+Display it at prominent location in details page, maybe find a way how to mark it in lists.
+Mark privileged access in certifications. (ISO 27001 5.18)
+
+** Allow to search users/roles that have this classification.
+Set up reports/dashboards.
+
+** Mark for "Privileged access", applied to all objects that deal (directly or indirectly) with privileged access.
+Can be used in searching or GUI.
+
+** ConnId pre-defined attribute `PRIVILEGED_ACCESS`, can be used for groups such as `Domain Administrators` or accounts such as `root`.
+
+** Ability to set `Privileged Access` classification on application roles that originated from groups marked as privileged by the connector.
+
+* authorization and classifications: consider classification level (e.g. privileged) in assign/unassign authorization statements.
+E.g. grant ability to assign roles to delegated administrators, except for roles that contain privileged access.
+Do we need _mark_ here instead of _classification_?
+How we are going to distinguish _business_ roles that have privileged access?
+They are not explicitly classified as privileged.
+(ISO27001 8.2)
+
+=== Policy rules
+
+* `requirement` constraint (ISO 27001 5.13, 5.8)  ✓
+
+* Error messages and overall presentation of policy rule violations.
+Current error message looks like:
++
+`No assignment exists for role 09360ff0-d506-4751-b13f-4e01422693ac (after operation)`
++
+Overall, the presentation of policy rule violations should be re-thought and significantly improved.
+(ISO 27001 5.2, 5.3, 5.8, 5.9, 5.12, 5.13, 5.14)
+
+
+* min/max assignees: considering all users or active users (ISO27001 5.36)
+
+* Better GUI. E.g. `enforce` action is not even shown in current GUI.
+
+* Show evaluated policy rules or marks in GUI.
+E.g. I want to see that role has violated minAssignee constraint when I look at role details.
+
+* Policy rule exceptions and exception approvals - make sure they work. Use cases: SoD exceptions, classification violation exceptions, clearance exceptions.
+(ISO 27001 5.3, 8.7)
+
+* Policy rule exception validity, i.e. exception for a short time period.
+(ISO 27001 5.3, 8.7)
+
+* Policy rule exception review (certifications)
+(ISO 27001 5.3, 8.7)
+
+* Index/search all objects that have policy rule (specific constraint, markRef and action report/enforcement)
+(ISO 27001 5.3, 5.36)
+bug:10432[]
+
+* minAssignments/maxAssignments constraints?
+E.g. applications without classification
+(ISO27001 5.12, 5.13)
+
+* Could we make the rules smarter to tolerate existing violations?
+E.g. if a user has SoD violations, we could still allow normal operations to proceed, as long as they are not creating new violation.
+
+* Use case of lost clearance: remove/deactivate all assignments that require the clearance.
+(ISO27001 5.12, 5.13)
+
+* Policy action: inactivate. E.g. automatic inactivation of user that lost required clearance.
+Question: inactivation of user? Or assignments?
+(ISO27001 5.12, 5.13)
+
+* Determine purpose/lifecycle of policy rule?
+E.g. distinction between `report` policy rule that is being rolled out (to be set to `enforce` later),
+and rule that is mean to report only, meant as a final measure.
+(ISO27001 5.36)
+
+* minAssignee/maxAssignee: ability to require _active_ assignees, not just any assignees.
+bug:10429[]
+
+* minAssignee/maxAssignee: when it points to org, make sure that org has at least one active member.
+bug:10430[]
+
+* Constraint: object/assignment is about to expire in X days
+(ISO27001 6.3)
+
+** Constraint: object/assignment that was not certified for X days
+(ISO27001 6.3)
+
+* Nice to have: Rule for requirements in team composition.
+E.g. a supplier must have at least on CISO-certified (clearance) user in the team.
+A project must have at least one member from security department.
+
+* Idea: new reaction to increase/decrease risk score (risk management)
+
+* Idea: policy rules could trigger _security event_ (whatever that means).
+Non-compliance with policy can be considered security event.
+This can lead to notification, sending of "signal", etc.
+
+* Constraint: presence of object mark.
+E.g. prohibit assigned of new privileged access to a user who is suspicious or subject to disciplinary action.
+(ISO27001 6.4)
+
+* Use policy rules to react to behavior, e.g. account unused for a long time.
+(ISO27001 8.16)
+
+* Policy rules that deactivate certain assignments?
+E.g. some marks may reduce access, e.g. reduce privileged access for users marked "disciplinary".
+(ISO27001 8.18)
+
+* do we have time-sensitive policy rule? e.g. account going to expire, getting close to EOL, etc.
+(ISO27001 8.19)
+
+* Condition for policy rule (for optimization): when the condition is false, its evaluation is skipped.
+This can be used to skip evaluation of expensive policy rules in normal operation, evaluate them only on special tasks, or at certain intervals.
+
+=== Marks
+
+* Marks should have a "retention" setting, specifying whether the mark could be cleared automatically (e.g. by policy rule going "off"), or it should be retained until cleared manually by system administrator.
+This would be useful for marking objects with `modification` constraint, policy rule setting the mark, but it has to be manually cleared when modification is reviewed.
+It may be also useful for setting up policy rules that set `suspicious` mark for some combinations of states/attributes (also as "modification" constraint).
+We want to retain that mark until it is manually reviewed and cleared.
+
+* Marks could have "warning" setting. If active, GUI would warn user that object has a mark - or that an operation results in object getting a mark.
+The warning will be displayed after the operation is completed, or on preview page.
+E.g. assigning a conflicting role resulted in "exclusionViolation" mark.
+E.g. removing a classification assignment from an application did result in getting "unclassified" mark on object.
+Also show the warning in shopping cart, e.g. when conflicting roles are selected.
+This should be a warning, not a hard error.
+
+* The "warning" setting could influence how prominently is the mark displayed in the GUI, e.g. whether it should be shown in object lists, object details, summary panels, etc.
+
+* Mark types: operational, policy violation, note, simulation, ... (aux archetypes?)
+E.g. I want to list all objects that have any policy violation.
+(ISO27001 5.18, 5.19)
+
+* Colors for marks. E.g. I want all policy violations to be bright red.
+(Also see above)
+
+* Marks and authorizations: can we delegate management of specific marks to operators?
+E.g. can we delegate users to be able to set `suspicious` mark, but not be able to unset it?
+(ISO27001 6.8)
+
+* Idea: some marks may reduce access, e.g. reduce privileged access for users marked "disciplinary".
+Could we use policy rules for that?
+(ISO27001 8.18)
+
+=== GUI
+
+* Show marks in object details
+
+* Better support for custom assignment panels.
+E.g. show assignments with particular archetype (classifiation,clearance), also the "assign" button should only list targets of that archetype.
+
+* Dashboard widgets that can show/list objects of generic types, such as `AssignmentHolderType` or `AbstractRoleType`, or even `ObjectType`.
+Currently, these widgets do not have the "More info" link to list objects.
+
+* Default column for roles: "number of members" instead of "projections"
+
+* Default column for application roles: application
+
+* Default column for applications: "owner" instead of "projections"
+
+* Default column for applications: classification
+
+* Better GUI for policy rules. E.g. `enforce` action is not even shown in current GUI.
+
+* Clearly show that particular access is _privileged_, use special label, mark, icon whatever.
+
+* Nicer icon for `Application` archetype.
+Cloud icon means stock `Service`, we should distinguish application somehow.
+
+* Show classifications in access request and approvals.
+(ISO27001 5.13)
+
+* More information for widgets: some way how to get more detailed description of widget, explaining what the widget shows.
+Maybe tooltip? Maybe something longer?
+Maybe click on "more info" should show description (with some nice icon) on top of the search list?
+
+* "Back" button is missing when clicking on dashboard widget "more info" link.
+
+* Separators/rows in dashboards, or some other ways to organize widgets
+(nice to have)
+
+* `assignmentRelation` is ignored when specified directly in `assignment` in orgs.
+
+* `Type` field on organizational hierarchy should either be pre-set to `ObjectType`, or it should have sensible default settings based on `assignmentRelation`.
+
+* Applicable policies panel: display descriptions (e.g. as tooltips?)
+
+* Tooltips for object icons - should display archetype names when no explicit `tooltip` is defined in archetype
+
+* `display` specification for `ObjectType`.
+This is especially useful for one-off objects, such as roots of organizational hierarchies.
+Also useful for classifications, e.g. setting color for classification level.
+
+=== Approvals
+
+* Global policy rule which states that if role has any approvers, the approvers must approve the request.
+*This is hardcoded* (`useDefaultApprovalPolicyRules` in sysconfig).
+Do we have a test for this case?
+Problem: bug:9951[]
+
+* Rule of 4 eyes: requestor cannot be approver, even if he is specified as approved in the policy (ISO 27001 5.15, 5.18)
+
+* Handling of situation when there are no valid approvers, e.g. in case the "rule of 4 eyes" disqualified the only approver.  (ISO 27001 5.15)
+
+* Smarter library functions to determine approvers/owners for approval purposes:
+If a role does not have approver, use owner.
+If an application role does not have approver/owner, use application approver/owner.
+If role belongs to an org, use org manager/owner.
+
+* "skip approval" operation option for administrators, e.g. when admin assigns a role directly as part of system setup.
+Mark that operation in audit as well.
+
+=== Notifications
+
+* New notification event, triggers when gaining access to something (e.g. first assignment of application, even indirectly).
+Can be used to deliver the acceptable use statement using notifications.
+Can be used for "you have privileged access now, you should behave" notification
+Pre-configuring notifications for this.
+(higher priority) (ISO 27001 5.10, 8.2)
+
+* Notify affected users when responsibility changes.
+E.g. when ownership of an object (role, application) is changed.
+Notify both old owner and new owner.
+Note: the situation may be tricky in case that ownership is assigned to org (team), and team members are changing.
+(Principle of Responsibility Awareness)
+
+=== Certifications
+
+* Ability to limit certification scope for targets (e.g. use specific archetype (classifications, clearances)) - filter for targets?
+Note: we have itemSelectionExpression, which could be probably used, but it is going to be very cumbersome and probably also quite slow?
+(ISO27001 5.12, 5.13, 6.1, 6.3)
+
+* GUI: Easy certification of clearances and classifications: easy to select scope (target archetypes: all clearances, specific clearance/classification, etc.) (ISO27001 5.12, 5.13, 6.1, 6.3)
+
+* Certification of role/application owners/approvers.
+(ISO27001 5.1, 8.9)
+
+* Certification of other parts of (abstract) role, most notably policy rules.
+For ISO 27001 5.12, re-certification of policy rules included in classification definitions. (ISO27001 5.12, 6.6)
+
+* Action button: replace assignment.
+Used to replace classification (e.g. change Cat.II system to Cat.III).
+The goal is not to remove the assignment, the goal is to keep the assignment.
+However, target of assignment may be different (better).
+The policy should make sure that there is at least one assignment of specific type (e.g. classification) after the campaign is done. (ISO27001 5.12, 5.13)
+
+* Make sure that the campaign can be started automatically, e.g. every year.
+Used to make sure a review policy is automatically enforced, e.g. make sure clearances are reviewed every year. (ISO27001 6.1, 6.3)
+
+* Make sure certification history is kept in some permanent place.
+E.g. we need to prove to an auditor that we have re-certified clearances every year. (ISO27001 6.1, 6.3)
+
+* Pre-define certification (campaigns and micro) for _privileged_ access rights.
+
+* information for reviewer: how many times this was certified/approved previously?
+(ISO27001 5.36)
+
+* Limit number of times that it is allowed to be certified (e.g. for policy rule exceptions).
+(ISO27001 5.36)
+
+* Certification action to set/remove specific mark.
+E.g. an action to remove `suspicious` mark, once the suspicious object was reviewed.
+(ISO27001 6.8)
+
+* Highlight/mark privileged access in certification decisions.
+Make sure that the certifier is aware that the assignment includes privileged access.
+(ISO27001 8.2)
+
+* Mark the campaigns and microcertification rules somehow, to be able to find related objects.
+E.g. list all certifications that deal with privileged access.
+Can we somehow use references to regulations? E.g. look for all "things" that deal with ISO27001-8.2 should provide all "things" that deal with privileged access.
+(ISO27001 8.2)
+
+* Ability to review item values.
+E.g. certification campaign that makes sure privileged roles have valid description/documentation.
+(ISO27001 8.2)
+
+* Micro-certification triggers: risk threshold, outlier threshold, timeout (not certified for long time)
+
+=== Lifecycle state model
+
+* Missing lifecycle state with combination: focus active, assignments inactive
+
+* Extend lifecycle states for `pilot` and `roll-out`?
+This can be useful for applications, to better show their state.
+Also for policies (PolicyType), e.g. `rollout` rules are just recording and cleaning up the data, while `active` are supposed to be final state, enforcing (may still just report, tough, yet the data are supposed to cleaned up already).
+Can be used to dashboard the rules, e.g. list all policies that we are currently rolling-out or piloting.
+
+* Make sure information erasure works (for privacy)
+(ISO27001 5.34, GDPR)
+
+* Select which assignments are considered active in archived state.
+E.g. we want to de-activate all organizational and role assignments, but we may want to keep clearances active, to indicate remaining responsibilities.
+E.g. people that were given access to intellectual property may have obligations to keep secrets even after their employment is terminated.
+There may be SoD for clearances, e.g. an employee that worked for client A cannot work for client B, not even in the future.
+It may be important to retain the clearance active even for archived users, as the user may be re-hired and re-activated.
+(ISO27001 6.5)
+
+* Select which assignments to keep in archived state ("termination of employment").
+E.g. we want to keep org assignments in inactive state, we want to keep clearances (NDA) to indicate that the user has responsibility to keep secrets even after the employment was terminated. (ISO27001 6.5)
+
+* Selective "reaping" of archived objects. E.g. we want to keep ordinary archived users for 2 years, then delete them.
+However, if s user has valid NDA (clearance), we want to keep the record for as long as the NDA is valid.
+
+* Record _reasons_ when lifecycle state changes, e.g. _reason for employment termination_ when deactivating user.
+This may also influence policies, e.g. priority deactivation (high-priority tickets) vs normal deactivation vs delayed deactivation.
+(ISO27001 5.18)
+
+=== Application inventory / assets
+
+* Finish concept of "application inventory", how it is supposed to be used normally, what data we want to store about applications, do we want to sync data to midPoint, or is midPoint going to be authoritative ... what is the common case?
+Also, relation to classification and other ISO controls and features.
+We have to finish this, otherwise we have strange things in GUI such as confusing "Inventory records" label for application projections.
+
+* Introduce "asset" as a first-class citizen in midPoint (later, in synergy with risk assessment).
+What is relation to asset to application?
+Is is (is it related to) the "Application component" concept that sometimes use?
+
+* New field for applications: "Security measures" - allow writing down notes about applied security measures.
+May be useful especially for smaller orgs that do not have dedicated asset inventory.
+
+* version, EOL date, warn for EOL (close to EOL, exceeded EOL) - dashboard - stronger warning for high-classification apps
+(ISO27001 8.19)
+
+* Specify a maintenance window for the application.
+This may be used to suppress alerts when the application is not reachable within maintenance window.
+More importantly, it can be used to force additional authentication/approval/notification when someone tries to acquire privileged access to the application outside of maintenance window (e.g. using privilege-on-demand).
+
+* Claiming process: user requests to become an owner of an object (usually application, asset or role).
+The request is likely to be subject to approval.
+This can be (hopefully) done even today, using access request process.
+However, it would be nice to have "I want to own this" button in object lists.
+It may also be nice to start "claiming campaigns", with the purpose to find owners of unowned objects (e.g. service accounts).
+
+=== Risk model
+
+* Default risk of application role may be given by application information label, e.g. all category III applications imply high risk for their application roles.
+
+=== Audit, History, Logging
+
+* Check that we can control retention of temporary/operational data everywhere.
+E.g. check that old audit records are deleted, logs rotated, old dead shadows deleted, operational data removed from objects (e.g. operation executions), etc.
+(ISO 27001 5.33)
+
+* Check that there is audit record for denied access
+(ISO27001 8.15)
+
+* Check that refused access requests are audited
+(ISO27001 8.15)
+
+* filter supplier activity from audit log? Audit log: filter by user archetype?
+(ISO27001 8.19)
+
+* Alarms/notifications should be recorded in audit trail.
+(ISO27001 8.15)
+
+* System/node start/stop should be recorded in audit trail.
+(ISO27001 8.15)
+
+* Make sure that we can create administrator role, that can change almost anything, but cannot delete events from audit log or otherwise influence audit trail.
+(ISO27001 8.15)
+
+* Make sure that audit can write records into append-only table.
+What about partition management? Who would delete partitions with append-only tables?
+(ISO27001 8.15)
+
+=== Other
+
+* "Reactive" privileges
+
+** On-demand privileges (just-in-time privileges): allow selected users to gain privileges by "activating" them in midPoint GUI.
+Activation of the privileges may require additional authentication of the user, e.g. use of additional authentication factor.
+Activation of the privileges assigns the privileges to user for a limited period of time.
++
+The goal is to limit standing privileges, especially very strong privileges (such as superuser access to operating systems) that are not used often.
+Benefits: less risk of unintentional use of privileges (e.g. deleting entire disk); use of privilege may require stronger authentication, stronger that the OS can provide; privileged users are less obvious (not members of "Domain Admins" group), it is more difficult to find targets for attacker
++
+As this mechanism is not used often and involves strong privileges, its activation may be quite demanding - it can take some time and may be reasonably inconvenient (confidentiality/consistency takes priority over availability).
+This mechanism is similar to "break glass", except that no alarm is raised (no priority notification).
+Use of on-demand privileges is normal operation, it is not an emergency.
++
+Examples: System administrator access to very powerful privileges, such as superuser accounts (`root`).
+Access of operators or power users to privileged actions that are rarely used, e.g. ability to explicitly start backup procedure or reboot a system.
+(ISO27001 5.15, 5.18, 8.2)
+
+** "event response" or "incident response" privileges: prepare security roles in such a way that there are powerful privileges, however they are not active during normal operation.
+When an event happens (e.g. security incident or disaster), special global system _mode_ is activated, activating the prepared privileges.
+The privileges are automatically inactivated when the event is handled and the _mode_ is returned to normal.
+The mode change and its effects activating the privileges is recorded in the audit trail and metadata.
+Audit trail should specially mark all events that happened while emergency _mode_ was active.
+We want to keep these audit records indefinitely, moving to special long-storage partition before they are deleted by regular cleanup.
+Certification to review of emergency roles: both assignments and role inducements (object-governance)
+Idea: can we somehow mark actions that were done using emergency access rights (audit and metadata)?
+Idea: "close" of incident response (turning off the emergency mode) may automatically trigger processes, such as collection of evidence, review of response plans, etc.
++
+Examples: Emergency access to system administrators/operators during security incident.
+(ISO27001 5.24, 5.26, 5.27, 5.29, 5.30, 8.2)
+
+** "Break-glass" privileges: allow selected users to gain privileges by "breaking glass", an action in GUI initiated by the user.
+After "breaking glass", emergency privileges are assigned to the user for a limited duration.
+The "break glass" operation is recorded in the audit trail, metadata, and alarm is raised -> priority notifications are issued to relevant "overseers" (e.g. security team).
+We usually do not want any complicated authentication for the "break glass" operation, we want to it be simple, easy to operate under stress or in panic (availability takes priority over confidentiality/consistency).
++
+Emergency access for medical staff to access medical records of a patient in order to save life.
+Access for emergency responders (e.g. voluntary firefighter team) to access some parts of infrastructure (e.g. to cut power to location) or enable physical access to rooms.
+(ISO27001 5.24, 5.26, 5.29, 5.30, 8.2)
+
+** (Least) privilege management
+*** Frequently-used low-risk privileges should be provided as standing privilege. There may be exception for some users, e.g. users that use very strong authentication.
+*** Infrequent and high-risk privileges should be on-demand (just-in-time), temporarily assigned
+*** Some AI magic (risk management, behavioral analysis, etc.) may force re-authentication or even approval in suspicious cases.
+*** Needs to be automatic and dynamic in the usual case - no approvals, no manual certifications, etc. We do not want delays, we do not want to impact efficiency. We may require re-authentication though, if it is not too frequent.
+*** Interesting: how to deal NHI? JIT may be possible in some cases ... but ... is it a good way?
+
+
+* Flag for org, whether it should be considered root of hierarchical org structure.
+We may not need root objects for many flat structures, such as projects or teams.
+Archetype is enough in this case.
+Automatic detection of org roots make problems in this case, as it detects all projects and teams as org roots.
+It may cause a different kind of problems when organizations are placed into locations, which makes the organization disappear as root of the tree.
++
+Also, would be nice to choose a name for the orgstruct tab.
+E.g. we want top-level org to be named `World`, but we want to display it in tab labeled `Locations`.
++
+Should we go back to explicit enumeration of org roots in system config? Or something similar?
+
+* Smarter recompute.
+We want to recompute objects that are (indirectly) affected by policy rules.
+E.g. we want to recompute role with minAssignee rule when it was assigned/unassigned.
+In that case we are recomputing user, not the role.
+The underassigned mark on the role does not get automatically set/unset, until the role is explicitly recomputed.
+Note: this is an (almost) opposite of the use-case for recomputing members when role definition changes.
+
+* midScribe documentation (ISO27001 5.31)
+
+* IMPORTANT: enforce MFA for users that have privileged access
+
+* Negative assignment ("exception from rule") (ISO27001 6.4)
+
+* Making sure that certain requirements are fulfilled before assignment is assigned or activated. (ISO 27001 5.12, 5.13, 5.14, 5.20)
+
+** Making sure user has enrolled multi-factor authentication before accessing classified system.
+
+* Make sure we can read and use last login from the resources (e.g. report unused accounts/users)
+
+* Make sure we can read number of failed login attempts from the resources (CZ NIS 2)
+
+* Sync mechanism or mapping that is summarizing (adding up) values from projections, e.g. total number of failed login attempts across all accounts.
+
+* Acceptable use (ISO 27001 5.10, 8.2)
+
+** `termsOfUseStatement` as a property of all abstract roles and resources (polystring).
+Can be used especially in applications, delivering the statement to user when gaining access.
++
+It is important to have this in classifications as well, especially the `Privileged` classfication - and apply that accordingly.
+
+** Provide ability to inform user in GUI when gaining a privilege, asking user to confirm acceptance of terms before assigning the privilege.
+Can be also used for acceptance of "terms of service" by end user before access to the service can be activated.
+Can be done ex-ante in shopping cart before submitting request, or ex-post as part of "activation" of the privilege.
+Note: Similar flow to GDPR consent.
+(lower priority) (ISO 27001 5.10, 5.19, 8.2)
+
+
+* Shared accounts (ISO 27001 5.16 (b))
+
+* Support for passkeys and other non-password credentials? (ISO 27001 5.17) (ISO 24760)
+
+* Step-up authentication and/or re-authentication in midPoint GUI.
+E.g. allow user to access end-user GUI with just a password.
+Require second factor (or re-entry of password) when entering administration zone.
+Clear indication in the GUI that we have administration privileges now.
+(ISO27001 8.2, 8.5)
+
+* "Comparative" mappings: mappings that can detect and report that a value was changed on resource.
+They do not necessarily change the value.
+This can be used for preparing midPoint deployment, assessing the changes that midPoint would do (note: this can be partially provided by similations).
+It may be used to detect and report policy violations (on ongoing basis).
+It may be used to detect local changes by system administrator.
+(ISO 27001 8.9)
+
+* Risk control related to external identities (social login) (ISO 27001 5.16, 5.19, 5.17)
+
+* Alerting: ability to send alerts (high-priority notifications) to users, and also to other systems (SIEM, threat detection): a.k.a. "risk signals" - use Shared Signals? Extend notification for user alerting? (ISO 27001 8.5)
+
+* Improve instructions on initial password delivery and self-service password reset
+
+* Flexible auth: limit connection times, e.g. allow login only during work hours.
+
+* Resource wizard improvements to warn about incomplete and insecure resource configurations.
+E.g. weak password for admin account, not using TLS, etc.
+We probably need support for that in the connector?
+The connector may do more, such as check if directory is world-readable, whether admin account is used directly, check whether administrator passwords were changed (are not factory-default), etc.
+(ISO 27001 8.9)
+
+
+
+== Feature Ideas
+
+
+* certify autoassignment rules
+(ISO27001 5.36)
+
+* certification/approval score for uses, to detect certifiers that approve everything
+Report/dashboard reviewers that usually use "select all" approach to certifications.
+(ISO27001 5.36)
+
+* certify applications, whether they are still compliant with security requirements
+(ISO27001 5.36)
+
+* quasi-role-mining for org inducements: suggest moving common assignments in orgs to org inducements - low-hanging fruit!
+(ISO27001 5.36)
+
+* quasi-outlier-detection for assignments in orgs: warn about assignments in orgs that are not common in org - are e doing that already?
+(ISO27001 5.36)
+
+* Review of automatically assigned roles.
+This may be a certification campaign, which does not revoke anything, just reports revocations.
+Reported revocations are "material" for review of role autoassignment rules.
+(ISO27001 5.36)
+
+* Connectors could understand authentication.
+E.g. they could tell whether user has MFA enrolled, whether MFA is enforced, etc.
+E.g. connector could tell "authentication level", weak, strong, etc.
+
+* Express authentication requirements/settings in a common schema.
+E.g. we should be able to identify users who:
+(ISO 27001 8.20 and many other)
+
+** Can use only strong auth (MFA)
+
+** Have strong auth enabled, but may use weak auth as well
+
+** Use only weak auth
+
+
+* Assignment of roles, especially "security responsibility" roles, act as a record of responsible people in cybersecurity processes.
+Maybe we can use this to generate documentation for the processes, filling in "roles and responsibilities" tables.
+
+* Ability for (almost) common users to mark midPoint objects as suspicious, or otherwise mark them for review.
+Plus ability to add comment.
+E.g. can be used by managers to raise attention about obsolete roles, role definitions that are not updated, etc.
+(ISO27001 6.8)
+
+* Raise alarm (e.g. notification) when user logs in at unusual time.
+(ISO27001 6.7)
+
+Evolution:
+
+* `requestable` should not be a flag, it should be a classification.
+If we do that, we can set up a policy for it, e.g. each requestable role must have an approver.
+We might be able to do that with a global policy rule for now.
+
+* Addition to `focusType` in inducement: `focusArchetype` to limit application of inducement to certain archetypes, e.g. applications.
+
+* Change `description` to PolyString to allow localization?
+
+* Attack "blast radius" → identity blast radius (reach of a particular user, what damage can attacker make when the identity is compromised: affected systems, privileges, etc.) We can "grade" the blast radius: inner circle shows standing privilege, middle circle shows privileges that can be activated (on-demand/JIT), outer circle are requestable privileges that would be automatically approved.
+
+* Clearances might be used to express SLAs, attach to services, evaluate using policy rules (e.g. classifications, every "red" application must have at least 99.99 availability) (ISO27001 8.20)
+
+Nice to have features:
+
+* Ability of UNIX connector to review log of "sudo" operations, provide timestamps of last use of privileges for each user.
+Can be used to detect unused privileged access.
+(ISO27001 8.2)
+
+* Initial configuration wizard, executed at first login of administrator after installation.
+
+** Change administrator password (if it was not generated)
+
+** Ask for name of organization, set up root object for organizational structure
+
+** Ask for basic archetypes to use? E.g. employee, student, etc.
+
+* Certification to review owners/approvers or roles/applications.
+(ISO27001 5.9)
+
+* Certify autoassign rules
+(ISO27001 5.36)
+
+* GUI
+
+** Display object _owner_ at prominent place in GUI (summary header?).
+Also, display information that object has no owner, perhaps even more prominently.
+(We want that only for some object type ... how to distinguish them? archetype? policy rule?)
+
+* Mark reference to compliance frameworks (e.g. ISO or NIS2) in midPoint objects (e.g. reports).
+Could be used by GUI to display "This is part of NIS2 compliance".
+Also mark references to legislation/regulations in custom objects (e.g. classification levels).
+Use for searching, demonstrating which mechanisms are used for compliance.
+Automatic certification of all objects that deal with a specific regulation.
+(ISO27001 5.31, 5.36)
+
+* Mark "attributes" applicable to the policy/control/statement, especially whether it is "preventive", "detective" or "corrective".
+Can be used for organizing the controls, e.g. "list all preventive measures".
+
+* Mark reference to business processes or capabilities ("business reference"?).
+This could be used to list all configurations that relate to a particular process, e.g. when that process is reviewed or audited. Can the "business process" be modeled as service, using assignments as references? How does it relate to midScribe? (ISO27001 5.31)
+
+* Marks/classifications or another way to mark roles and policies related to various areas.
+We can use the marks to create reports specific for each area.
+Areas:
+
+** Network access (VPN, remote network access, perimeter) (ISO27001 8.20,8.21)
+** Developer access (Access to source code, devel/test environment) (ISO27001 8.25,8.26,8.27,8.28,8.31)
+** Auditor access (ISO27001 8.34)
+
+* Use midScribe to generate documentation for a specific purpose.
+(ISO27001 6.4, 8.2, and many other)
+** generate documentation for all rules that deal with ISO compliance.
+** Generate documentation for all configuration aspects that deal with 'disciplinary' mark.
+** Generate documentation of privileged access (list, description/documentation and owners of all roles providing privileged access, all policy rules in `Privileged access` classification, all policy rules dealing with the classification/mark, related approval rules, certifications, etc.)
+(ISO27001 8.2)
+** Lifecycle state diagram (ISO27001 8.3, ...)
+** Approval schemes (ISO27001 8.3, ...)
+** Flexible authentication setup (ISO27001 8.5)
+** documentation on MFA requirements? (ISO27001 8.5)
+** Privacy documentation: erasure (account deletion, lifecycle) - deprovisioning (ISO27001 8.10)
+
+
+* Detect privileged access assigned to "common" (non-admin) persona (when admin personas are used).
+(ISO27001 8.2)
+
+* Detect direct use of superuser accounts (root/adminstrator): use last login timestamp.
+(ISO27001 8.2)
+
+* Compliance checklist: dashboard-like page, that checks for presence of configuration for individual compliance frameworks. (ISO27001 5.31) E.g. it can check for:
+
+** Do we have password policy applied? Is it strong?
+
+** Certification campaigns, are they configured and active?
+
+** If access request is enabled, do we have approval policies?
+
+** Do we have owners for entitlements (application roles)? How many (percent)?
+
+** SoD policies, do we have them? How many are enforced (percent)?
+
+** Do we have business roles? How much access is covered by business roles (percent)?
+
+** Do we have classification scheme configured? How much access has classificiation labels?
+(ISO27001 5.13)
+
+** Do we have clearances set up? How many?
+
+** Do we have risk management (risk scores) set up? How many?
+
+** Warning if `administrator` account is enabled and password was not changed since installation (use password change timestamp).
+
+** Warning if `administrator` account is enabled and has weak or well-known password.
+
+** Warning if `administrator` account is still used (if it was logged-in recently).
+
+** Warning if HTTPS is not used.
+
+* Emergency mode (see Incident response in notes below). (ISO27001 5.24, 5.29)
+
+* Temporary retention of privileges: temporarily keep user privileges (assignments) after organizational change.
+E.g. temporarily keep assignment to old organizational unit, to make sure all inducements are applied.
+Motivation: a person may still need to help with his old responsibilities after re-org. (ISO27001 6.5)
+
+* Per-role notification: we want to send notification to selected group of users when this role is assigned/unassigned.
+E.g. we want to notify all partners that we have new salesperson. Even more importantly, we want to notify partners when a salesperson leaves. (ISO27001 6.5)
+
+* Can connector mark objects that are significant from access control perspective? E.g. groups, ACLs, etc. Then we can make a list of unmanaged access in midPoint.
+We can avoid objects that are not directly relevant to access control (e.g. locations, orgunits, devices), therefore avoid false positives in "unmanaged access" reports.
+(ISO27007 8.3)
+
+* Device management
+
+** Better device management? For management of mobile devices and BYOD.
+`Device` archetype, views, etc.?
+Pre-configured link to users.
+Management of technical accounts of access tokens for the devices, automatic revocation.
+(ISO27001 7.9, 7.14, 8.1)
+
+** Record classification level of the devices.
+Can we use some policy rules to use the classification?
+Can this be used to evaluate risk?
+E.g. user with lot of low-classification devices poses much more risk?
+(ISO27001 7.9, 7.14, 8.1)
+
+** Convenient GUI to "register" devices by administrator.
+E.g. ability to easily set up owner.
+(ISO27001 8.1)
+
+** Self-registration of devices by users (BYOD)
+(ISO27001 8.1)
+
+** Idea: integrate with device management system to "remote disabling, deletion or lockout, remote wiping of data" of devices of layed-off user.
+(ISO27001 8.1)
+
+* User behavior analytics - include info from devices (last login, location)
+E.g. if we can detect that a device was used at particular time/location, and that device is assigned to user, consider this time/location as an activity of the user.
+(ISO27001 8.1(m))
+
+
+
+* Track login and _logout_ times, to determine _duration_ of access.
+Can be used to estimate effort spent in systems.
+E.g. to detect under-maintained operating systems and apps.
+
+* Analyze/record usage _frequency_ for accounts?
+E.g. used every day, once per week, once per year ...
+
+* Detect account usage anomalies by watching last login time.
+E.g. log-on at night.
+we can be quite fast with livesync ....
+(ISO27001 8.2)
+
+* Use last login IP address to detect anomalies in user access location.
+we can be quite fast with livesync ...
+E.g. if we can detect that a device was used at particular time/location, and that device is assigned to user, consider this time/location as an activity of the user.
+(ISO27001 8.1, 8.2)
+
+* User behavior analytics - include info from devices (last login, location)
+
+* Analyze history/frequency of failed login attempts, to detect password-based attacks.
+Look at all failed login timestamps together, e.g. to detect password spraying attacks.
+
+* Analyze password change history/frequency - can we determine anything interesting from that?
+
+* Risk management
+
+** Higher risk score (or default risk score) for roles classified as privileged access.
+(ISO27001 8.2)
+
+** Adjust risk score (or default risk score) using classifications.
+(ISO27001 5.12, 5.13)
+
+** Higher risk score for users with large number of failed logins.
+
+** Higer risk for users that are accessing from diverse locations (IP addresses)?
+That work off-site?
+
+** Higher risk score for accounts with low usage frequency? Or not?
+
+** Higher risk score for accounts that were not used for a long time.
+
+** Higher risk score for users that have not changed password in a long time?
+
+** Higher risk for users with weak passwords (would need to store password complexity indicator).
+
+** Higher risk for users/assgnments that are outliers.
+
+** Higher risk for users/roles that were not recertified for a long time.
+
+** Lower risk for users that have MFA setup/requirement.
+
+** Location-based score, e.g. higher score for non-EU users, assignments of non-EU applications, etc.
+(ISO27001 5.14, 6.7, 7.1, 7.2)
+
+** Policy rules could increase/decrease risk score by special action
+
+** Risk score could be influenced by assignment/inducement, especially high-order inducements e.g. from classifications.
+This may be a generic method how to implement higher risk score given by privileged access.
+
+** consider device security: Higher risk score for users that have assigned many devices or unsecure devices (use device classifications?)
+(ISO27001 8.1)
+
+** Higher risk for users that have given notice (may be disgruntled) - can be detected by validTo, e.g. few weeks/days until validTo expires.
+(This seems to be used be UEBA)
+
+** Extra risk for all unmanaged objects, e.g. orphaned accounts, unlinked service accounts, unmanaged groups, etc.
+(ISO27001 5.15,5.16,5.18,5.34,8.3,8.9)
+
+* Certification hint: show that the assignment is giving an account that was not used for a long time.
+Could show usage frequency as well.
+
+* How to "regularly review" service accounts?
+How to "verify configuration settings, evaluate password strengths and assess activities performed"?
+Can we use certifications?
+We should detect unused accounts.
+(ISO 27001 8.9)
+
+* Recording results of deletion, i.e. proof that information was deleted - in metadata?
+"recording the results of deletion as evidence".
+We cannot use audit, as audit has limited lifetime, and the deleted information is stored there.
+We want proof/record that something was deleted without revealing its value.
+(ISO 27001 5.34, 8.10)
+
+** Martin: We probably must use the audit. The audit records can't be limited to a few months only. We must be able to read what happened. Maybe we could have additional level of audit - just "business changes" - for long term archive.
+
+* Support for _data masking_: anonymisation/pseudonymization.
+E.g. export of data to test/devel environment where names and personal numbers are "masked", replaced with fake values.
+The idea is that developers/testers may test on data with real volume and structure (e.g. group memberships), without revealing user personal data.
+Maybe have "masking personas" that contain fake data, so the fake names can be consistent across testing systems?
+NOTE: This may be much harder than it seems.
+(ISO 27001 8.11, 8.31, 8.33)
+
+* Data leakage detection: detect that someone else than midPoint stored sensitive data in user profiles.
+E.g. look for identifiers (SSN, national ID) or data (date of birth, age, gender) in user profiles.
+(ISO 27001 8.12)
+
+* Mark data items (schema) that contain sensitive information.
+Maybe store sensitivity of information in the metadata as well.
+This could be used by policy rules, e.g. to prevent mapping from leaking sensitive data to low-classification application.
+This could be used by erasure process of lifecycle, to automatically erase all sensitive information when user gets to archived state.
+(ISO 27001 5.12, 5.13, 8.12)
+
+* Restore of target system data from midPoint cache: use cached information to restore data of a broken target system after a failure.
+(ISO 27001 8.13)
+
+* Explore use of _Shared Signals_ for alerting and integration.
+(ISO 27001 8.16)
+
+* Which passwords of service accounts do we need to change when an admin leaves?
+Which passwords he created or had access to? (ISO27001 8.20, 8.21)
+
+* Conditional roles for SoD: some assignments/inducements can be deactivated (using condition) when a conflicting role is assigned. (ISO27001 5.3)
+
+* Application inventory and physical world: Physical server should have the highest classification among all the applications/assets that run on it. How can we model this in midPoint (ISO 27001 5.9)
+
+* Certification: show history (audit trail) since the last certification
+
+* Documentation generator/visualization:
+
+** "Procedures for managing identities" for auditors out of midPoint configuration.
+Diagram that contains HR feed, AD provisioning, etc. (boxes and arrows) - as overview of IDM architecture.
+Diagram that shows identity lifecycle model, for users, services, roles and other objects.
+We could somehow utilize midScribe or similar mechanism to add description of the "procedures" to diagrams.
+(ISO27001 5.1, 5.16)
+
+** Rules for access control, e.g. in a topic-specific policy on access control (physical and logical)
+(ISO27001 5.18)
+
+**  Description of process for assigning, updating or revoking access rights
+(ISO27001 5.18)
+
+** Cerification, campaigns, micro-cert
+(ISO27001 5.18)
+
+* "The organization should have a supporting process in place to handle changes to information related to user identities. These processes can include re-verification of trusted documents related to a person."
+Initiate re-verification of a person (workflow?) when needed: assignment of privileged role, risk increased above threshold, ...
+(ISO27001 5.16)
+
+* Can we manage "stronger levels of authentication" for non-human identities, such as services?
+Would be a nice addition to "zero trust" approach.
+(ISO27001 5.14)
+
+
+* Certifications
+
+** Self-certification.
+User has to certify its own assignments.
+User has to confirm that he still needs the privilege.
+Maybe as a "zero" stage of regular certification?
++
+Important: do not update certification timestamp in this case (or use separate timestamp).
+This is not a formal certification, it is just a way to informally clean-up access.
+The access was not reviewed by another person in this case.
+
+** Certification campaign schedule / calendar.
+Dedicated calendar-like page that shows when the campaigns are started, how long they are running, etc.
+
+** "conditionally certified" response: they have to correct mistakes in 30 days - 2-stage certification
+
+** re-certification of policy rule exceptions.
+
+** "Action plan" as a result of certification campaign.
+Summarize the responses that require follow-up actions into a post-campaign report.
+
+** Upload _evidence_ for certification campaign/decision, e.g. evidence that the facts were verified, testing report as a proof that procedure was tested, supplier certificate which was checked, etc.
+
+** Group/relate campaigns that deal with the same thing.
+E.g. show all caimpaigns that deal with certification of health&safety clearance.
+Also, warn that there is another campaign scheduled to run shortly.
+E.g. you are certifying 10 users today, but you will be certifying 3 more next week. Maybe certify them together?
+
+* Assign "maintainer" (e.g. `responsibility` relation?) for each application, to make sure it is maintained.
+Report applications that do now have active maintainer.
+(ISO27001 5.19, 5.20, 5.21, 5.22)
+
+* Analysis: which services are affected when terminating/changing supplier
+(ISO27001 5.19, 5.20, 5.21, 5.22)
+
+* Prepared actions (bulk tasks) for incident response (question: which tasks would be useful?)
+(ISO27001 5.24)
+
+* Should we relate role to "process"?
+To be able to report roles for particular process, e.g. show all roles that define responsibilities in particular process.
+Also certify the roles - even remind to "certify" the process (re-test).
+(ISO27001 5.24)
+
+* Concept of *security event* (event mark?).
+E.g. non-compliance with policy is considered to be security event.
+Can be triggered by policy rule.
+Detection of orphaned account can be security event.
+Question: what to do with such _event_?
+Should we record that in audit (event mark)? Notify? Send _signal_ (see Shared Signals)? What to do?
+(ISO27001 5.24)
+
+* _Evidence_ as a special field in metadata/audit, recording the reason for action.
+E.g. name of certificate/training, reference to screening records, etc.
+Should be shown in audit and object history.
+E.g. we want list of all screenings and trainings that user passed (chronological).
+
+* List of devices by user classification level - to detect which devices may contain sensitive data, e.g. detect where sensitive data could be stored in BYOD device - at least to use it to increase risk
+(ISO27001 8.1)
+
+* One-liner review of audit event displayed in audit (history) views. Short info enabling better identification of what happened in the event.
+
+** If there is 100 modification events of user "adam", then admin has to check all of them. The one-liner can provide better overview. This is still not enough - as the info has to be compressed to short message. No attribute names or assignment targets can be here.
+
+** Example: "assignment(s) added | assignment(s) modified | attribute(s) removed" or any combination of that
+
+** Metadata updates would not be listed here as "metadata updated" would be everywhere
+
+* Allow querying audit events by attribute names or assignment target names in object deltas
+
+** This will provide option how to identify audit where "Role XYZ was assigned" or when "Location attribute was updated"
+
+=== Identity Security Posture Management (ISPM)
+
+Preventive security control.
+Detect (by heuristics, rules) dangerous situations in configuration and policies, such as:
+
+* No strong/multifactor auth for users with privileged access (admins)
+
+* Recent use of emergency account (root, administrator)
+
+* Large number of accounts with privileged access, large number of emergency accounts
+
+* Combinations of old passwords, no strong/multifactor auth, unused/orphaned account and privileged access
+
+* Inconsistent activation/lifecycle, e.g. inactive user with active account
+
+Maybe (if we can):
+
+* Interactive login (console, shell) for service accounts (NHI)
+
+Should be continuous evaluation/monitoring ("Real time Identity Posture Management" buzzword?)
+
+* Anonymisation, pseudonymization of data export for analytic tools.
+(ISO27001 8.11)
+
+* Visualization: Synchronization/reconciliation overview: flow direction, schedule, etc.
+
+== Recommendations
+
+Recommendations for midPoint deployments:
+
+* Reference IAM architecture, how midPoint fits in, how it should be used.
+(ISO 27001 8.27)
+
+* How applications should be integrated with midPoint (or other IGA platform), manual for application developers.
+APIs, use of connectors, etc.
+(ISO 27001 8.26, 8.27, 8.28, 8.29)
+
+* Application roles must have inducement to application.
+Do we have this documented?
+Is it documented well?
+Emphasized enough?
+
+* Application must have an owner
+
+* Business role must have an owner
+
+* Audit: appropriate settings for audit log retention. Safe storage of audit trail, ensure non-tampering. Also: safe archival of audit trail.
+E.g. insert-only DB privileges for midpoint user.
+Recommend use of dedicated log server.
+(ISO27001 5.28)
+
+* Log collection: use log server to centrally collect the logs (ISO27001 5.28)
+
+* Conduct controlled (manually initiated) *full synchronization* of all systems after an incident.
+Purpose: make sure there are no extra accounts or privileges, either created by an attacker, or leftovers from incident response. (ISO27001 5.24, 5.27, 5.28, 5.29)
+
+* Mark privileged access (ISO27001 8.2)
+
+* Avoid use of shared accounts (`root`) at all costs (ISO27001 5.16, 5.17, 8.2)
+
+* Use of entitlements for granting privileged access (e.g. ability to sudo) instead of giving access to privileged accounts (root). (ISO27001 8.2)
+
+* Certify all requested and manually assigned access.
+Combine micro-cert and campaigns.
+Set up micro-cert for privileged access on org change (can this be a default config?).
+(ISO27001 8.2)
+
+* Use personas for administrators, set a stronger password policy for admin personas.
+Use special intent and naming convention for admin accounts.
+(ISO27001 8.2)
+
+* Use password sync, make the password same on all resources - contrary to (ISO 27001 5.17 (D)).
+Explain why this makes sense intra-organization.
+Use admin personas to have different password for administration tasks.
+
+* Approve addition of privileged access (inducement) to active role.
+Approval by "Security team?"
+
+* Dedicated directories (LDAP/AD) for privileged users, e.g. to use for UNIX/SSH auth, RDP, VPN, etc.
+Requiring stronger passwords and MFA. Limiting access to directory by non-privileged users (less information for attacker).
+
+* User inducements in business roles and (especially) orgs to build up policy. Do not use autoassignments.
+
+* Do *not* force regular password change: https://www.ncsc.gov.uk/blog-post/problems-forcing-regular-password-expiry[] https://www.ncsc.gov.uk/collection/passwords[]
+
+* _Owner_ vs _custodian_ (ISACA terminology):
+_Owner_ is business owner, may not have technical skills.
+_Custodian_ has IAM skills, may not have business knowledge.
+_Owner_ is responsible, states requirement, makes decisions and approves the role.
+_Custodian_ technically defines the role and "implements" it.
+"segregating the roles of approval and implementation of the access rights"
+(ISO27001 5.18)
+
+* SoD: Exclude Security officer (CISO) and Privacy Officer (due to GDPR).
+Exclude Security officer (CISO) and IT Director (CTO/CIO/COO) (security best practice, any regulation?)
+
+* Security officer should report directly to top management (CEO, board, ...)
+
+* Incident response
+
+** Prepare emergency privileges in emergency (conditional) roles.
+
+** Explicitly conduct full reconciliation of all systems as an ex-post check after an incident is handled.
+This may reveal additional resources (accounts, privileges) that attacker has created.
+More importantly, it may reveal new accounts and excessive privileges that responders have used during the response, which should be removed.
+
+* Average duration of an attack is 100 days.
+Make sure you keep logs/metadata at least 100 days.
+
+* Certification: annual certification (e.g. health&safety): run two campaigns in a year, certify all people that are about to exprire in next 6 months.
+(ISO27001 6.3)
+
+* Privileged roles should have proper description/documentation, specifying what kind, extent and scope of privileged access is granted by the role.
+Use midScribe.
+(ISO27001 8.2)
+
+* Recommend storage audit trail/logs for 3 years (matching with 3 year ISO cycle), or at least 1 year (intermediate audit), also historical data (e.g. cert campaigns)
+(ISO27001 8.15)
+
+* Recommend use of log server and append-only table to prevent log tampering.
+(ISO27001 8.15)
+
+* recommend special-purpose certification campaigns for suppliers
+(ISO27001 8.19)
+
+== Examples and Configurations
+
+Examples and configuration recommendations that we need to prepare:
+
+[%autowidth]
+|===
+| Name | Description | Controls | Status
+
+| Information security roles, responsibilities and policies
+| Use of `Information security` classification to mark security-related roles.
+Show understaffing in dashboard.
+Special who-what-why report for these roles?
+
+Organization for security team, and its manager: chief security officer (CISO).
+Additional approval for security roles by security team + escalation to manager (chief security officer).
+
+How can midPoint reports help with preparing of security policies?
+Compliance dashboard.
+All policies, all special cases (exceptions), all policy violations, access included in/from roles, ...
+| ISO 27001 5.1, 5.2
+| Requirements somehow clear.
+
+
+| Identity synchronization (better name?)
+| Synchronization with correlation.
+Identifier management (iteration).
+Use of marks for correlation.
+We do not really have any good docs on synchronization.
+Maybe re-use "first steps"? Or book samples?
+| ISO 27001 5.16
+| Requirements somehow clear
+
+| Delegated business role maintenance
+| Delegate creation and maintenance of business roles to business users, using role wizard.
+Set up appropriate authorizations for delegations and access to admin GUI.
+(use pre-configured "role manager" role?)
+Use "applicable policies" to set up access-and-approval scheme.
+Use pre-congifured policies for app-owner and role-owner approval, setup of approval by manager.
+Role certification campaign, distribute to role owners (prioritize privileged access in roles).
+Configure authorization is role archetypes to allow (partial) modification of roles by their owners - order 2 inducement.
+
+Overlap with "Application and role governance", should we merge?
+| ISO 27001 5.15, 5.18, 8.2, 8.3
+| Requirements not clear yet
+
+| Object governance / asset management
+| Setting up role owners, application owners, security office team.
+Using pre-defined "applicable polies" to set up approval.
+Setting up basic orgstruct, setting up approval by manager.
+Set up certification campaigns, considering role/application owners and managers.
+Use minAssignees policy rule to mark roles that are not assigned to anyone, e.g. in case that we have no auditor, or we have less two members of security team (no peer redundancy).
+Find responsibility gaps, e.g. applications without owners, roles without owners, "vacancies" by using policy rules (e.g. projects without managers).
+
+Setting up application inventory, specifying owners and classifications for applications.
+Use dashboard to find applications/roles without owners/classifications.
+Linking service accounts.
+Find responsibility gaps, e.g. applications without owners, roles without owners, "vacancies" by using policy rules (e.g. projects without managers).
+Identify users/roles/services/orgs that have been deleted in audit logs.
+| ISO 27001 5.2, 5.9, 5.15, 5.18, 6.5, 8.6, 8.8
+| Requirements quite clear
+
+| Gradual SoD policy enforcement
+| Setting up SoD policy rules, applying gradual enforcement: do not enforce, just report, clean up violations, finally go for full enforcement.
+Use dashboard to monitor progress.
+SoD exceptions (approved, shown on dashboard).
+Pre-configured reports: SoD policies (roles with SoD exclusions), SoD violations.
+| ISO 27001 5.1, 5.3, 8.32
+| Requirements clear
+
+| Project management
+| Use pre-defined archetype and org root to create a project, assign manager, assign members, specify access rights for manager and members.
+Authorizations for project manager to modify project (maybe members).
+Set up AD project groups.
+Use of archetype to create AD project groups for members/managers
+Set up wiki space or source code repository for the project.
+Set general policy for all projects at the archetype level, e.g. setting policySituation for all projects that do not have a manager.
+Include information classification.
+Use access control to source code repositories as part of the example.
+Try to use read/write permissions, using relation (see "fine-grained access control").
+authorizations for project manager to modify project (maybe members)
+
+See also "Automatic management of access rights".
+| ISO 27001 5.8, 5.12, 5.13, 5.14, 8.3, 8.4
+| Requirements somehow clear, need more work
+
+
+| Audit log retention and analysis
+| Set up appropriate retention of audit log data (limiting size, also for privacy).
+Use audit log viewer and object history to find access rights of a person in the past?
+Use audit log viewer to review emergency actions of administrators during incident response.
+Use metadata as easier and faster way to access historical data.
+Show that metadata remain even if detailed audit trail is deleted.
+Show assignments/unassignments of a particular privileged access (role).
+| ISO 27001 5.10, 5.27, 5.33, 5.34
+| Requirements not clear
+
+| Information classification
+| xref:/midpoint/reference/roles-policies/classification/[]
+
+Improvements: external access (5.14), include the clearance in archetype+NDA, certification,
+set up distribution lists for all users of Cat.III systems (to spread awareness).
+Extra approval stage for high-classification access.
+Set up MFA/strong auth requirements for sensitive classification levels.
+| ISO 27001 5.12, 5.13, 5.14, 5.20, 6.1, 6.3, 8.2, 8.5
+| Done, needs improvement: PolicyType (xref:/midpoint/features/planned/classification/[])
+
+| Incident response
+| Preparation: Use reporting to estimate effects, e.g. how many users will be affected when SSO system is breached?
+Use simulations to predict effects of incidents, e.g. what access would attacker gain if he gets role `Foobar`?
+Pre-configure emergency privileges for `incident responders` team, as non-active (conditional) inducements (emergency mode).
+
+Containment: Quickly enable emergency privileges for responders - enable emergency mode, and _recompute_ users - how to do that quickly? Should there be a procedure to do it?
+Manually deactivate a user, e.g. after he was fired.
+We do it manually, because HR recon is slow.
+Quickly disable service accounts, isolating applications to limit spreading of incident.
+Containment phase: disable access to suspected users.
+Analysis: list all users of particular vulnerable application.
+Force password change for a large number of users.
+Incident information: send notification to all affected users.
+| ISO 27001 5.17, 5.18, 5.24, 5.25, 5.26, 5.27, 5.28, 5.29, 8.7
+| Requirements not clear yet
+
+| Automatic management of access rights
+| Inducement from orgstruct and location, role autoassignment, org template autoassignment.
+Automatically assign physical access token based on location.
+Reuse parts of the book.
+| ISO 27001 5.8, 5.18, 6.5, 7.2, 8.2, 8.3
+| Requirements quite clear
+
+| Deployment documentation
+| Document which configuration is used to implement compliance with ISO or NIS2.
+Ideally, refer to specific controls and business processes.
+Use this information to find configurations that need review when requirements change.
+| ISO 27001 5.31
+| Requirements incomplete, design incomplete (business reference)
+
+| Identity lifecycle and privacy
+| Apply lifecycle states to identity (users), controlling information in each step.
+Use "proposed" state for users that are not yet ready to get privileges (e.g. have not passed basic screening yet).
+Keep archived users to avoid re-use of identifiers and e-mail addresses.
+Making sure user is properly and automatically deprovisioned.
+Especially use the "archived" state, setting up limited access to archived user data, possibly reducing the data for privacy (erasure).
+Use of assignment as "legal basis", demonstrating that the identity is deprovisioned if we do not have any legal basis.
+Document the legal basis in roles (use midScribe).
+Use of classification/location to limit transfer of information? Keep data of EU users in EU applications.
+Use "suspended" state to temporarily disable a user, e.g. for maternal leave, during incident investigation or as an extreme disciplinary action.
+Manual deactivation of users, after high-risk termination of employment.
+| ISO 27001 5.16, 5.18, 5.33, 5.34, 6.1, 6.4 GDPR, 8.2, 8.3
+| Requirements partially clear
+
+| Access certification
+| Set up annual certification campaigns for access rights.
+Set up a micro-certification after org change.
+Use of outlier detection to provide guidance for certification decisions.
+Privileged access rights certified more frequently.
+Access to applications with high classifications certified more frequently.
+| ISO27001 5.2, 5.12, 5.13, 5.15, 5.16, 5.18, 5.36, 6.5, 8.2
+| Requirements partially clear, but not complete
+
+| Re-certification of clearances, screenings and trainings
+| Use re-certification campaigns to re-evaluate clearances.
+
+Use a long-running campaign to manage security re-training.
+The decisions in the campaign will indicate whether a person have passed training.
+The goal is not to remove the privileges, the goal is to make sure all trainings are renewed.
+| ISO27001 5.12, 6.1, 6.3
+| Requirements partially clear
+
+| Supplier identity management
+| Process to manage supplier identities.
+How are they entered into midPoint?
+Assign a local "sponsor" (employee) for easy supplier identity.
+Sponsor would approve access requests (instead of manager), respond to certifications, etc.
+"access is granted to supplier identities only after all necessary contracts are in place (using clearance mechanism)" - NDA, or NDA induced from organizational status, etc.
+How would be supplier identity de-provisioned? What about lifecycle?
+Configuration: approval processes for suppliers, certification campaigns for supplier assignments: certification of both users and organizations, (e.g. whether organization is still compliant, require update of evidence, etc.).
+Set up a "ISO27001 certified" clearance that can be applied to supplier _organizations_.
+This could be reviewed every year (cert campaign) to make sure the ISO certification of supplier is still valid.
+Apply supplier (company) ISO27001 certification (clearance) to all users in that organization (high-order inducements?).
+Reports/dashboards/rules for suppliers (e.g. supplier identities without sponsors).
+Show sponsors/sponsored identities in home dashboard?
+Who/where/what report for supplier identities.
+Apply classifications to cloud services, e.g. require ISO certification (clearance) from supplier of "sensitive" services.
+Apply policy rules: every external service has active supplier (detect unmaintained services).
+Idea: make sure supplier has required expertise in the team, e.g. has at least one user with CISO certificate (clearance) active in its organization.
+| ISO27001 5.19, 5.20, 5.21, 5.22, 6.5
+| Requirements partially clear
+
+| Delegated administration for suppliers/partners
+| Provide delegated administration config for suppliers/partners.
+We need org struct representing external orgs, and users that will be acting as admins for their orgs (authorizations).
+Admins can add/delete users in their orgs, and manage some basic access (e.g. make other users admins).
+| ISO27001 5.19, 5.20, 6.5
+| Requirements partially clear
+
+| Cloud service management
+| Listing cloud services.
+Making sure each service has an owner (employee).
+Location zones for cloud services: e.g. EU vs non-EU.
+Classification of cloud services: information sensitivity.
+Information transfer rules: e.g. sensitive information only in EU cloud services.
+Prohibit high-sensitivity classification for applications in foreign (non-EU) cloud.
+Prohibit access to foreign cloud for high-risk users to avoid possibility to leak information.
+| ISO27001 5.14, 5.23
+| Requirements partially clear
+
+| Enforcing MFA
+| Make sure all people with remote access have MFA credentials enrolled, and have MFA enforced.
+Make sure people with privileged access have MFA too.
+Report people that violate this rule.
+Revoke remote access to people that violate this rule.
+Automatically provision MFA credentials/config to the roles that need MFA.
+We need SSO/AM server for this, use keycloak?
+Enforcing MFA for certain classifications and/or privileged access.
+| ISO27001 6.7
+| Requirements partially clear
+
+| Device management
+| Device inventory, manage access rights for devices (technical accounts).
+Assignments/linked objects to track ownership.
+Audit trail to log device transfers.
+Get list of PCs from AD, assign ownership.
+Record classification level of the device.
+Can we use some policy rules to use the classification?
+Can this be used to evaluate risk?
+E.g. user with a lot of low-classification devices poses much more risk?
+| ISO27001 7.9, 7.14, 8.1
+| Not clear yet
+
+| Managing privileged access
+| Use of `Privileged` classification to mark privileged access.
+Make sure that only users that have passed advanced security training (clearance) can have privileged access.
+Making sure that all privileged access has additional approval step when assigned (inducement in `Privileged` classification).
+Notification "you have privileged access now"
+Reporting/dashboarding all users with privileged access.
+Reporting/dashboarding all roles providing privileged access (application/business).
+Reporting/dashboarding all roles providing privileged access that do not have owners.
+Special certification of privileged access ("minimize number of privileged identities").
+Make sure all business roles containing privileged access have active owner.
+detect privileged access outside of common orgs that are supposed to have it (e.g. IT, security).
+Report/review privileged access outside of IT more frequently.
+| ISO27001 5.15, 5.18, 8.2, 8.3, 8.8, 8.9
+| Somehow clear
+
+| Fine-grained access control
+| Use services to represent objects (file shares, spaces, documents).
+Use parametric roles with relations (read, write, admin) to control access to particular objects.
+E.g. demonstrate in controlling access to individual source code repositories.
+| ISO27001 5.15, 5.18, 8.3, 8.4; CRA
+| Somehow clear
+
+| Authentication
+| Use of midPoint with SSO/AM, integration (both ways).
+Last login time, number of failed logins, etc.
+MFA for admins (use privileged access classification).
+Which SSO/AM to use? Keycloak?
+| ISO27001 8.2 8.5
+| Somehow clear
+
+| Reductions (Need better name: austerity? parsimony?)
+| Reduce access rights and licenses by identifying unused accounts and privileges.
+Use last login timestamp to report "lazy" users.
+Use automated process to disable accounts not used for more than 12 months.
+approval,certification to manage expensive licences.
+| ISO27001 5.32, 8.9
+| Not yet clear
+
+| Personal data protection
+| Control flow of personal data using synchronization.
+Determine where personal data were provisioned using links.
+Limit propagation of personal data to safe zone, e.g. EU-only.
+I.e. prohibit provisioning of personal data to non-EU applications.
+
+Control access to personal data using RBAC.
+Mark personal roles that provide access to personal data using classifications.
+Require clearance (e.g. contractual clause to protect data + "GDPR training") to gain access to personal data.
+Use approval process to add extra approval to roles that provide access to personal data.
+DPO must approve changes to roles that provide access to personal information.
+Certifications for access to personal data by the DPO.
+Dashboard: list of roles that provide access to personal data, list of users that have access to personal data.
+Setting policy rules, so only some departments may have access to personal data (HR, sales, support, but not engineering).
+| ISO27001 5.14, 5.34, 6.3
+| Somehow clear
+
+| Audit
+| Detail audit event report
+| Report providing information from audit deltas of modified attributes and their values and assignments.
+This level of information is stored in audit events but no documentation not any report can provide information of when the particular role was assigned.
+We don't have any option to get the information even through the query. In GUI, we can only open event one-by-one.
+|
+
+|===
+
+More scenarios:
+
+* Machine identities (NHI): management of service accounts.
+
+** Ownership management: application should be owner of service account, look for unmanaged/unowned accounts.
+Look for apps without owners.
+
+** Claiming process: allow users to request ownership of object. Drive it through approval.
+
+Fit into some scenarios:
+
+* Clearance enforcing stronger authentication.
+E.g. clearance that grants access to sensitive information should contain policy rules, making sure the user has multi-factor authentication active.
+(ISO 27001 5.14)
+
+* org: limit privileged access to IT only?
+(ISO27001 8.2, 8.9)
+
+* automatically disable all unused access (accounts/users) (not services/NHI!)
+(ISO27001 8.9)
+
+* Deliver "welcome" message for new users, including information about policies and acceptable use.
+Deliver especially to external e-mail addresses (suppliers, contractors). (ISO 27001 5.10, 5.19)
+
+* Deliver "acceptable use" statement to user when account is created on a system (notifications). (ISO 27001 5.10)
+
+* Special approval of role by security officer (5.2)
+
+* Enforce owner for each asset (application) (5.2)
+
+* Report security roles and their assignments (5.2)
+
+* Use of personas for administrators.
+Use special intent and naming convention for admin accounts.
+(Add to "Managing privileged access" example?)
+(ISO27001 8.2)
+
+* Management of service accounts for applications, link them to applications, use application inventory.
+Quickly disable the accounts on incident/malware to isolate the application.
+Supports "zero trust" concept.
+(ISO27001 8.7)
+
+* identifying users affected by a breach of all passwords on particular application, forcing them to change password.
+
+* Use locations to model perimeters, and rules about accessing perimeters.
+Use RBAC to include physical access (or location) in business roles
+(ISO27001 7.1, 7.2)
+
+* Information classifications can provide information on the class of information that the user can access.
+This can be used to estimate what class of information is likely to be stored on devices.
+E.g. devices belonging to users that have access to sensitive information should be subject to stricter security requirements and disposal procedures.
+(ISO27001 5.12, 5.13, 7.14, 8.1)
+
+* Detect account that exist, are correlated, but are illegal - can we report that before deprovisioning?
+(ISO27001 8.12)
+
+More ideas:
+
+* Classifications based on TLP protocol (ISO27001 5.12, 5.13)
+
+* SANS classification scheme (ISO27001 5.12, 5.13)
+
+* Concrete and complete examples on password management, including initial password delivery and self-service password reset  (ISO27001 5.17)
+
+* Personas or separate accounts for testing (ISO27001 8.4)
+
+* Prohibit direct access of suppliers to sensitive systems.
+Suppliers do not have managed devices, we have to assume they are not secure.
+We do not want to grant them VPN access.
+We will only allow SSH/RDP access.
+Use classification/clearances for this (in reverse), e.g. do not allow VPN access for anyone who is allowed to use non-managed device (which is in fact SoD).
+
+* Reduce access rights during disciplinary investigation.
+(conditional inducements in business roles, sensitive to mark).
+Report all "disciplinary" users that have access to high-classification apps.
+Maybe levels of disciplinary action? E.g. level 3 disables all access, level 2 disabled sensitive apps, level 1 does not disable anything, just marks user.
+(ISO27001 6.4)
+
+* Physical perimeters, modelled as locations.
+(ISO27001 7.1)
+
+* use case: grant access to PC admins to location only for a limited time period needed for system update -  privilege on demand
+(ISO27001 8.19)
+
+== Reports and Dashboards
+
+=== System Overview
+
+* Number of active users (dashboard only?) (ISO 27001 5.16)
+
+* Number of archived users (dashboard only?) (ISO 27001 5.16)
+
+* Temporarily inactive users (exclude archived users) (ISO 27001 5.16)
+
+* Suspicious objects (ISO27001 5.27, 5.28, 5.29)
+
+* Manual data overrides (fixed HR errors)
+
+* Users without organizational assignments (no org, no project, ...)
+
+* Number of all accounts (all resources) (ISO 27001 5.32)
+
+* Number of active accounts (all resources) (ISO 27001 5.32)
+
+* Number of active accounts per resource (e.g. for license management) (ISO 27001 5.32)
+
+* Number of job titles
+
+* Top job titles
+
+* Number of locations
+
+* Largest locations by number of users
+
+
+=== Compliance / Security
+
+* All policies (PolicyType?) - is this useful?
+(ISO 27001 5.1, 5.36)
+
+* All policy rules with:
+
+** Enforce action (production, fully enforcing)
+(ISO27001 5.1, 5.36)
+
+** Report action (rolling out / report only)
+(ISO27001 5.1, 5.36)
+
+* All policy violations
+(ISO 27001 5.1, 5.36)
+
+* All special cases (approved exceptions from policy rules)
+(ISO 27001 5.1?, 5.2, 5.36)
+
+* Report _security_ roles and their assignments (5.2)
+
+* Report all _security_ roles that are not properly staffed (5.2) ✓
+
+* SoD policies: all roles with SoD exclusions. All SoD policy rules. Nice to have: all roles that are subject to SoD policy rules (even indirectly). (ISO 27001 5.3)
+
+* SoD violations (ISO 27001 5.3)
+
+* SoD exceptions (approved violations) (ISO 27001 5.3)
+
+* Suspicious objects (mark) (ISO27001 5.27, 5.28, 5.29) ✓
+
+* Roles without owners. ✓
+Application roles without owners.
+Business roles without owners.
+Etc. (ISO 27001 5.2)
+
+* Applications without owners.
+(ISO 27001 5.2, 5.9, 8.8) ✓
+
+* Policies without owner.
+(ISO 27001 5.1, Principle of Owned Policies)
+
+* Applications without classification.
+(ISO 27001 5.9, 5.12, 5.13, 5.14)
+
+* Application roles without inducement to application.
+Mark as configuration error?
+(would be nice to show in admin dashboard too, as config error?)
+
+* Accounts that are not managed by midPoint.
+This report is *IMPORTANT* aspect of risk management!
+(ISO27001 5.15,5.16,5.18,5.34,8.3,8.9)
+
+* Access rights that are not managed by midPoint - at least list of unmanaged groups.
+This report is *IMPORTANT* aspect of risk management!
+(ISO27001 5.15,5.16,5.18,5.34,8.3,8.9)
+
+* Requestable roles without approvers.
+(ISO 27001 5.2, 5.15, 5.18)
+
+* Proposed roles.
+(ISO 27001 5.15, 5.18)
+
+* Deprecated roles.
+(ISO 27001 5.15, 5.18)
+
+* Assignments of deprecated roles.
+(ISO 27001 5.15, 5.18)
+
+* Assignments to archived objects.
+(ISO 27001 5.15, 5.18)
+
+* Active projects without managers
+(ISO 27001 5.8)
+
+* Staff shortage (dashboard): projects and teams with vacancies at important positions.
+(ISO 27001 5.2, 5.8, 8.6)
+
+* Understaffed security positions: use `Understaffed security` mark.
+
+* Neglected roles and apps (roles/apps without owner).
+
+* Orphaned accounts
+(ISO 27001 5.16)
+
+* Identities with privileged access
+(ISO27001 8.2)
+
+* Application roles providing privileged access.
+(ISO27001 8.2)
+
+* Business roles providing privileged access.
+(ISO27001 8.2)
+
+* Application roles providing privileged access without owners.
+(ISO27001 8.2)
+
+* Business roles providing privileged access without owners.
+This is more important than application roles, as we want to make sure there is someone to regularly re-certify role definitions.
+(ISO27001 8.2)
+
+* Application roles providing privileged access - summary per application/resource.
+(ISO27001 8.2)
+
+* Users with privileged access - summary per application/resource.
+"identifying users who need privileged access rights for each system or process"
+(ISO27001 8.2)
+
+* Privilege assignments to review - manual assignments that were not certified recently.
+(ISO 27001 5.18, 8.2)
+
+* Roles providing privileged access that were not certified in a long time.
+(Especially business roles)
+(ISO27001 8.2)
+
+* Privileged roles that do not have description/documentation.
+(ISO27001 8.2)
+
+* Dormant users / sleepers (users without any assignments/privileges) (ISO 27001 5.16)
+
+* "Standing privilege" - manual assignments, including access request (ISO 27001 5.15, 5.18)
+
+
+* Unused accounts. Accounts not used for X months.
+(ISO 27001 5.32, 8.9)
+
+* Unused accounts per application.
+Number/percentage of unused accounts per application.
+Average usage frequency per application (e.g. users accessing the app once per week on overage)
+(ISO 27001 5.32, 8.9)
+
+* Unused users. Users that have not logged in to any account (or midPoint) for X months.
+(ISO 27001 5.32, 8.9)
+
+* Accounts that were never used (never logged in).
+
+* users that haven't changed password in long time
+
+* Organizational units without managers
+
+
+* Users with large number of failed logins
+
+* list of clearances applied to users, dates, review dates, certifier, approver, etc.
+(ISO27001 6.1, 6.3)
+
+* list of clearances that are about to expire (also dashboard)
+(ISO27001 6.1, 6.3)
+
+* list of expired clearances
+(ISO27001 6.1, 6.3)
+
+* list of clearances that were not certified for a long time
+(ISO27001 6.1, 6.3)
+
+* list of all clearance violations, assigned role is requiring clearance that is not present
+(ISO27001 6.1, 6.3)
+
+* Who is approver of what?
+List of explicit approvers for roles (assign, modify, etc.)
+(ISO27001 5.37)
+
+* List of users that have access to specific location/perimeter (org,location) - even indirectly.
+(ISO27001 7.2)
+
+* List of devices by user classification level - to detect which devices may contain sensitive data, e.g. detect where sensitive data could be stored in BYOD device
+(ISO27001 8.1)
+
+* Accounts with requirement for MFA / Strong Authentication.
+(ISO27001 8.5)
+
+* Roles/applications/classifications that mandate MFA / Strong Authentication.
+(ISO27001 8.5)
+
+* Users that have changed org assignment, but were not certified since.
+(ISO27001 5.15, 5.18, 8.12)
+
+* Accounts that were not synchronized for a long time.
+(ISO27001 5.15, 5.18, 8.13)
+
+=== Data Protection and Privacy
+
+Idea: Dedicated personal data protection dashboard?
+
+* list of roles that provide access to personal data
+(ISO27001 5.34)
+
+* list of users that have access to personal data
+(ISO27001 5.34)
+
+* changes in time (e.g. "5 people gained access to personal data yesterday")
+(ISO27001 5.34)
+
+* list of account that should be deleted but are not (e.g. due to error)
+(ISO27001 8.10)
+
+=== RBAC
+
+* Number of roles by type
+(ISO 27001 5.1, 5.15, 5.18)
+
+* Access included in roles (%)
+(ISO 27001 5.1, 5.15, 5.18)
+
+* Access included in business roles (%)
+(ISO 27001 5.1, 5.15, 5.18)
+
+* Identities with access from roles (%)
+(ISO 27001 5.1, 5.15, 5.18)
+
+* Unused roles (roles without active assignment)
+(ISO 27001 5.1, 5.15, 5.18)
+
+* Number/list of manually assigned roles (assignments)
+(ISO27001 5.15, 5.36)
+
+* Number/list of roles assigned through request/approval process (assignments)
+(ISO27001 5.15, 5.36)
+
+* Number/list of automatically assigned roles (assignments)
+(ISO27001 5.15, 5.36)
+
+* Dashboard: number of manually assigned roles vs automatically assigned roles
+(ISO27001 5.15, 5.36)
+
+
+* Number/list of deprecated/proposed/active/suspended roles.
+(ISO27001 5.15, 5.36)
+
+* Idea: some role hierarchy metric? How many roles are included in other roles?
+
+=== Audit
+
+* All accounts created/deleted on resource (ISO 27001 5.10, 5.16, 5.18)
+
+* Roles assigned/unassigned, automatically/manually (ISO 27001 5.10, 5.16, 5.18)
+
+* Password changes
+
+* Access requests
+
+* Authentications (to midPoint)
+
+* REST service access
+
+* Provisioning operations
+
+* Service (application) accounts with passwords that were not changed in a looong time (e.g. 5 years)
+
+Incident response dashboard (just a rough idea for now):
+
+* Currently active "emergency mode(s)"
+
+* Roles with special meaning for incident response, e.g. that include emergency privileges
+
+* Under-assigned roles with special meaning for incident response
+
+* Last activation of emergency mode (e.g. "X days without an incident")
+
+* Audit event report with event delta details - with attribute names and values and names of related objects from delta items
+
+=== Risk
+
+* Objects with the highest risk (top 10)
+
+(Later)
+
+* High-risk roles
+
+* High-risk users
+
+=== Usage
+
+* Application that were not used recently.
+
+* Vastly over-provisioned applications.
+Applications that are used only by a small fraction of users that have access to them.
+
+
+NOTE: "Without owner" should really mean "without active owner".
+Only active users should be considered valid owners.
+
+=== Personal Dashboard
+
+* List of objects that I own (objects that I'm responsible for).
+(Principle of Responsibility Awareness)
+
+* List of my roles.
+
+* List of roles where I have special relation (e.g. approver).
+(Principle of Responsibility Awareness)
+
+* List of orgs that I'm member of.
+
+* List of orgs that I manage.
+(Principle of Responsibility Awareness)
+
+== Misc and Notes
+
+* "Donor user" as a term for user whose access is copied to a new employee.
+
+* Consider renaming 'assignment' feature (midpoint-features.yml) to `relationship`.
+Update documentation accordingly.
+
+* Make sure deprecated roles cannot be requested in shopping cart.
+(ISO 27001 5.15, 5.18)
+
+* "License management" as formal feature? (ISO 27001 5.11, 5.32)
+
+* Should we pre-configure top-level org "Suppliers", to allow creating of supplier organization entries? (ISO 27001 5.19)
+
+* Running an action for all users of an application, e.g. notifying them about an incident, forcing them to change passwords.
+
+* We really *should* recommend to always use midPoint with SSO/AM, and MFA, which avoids lots of password problems.
+
+* Archetype should take role of object template for PD-RBAC autoassignment
+
+* Incident response
+
+** Use conditional roles to pre-configure emergency privileges for incident response.
+Q: what will trigger the condition?
+How to make sure such roles (their members) are automatically recomputed to immediately gain the privileges.
+Note: this may work both ways, granting more privileges to security staff and revoking some privileges to risky user populations (e.g. disabling external access on AM server).
++
+Idea: Can we somehow use meta-roles (e.g. PolicyType)? The mode might not be global, could be in meta-role, reflecting to all roles affected by meta-role.
+(ISO27001 5.24, 5.29)
+
+** Emergency mode: global mode, can be turned on by authorized users.
+It enables pre-defined elevated privileges for security and business continuity staff.
+All operations that happen during emergency mode have a special mark in the audit trail, can be used to investigate the incident.
+All assignments, accounts and associations that are created during emergency mode are marked.
+They can be discovered after the incident and cleaned up.
+This should also apply to role modification and possibly other operations.
+Certification to review of emergency roles: both assignments and role inducements (object-governance)
+(ISO27001 5.24, 5.29)
++
+Probably needs several modes: security incident, disruption, natural disaster, ...
+Idea: Can we somehow use meta-roles (e.g. PolicyType)? The mode might not be global, could be in meta-role, reflecting to all roles affected by meta-role.
+
+** Guide: "Incident response with midPoint", recommending individual steps (containment, escalation, ...), referencing ISO controls.
+
+* ISO 27001 is often referencing "assets", which in our parlance refers to application.
+This makes the policies quite application-centric, rather than role-centric.
+E.g. approval by application owners, rather than role owner.
+
+* Methodology: Locations as orgs.
+Strongly recommend use of org-based locations (possibly hierarchical), can be used to directly assign policies using inducements.
+
+* TLP protocol (ENISA-baseline)
+
+* Store classification in audit log in a searchable way
+(ISO27001 5.12, 5.13, 5.14)
+
+* "Supply chain governance" (marketing)
+
+* cloud behavior monitoring: "monitoring, reviewing and evaluating the ongoing use of cloud services to manage information security risks"
+(ISO27001 5.23)
+
+* User interface for HR: users, orgstruct, clearances (e.g. screenings), some reviews/certification (e.g. renewal of screening).
+
+* Anomaly detection: if a user is highly-connected to multiple groups, it is probably a user that used to be in many orgs/projects, and retained access when left.
+We could be able to detect that situation (although probably not using simple clustering?)
+
+* Least privilege: strict "least privilege" may be possible, yet it may not be very practical.
+Slight *controlled* over-provisioning (e.g. business roles slightly bigger than necessary) may be much better,
+good risk-based trade-off.
+Yet, we need a good risk management for that.
+
+* Regulations/standards mandate access reviews.
+How do you do that with ABAC/PBAC?
+
+=== ITDR
+
+* Emergency mode and automatic activation of emergency privileges (activation of prepared emergency plans).
+Scenarios: security incident, business continuity, disaster
+
+* Break-glass operations
+
+=== Asset Management
+
+* What is "asset"? definition of "asset".
+This is harder than it seems!
+
+* `Asset` as auxiliary archetype? Or mark? Special flag? Hardcoded?
+Assets can be: applications, devices, computers (desktops), servers, virtual machines, databases, datasets, ...
+How do we say that all applications are assets? All servers are assets?
+Assets can form hierarchies (DAGs), e.g. _dataset_ is stored in _application_ which runs on _server_ (see below).
+
+* https://nvlpubs.nist.gov/nistpubs/Legacy/IR/nistir7693.pdf[NIST IR 7693 Specification for Asset Identification 1.1] has data model for asset management, relations such as `partOf`, `isOwnerOf`, `connectedTo`.
+
+* Asset discovery: automatic process scanning networks and applications.
+
+* Authoritative and accurate source of information.
+Asset identifiers.
+Regular review.
+Assign _confidence_ or _last seen_ or _last review_ timestamp.
+Software type and version, SBOM? (for vulnerability management).
+
+* Asset owners: each asset should have an owner, a person responsible for the asset
+
+* Integrations: monitoring, CMDB
+
+* "physical, virtual and cloud resources, along with your organisation’s Internet presence, in the form of social media accounts, domain name registrations, IP address spaces and digital certificates"
+
+* Procedures to make sure all assets are registered - to avoid shadow IT.
+E.g. Assign DNS name only to registered assets.
+Issue TLS certificate only to registered assets.
+Grant access to other systems (service accounts) only to registered assets.
+
+* Idea: recording/tracing location of assets?
+E.g. current location of dossiers (office, work, on-premise/off-premise).
+(ISO27001 7.9)
+
+NOTE: (Martin) MidPoint should not be asset management tool - this is too broad area for identity management solution. Only assets that should be listed in midPoint are assets storing information we need manage access to - e.g. Applications or some data sources (file server shares, Confluence spaces, cloud drives). These assets may be linked to some inventory, but this should be another tool. +
+Midpoint may become a source for such assets (application registration) if an organization does not have good asset management tool. But only for this specific set of assets that are representing targets of user access.
+
+
+== Work Done So Far
+
+* xref:/midpoint/reference/roles-policies/classification/[]
+
+== Docs Improvements
+
+* Explain identity-based security, how it relates to zero trust and non-human identities (NHI).
+(ISO 27001 5.15)
+
+* Explain _object governance_ concept, especially for role owner/approver and application/asset owner.
+(ISO 27001 5.15)
+
+* special docs page on entitlements + RBAC (applications, application role, etc.)
+(ISO 27001 5.15)
+
+* Use of organizational units for access control: inducements in orgs.
+(ISO 27001 5.15)
+
+* xref:/midpoint/features/planned/compliance/[] (old page, needs update)
+
+* need-to-know, need-to-use and least privilege principles, and how they are used in access control.
+(ISO 27001 5.15)
+
+* Document project management idea
+
+* Document application inventory idea
+
+** Use of archetype to create AD project groups for members/managers
+
+** Project owner (gestor/sponsor) vs project manager
+
+* Link features to IGA capabilities
+
+* ISO27001 controls: show "Implementation plan" section (when we are ready)
+
+* Link ISO27001 controls to IGA capabilities?
+
+* Highlight ISO27001 controls that are closely related to IGA (capability==#Identity_and_access_management?)
+
+* Secure coding practices
+(ISO 27001 8.28)
+
+* Security testing practices
+(ISO 27001 8.29)
+
+* Document security password management practices/tips, e.g. complex passwords, less forced password changes, etc.
+(ISO27001 5.17)
+
+== Open Questions
+
+* How to make "SoD policy" report?
+TODO: We need more specific use-cases (look for roles with policies? look for users influenced by policies?)
+TODO: look for objects _affected_ by policy rules? (metadata?)
+TODO: e.g. list of all micro-certification rules
+(ISO27001 5.18)
+
+** Report all roles that have SoD policy rule definitions
+** Report all roles that are subject to SoD policy rules (rule may be in metarole)
+** Report all SoD exceptions
+
+* How to determine classification of a role from classifications of sub-roles and applications?
+Similar mechanism should be used to determine risk levels.
+
+* Licence management as a feature? (ISO 27001 5.11)
+What do we need to do? License archetype?
+
+* Certification for classifications: replacing assignment of classification, instead of removing it?
+
+* Can we query for *active* assignments?
+We want direct assignments, therefore `roleMembershipRef` will not work.
+Can assignment `effectiveStatus` help?
+TODO: Need more specific use cases.
+
+* Can we make sure we have active user as owner/manager?
+E.g. whan owner/manager is org unit, we want at lest one active user in the org unit.
+
+* Reports and archetypes: Are archetypes good method to sort reports? E.g. "privileged users" report is a compliance report, yet it is also a dashboard report and collection report.
+Later: 4.10 (Advanced analytics).
+
+* Better support for MFA - integration with SSO/AM.
+How are we going to approach it?
+Examples with selected SSO/AM systems?
+How we can do adaptive auth?
+How we can do authentication step-up?
+(ISO 27001 5.8: "the level of confidence or assurance required towards the claimed identity of entities in order toderive the authentication requirements")
+(ISO 27001 5.8, 8.5)
+
+* Check that we display previous login time and number of previous failed logins after login procedure is completed (ISO27001 8.5 "considering")
+
+* Find a good term for "lazy" users, users that were not using system for a long time.
+Maybe "dormant"?
+
+* Idea: Can we determine app/account usage frequency/intensity from watching changes in last login value?
+
+* Counts: number of accounts per user, number of application per user, number of assignment/roles per user. How to search them? (give me all users with more than 10 accounts) How to sort lists? Do we need to store them?
+
+* How to deal with existing policy violations?
+
+* Can midPoint detect that disabled orphaned account was re-enabled? Can we react? Can we report it?
+
+* Certification "manual mode": Do not make any automatic changes (e.g. revoke), do all changes manually.
+Only report where the situation need to be remedied.
+Remediation is manual.
+Can we do this in 4.9?
+(ISO 27001 5.9)
+
+* List all users that can manipulate access rights? authorizations for assignment/execution?
+(ISO 27001 5.15)
+
+* "The organization should have a supporting process in place to handle changes to information related to user identities. These processes can include re-verification of trusted documents related to a person."
+(ISO27001 5.16)
+
+* What is common ownership / assert governance structure?
+Do we have role owners? For business roles only? For application roles too?
+Do we have application owners?
+Do we have "custodians"?
+(ISO27001 5.18)
+
+* Very clear identification who is internal (employee) and external.
+How to do it? Pre-defined archetypes? Flag? mark?
+Also: types of suppliers (ISO27001 5.19) to differentiate access - aux archetypes?
+(ISO27001 5.18, 5.19, 5.20, 5.21, 5.22)
+
+* Internal "sponsors" for external identities, are they used? Can we pre-configure?
+Approver for access requests.
+Need to analyze, whether there is a common scheme that we can pre-configure.
+(ISO27001 5.19, 5.20)
+
+* Loss of clearance: can we automatically remove/disable all assignments?
+How to do it?
+(ISO27001 5.12, 5.13, 5.18, 5.19, 5.20)
+
+* Can we provide evidence that the approval process cannot be circumvented: policy rule to evaluate whether there is at least one approver?
+(ISO27001 5.18)
+
+* Do we have last review/certification timestamp in metadata?
+
+* Relation `sponsor` for suppliers? Or can be reuse owner/manager?
+Maybe a new relation `responsibility` or `accountable`?
+(ISO27001 5.20, 5.21, 5.22)
+
+* How do we track contracts? Contract IDs in users? Orgs?
+Should "contract" be a separate object?
+Use case: make sure that all supplier accounts are covered by valid contract.
+(ISO27001 5.20, 5.21)
+
+* Could we use last login information to detect that supplier neglects maintenance?
+E.g. supplier was not logged-in to any system for more than a year.
+(ISO27001 5.20, 5.21, 5.22)
+
+* When clearance is assigned to org, how it is applied to users?
+E.g. how we can apply supplier (company) ISO27001 certification (clearance) to all users in that organization?
+Higher-order inducements, perhaps?
+(ISO27001 5.19, 5.20, 5.21, 5.22)
+
+* How to report (dashboard) users that no longer have necessary clearance?
+There is going to be `enforce` policy rule, which is going to fail.
+Will it set violation mark?
+
+* How to report _all_ policy violations?
+I.e. search for all marks that represent policy violations?
+Should we have some kind of property in the marks to mark the marks as _policy violations_?
+
+* Can we keep (long-term) summaries of past certification campaigns?
+We need that as an evidence that campaigns regularly happened, that the thing that they set up to review was reviewed.
+We do not need all the workitems (that information should be kept in metadata, referring to campaign ID), we need just the summaries: when it happened, what was the number of responses, how many items were removed, who participated, etc.
+(ISO27001 5.19, 5.20, 5.21, 5.22 and many others)
+
+* BYOA/BYOI (bring your own account/identity) and BYOD (bring your own device) use cases.
+E.g. how can midPoint manage access on GitHub, using GitHub accounts registered by the users themselves (personal accounts)?
+Can midPoint help with "remote work" aspects of BYOD/BYOA/BYOI?
+(ISO27001 6.7, 8.1)
+
+* Does simulation evaluate policy rules? How it is reported?
+
+* Are changes in last login recorded in audit?
+If yes, we can have some kind of "logbook" for access to apps.
+But maybe it is not reliable enough for that purpose?
+(ISO27001 7.2)
+
+* Detect account that exist, are correlated, but are illegal - can we report that before deprovisioning?
+(ISO27001 8.12)
+
+* How much audit records we keep about certification campaigns? Do we keep start/stop? historical data about campaigns (as audit evidence)? decisions of reviewers, etc.
+(ISO27001 8.15 and others)
+
+
+== Answered Questions
+
+* New abstract role subtype "Policy"? midPoint 4.9
+
+* Should we mark `Superuser` role as privileged by default?
+It is privileged, technically.
+However, may it somehow deform the reports?
+YES!
+
+
+== TODO list for 4.9.1
+
+// * [red]*(!!!)*
+
+* resolve issue https://support.evolveum.com/projects/midpoint/work_packages/10198[#10198]
+
+* Test mark for "privileged" users ("privileged access"?) set by policy rule in privileged classification.
+
+* Improve `midpoint.getManagersOidsExceptUser(object)` to prefer archetyped orgs.
+
+* check certification "manual mode" in 4.9.1 - for classification certification.
+Pre-configure classification certification campaign. (accept/remedy - to report)
+(ISO27001 5.9, 5.12, 5.13)
+
+* Apply minAssignee/maxAssignees rules for info on dashboards.
+
+* Role recompute task, User recompute task.
+
+* `Unclassified` mark?
+
+* Consider more widgets for compliance dashboard.
+** Applications without classifications
+
+* Consider archetypes for projects.
+
+* Consider Location archetype
+(ISO27001 7.1, 7.2)
+
+* Test approval of policy rule exceptions.
+
+* Pre-defined certification campaigns
+
+** Classifications
+
+* Reports:
+
+** list all privileged roles (roles that provide privileged access) +
+We don't know, how to do it for business roles - prepare just for application roles
+
+** list of users who have privileged access (marked by object mark)
+
+* Methodology and examples:
+
+** additional approval level for high-classification applications
+
+** methodology how to use policies and object marks
+
+*** SoD - documentation + initial objects (user just adds exclusion policy rule to roles - via XML probably at this moment)
+
+** example: easy start (just set policy to mark objects and recompute, manual unassign of the marks)
+(the example of gradual policy enforcement, just with manual steps and fewer objects)
+
+* Design sessions
+
+** Policy rules, approvals
+
+** Metadata, provenance
+
+* Compliance dashboard (examples):
+
+** Users:
+
+*** Marked users (that are marked by any object mark)
+
+*** Privileged users (marked by `Privileged` object mark)
+
+*** Suspicious users (marked by `Suspicious` object mark)
+
+** Roles:
+
+*** privileged (hi-risk) roles
+
+*** roles without owner
+
+*** requestable roles without approver (if possible)
+
+*** unassigned roles (not priority)
+
+*** empty/weak business roles (with zero role induced)
+
+** Policy violations: (here different widgets with policy violations, from examples) +
+technically objects with specific object marks
+
+*** Underassigned roles (requested count of assignees, but not applied, check whether the user is active!)
+
+
+== TODO list for 4.10
+
+* Design sessions
+
+** Multi-identities/archetypes: Employee, Student, Supplier, Volunteer.
+Birthrights.
+
+** Supplier identity management scenarios.
+Linking suppliers to the services/applications that they are responsible for.
+
+** Orgstruct pre-defined archetypes/roots: functional, projects, teams?
+
+** Locations: model them as orgs, pre-defined archetype/root.
+Assign locations to users. How will it work with locale? What about old location _property_?
+Assign locations to services (e.g. location of cloud datacenters).
+Consider "jurisdiction" use cases: store sensitive data only on EU cloud services;
+data about EU users may be stored only on EU services;
+similar information transfer limitations; etc.
+Need GUI support? How much?
+Consider how this can be used in role mining/outliers out of the box.
+(ISO27001 7.1,7.2)
+
+** Classifications and GUI, visibility, reporting, etc.
+
+** Concept of "Asset", ideas for implementation
+
+** Application inventory: cloud vs on-prem systems (locations/zones?), internally-sourced, purchased, managed service ... marking them, suppliers, etc.
+(ISO27001 7.1,7.2)
+
+** Policy rules: Updates needed in 4.10.
+Handling of "enforce" rules when in violation.
+Use case of lost clearance: remove/deactivate all assignments that require the clearance.
+Policy action: inactivate.
+
+** Certification improvements
+
+** Marking regulations/processes in objects/rules to evaluate compliance.
+(ISO27001 5.36)
+
+** Emergency roles (incident response, business continuity) (ITDR)
+
+* To consider/design
+
+** Clearance certification: use case:
+Supplier organization lost ISO27001 certification (clearance).
+This certification is required.
+How do we mark/inactivate all the identities in this organization?
+
+* Physical person:
+Use case: One physical person has more identities represented as users. Link person to these identities.
+Linked objects
+
+** Show all accesses of physical person
+
+** Reports over physical persons (IGA report)
+
+* Dashboard:
+
+** Users:
+
+*** Top assignees (who have over <XY> assignments of (application) roles - both direct and indirect) +
+The <XY> parameter is defined in configuration. It would be great if the parameter is configurable in gui in future versions.
+
+*** Top app access (who have access to over <XY> assignments of applications - both direct and indirect) +
+The <XY> parameter is defined in configuration. It would be great if the parameter is configurable in gui in future versions.
+
+** Role:
+
+*** most complex business roles (over <XY> inducements)
+
+** Policy violations
+
+*** Applications with overassigned licenses (policy XY-app)
+
+* Approval policy rules
+
+** ??? Global policy rule which states that if role has any approvers, the approvers must approve the request - replacing built-in approval magic.
+
+** ??? pre-defined applicable policies for approval
+
+** Approval by application owner
+
+* Reports:
+
+** Update who has access to what and why report.
+Extend with approver info.
+
+* Audit
+
+** Enable querying audit events by values in delta
+
+** Audit events with details report
+
+** Audit event one-liner overview

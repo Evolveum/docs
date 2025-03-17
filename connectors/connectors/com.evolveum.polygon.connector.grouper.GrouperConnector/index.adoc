@@ -199,21 +199,43 @@ Please contact Evolveum representative for the details.
 
 | Include in 'ALL' searches
 | Define a set of attributes which will be explicitly fetched in an 'ALL' object class search. This serves as an workaround for the lack of "ATTRS_TO_GET" operation options values.  (Please see 'notes' and also please see https://docs.evolveum.com/connectors/connid/1.x/connector-development-guide/#attributes-to-get[Attributes To Get] ) +
-LiveSync task that work with all object classes requires this parameter to contain values 'members' and 'memberOf'.
-| members, memberOf
+LiveSync task that work with all object classes requires this parameter to contain values 'members' and 'member_Of'.
+| members, member_Of
 | No
 
 |===
 
-== Resource Examples
-* https://github.com/Evolveum/connector-grouper/blob/main/samples/resources/template/resource-template-grouper.xml[Resource Template]
+[#_limitations]
+=== Limitations
 
+* The LiveSync task which synchronizes both object classes requires 'Include in ALL searches' configuration parameter.
+The parameter will have to contain the names of attributes which are not returned by default, yet we want them in the response, i.e. "member_of" in case of the "Subject" object class.
+
+== Resource Examples
+Resource template example with basic mapping and association configuration.
+
+.*Grouper Resource Template Sample*
+[%collapsible]
+====
+
+link:https://github.com/Evolveum/midpoint-samples/blob/master/samples/resources/grouper-jdbc/resourceTemplate/resource-template-grouper.xml[Git]
+
+sampleRef::samples/resources/grouper-jdbc/resourceTemplate/resource-template-grouper.xml[]
+
+====
 
 == LiveSync Task Examples
-* https://github.com/Evolveum/connector-grouper/blob/main/samples/tasks/live-sync-grouper.xml[LiveSync Task Sample]
 * The liveSync task is processing both Groups and Subject object at the same time. That will prevent race condition types of conflicts when a new group is created and populated with users. In that case it's important to process the group before the subjects (and their memberships).
-* The LiveSync task which synchronizes both object classes requires 'Include in ALL searches' configuration parameter contains values 'members' and 'memberOf'.
+* The LiveSync task which synchronizes both object classes requires 'Include in ALL searches' configuration parameter contains values 'members' and 'member_Of'.
 See bug:MID-8996[] for details.
+
+.*LiveSync Task Example*
+[%collapsible]
+====
+link:https://github.com/Evolveum/midpoint-samples/blob/master/samples/resources/grouper-jdbc/tasks/grouper-liveSync.xml[Git]
+
+sampleRef::samples/resources/grouper-jdbc/tasks/grouper-liveSync.xml[]
+====
 
 == Notes
 
@@ -228,21 +250,34 @@ With 'Exclude Objects marked as Deleted' set to true the rows marked as 'deleted
 In case of rows present in the 'main' object tables, the objects will be handled as deleted. In case of
 rows present in the membership or auxiliary attributes tables the lack of the row will mean a removal of parameter value.
 
-The "Configuration discovery" operation among other functions will provide you with a list of possible names
-of auxiliary attributes which if selected will be incorporated in the attribute schema. This list of attributes can
-be changed in the resource configuration, after which the schema should be 'regenerated' ('refreshed').
+The "Configuration discovery" operation among other functions will provide you with a list of possible names of auxiliary attributes which if selected will be incorporated in the attribute schema.
+This list of attributes can be changed in the resource configuration, after which the schema should be 'regenerated' ('refreshed').
 
-The "members" and "member_of" ("virtual" attributes) are not retrieved by default, the attribute configuration
-in the IAM has to *explicitly request* these attributes. The same applies to attributes originating from
-other tables as the main ones (Tables referred to as the main tables: "gr_mp_subjects" and "gr_mp_groups").
+The "members" and "member_of" ("virtual" attributes) are not retrieved by default, the attribute configuration in the IAM has to be set up to *explicitly request* these attributes (one of them or both, based on the use-case), in order to process them in IAM operations (i.e. LiveSync).
+The same applies to attributes originating from other tables as the main ones (Tables referred to as the main tables: "gr_mp_subjects" and "gr_mp_groups").
 To achieve this the mappings have to be augmented by the parameter "fetchStrategy" set to the value "explicit".
+
+Most configuration will need just one of those two attributes.
+In case of associations the preferred one is the subject attribute holding the reference, in our case "member_of".
+In regards to this please also see the xref:#_limitations[Limitations section]
 
 [source]
 ----
  <attribute xmlns:ri="http://midpoint.evolveum.com/xml/ns/public/resource/instance-3">
-    <ref>ri:members</ref>
+    <ref>ri:member_of</ref>
     <fetchStrategy>explicit</fetchStrategy>
  </attribute>
+----
+
+In case you need to use the "members" attribute of the object class "group", the recommendation would be to turn off the default shadow caching functionality for this attribute.
+
+[source]
+----
+<attribute xmlns:ri="http://midpoint.evolveum.com/xml/ns/public/resource/instance-3">
+    <ref>ri:members</ref>
+    <fetchStrategy>explicit</fetchStrategy>
+    <cached>false</cached>
+</attribute>
 ----
 
 == Migration from legacy Grouper connector.

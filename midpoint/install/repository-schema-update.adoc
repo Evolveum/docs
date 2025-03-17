@@ -1,0 +1,164 @@
+= Repository Schema update
+:page-visibility: hidden
+:page-toc: float-right
+:page-keywords:  [ 'schema rename', 'default schema', 'environment reset" ]
+
+== What is addressed by this page
+
+Since 4.9.1 there is change of the default schema for the repository structure to the name of the user accessing the DB.
+This is currently recommended approach for postgresql environment.
+It is correcting the historical configuration pointing public schema.
+
+With the new version there may happen the situation when the repository is improperly re-initialized.
+The data seems to "disappear", but technically it is only "hidden".
+
+Safe environment :
+
+*  the data is only in public schema ("CURRENT_USER" schema may not exist ) +
+This is scenario when the repository was already initialized and the init script was not run again.
+This scenario may "fall" into affected environment if the init script is run in the future.
+
+* The repository is initialized directly in "CURRENT_USER" schema (public schema may not exist ) +
+This is "new" approach and this environment is safe even in case of running of the init script.
+If the script is (accidentally) run, it fails on existing objects but no data is hurt.
+
+=== Affected environment
+
+To hit this issue you have to execute delivered script for repository initialization.
+In case of bare installation this situation should not happen as the script is run manually just once.
+
+On the other side in case of containers this operation is automatically done with the condition.
+Unfortunately the condition is pass with any error.
+With the working connection into the database the error usually happen just with the uninitialized repository only.
+Even you are running the container environment this situation may not happen to you.
+
+== What happened
+
+=== How it looks
+
+As a user you can see default login form configuration.
+In case of custom settings (e.g. self registration, password reset) this feature disappear from login page.
+
+After providing the proper user credentials the login is denied with the notice: `Invalid username and/or password.`
+
+.postgres (repository) side of the "issue"
+[%collapsible]
+====
+[source]
+----
+# select table_schema, count(*) as count_of_tables from information_schema.tables where table_type = 'BASE TABLE' group by table_schema;
+
+    table_schema    | count_of_tables
+--------------------+-----------------
+ information_schema |               4
+ midpoint           |             100 <!--2-->
+ pg_catalog         |              64
+ public             |              88 <!--1-->
+(4 rows)
+
+# \dns *
+            List of schemas
+        Name        |       Owner
+--------------------+-------------------
+ information_schema | midpoint
+ midpoint           | midpoint <!--2-->
+ pg_catalog         | midpoint
+ pg_toast           | midpoint
+ public             | pg_database_owner <!--1-->
+(5 rows)
+
+----
+<1> "Original" content of the repository
+<2> Newly initiated repository
+====
+
+=== Technical background
+
+The schema with the same name as the used username for the connection is used on the postgres.
+In case the required content (e.g. required table) is not found there is "fallback" to public schema.
+This is done for the backward compatibility as the public schema used to be recommended to use on previous version of postgres DB.
+
+Even with the "old" repository initialized in public schema everything is working fine until the tables exists also in the "CURRENT_USER" schema.
+
+The problem is that there is created new schema and the repository is re-initialized in it.
+All the future request end up in this schema instead of the schema public where the data still exists.
+
+== How to solve it
+
+To solve it the newly created schema with the content have to be moved or removed.
+To make it safe and to prevent repeating the situation the public schema would be renamed.
+
+Both renaming and removing "new" schema is working scenario.
+
+The solution is based on :
+
+* *public* schema is not mandatory and may be even missing +
+Some sources even recommend to remove public schema.
+* any operation is processed with preference for "CURRENT_USER" schema
+
+=== Rename the new schema
+
+In case you are not comfortable removing the newly created schema, this could be preferred option for you.
+The newly initialized content of the repository is still available in the *midpoint_bck* schema.
+
+.commands to rename the schema with proper ownership on the schema
+[source]
+----
+ALTER SCHEMA midpoint RENAME TO midpoint_bck;
+ALTER SCHEMA public OWNER TO midpoint;
+ALTER SCHEMA public RENAME TO midpoint;
+----
+
+.final state of the database
+[%collapsible]
+====
+[source]
+----
+# \dns *
+            List of schemas
+        Name        |       Owner
+--------------------+-------------------
+ information_schema | midpoint
+ midpoint           | midpoint
+ midpoint_bck       | midpoint
+ pg_catalog         | midpoint
+ pg_toast           | midpoint
+(5 rows)
+----
+====
+
+=== Remove the new schema
+
+In case you want to clean up the database, this could be preferred option for you.
+The newly initialized content of the repository become unavailable.
+
+.commands to keep the original (public) with proper ownership on the schema
+[source]
+----
+DROP SCHEMA midpoint CASCADE;
+ALTER SCHEMA public OWNER TO midpoint;
+ALTER SCHEMA public RENAME TO midpoint;
+----
+
+.final state of the database
+[%collapsible]
+====
+[source]
+----
+# \dns *
+            List of schemas
+        Name        |       Owner
+--------------------+-------------------
+ information_schema | midpoint
+ midpoint           | midpoint
+ pg_catalog         | midpoint
+ pg_toast           | midpoint
+(5 rows)
+----
+====
+
+== Relevant resources
+
+* xref:/midpoint/reference/repository/configuration/[]
+
+* link:https://github.com/Evolveum/midpoint/commit/ac076891de3c98d1b1df0785893a1bd974962e96[commit setting *CURRENT_USER* schema]
