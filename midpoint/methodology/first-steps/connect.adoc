@@ -57,7 +57,7 @@ To get users from CSV to midPoint, use the CSV Connector and configure it accord
 
 *Use the xref:/midpoint/guides/manage-resources/create-resource/[guide on connecting a resource to midPoint] to help you with the configuration.*
 
-=== 2. Configure Resource Object Types
+=== 2. Configure the Resource Object Type
 
 The next step after connecting the CSV resource is to configure the resource object types.
 In your case, each resource object represents a user in the HR system.
@@ -72,11 +72,13 @@ After you save your object type, you can preview the resource data to see what y
 If you close the resource wizard too soon, don't worry. You can get back to it any time:
 
 In *Resources* > *All resources* > <your resource>, open the object type for editing via *Schema handling* > *Object types*.
+
+Similarly, you can always view the resource objects via *Resources* > *All resources* > <your resource> > *Resource objects*.
 ====
 
 === 3. Filter Out Irrelevant HR Entries
 
-// This should be a separate short tutorial that elaborates a bit more on the topic. TBD
+// This should be a separate short tutorial that elaborates a bit more on the topic. TBD /dakle
 // There's a hint on this at /midpoint/reference/master/admin-gui/resource-wizard/object-type/#specify-the-resource-data
 
 When you preview the resource objects, you may realize there are some accounts that you don't want or need to manage using midPoint.
@@ -94,11 +96,12 @@ To prevent these accounts from being imported to midPoint:
 . In the *Specify the resource data* screen, type a filtering condition to the *Filter* field.+
     For instance, if their `employeeNumber` starts with `8`, unlike anyone else's: `attributes/employeeNumber not startsWith "8"`.
 
-. Save the object and view the resource objects again.
+. Save the object and link:#_get-back-to-config-wizard[view the resource objects again].
 
-. Click *Reclassify* at the bottom of the list and then confirm they no longer appear listed among the resource objects.
+. Click *Reclassify* at the bottom of the resource object list.
+. You should see that the `8XXX` accounts no longer appear listed among the resource objects.
 
-Now, you're ready to import users from the HR system to midPoint.
+Now, you're ready to proceed to the next steps before you can finally import your users from the HR system to midPoint.
 
 [TIP]
 ====
@@ -107,11 +110,182 @@ When you viewed the resource objects, you were looking at real data at the remot
 That's why it's called preview and why it's important to preview the data before you import them to avoid needless clean-up maintenance later on.
 ====
 
-== Import users from the HR System
+== Define Mappings and Synchronization Policies to Prepare for Import
+
+Before you can import any user accounts, you need to define how to handle the user data in the resource objects, as well as specify rules on how to behave when users are discovered, updated, deleted, and so on.
+This is what mappings and synchronization policies are for.
+
+=== Set synchronization rules
+
+Firstly, let's tell midPoint what to do in what situation.
+
+Refer to this guide on how to create synchronization rules: xref:/midpoint/reference/admin-gui/resource-wizard/object-type/synchronization/[]
+
+The rules you want to define at this stage of your project in particular:
+
+[cols="1,1,3"]
+|====
+| Situation | Reaction | Explanation
+
+| Unmatched
+| Add focus
+| The account from CSV doesn't exist in midPoint yet, so let's create the user in midPoint.
+
+// technically not needed in clean MP but they need to add it later anyway so I'm putting it here already /dakle
+| Unlinked
+| Link
+| There's a focus for the account but it's not linked yet, let's link it.
+
+| Linked
+| Synchronize
+| Synchronize the data between the remote account and the focus based on mappings.
+
+|====
+
+=== Map user data
+
+Secondly, let's map various data in the user objects on the resource to user attributes in midPoint.
+
+Refer to this guide on how to define mappings: xref:/midpoint/reference/admin-gui/resource-wizard/object-type/mapping/[]
+
+These concrete rules you want to define here.
+Your source attribute names may, of course, be different based on your internal naming convention.
+
+[cols="2,1,1,1,1,5"]
+|====
+| Name | Source | Expression | Target | Lifecycle state | Explanation
+
+| empnum-to-name
+| `empnum`
+| As is
+| `name`
+| Active
+| Name must be unique so the employee number is the best choice now. Later, you can generate unique usernames, for example.
+
+| empnum-to-personalNumber
+| `empnum`
+| As is
+| `personalNumber`
+| Active
+| empnum is also important for employee identification so we map it to another dedicated parameter. It'll stay there even after you create unique usernames.
+
+| firstName-to-givenName
+| `firstName`
+| As is
+| `givenName`
+| Active
+| We'll construct a full name from these.
+
+| surname-to-familyName
+| `surname`
+| As is
+| `familyName`
+| Active
+| We'll construct a full name from these.
+
+|====
+
+
+
+== Import Users From the HR System
 
 // This is covered in [First Steps With MidPoint: Assessment - Evolveum Docs](https://docs.evolveum.com/midpoint/methodology/first-steps/assessment/) but we need this for GUI
 
+Everything is now ready for import.
+Before you proceed with the real import, it's best to _simulate_ the action first and see if everything behaves as expected.
+
+* You first simulate import of one account.
+* Then, try it with all accounts.
+* Finally, run the actual real import.
+
+=== Preview Import on a Single Account
+
+. In *Resources* > *All resources* > <your resource>, select *Accounts*.
+. Pick one object (account) and click the dropdown menu on the far right of the row.
+. Select *Import preview*.
+. In the popup that appears, select *Simulated development* as the task execution mode.
+. Click btn:[Select].
+. Review the data in the simulated import.
+
+image::import-preview.webp[Preview import of a single account]
+
+You haven't created anything in midPoint yet.
+As this is only a simulation, it's the best time to review if the account data map to the right user attributes, and fix it if needed.
+
+Once you're happy with the setup, you can import for real.
+
+=== Simulate Full Import Before You Go All In
+
+Firstly, make sure the resource is in the *Active* lifecycle state.
+You can find this setting in the top bar when you open the resource via *Resources* > *All resources* > <your resource>.
+
+Then, create a simulation task for import.
+You'll use the *preview execution mode* with the *development configuration*.
+Refer to xref:/midpoint/guides/tasks/import-tasks/[] for more details on creating tasks.
+
+Inspect the simulation results and confirm whether all is good.
+If so, proceed to the real import.
+
+=== Real Import
+
+You've got everything ready to import users from the HR system to midPoint.
+xref:/midpoint/guides/tasks/import-tasks/[Create another import task] like you did for the simulation.
+The only difference is that now you're going to *use production configuration* and leave the execution mode on default.
+
+.Double-check archetypes
+[WARNING]
+====
+Before you launch the real import task, double check that your resource objects for accounts have the right archetypes. It's complicated to change them later.
+====
+
+The runtime of the task depends on the amount of accounts you have in your HR system.
+
+Once you run the task and it finishes successfully, you'll see the accounts as linked under icon:male[] btn:[Accounts] in your resource.
+
+Congratulations, you're ready to connect a target system to midPoint.
+
+== Connect Your LDAP Target System
+
+The next thing to do is to connect your target system.
+A target system is a resource that acts as a recipient of data _from_ midPoint.
+It's not authoritative, yet it has data on the same accounts that you've imported _to_ midPoint from the HR system.
+
+When a system isn't authoritative, it means that it can't overwrite data in midPoint.
+Moreover, midPoint is supposed to overwrite (read: rectify) the data on the resource if they happen to mismatch midPoint's truth.
+This is useful in cases when, for example, someone creates an unauthorized account on the target system.
+The account needs to be deleted and midPoint does so as soon as it find the account, if instructed so.
+
+As mentioned in the previous chapter, the target system in this guide is an LDAP server.
+
+[NOTE]
+====
+The steps you'll take to connect the target system are going to be very similar to what you did with the HR source system.
+
+We point out the differences at the right places to ensure you don't get lost.
+====
+
+To connect the LDAP or any other system that contains accounts, follow the xref:#connect-the-hr-system[same steps you took to connect the HR system above]:
+
+. Create a resource for the LDAP system.
+    ** Select the LDAP connector instead and name the resource appropriately.
+    ** The connector configuration is more complex.
+        If you're unsure, your LDAP server admins can surely help you out.
+. Configure the resource object type.
+    ** First, configure an object type for account kind with default intent.
+        You'll likely add more object types later, but start simple now.
+. Define mappings and synchronization policies.
+    ** Refer to the next section for details.
+
+=== Define LDAP correlation rules
+
+// TBD - table with correlation rules for the LDAP resource
+
+=== Connect attributes with mappings
+
+// TBD - table with mappings rules for the LDAP resource
+
 ---
+= The old original content follows
 ---
 
 .Goal
