@@ -3,6 +3,7 @@
 :page-display-order: 110
 :page-toc: top
 :experimental:
+:icons: font
 
 .Goal
 [TIP]
@@ -46,18 +47,24 @@ Overall, when you integrate an IDM solution on top of existing account data, *yo
 
 == Connect the HR System
 
+
 You now know what to be careful about and what your nearest goals are.
 
 Let's say that the way to get data out of your HR system is via a CSV export.
 
-=== 1. Create a Resource for the HR System
+=== Create a Resource for the HR System
 
 A CSV file can be a resource like any other.
 To get users from CSV to midPoint, use the CSV Connector and configure it according to the structure of the CSV export.
 
 *Use the xref:/midpoint/guides/manage-resources/create-resource/[guide on connecting a resource to midPoint] to help you with the configuration.*
 
-=== 2. Configure the Resource Object Type
+[NOTE]
+====
+Set the lifecycle state to _Proposed_ until you finish the whole configuration of the resource.
+====
+
+=== Configure the Resource Object Type
 
 The next step after connecting the CSV resource is to configure the resource object types.
 In your case, each resource object represents a user in the HR system.
@@ -76,7 +83,7 @@ In *Resources* > *All resources* > <your resource>, open the object type for edi
 Similarly, you can always view the resource objects via *Resources* > *All resources* > <your resource> > *Resource objects*.
 ====
 
-=== 3. Filter Out Irrelevant HR Entries
+=== Filter Out Irrelevant HR Entries
 
 // This should be a separate short tutorial that elaborates a bit more on the topic. TBD /dakle
 // There's a hint on this at /midpoint/reference/master/admin-gui/resource-wizard/object-type/#specify-the-resource-data
@@ -110,12 +117,12 @@ When you viewed the resource objects, you were looking at real data at the remot
 That's why it's called preview and why it's important to preview the data before you import them to avoid needless clean-up maintenance later on.
 ====
 
-== Define Mappings and Synchronization Policies to Prepare for Import
+=== Define Mappings and Synchronization Policies to Prepare for Import
 
 Before you can import any user accounts, you need to define how to handle the user data in the resource objects, as well as specify rules on how to behave when users are discovered, updated, deleted, and so on.
 This is what mappings and synchronization policies are for.
 
-=== Set synchronization rules
+==== Set synchronization rules
 
 Firstly, let's tell midPoint what to do in what situation.
 
@@ -125,7 +132,7 @@ The rules you want to define at this stage of your project in particular:
 
 [cols="1,1,3"]
 |====
-| Situation | Reaction | Explanation
+| Situation | Reaction | Comments
 
 | Unmatched
 | Add focus
@@ -142,18 +149,21 @@ The rules you want to define at this stage of your project in particular:
 
 |====
 
-=== Map user data
+==== Map user data
 
 Secondly, let's map various data in the user objects on the resource to user attributes in midPoint.
 
-Refer to this guide on how to define mappings: xref:/midpoint/reference/admin-gui/resource-wizard/object-type/mapping/[]
+Refer to xref:/midpoint/reference/admin-gui/resource-wizard/object-type/mapping/[] on how to define mappings.
+You want to use *inbound mappings* because you're pulling attributes _from_ the resource _to_ midPoint.
 
-These concrete rules you want to define here.
+The xref:/midpoint/features/current/mapping/[] feature page may be useful to you if you wish to dive deeper into the mapping mechanisms.
+
+These are the rules you want to define.
 Your source attribute names may, of course, be different based on your internal naming convention.
 
 [cols="2,1,1,1,1,5"]
 |====
-| Name | Source | Expression | Target | Lifecycle state | Explanation
+| Name | Source | Expression | Target | Lifecycle state | Comments
 
 | empnum-to-name
 | `empnum`
@@ -185,9 +195,22 @@ Your source attribute names may, of course, be different based on your internal 
 
 |====
 
+The mappings can be set as _Active_ because the whole resource is still in the _Proposed_ lifecycle state.
+
+.Naming conventions for mapping names
+[TIP]
+====
+You may be wondering why name the mappings the way we do above.
+On the first sight, it seems redundant to name a mapping _surname-to-familyName_ because it's clearly visible in the mapping ingests surname and outputs its content to familyName.
+
+You're right, of course, but the reason for this naming convention is that *mapping names need to be unique throughout the object type*.
+This convention helps to ensure that.
+
+As for spaces vs. dashes—you can use either, but dashes are generally the saver option.
+====
 
 
-== Import Users From the HR System
+=== Import Users From the HR System
 
 // This is covered in [First Steps With MidPoint: Assessment - Evolveum Docs](https://docs.evolveum.com/midpoint/methodology/first-steps/assessment/) but we need this for GUI
 
@@ -198,7 +221,7 @@ Before you proceed with the real import, it's best to _simulate_ the action firs
 * Then, try it with all accounts.
 * Finally, run the actual real import.
 
-=== Preview Import on a Single Account
+==== Preview Import on a Single Account
 
 . In *Resources* > *All resources* > <your resource>, select *Accounts*.
 . Pick one object (account) and click the dropdown menu on the far right of the row.
@@ -214,28 +237,29 @@ As this is only a simulation, it's the best time to review if the account data m
 
 Once you're happy with the setup, you can import for real.
 
-=== Simulate Full Import Before You Go All In
+==== Simulate Full Import Before You Go All In
+
+Create a simulation task for import.
+You'll use the *preview execution mode* with the *development configuration*.
+Refer to xref:/midpoint/guides/tasks/import-tasks/[] for more details on creating tasks.
+
+Inspect the simulation results and confirm whether all is good. Refer to xref:/midpoint/reference/admin-gui/simulations/[] for guidance on interpreting simulation results.
+If so, proceed to the real import.
+
+==== Real Import
+
+You've got everything ready to import users from the HR system to midPoint.
 
 Firstly, make sure the resource is in the *Active* lifecycle state.
 You can find this setting in the top bar when you open the resource via *Resources* > *All resources* > <your resource>.
 
-Then, create a simulation task for import.
-You'll use the *preview execution mode* with the *development configuration*.
-Refer to xref:/midpoint/guides/tasks/import-tasks/[] for more details on creating tasks.
-
-Inspect the simulation results and confirm whether all is good.
-If so, proceed to the real import.
-
-=== Real Import
-
-You've got everything ready to import users from the HR system to midPoint.
-xref:/midpoint/guides/tasks/import-tasks/[Create another import task] like you did for the simulation.
+Then, xref:/midpoint/guides/tasks/import-tasks/[create another import task] like you did for the simulation.
 The only difference is that now you're going to *use production configuration* and leave the execution mode on default.
 
 .Double-check archetypes
 [WARNING]
 ====
-Before you launch the real import task, double check that your resource objects for accounts have the right archetypes. It's complicated to change them later.
+Before you launch the real import task, double check that your resource objects for accounts have the right _Person_ archetypes. It's complicated to change archetypes later.
 ====
 
 The runtime of the task depends on the amount of accounts you have in your HR system.
@@ -243,6 +267,8 @@ The runtime of the task depends on the amount of accounts you have in your HR sy
 Once you run the task and it finishes successfully, you'll see the accounts as linked under icon:male[] btn:[Accounts] in your resource.
 
 Congratulations, you're ready to connect a target system to midPoint.
+
+// :sectnums!:
 
 == Connect Your LDAP Target System
 
@@ -264,6 +290,8 @@ The steps you'll take to connect the target system are going to be very similar 
 We point out the differences at the right places to ensure you don't get lost.
 ====
 
+=== Summary of Steps to Connect a Target System
+
 To connect the LDAP or any other system that contains accounts, follow the xref:#connect-the-hr-system[same steps you took to connect the HR system above]:
 
 . Create a resource for the LDAP system.
@@ -276,13 +304,130 @@ To connect the LDAP or any other system that contains accounts, follow the xref:
 . Define mappings and synchronization policies.
     ** Refer to the next section for details.
 
+=== Create Inbound Mappings for Correlation
+
+As the LDAP resource is currently a strictly outbound resource, meaning that it can't push any data _to_ midPoint, you're going to define a new kind of mapping.
+The thing is, to successfully correlate accounts on the LDAP server with the users in midPoint, you need _inbound_ mappings for the LDAP resource, i.e., _from_ LDAP _to_ midPoint.
+However, as you don't want any data coming from LDAP to midPoint, the regular inbound mappings aren't the best fit.
+
+That's why you're going to define inbound mappings _strictly for correlation_ purposes.
+MidPoint will use these mapping rules only to know which resource attribute to correlate with which _internal_ (focus) user attribute.
+
+The are the mappings you want to use:
+
+[cols="2,1,1,1,1,5"]
+|====
+| Name | Source | Expression | Target | Lifecycle state | Comments
+
+| inbound-employeeNumber-for-correlation
+| `empnum`
+| As is
+| `personalNumber`
+| Active
+| Used for correlating employee number in the resource with the personal number in midPoint.
+
+| inbound-surname-for-correlation
+| `surname`
+| As is
+| `familyName`
+| Active
+| Used for the second correlation rule when the default employee number correlation fails.
+
+| inbound-givenName-for-correlation
+| `givenName`
+| As is
+| `givenName`
+| Active
+| Used for the second correlation
+
+| inbound-locality-for-correlation
+| `locality`
+| As is
+| `locality`
+| Active
+| Used for the second correlation
+
+|====
+
+
+Refer to this guide on how to define mappings: xref:/midpoint/reference/admin-gui/resource-wizard/object-type/mapping/[].
+You want to use *inbound mappings* and set them to be used for correlation only:
+
+. Click icon:edit[] btn:[Edit] on the far-right side of the mapping row.
+. In *Use for*, select _Correlation_.
+. Click icon:arrow-right-from-bracket[rotate=180] btn:[Exit wizard].
+
+// TODO: task 12 - rework /midpoint/reference/master/admin-gui/resource-wizard/object-type/mapping/
+// to be better structured and contain more info on advanced mapping settings,
+// so that I can just link it from here instead of writing the whole guide on correlation-only setting.
+
 === Define LDAP correlation rules
 
-// TBD - table with correlation rules for the LDAP resource
+// TODO: I want  to link an existing correlation rules setup guide here.
 
-=== Connect attributes with mappings
+Next up are the correlation rules.
+Correlation in the case of an outbound (target) systems ensures that midPoint can bind together accounts on the target resource (or rather their xref:/glossary/#shadow[shadows] in midPoint) and the users in midPoint.
 
-// TBD - table with mappings rules for the LDAP resource
+There is one obvious correlator, and that's the employee number.
+If an entry in LDAP has the same employee number as a user in midPoint, they're surely a match.
+
+As a less reliable indicator, you can use, for example, matching first name and surname.
+However, two people can bear the same name, so you can't connect such entries automatically.
+More on that later.
+
+Here are the correlation rules.
+To edit the correlators:
+
+. Click icon:edit[] btn:[Edit] on the far-right side of the correlation rule row.
+. Click icon:circle-plus[] btn:[Add correlator]
+. Fill in the *Item* and select the *Search method*.
+    Repeat for every correlator.
+. Click icon:check[] btn:[Confirm settings] when you're done.
+
+Refer to xref:/midpoint/reference/admin-gui/resource-wizard/object-type/correlation/[] for more detailed guide on setting up correlation rules.
+The xref:/midpoint/features/current/correlation/[] feature page may be useful to you if you wish to dive deeper into the correlation mechanisms.
+
+
+[cols="2,5,1,1,1,5"]
+|====
+| Rule name | Description | Weight | Tier | Enabled | Correlators (Item : Search method)
+
+| personalNumber-correlation
+| Correlation using `personalNumber`. Doesn't require human intervention.
+|
+| 1
+| True
+| `personalNumber` : Exact match
+
+| last-resort-correlation
+| Correlation using givenName, familyName and locality. Trusted only by 50%, human intervention is needed.
+| 0.5
+| 10
+| True
+| `givenName` : Exact match +
+    `familyName` : Exact match +
+    `locality`: Exact match
+
+|====
+
+[NOTE]
+====
+The attributes used in the correlation rules are acquired by the inbound mappings that are used for correlation only.
+====
+
+=== Simulate LDAP Reconciliation
+
+// TODO
+
+1. Create simul-devel task for the LDAP resource
+2. Inspect the results
+3. Adjust the rules so that MP doesn't delete what you don't want deleted and so on...
+// t=2060
+
+
+
+
+
 
 ---
 = The old original content follows
