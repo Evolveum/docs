@@ -156,12 +156,12 @@ These are the rules you want to define at this stage of your project:
 | Synchronize
 | Synchronize the data between the remote account and the focus based on mappings.
 
+|====
+
 [TIP]
 ====
 See xref:/midpoint/features/current/synchronization/[] to learn about the topic in more depth.
 ====
-
-|====
 
 ==== Map user data
 
@@ -213,7 +213,32 @@ Your source attribute names may be different based on your source system attribu
 | Active
 | User location can be later used with the full name for a last-resort correlation.
 
+| status-to-lifecycleState
+| `status`
+| Script
+| `lifecycleState`
+| Active
+| Find the script to use beneath the table.
+
 |====
+
+.The status-to-lifecycleState mapping conversion script
+[source,groovy]
+----
+switch (input) {
+   case 'In':
+      'active'
+      break
+
+   case 'Long-term leave':
+      'suspended'
+      break
+
+   case 'Former Employee':
+      'archived'
+      break
+}
+----
 
 The mappings can be set as _Active_ because the whole resource is still in the _Proposed_ lifecycle state and the states can be considered hierarchical in this case.
 Refer to xref:/midpoint/reference/concepts/object-lifecycle/[] for more details about lifecycle states.
@@ -244,56 +269,42 @@ See xref:/midpoint/features/current/mapping/[] to learn about the topic in more 
 Everything is now ready for import.
 Before you proceed with the real import, it's best to _simulate_ the action first and see if everything behaves as expected.
 
-* You first simulate import of one account.
-* Then, try it with all accounts.
-* Finally, run the actual real import.
+==== Simulate First
 
-==== Preview Import on a Single Account
-
-. In *Resources* > *All resources* > <your resource>, select *Accounts*.
-. Pick one object (account) and click the dropdown menu on the far right of the row.
-. Select *Import preview*.
-. In the popup that appears, select *Simulated development* as the task execution mode.
-. Click btn:[Select].
-. Review the data in the simulated import.
-
-image::import-preview.webp[Preview import of a single account]
-
-You haven't created anything in midPoint yet.
-As this is only a simulation, it's the best time to review if the account data map to the right user attributes, and fix it if needed.
-
-Once you're happy with the setup, you can import for real.
-
-==== Simulate Full Import Before You Go All In
-
-Create a simulation task for import.
-You'll use the *preview execution mode* with the *development configuration*.
-// Refer to xref:/midpoint/gui-guides/tasks/import-tasks/[] for more details on creating tasks.
-
-Inspect the simulation results and confirm whether all is good. Refer to xref:/midpoint/reference/admin-gui/simulations/[] for guidance on interpreting simulation results.
-If so, proceed to the real import.
-
-==== Real Import
-
-You've got everything ready to import users from the HR system to midPoint.
-
-Firstly, make sure the resource is in the *Active* lifecycle state.
-You can find this setting in the top bar when you open the resource via *Resources* > *All resources* > <your resource>.
-
-Then, create another import task like you did for the simulation.
-The only difference is that now you're going to *use production configuration* and leave the execution mode on default.
-
-.Double-check the archetypes
-[WARNING]
+[TIP]
 ====
-Before you launch the real import task, double check that your resource objects for accounts have the right _Person_ archetypes. It's complicated to change archetypes later.
+We strongly suggest you *don't skip the simulation steps*.
+It's the best way to make sure your resource configuration behaves as expected and fix it if needed.
 ====
 
-The runtime of the task depends on the amount of accounts you have in your HR system.
+. You first simulate importing one account.
+    Refer to the xref:/midpoint/reference/tasks/synchronization-tasks/import-and-reconciliation/gui/#simulate-import-of-a-single-object[guide on import preview] for details.
+. Then, try it with all accounts.
+    ** Refer to the xref:/midpoint/reference/tasks/synchronization-tasks/import-and-reconciliation/gui/[guide on creating import tasks in GUI].
+    ** When setting up the task, switch on the *Simulate task* toggle to activate simulation mode.
+    ** Use _Preview_ mode with the _Development_ configuration in the xref:/midpoint/reference/tasks/synchronization-tasks/import-and-reconciliation/gui#execution[execution setup screen].
+    ** xref:/midpoint/reference/tasks/synchronization-tasks/import-and-reconciliation/gui/#read-simulation-results[Inspect the simulation results] and rectify the resource configuration if needed.
+. Finally, after you get expected results during the simulation, set up the same import task again with the *simulation toggle switched off* to run the actual real import.
 
-Once you run the task and it finishes successfully, you'll see the accounts as linked under icon:male[] btn:[Accounts] in your resource.
+Refer to xref:/midpoint/reference/admin-gui/simulations/[] for guidance on interpreting simulation results.
 
-Congratulations, you're ready to connect a target system to midPoint.
+==== Import for Real
+
+Once you confirm you get the expected results during the simulations, you can *import the users for real*:
+
+. Make sure you have all relevant objects in the _Active_ lifecycle state:
+    ** The whole resource
+    ** The object type for accounts
+    ** Mapping rules
+    ** Synchronization rules
+. Create the same import task you used for simulation but this time with the *simulation toggle switched off*, i.e., use the _Undefined_ execution mode with _Production_ configuration.
+    ** With the *Simulate task* toggle off, you won't see the *Execution* screen and midPoint uses the production settings automatically.
+. Check the imported accounts in the icon:male[] Accounts section of your resource.
+. You can find all imported users also under icon:user[role="red"] *Users* > icon:user[] *Persons*.
+
+image::../hris-people-imported.webp[title="List of focus objects with the Person archetype"]
+
+If you see a list similar to the one above―congratulations, you've imported your users to midPoint and you're ready to connect a target system to midPoint.
 
 == Connect Your LDAP Target System
 
@@ -302,9 +313,9 @@ A target system is a resource that acts as a recipient of data _from_ midPoint.
 It's not authoritative, yet it has data on the same accounts that you've imported _to_ midPoint from the HR system.
 
 When a system isn't authoritative, it means that it can't overwrite data in midPoint.
-Moreover, midPoint is supposed to overwrite (read: rectify) the data on the resource if they happen to mismatch midPoint's truth.
-This is useful in cases when, for example, someone creates an unauthorized account on the target system.
-The account needs to be deleted and midPoint does so as soon as it find the account, if instructed so.
+Moreover, midPoint is supposed to overwrite (read: rectify) the data on the resource if they happen to mismatch the data in midPoint.
+This is useful in cases when, for example, someone creates an unauthorized ("illegal") account on the target system.
+Such an account needs to be deleted and midPoint does so as soon as it finds it, if instructed so.
 
 As mentioned in the previous chapter, the target system in this guide is an LDAP server.
 
