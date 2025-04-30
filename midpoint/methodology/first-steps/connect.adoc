@@ -79,7 +79,7 @@ To get users from CSV to midPoint, use the CSV connector and configure it accord
 . Set the lifecycle state to _Proposed_ until you finish the whole configuration of the resource.
 . Get back here when you're done.
 
-=== Configure the Resource Object Type
+=== Configure the HR Resource Object Type
 
 The next step after connecting the CSV resource is to configure the resource object type.
 In your case, each resource object represents a user account in the HR system.
@@ -92,7 +92,7 @@ In your case, each resource object represents a user account in the HR system.
 . Keep the rest of the settings to defaults.
 . Get back here when you're done.
 
-After you save your object type, you can preview the resource data to see what you're getting from there.
+After you save your object type, you can preview the resource data to see what you're getting from the resource.
 
 === Filter Out Irrelevant HR Entries
 
@@ -123,7 +123,7 @@ The next steps are:
 * Mapping rules
 * Synchronization rules
 
-=== Define Mappings and Synchronization Policies to Prepare for Import
+=== Define Mappings and Synchronization Policies
 
 Before you can import any user accounts, you need to define user data handling, as well as specify synchronization rules on how to behave when users are discovered, updated, deleted, and so on.
 This is what mappings and synchronization policies are for.
@@ -134,7 +134,7 @@ Firstly, let's tell midPoint what to do in what situation.
 
 * Refer to this guide on creating synchronization rules: xref:/midpoint/reference/admin-gui/resource-wizard/object-type/synchronization/[]
 
-These are the rules you want to define at this stage of your project:
+These are the rules to define at this stage of your project:
 
 [cols="2,1,1,4"]
 |====
@@ -271,12 +271,6 @@ Before you proceed with the real import, it's best to _simulate_ the action firs
 
 ==== Simulate First
 
-[TIP]
-====
-We strongly suggest you *don't skip the simulation steps*.
-It's the best way to make sure your resource configuration behaves as expected and fix it if needed.
-====
-
 . You first simulate importing one account.
     Refer to the xref:/midpoint/reference/tasks/synchronization-tasks/import-and-reconciliation/gui/#simulate-import-of-a-single-object[guide on import preview] for details.
 . Then, try it with all accounts.
@@ -287,6 +281,12 @@ It's the best way to make sure your resource configuration behaves as expected a
 . Finally, after you get expected results during the simulation, set up the same import task again with the *simulation toggle switched off* to run the actual real import.
 
 Refer to xref:/midpoint/reference/admin-gui/simulations/[] for guidance on interpreting simulation results.
+
+[TIP]
+====
+We strongly suggest you *don't skip the simulation steps*.
+It's the best way to make sure your resource configuration behaves as expected and fix it if needed.
+====
 
 ==== Import for Real
 
@@ -306,51 +306,115 @@ image::../hris-people-imported.webp[title="List of focus objects with the Person
 
 If you see a list similar to the one above―congratulations, you've imported your users to midPoint and you're ready to connect a target system to midPoint.
 
+You may ask if it's OK to have employee numbers as names of users instead of their real names.
+Good and timely question.
+It's up to you, but generally, it's better to use usernames as use object identifiers (names).
+In this guide, we're going to use the LDAP resource covered in the next sections as a source for usernames because, unlike the HR system, the LDAP resource contains the usernames.
+
 == Connect Your LDAP Target System
 
-The next thing to do is to connect your target system.
+The next thing to do is to connect your target system to midPoint.
 A target system is a resource that acts as a recipient of data _from_ midPoint.
 It's not authoritative, yet it has data on the same accounts that you've imported _to_ midPoint from the HR system.
 
 When a system isn't authoritative, it means that it can't overwrite data in midPoint.
 Moreover, midPoint is supposed to overwrite (read: rectify) the data on the resource if they happen to mismatch the data in midPoint.
-This is useful in cases when, for example, someone creates an unauthorized ("illegal") account on the target system.
+This is useful in cases when someone creates an unauthorized ("illegal") account on the target system, for example.
 Such an account needs to be deleted and midPoint does so as soon as it finds it, if instructed so.
 
 As mentioned in the previous chapter, the target system in this guide is an LDAP server.
 
-[NOTE]
+.No coin has only one side
+[TIP]
 ====
-The steps you'll take to connect the target system are going to be very similar to what you did with the HR source system.
-
-We point out the differences at the right places to ensure you don't get lost.
+Target systems may not be authoritative in general, yet they sometimes contain data we don't have in other systems and need to pull them _into_ midPoint rather than delete them as superfluous.
+In the case of this guide, it will be the situation with usernames.
+We'll read the usernames from the otherwise write-only non-authoritative LDAP system.
 ====
 
-=== Summary of Steps to Connect a Target System
+=== Create a Resource for the LDAP System
 
-To connect the LDAP or any other system that contains accounts, follow the xref:#connect-the-hr-system[same steps you took to connect the HR system above]:
+The steps you're to take to connect the target system are very similar to what you did with the HR source system.
 
-. Create a resource for the LDAP system.
-    ** Select the LDAP connector and name the resource appropriately.
-    ** Create the resource in the _Proposed_ lifecycle state.
+*Use the xref:/midpoint/reference/admin-gui/resource-wizard/create-resource-using-wizard/[guide on connecting a resource to midPoint] to help you with the configuration.*
+
+. Create a resource from scratch.
+. Use the xref:/connectors/connectors/com.evolveum.polygon.connector.ldap.LdapConnector/[LDAP connector].
+. Name the resource descriptively, such as _LDAP with users_.
+. Configure connection to the LDAP server.
     ** The connector configuration is more complex.
-        If you're unsure, your LDAP server admins can help you fill in the right values.
-. Configure the resource object type.
-    ** First, configure an object type with the account kind with default intent.
-        You'll likely add more object types later, but start simple now.
-. Define mappings and synchronization policies.
-    ** Refer to the sections below for details.
+       If you're unsure, your LDAP server admins can help you fill in the right values.
+       The xref:/connectors/connectors/com.evolveum.polygon.connector.ldap.LdapConnector/#resource-examples[LDAP resource examples] may also help.
+. Create the resource in the _Proposed_ lifecycle state.
+
+[TIP]
+====
+If you want to follow this guide for learning purposes but don't have an LDAP system you could use, you can imitate it using a CSV resource instead.
+
+To imitate the LDAP resource used in this guide and achieve similar situations, use the this link:../ldap-users-sample.csv[CSV file exported from our training LDAP server].
+In such a case, you'd use a CSV connector and an object type of the _AccountObjectClass_ class instead, but the rest of the configuration would stay largely the same.
+====
+
+=== Configure the LDAP Resource Object Type
+
+Similarly to the HR system, the LDAP needs a resource object type for the accounts stored on it as well.
+
+*Use this guide for xref:/midpoint/reference/admin-gui/resource-wizard/object-type/[instructions on object type configuration].*
+
+. Name the object type _Normal Account_, for example.
+. The type will be of the _Account_ kind, _default_ (or empty) intent, and with the _Default_ attribute set to _True_.
+. Set *object class* to _inetOrgPerson_.
+. On the data specification screen, set *Type* to _User_ and leave the *Archetype* empty.
+. Keep the rest of the settings to defaults.
+
+After you save your object type, you can preview the resource data to see what you're getting from the resource.
+
+=== Define Synchronization Rules
+
+Define the synchronization rules for the LDAP resource.
+Use the _Proposed_ lifecycle state to prevent any damage to real data before you validate the configuration.
+
+[cols="2,1,1,4"]
+|====
+| Name | Situation | Reaction | Comments
+
+| link-unlinked
+| Unlinked
+| Link
+| There's a focus for the account but it's not linked to the shadow of the account yet, let's link it. This isn't used during the first import, but it's necessary for later when the account shadows are in midPoint already.
+
+| synchronize-linked
+| Linked
+| Synchronize
+| Synchronize the data between the remote account and the focus based on mappings.
+
+| synchronize-deleted
+| Deleted
+| Synchronize
+| Restore "illegally" deleted accounts on the resource using the shadow in midPoint.
+
+| delete-unmatched-resource-object
+| Unmatched
+| Deleted
+| Delete orphaned resource objects, i.e., those with no shadow in midPoint. Potentially destructive in case of misconfiguration.
+
+|====
+
+[TIP]
+====
+See xref:/midpoint/features/current/synchronization/[] to learn about the topic in more depth.
+====
 
 === Create Inbound Mappings for Correlation
 
-As the LDAP resource is currently a strictly outbound resource, meaning that it can't push any data _to_ midPoint, you're going to define a new kind of mapping.
+As the LDAP resource is currently strictly an outbound resource, meaning that it can't push any data _to_ midPoint, you're going to define a new kind of mappings.
 The thing is, to successfully correlate accounts on the LDAP server with the users in midPoint, you need _inbound_ mappings for the LDAP resource, i.e., _from_ LDAP _to_ midPoint.
 However, as you don't want any data coming from LDAP to midPoint, the regular inbound mappings aren't the best fit.
 
 That's why you're going to define inbound mappings _strictly for correlation_ purposes.
 MidPoint will use these mapping rules only to know which resource attribute to correlate with which _internal_ (focus) user attribute.
 
-The are the mappings you want to use:
+These are the mappings to use:
 
 [cols="2,1,1,1,1,5"]
 |====
@@ -388,9 +452,9 @@ The are the mappings you want to use:
 
 
 Refer to this guide on how to define mappings: xref:/midpoint/reference/admin-gui/resource-wizard/object-type/mapping/[].
-You want to use *inbound mappings* and set them to be used for correlation only:
+Use *inbound mappings* and set them to be used for correlation only:
 
-. Click icon:edit[] btn:[Edit] on the far-right side of the mapping row.
+. Click icon:edit[] btn:[Edit] on the far-right on each mapping row.
 . In *Use for*, select _Correlation_.
 . Click icon:arrow-right-from-bracket[rotate=180] btn:[Exit wizard].
 
@@ -401,13 +465,16 @@ You want to use *inbound mappings* and set them to be used for correlation only:
 === Define LDAP correlation rules
 
 Next up are the correlation rules.
-Correlation in the case of an outbound (target) systems ensures that midPoint can bind together accounts on the target resource (or rather their xref:/glossary/#shadow[shadows] in midPoint) and the users in midPoint.
+In the case of an inbound (target) system, correlation ensures that midPoint can bind together accounts on the resource (or rather their xref:/glossary/#shadow[shadows] in midPoint) with the corresponding focal objects, (users) in midPoint.
 
-There is one obvious correlator, and that's the employee number.
+Refer to xref:/midpoint/reference/admin-gui/resource-wizard/object-type/correlation/[] for more details on the topic.
+
+In general, to correlate objects (e.g., accounts) from various resources, you need to find a common identifier.
+In the case of the showcase data this guide uses, it's the employee number.
 If an entry in LDAP has the same employee number as a user in midPoint, they're surely a match.
 
-As a less reliable indicator, you can use, for example, matching first name and surname.
-However, two people can bear the same name, so you can't connect such entries automatically.
+You could use, for example, a combination of the first name and surname, but it'd be a lot less reliable indicator because there are many people named John Smith.
+That means you can use such correlation rule to connect the entries automatically.
 More on that later.
 
 Here are the correlation rules.
