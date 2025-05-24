@@ -128,6 +128,10 @@ The next steps are:
 Before you can import any user accounts, you need to define user data handling, as well as specify synchronization rules on how to behave when users are discovered, updated, deleted, and so on.
 This is what mappings and synchronization policies are for.
 
+Both the synchronization and mapping rules can be set as _Active_ because the whole resource is still in the _Proposed_ lifecycle state.
+Lifecycle states can be considered hierarchical in this case.
+Refer to xref:/midpoint/reference/concepts/object-lifecycle/[] for more details about lifecycle states.
+
 ==== Set synchronization rules
 
 Firstly, let's tell midPoint what to do in what situation.
@@ -136,24 +140,27 @@ Firstly, let's tell midPoint what to do in what situation.
 
 These are the rules to define at this stage of your project:
 
-[cols="2,1,1,4"]
+[cols="2,1,1,1,4"]
 |====
-| Name | Situation | Reaction | Comments
+| Name | Situation | Reaction | Lifecycle state | Comments
 
 | add-focus-for-unmatched
 | Unmatched
 | Add focus
+| Active
 | The account from CSV doesn't exist in midPoint yet, so let's create the user in midPoint.
 
 // technically not needed in clean MP but they need to add it later anyway so I'm putting it here already @dakle
 | link-unlinked
 | Unlinked
 | Link
+| Active
 | There's a focus for the account but it's not linked to the shadow of the account yet, let's link it. This isn't used during the first import, but it's necessary for later when the account shadows are in midPoint already.
 
 | synchronize-linked
 | Linked
 | Synchronize
+| Active
 | Synchronize the data between the remote account and the focus based on mappings.
 
 |====
@@ -170,6 +177,8 @@ Secondly, you need to map various data in the user objects on the resource to us
 * Refer to this guide on creating mapping rules: xref:/midpoint/reference/admin-gui/resource-wizard/object-type/mapping/[].
 
 * Use *inbound mappings* because you're pulling attributes _from_ the resource _to_ midPoint.
+
+See xref:/midpoint/features/current/mapping/[] to learn about the topic in more depth.
 
 Below are the rules to define now.
 Your source attribute names may be different based on your source system attribute naming.
@@ -222,6 +231,7 @@ Your source attribute names may be different based on your source system attribu
 
 |====
 
+[[mapping-script]]
 .The status-to-lifecycleState mapping conversion script
 [source,groovy]
 ----
@@ -240,26 +250,19 @@ switch (input) {
 }
 ----
 
-The mappings can be set as _Active_ because the whole resource is still in the _Proposed_ lifecycle state and the states can be considered hierarchical in this case.
-Refer to xref:/midpoint/reference/concepts/object-lifecycle/[] for more details about lifecycle states.
-
 image::../hris-inbound-mappings.webp[]
 
 .Naming conventions for mapping names
 [NOTE]
 ====
-You may be wondering why name the mappings the way we do above.
-On the first sight, it seems redundant to name a mapping _surname-to-familyName_ because it's clearly visible in the mapping ingests surname and outputs its content to _familyName_.
+You may be curious about why we name the mappings as shown above.
+At first glance, it seems unnecessary to name the mapping _surname-to-familyName_
+since it is evident that it takes _surname_ as input and outputs its content to _familyName_.
 
-You're right, of course, but the reason for this naming convention is that *mapping names need to be unique throughout the object type*.
-This convention helps to ensure that.
+You are correct, but the rationale behind this naming convention is that *mapping names must be unique within the object type*.
+This approach helps to ensure that.
 
 As for spaces vs. dashes—you can use either, but dashes are generally the saver option.
-====
-
-[TIP]
-====
-See xref:/midpoint/features/current/mapping/[] to learn about the topic in more depth.
 ====
 
 === Import Users From the HR System
@@ -274,11 +277,15 @@ Before you proceed with the real import, it's best to _simulate_ the action firs
 . You first simulate importing one account.
     Refer to the xref:/midpoint/reference/tasks/synchronization-tasks/import-and-reconciliation/gui/#simulate-import-of-a-single-object[guide on import preview] for details.
 . Then, try it with all accounts.
-    ** Refer to the xref:/midpoint/reference/tasks/synchronization-tasks/import-and-reconciliation/gui/[guide on creating import tasks in GUI].
-    ** When setting up the task, switch on the *Simulate task* toggle to activate simulation mode.
+    ** Refer to the xref:/midpoint/reference/tasks/synchronization-tasks/import-and-reconciliation/gui/[guide on creating tasks in GUI].
+	** Select icon:upload[] btn:[Import task] and switch on the *Simulate task* toggle to activate simulation mode.
     ** Use _Preview_ mode with the _Development_ configuration in the xref:/midpoint/reference/tasks/synchronization-tasks/import-and-reconciliation/gui#execution[execution setup screen].
     ** xref:/midpoint/reference/tasks/synchronization-tasks/import-and-reconciliation/gui/#read-simulation-results[Inspect the simulation results] and rectify the resource configuration if needed.
-. Finally, after you get expected results during the simulation, set up the same import task again with the *simulation toggle switched off* to run the actual real import.
+	** You may notice a discrepancy between the number of your resource objects and the number of to-be imported people.
+		That's expected if link:#mapping-script[your mapping sets some people as inactive].
+. Finally, after you get expected results during the simulation,
+	set up a *new import task* using the same steps as above. +
+	Now, however, with the *simulation toggle switched off* to run the actual real import.
 
 Refer to xref:/midpoint/reference/admin-gui/simulations/[] for guidance on interpreting simulation results.
 
@@ -297,6 +304,7 @@ Once you confirm you get the expected results during the simulations, you can *i
     ** The object type for accounts
     ** Mapping rules
     ** Synchronization rules
+	** You can use the icon:heart-pulse[] btn:[Check detailed lifecycle] button in the top menu within the resource to view a list of individual resource components and their current lifecycle states.
 . Create the same import task you used for simulation but this time with the *simulation toggle switched off*, i.e., use the _Undefined_ execution mode with _Production_ configuration.
     ** With the *Simulate task* toggle off, you won't see the *Execution* screen and midPoint uses the production settings automatically.
 . Check the imported accounts in the icon:male[] Accounts section of your resource.
