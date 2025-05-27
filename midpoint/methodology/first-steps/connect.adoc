@@ -250,7 +250,7 @@ switch (input) {
 }
 ----
 
-image::../hris-inbound-mappings.webp[]
+image::../hris-inbound-mappings.webp[title="Inbound mapping list for the HR resource"]
 
 .Naming conventions for mapping names
 [NOTE]
@@ -264,6 +264,17 @@ This approach helps to ensure that.
 
 As for spaces vs. dashes—you can use either, but dashes are generally the saver option.
 ====
+
+=== Make the Resource Read-Only
+
+If you're dealing with a resource the data of which you don't want to change, it's best to adjust the xref:/midpoint/reference/resources/resource-configuration/capabilities/[configured capabilities] of the resource so that mistakes can't happen.
+
+. In your HR resource, go to icon:info[] *Details*.
+. Disable the *Create*, *Update*, and *Delete* capabilites.
+	** You can disable Create and Delete by clicking their respective buttons.
+		As for the Update capability, you need to select *Enabled*: _False_ in the modal that appears after clicking the capability button.
+
+image::../hris-resource-capabilities.webp[title="Resource capabilities screen with the Create, Update, and Delete capabilities highlighted and disabled as per the instructions above"]
 
 === Import Users From the HR System
 
@@ -361,7 +372,7 @@ The steps you're to take to connect the target system are very similar to what y
 
 [TIP]
 ====
-If you want to follow this guide for learning purposes but don't have an LDAP system you could use, you can imitate it using a CSV resource instead.
+If you want to follow this guide for learning purposes but don't have an LDAP system at hand, you can imitate it using a CSV resource instead.
 
 To imitate the LDAP resource used in this guide and achieve similar situations, use the this link:../ldap-users-sample.csv[CSV file exported from our training LDAP server].
 In such a case, you'd use a CSV connector and an object type of the _AccountObjectClass_ class instead, but the rest of the configuration would stay largely the same.
@@ -407,8 +418,8 @@ Use the _Proposed_ lifecycle state to prevent any damage to real data before you
 
 | delete-unmatched-resource-object
 | Unmatched
-| Deleted
-| Delete orphaned resource objects, i.e., those with no shadow in midPoint. Potentially destructive in case of misconfiguration.
+| Delete resource object
+| Delete orphaned ("illegal") resource objects, i.e., those not present in HRIS and thus not having shadow in midPoint. Potentially destructive in case of misconfiguration.
 
 |====
 
@@ -502,7 +513,7 @@ Here are the correlation rules to use.
 
 [cols="~,~,1,1,1,~"]
 |====
-| Rule name | Description | Weight | Tier | Enabled | Correlators (Item : Search method)
+| Rule name | Description | Weight | Tier | Enabled | xref:/midpoint/reference/admin-gui/resource-wizard/object-type/correlation/#set-up-correlators[Correlators] (Item : Search method)
 
 | personalNumber-correlation
 | Correlation using `personalNumber`. Doesn't require human intervention.
@@ -533,13 +544,57 @@ To test your configuration, run a simulated reconciliation task on the developme
 
 *Use this guide for xref:/midpoint/reference/tasks/synchronization-tasks/import-and-reconciliation/gui/[instructions on creating tasks].*
 
-. In your LDAP target resource, create a icon:xchange-alt[] btn:[Reconciliation Task].
-. Switch on the simulation to first preview the changes and prevent any harm to your data.
+. In your LDAP target resource, create a *Reconciliation Task*.
+. Switch on the simulation toggle to first preview the changes and prevent any harm to your data.
+. Name the task, e.g., _Reconciliation with LDAP - development simulation_.
 . On the *Execution* screen, select the *preview mode* with *development configuration*.
 . After you configure and create the simulated reconciliation task,
 	run it and xref:/midpoint/reference/tasks/synchronization-tasks/import-and-reconciliation/gui/#read-simulation-results[inspect the simulation results] to see how your mapping and synchronization rules work.
 
-// t=2060
+When reviewing the simulation results in icon:chart-line[] *Operational statistics*, you should get a result similar to the example below.
+The actual numbers may, of course, differ based on what your systems contain, among other things.
+
+image::../ldap-correlation-simulation-result-operational-statistics.webp[title="Operational statistics of the simulated LDAP reconciliation task"]
+
+The numbers in the above image say the following:
+
+* 32 accounts were found during a previous correlation simulation, they're unlinked and would be linked. +
+	Apparently, this isn't the first time the correlation was simulated.
+* 15 accounts were discovered, they're unknown and unlinked but would be linked. +
+	Some new accounts appeared on the resource since the last time the correlation was simulated.
+* 4 accounts were discovered, they're unknown and would stay unmatched because no focus object was found for them.
+	According to the synchronization rules herein above, these accounts would be deleted from the LDAP resource.
+
+=== Mark Unmatched Accounts to Prevent Deletion
+
+In case your target LDAP resource contains accounts that can't be correlated with the focal objects you have in midPoint from the source HR system,
+you can mark some of them to protect them from being prematurely deleted.
+This is useful if you are not sure about the exact purpose of some service accounts, for example, or need to do some further investigation as to why they can't be correlated.
+
+Refer to xref:/midpoint/reference/concepts/mark/[] and xref:/midpoint/reference/concepts/mark/manual-marking/[] for details on object marks.
+
+Here's the marking strategy you can use:
+
+* If you know a certain account is valid and present in HR but can't be correlated due to some error in data, mark it as _Correlate later_.
+* If you need to preserve an account that's not in HR but is valid, such as service accounts, protect it using the _Protected_ mark.
+* In case of accounts you're not sure about, mark them as _Do not touch_ so that they don't get deleted and you can investigate and decide their fate later.
+* If you discover LDAP accounts that should not be there at all, like legacy or obviously malicious accounts, don't mark them at all.
+	They will get deleted as per the synchronization rules.
+
+Now, if you run the simulated correlation task again, you'll see a new entry in the operational statistics of the task telling you how many accounts there are with _No record_ and what's their _Exclusion reason_ (you marked them to avoid their deletion).
+For example, like this:
+
+[cols="8*""]
+.Synchronization situation transitions 
+|====
+| Original state  | Synchronization start  | Synchronization end  | Exclusion reason  | Succeeded  | Failed  | Skipped  | Total 
+| Unlinked        | Unlinked               | Linked               |                   | 47         | 0       | 0        | 47    
+| Unmatched       | No record              | No record            | Protected         | 0          | 0       | 3        | 3     
+| Unmatched       | Unmatched              | Unmatched            |                   | 1          | 0       | 0        | 1     
+|====
+
+// https://youtu.be/GIlr7xYi8UI?t=326 
+// TODO: improve the object marking GUIde
 
 
 
