@@ -397,29 +397,43 @@ After you save your object type, you can preview the resource data to see what y
 Define the synchronization rules for the LDAP resource.
 Use the _Proposed_ lifecycle state to prevent any damage to real data before you validate the configuration.
 
-[cols="2,1,1,4"]
+[cols="2,1,1,1,4"]
 |====
-| Name | Situation | Reaction | Comments
+| Name | Situation | Reaction | Lifecycle state | Comments
 
 | link-unlinked
 | Unlinked
 | Link
-| There's a focus for the account but it's not linked to the shadow of the account yet, let's link it. This isn't used during the first import, but it's necessary for later when the account shadows are in midPoint already.
+| Proposed
+| There's a focus for the account but it's not linked to the shadow of the account yet, let's link it.
+	This isn't used during the first import, but it's necessary for later when the account shadows are in midPoint already.
 
 | synchronize-linked
 | Linked
 | Synchronize
+| Proposed
 | Synchronize the data between the remote account and the focus based on mappings.
 
 | synchronize-deleted
 | Deleted
 | Synchronize
+| Proposed
 | Restore "illegally" deleted accounts on the resource using the shadow in midPoint.
 
 | delete-unmatched-resource-object
 | Unmatched
 | Delete resource object
-| Delete orphaned ("illegal") resource objects, i.e., those not present in HRIS and thus not having shadow in midPoint. Potentially destructive in case of misconfiguration.
+| Draft
+| Delete orphaned ("illegal") resource objects, i.e., those not present in HRIS and thus not having shadow in midPoint.
+	Potentially destructive in case of misconfiguration. +
+	Keep in _Draft_ (effectively disabled) until you learn later in the guide about options other than hard delete.
+
+| create-correlation-case-for-disputed
+| Disputed
+| Create correlation case
+| Proposed
+| In case a candidate owner isn't found with 100% certainty, create a correlation case to let a human operator resolve the situation.
+	You'll learn more a bit later.
 
 |====
 
@@ -552,7 +566,7 @@ To test your configuration, run a simulated reconciliation task on the developme
 	run it and xref:/midpoint/reference/tasks/synchronization-tasks/import-and-reconciliation/gui/#read-simulation-results[inspect the simulation results] to see how your mapping and synchronization rules work.
 
 When reviewing the simulation results in icon:chart-line[] *Operational statistics*, you should get a result similar to the example below.
-The actual numbers may, of course, differ based on what your systems contain, among other things.
+The content of the table depends on the data in your systems as well as your actual configuration and marks applied.
 
 image::../ldap-correlation-simulation-result-operational-statistics.webp[title="Operational statistics of the simulated LDAP reconciliation task"]
 
@@ -569,7 +583,8 @@ The numbers in the above image say the following:
 
 In case your target LDAP resource contains accounts that can't be correlated with the focal objects you have in midPoint from the source HR system,
 you can mark some of them to protect them from being prematurely deleted.
-This is useful if you are not sure about the exact purpose of some service accounts, for example, or need to do some further investigation as to why they can't be correlated.
+This is useful if you are not sure about the exact purpose of some service accounts, for example,
+or need to further investigate as to why an account can't be correlated.
 
 Refer to xref:/midpoint/reference/concepts/mark/[] and xref:/midpoint/reference/concepts/mark/manual-marking/[] for details on object marks.
 
@@ -577,9 +592,21 @@ Here's the marking strategy you can use:
 
 * If you know a certain account is valid and present in HR but can't be correlated due to some error in data, mark it as _Correlate later_.
 * If you need to preserve an account that's not in HR but is valid, such as service accounts, protect it using the _Protected_ mark.
-* In case of accounts you're not sure about, mark them as _Do not touch_ so that they don't get deleted and you can investigate and decide their fate later.
-* If you discover LDAP accounts that should not be there at all, like legacy or obviously malicious accounts, don't mark them at all.
+* If you're not sure why an account unknown to HR exists, mark it as _Do not touch_ so that it does not get deleted and you can investigate and decide their fate later.
+* If you discover LDAP accounts that should not be there at all, like legacy or obviously malicious accounts, don't mark them anyhow.
 	They will get deleted as per the synchronization rules.
+
+Be careful if your HR system doesn’t contain or export former employees data.
+In such situation, you would not have the former employees in midPoint and their AD/LDAP accounts would appear as orphaned.
+
+[TIP]
+====
+The point here is that you can move on with your deployment even if there are inconsistencies and unknowns in your data.
+
+Mark these points of data and leave them for later as per the xref:../#the-concept-of-an-iterative-cyclic-approach[iterative approach].
+This way you get tangible results soon without having to wait for a solution to every obstacle.
+====
+
 
 Now, if you run the simulated correlation task again, you'll see a new entry in the operational statistics of the task telling you how many accounts there are with _No record_ and what's their _Exclusion reason_ (you marked them to avoid their deletion).
 For example, like this:
@@ -594,10 +621,137 @@ For example, like this:
 |====
 
 // https://youtu.be/GIlr7xYi8UI?t=326 
-// TODO: improve the object marking GUIde
+// TODO: improve the object marking GUIde (#86)
 
+=== Check the Simulated Results Using Filters in the Account List
 
+Aside viewing the task simulation results, you can use another way to confirm your setup behaves as expect.
+You can view the LDAP accounts and their *Situations*.
+Even when you simulate reconciliation, the situations of the resource accounts reflect the results of the simulation, i.e., midPoint knows which accounts would be _matched_, _disputed_, etc., and updates the account situations accordingly.
 
+. Under the LDAP resource, go to icon:male[] *Accounts*.
+. Use the *Situation* filter above the account list to see accounts in various states:
+	** Select _Unlinked_ to see accounts that would be linked, i.e., their respective focal object (owner) can be determined automatically under the current configuration.
+	** Select _Unmatched_ to see accounts that can't be matched to their respective focal objects. +
+		Some of them are marked by you as protected or for later correlation.
+		Unmatched accounts that are not marked will be deleted if you have the xref:#define-synchronization-rules[synchronization rule for that] (action _Delete resource object_ for the _Unmatched_ situation)
+	** Select _Disputed_ to see accounts that can't be matched with 100% certainty to their respective focal objects. +
+		You'll get a correlation case to resolve these after you run real production correlation task. +
+		In the sample data used in this guide, the disputed account would be Anna Lopez who has a wrong `empnum` in HRIS and has to be correlated using `givenName`, `familyName`, and `locality` as such.
+. Click icon:search[] btn:[Basic] to confirm the selected search criterion.
+
+In the list, if you see, for example, accounts that are _unmatched_ and not marked but you are not sure whether it's safe to have them deleted, xref:mark-unmatched-accounts-to-prevent-deletion[mark them] now.
+You can investigate later.
+
+image::../ldap-accounts-disputed-after-simulation.webp[title="List filtered to show only disputed LDAP resource accounts"]
+
+== Reconcile Your LDAP Accounts
+
+Once you confirm via running simulated reconciliation tasks that your LDAP configuration works as expected
+and no accounts you need to preserve are about to be deleted, you can run the _real_ reconciliation between HRIS and LDAP.
+
+Firstly, *switch all the configurations under your LDAP resource to _Active_*.
+Use the icon:heart-pulse[] btn:[Check detailed lifecycle] button in the top menu within the resource to view a list of individual resource components and their current lifecycle states.
+
+Then, do the one last simulation, this time on production configuration:
+
+. Create a xref:/midpoint/reference/tasks/synchronization-tasks/import-and-reconciliation/gui/[new reconciliation task] for the LDAP resource.
+. Switch on the simulation toggle to first preview the changes and prevent any harm to your data.
+. Name the task, e.g., _Reconciliation with LDAP - development simulation_.
+. On the *Execution* screen, select the *preview mode* with *production configuration*.
+. After you configure and create the simulated reconciliation task,
+	run it and xref:/midpoint/reference/tasks/synchronization-tasks/import-and-reconciliation/gui/#read-simulation-results[inspect the simulation results] to see how your mapping and synchronization rules work.
+
+And, if everything in the results shows as expected, you can create yet another reconciliation task―this time with the simulation toggle switched off―and *run the reconciliation for real*.
+
+== Resolve Reconciliation Cases
+
+If any of the LDAP accounts fail to reconcile with 100% certainty and
+midPoint falls back to the xref:define-ldap-correlation-rules[_last-resort-correlation_ correlation rule],
+the production correlation task (as per the xref:define-synchronization-rules[synchronization rules]) creates a correlation case that awaits a human operator for resolution.
+
+In the case of rules such as those proposed in this guide, the correlation case contains suggested owners of the disputed account object.
+A correlation case is the way for you to efficiently find an owner for accounts that can't be matched automatically particularly thanks to the suggested supposed owners you can choose from.
+
+You can find all active correlation cases under icon:case_thick[] *Cases*.
+There, click a case to open it for an inspection:
+
+* icon:circle[] *Basic* shows details about the particular case.
+* icon:circle[] *Correlation* lets you know how closely the resource object shadow and its suggested focal object matches.
+* icon:circle[] *Workitems* is the workbench to resolve the correlation case.
+
+Check the suggested resource object shadow owners on the icon:circle[] *Workitems* screen.
+If any of them is the right one, click the the btn:[Correlate] button in the particular candidate column.
+In case no suitable owner exists in the database, there is also an option to btn:[Create new] focal object in midPoint.
+That's not, however, recommended for cases with an authoritative 3rd-party system like the HR system herein.
+
+image::../ldap-hris-correlation-case-workitem-resolution.webp[title="Workitems screen in the correlation section of midPoint, showing a suggested resource object shadow owner candidate"]
+
+If you're using our sample data to follow this guide, you have one correlation case to resolve after the production reconciliation task finishes, and that's Anna Lopez who has a wrong _empnum_ in the HR system.
+
+== Import Usernames From LDAP
+
+When setting up the HR resource, you used _empnum_ for account names in midPoint
+because the HR system does not have any better unique identifier.
+
+Now, however, you have the LDAP resource connected and with that, you gave midPoint access to much more human friendly usernames that are stored in the LDAP system.
+It is a good time now to adjust the HR and LDAP resource mappings so that account owner focal objects are named using the LDAP usernames.
+
+Here's the outline of what you're going to do to achieve that:
+
+. Set the _name_ attribute mapping strength in the HR resource to to _weak_.
+. Create an inbound mapping for _name_ in the LDAP resource with an appropriate source attribute containing the usernames.
+. Run a simulated reconciliation task to validate the new setup.
+	** First, test it on a single account.
+	** Then, simulate it on all accounts.
+. Reconcile the accounts again for real.
+
+=== Adjust the Mappings to Prepare for Username Import From LDAP
+
+Firstly, adjust the HR resource _name_ mapping:
+
+. In your HR resource, open inbound mapping settings.
+. Locate the mapping populating the _name_ attribute with the value of the source _empnum_ attribute. +
+	In this guide, it is called _empnum-to-name_.
+. In advanced settings of the mapping, change its *strength* to _weak_. 
+
+Secondly, add a new inbound mapping for the _name_ attribute in the LDAP resource:
+
+. Look into your LDAP data and locate the name of the attribute that holds usernames. They have to be unique across all accounts. +
+	In the sample data used in this guide, the name of the attribute is _uid_.
+. In your LDAP resource, open inbound mapping settings.
+. Add a new mapping according to the table below. +
+	Adjust the mapping name and the source attribute name according to your data.
+
+[cols="6*"]
+.Strong inbound mapping to copy _uid_ parameter with usernames to _name_ parameter
+|====
+| Name                         | Source | Expression | Target | Lifecycle state | Comments
+| inbound-uid-username-to-name | uid    | As is      | name   | Proposed        | Set the mapping *Strength* to _Strong_ and leave the *Use for* as _Undefined_.
+|====
+
+=== Test the Configuration Update
+
+Before you make the leap, test the new configuration using a simulated import.
+Firstly, on a single user using the _Simulated development_ execution mode, then on the whole set of accounts.
+
+When you view the results of the simulation, you should see the _focus object renamed_ notice.
+
+image::../ldap-import-usename-simulation-focus-renamed.webp[title="A single user import preview simulation result showing that the username would have been imported successfully and the focus object would have been renamed"]
+
+After the single user import preview, run the simulated development reconciliation task you already have under icon:tasks[] *Defined tasks* from the previous reconciliations.
+
+Inspect the results and once you confirm the simulation yields expected results, run the real production reconciliation task which you used to reconcile the LDAP accounts previously.
+
+== Automate the processes
+
+After the steps you've done up to now, your LDAP and HR data can be considered reasonably clean.
+With that, you can *move on to automating the setup* so that it works autonomously:
+
+* Periodically check the HR system and import new accounts, if any.
+* Regularly check the LDAP system and clean up (delete) any illicit accounts.
+* Privision LDAP accounts for new employees imported from HR.
+* Create passwords for new HR accounts when provisioned to LDAP.
 
 
 
