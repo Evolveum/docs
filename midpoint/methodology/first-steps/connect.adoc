@@ -629,7 +629,7 @@ Aside viewing the task simulation results, you can use another way to confirm yo
 You can view the LDAP accounts and their *Situations*.
 Even when you simulate reconciliation, the situations of the resource accounts reflect the results of the simulation, i.e., midPoint knows which accounts would be _matched_, _disputed_, etc., and updates the account situations accordingly.
 
-. Under the LDAP resource, go to icon:male[] *Accounts*.
+. Under the LDAP resource, go to *icon:male[] Accounts*.
 . Use the *Situation* filter above the account list to see accounts in various states:
 	** Select _Unlinked_ to see accounts that would be linked, i.e., their respective focal object (owner) can be determined automatically under the current configuration.
 	** Select _Unmatched_ to see accounts that can't be matched to their respective focal objects. +
@@ -739,10 +739,17 @@ When you view the results of the simulation, you should see the _focus object re
 
 image::../ldap-import-usename-simulation-focus-renamed.webp[title="A single user import preview simulation result showing that the username would have been imported successfully and the focus object would have been renamed"]
 
-After the single user import preview, run the simulated development reconciliation task you already have under icon:tasks[] *Defined tasks* from the previous reconciliations.
-
+After the single user import preview, run the simulated development reconciliation task you already have under *icon:tasks[] Defined tasks* from the previous reconciliations.
 Inspect the results, you should see, among other things, that the focus objects would be renamed according to the LDAP username inbound mapping.
+
 Once you confirm the simulation yields expected results, run the real production reconciliation task which you used to reconcile the LDAP accounts previously.
+
+[NOTE]
+====
+No incorrect data in your target system will be fixed yet.
+So far, you've correlated (as in connected) the identities across your source and target systems.
+That's not the end of the story, though: you'll see how to automatically fix incorrect data soon.
+====
 
 == Automate the processes
 
@@ -751,10 +758,124 @@ With that, you can *move on to automating the setup* so that it works autonomous
 
 * Periodically check the HR system and import new accounts, if any.
 * Regularly check the LDAP system and clean up (delete) any illicit accounts.
-* Privision LDAP accounts for new employees imported from HR.
+* Provision LDAP accounts for new employees imported from HR.
 * Create passwords for new HR accounts when provisioned to LDAP.
 
+== Provision Accounts to Target Systems
 
+. Create outbound mappings for the target system (module 7, 7:30)
+i   .. simulate first
+. Activation - veci jako deactivate instead of delete a delayed delete
+. Credentials - poskytuje hesla do LDAP
+
+At this point, you have the identities in your systems mostly correlated.
+Up until now, when your HR created, updated, or deactivated a user in the HR information system (HRIS),
+someone also had to go and do the same to that user in the target LDAP system.
+
+The logical next step now is to automate the process.
+That means to automatically:
+
+* Create account in LDAP based on the data in HRIS.
+    ** Create the first password for the new user in LDAP.
+* Update accounts in LDAP according to changes that happen in HRIS.
+* Suspend and possibly delete accounts for users suspended in or deleted from HRIS.
+
+There are several tools in midPoint you are going to use for these tasks: outbound activation, outbound credentials, and outbound mappings.
+When you are done with this setup, it is no longer necessary to manually update user accounts in the target system:
+you do the change once in the authoritative HR system and midPoint propagates it automatically to all configured target systems.
+
+=== Create outbound mapping rules for LDAP
+
+Firstly, to enable provisioning to the LDAP target system, you need outbound mapping rules.
+Outbound mapping rules work the same as inbound mappings, they merely map the data the other way round: _from_ midPoint _to_ the target system.
+
+* Refer to this guide on creating mapping rules: xref:/midpoint/reference/admin-gui/resource-wizard/object-type/mapping/#outbound_mappings[] 
+* Use outbound mappings because you’re pushing attributes _to_ the resource _from_ midPoint.
+* The list of rules below is for illustration purposes.
+    The actual attributes you need to map depend on your target system.
+
+[cols="6*"]
+.LDAP outbound mapping rules
+|====
+| Name                              | Source             | Expression | Target           | Lifecycle state | Comments
+| name-fullName-to-dn               | `name`, `fullName` | Script     | `dn`             | Proposed        | Create a distinguished name out of name and full name using a script. Find the script to use beneath the table.
+| name-fullName-to-cn-weak          | `name`, `fullName` | Script     | `cn`             | Proposed        | Create LDAP common name out of name and full name
+    using a weak mapping strength to avoid overwriting existing values.
+    See xref:/midpoint/reference/admin-gui/resource-wizard/object-type/mapping/advanced-mappings/[how to set a mapping strength].
+    Find the script to use beneath the table.
+| fullName-to-displayName           | `fullName`         | As is      | `displayName`    | Proposed        |
+| givenName-to-givenName            | `givenName`        | As is      | `givenName`      | Proposed        |
+| familyName-to-sn                  | `familyName`       | As is      | `sn`             | Proposed        | Copy family name to surname.
+| name-to-uid                       | `name`             | As is      | `uid`            | Proposed        | User identifier based on `name`.
+| locality-to-l                     | `locality`         | As is      | `l`              | Proposed        |
+| personalNumber-to-employeeNubmber | `personalNumber`   | As is      | `employeeNumber` | Proposed        |
+|====
+// TODO: why is the name-fullName-to-cn-weak set as weak? @dakle 2025-06-18
+
+.name-fullName-to-dn script
+[source,groovy]
+----
+def cn
+if (iteration == 0) {
+    cn = fullName
+} else {
+    cn = fullName + ' (' + name + ')'
+}
+return basic.composeDnWithSuffix('cn', cn,
+    'ou=users,' + basic.getResourceIcfConfigurationPropertyValue(resource, 'baseContext')
+)
+----
+
+.name-fullName-to-cn-weak script
+[source,groovy]
+----
+def cn
+if (iteration == 0) {
+    cn = fullName
+} else {
+    cn = fullName + ' (' + name + ')'
+}
+return cn
+----
+
+=== Activate users in the target system
+
+Activation in midPoint is the state of an object, such as user, account, or entitlement.
+Activation is based on several properties, namely _administrative status_, _valid from_, _valid to_, and _lifecycle status_.
+Based on the values of these object attributes, midPoint computes an *effective status*.
+
+We can use effective status in *outbound activation mapping* to _activate_ or _deactivate_ accounts on resources, such as an LDAP system.
+
+Refer to xref:/midpoint/reference/concepts/activation/[] for the full documentation activation.
+
+*Use this guide for xref:/midpoint/reference/admin-gui/resource-wizard/object-type/activation/[instructions on working with activation in the midPoint GUI]*.
+
+In total, create three activation outbound mappings:
+
+* icon:id-card-clip[] *Administrative status*
+    ** *name*: _account-status-based-on-mp-user_, for instance
+    ** *strength*: _Strong_
+    ** You can leave *Source* empty because midPoint already knows the default source for this mapping (_effective status_).
+    ** *Lifecycle state*: _Proposed_
+* icon:user-slash[] *Disable instead of delete*
+    ** This mapping has no configurable options.
+    ** *Lifecycle state*: _Proposed_
+* icon:clock[] *Delayed delete*
+    ** Set *Delete after* to a value appropriate to your use case.
+    ** Accounts marked for deletion will be deactivated first and deleted no sooner than after the time set here elapses. +
+        For testing, sensible values are in minutes. +
+        For production, sensible values are likely much longer.
+
+
+activation explanation: explanatory video, module 7, 5:30
+
+=== Create initial passwords in the target system
+
+explanation: explanatory video, module 7, 10:47
+
+=== Simulate provisioning
+
+explanation in explanatory video, module 7: 18:16
 
 ---
 = The old original content follows
