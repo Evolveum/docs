@@ -794,14 +794,15 @@ Outbound mapping rules work the same as inbound mappings, they merely map the da
 * The list of rules below is for illustration purposes.
     The actual attributes you need to map depend on your target system.
 
-[cols="6*"]
+[cols="2,1,1,1,1,4"]
 .LDAP outbound mapping rules
 |====
 | Name                              | Source             | Expression | Target           | Lifecycle state | Comments
-| name-fullName-to-dn               | `name`, `fullName` | Script     | `dn`             | Proposed        | Create a distinguished name out of name and full name using a script. Find the script to use beneath the table.
-| name-fullName-to-cn-weak          | `name`, `fullName` | Script     | `cn`             | Proposed        | Create LDAP common name out of name and full name
-    using a weak mapping strength to avoid overwriting existing values.
-    See xref:/midpoint/reference/admin-gui/resource-wizard/object-type/mapping/advanced-mappings/[how to set a mapping strength].
+| name-fullName-to-dn               | `name`, `fullName` | Script     | `dn`             | Proposed        | Create a distinguished name out of name and full name using a script. +
+    Find the script to use beneath the table.
+| name-fullName-to-cn-weak          | `name`, `fullName` | Script     | `cn`             | Proposed        | Create LDAP common name out of name and full name. +
+    Use a weak mapping strength to avoid overwriting existing values. +
+    See xref:/midpoint/reference/admin-gui/resource-wizard/object-type/mapping/advanced-mappings/[how to set a mapping strength]. +
     Find the script to use beneath the table.
 | fullName-to-displayName           | `fullName`         | As is      | `displayName`    | Proposed        |
 | givenName-to-givenName            | `givenName`        | As is      | `givenName`      | Proposed        |
@@ -838,42 +839,106 @@ if (iteration == 0) {
 return cn
 ----
 
+If you are "faking" the LDAP resource using a CSV file loaded via the CSV connector, you need to use the following script for the DN construction instead.
+This is because the built-in `getResourceIcfConfigurationPropertyValue` method works for LDAP resources, but not for CSV resources.
+
+.name-fullName-to-dn script (CSV version)
+[source,groovy]
+----
+def cn
+def fn
+if (iteration == 0) {
+    fn = fullName
+} else {
+    fn = fullName + ' (' + name + ')'
+}
+cn = 'cn=' + fn + ',ou=users,dc=example,dc=com'
+return cn
+----
+
 === Activate users in the target system
 
 Activation in midPoint is the state of an object, such as user, account, or entitlement.
 Activation is based on several properties, namely _administrative status_, _valid from_, _valid to_, and _lifecycle status_.
-Based on the values of these object attributes, midPoint computes an *effective status*.
+Based on the values of these object attributes, midPoint computes an xref:/midpoint/reference/concepts/activation/#effective-status[*effective status*].
 
 We can use effective status in *outbound activation mapping* to _activate_ or _deactivate_ accounts on resources, such as an LDAP system.
 
 Refer to xref:/midpoint/reference/concepts/activation/[] for the full documentation activation.
 
-*Use this guide for xref:/midpoint/reference/admin-gui/resource-wizard/object-type/activation/[instructions on working with activation in the midPoint GUI]*.
+*Refer to xref:/midpoint/reference/admin-gui/resource-wizard/object-type/activation/[instructions on working with activation in the midPoint GUI]*.
 
-In total, create three activation outbound mappings:
+In total, create *three activation outbound mappings*:
 
 * icon:id-card-clip[] *Administrative status*
-    ** *name*: _account-status-based-on-mp-user_, for instance
-    ** *strength*: _Strong_
+    ** *Lifecycle state*: _Proposed_
+    ** *Name*: _account-status-based-on-mp-user_, for example.
+    ** *Strength*: _Strong_
     ** You can leave *Source* empty because midPoint already knows the default source for this mapping (_effective status_).
+    ** The activation mapping controls account status in the target system based on the effective status of their focal object in midPoint.
     ** *Lifecycle state*: _Proposed_
 * icon:user-slash[] *Disable instead of delete*
-    ** This mapping has no configurable options.
     ** *Lifecycle state*: _Proposed_
+    ** This mapping has no configurable options.
+    ** The purpose of this mapping is to ensure accounts don't get deleted immediately,
+        but are rather deactivated first and
+        deleted only after the grace period set in Delayed delete mapping expires.
 * icon:clock[] *Delayed delete*
+    ** *Lifecycle state*: _Proposed_
     ** Set *Delete after* to a value appropriate to your use case.
-    ** Accounts marked for deletion will be deactivated first and deleted no sooner than after the time set here elapses. +
-        For testing, sensible values are in minutes. +
-        For production, sensible values are likely much longer.
+    ** Accounts marked for deletion will be deactivated first and deleted no sooner than after the time set here elapses.
+        *** For testing, sensible values are in minutes.
+        *** For production, sensible values are likely much longer (weeks or months).
 
+image::../ldap-outbound-activation-mappings.webp[Outbound activation mappings for a target resource]
 
 activation explanation: explanatory video, module 7, 5:30
 
 === Create initial passwords in the target system
 
+For the purposes of the setup we're building in this guide, you are going to use two outbound mappings for credentials:
+
+* Generate an initial password for new accounts.
+    ** *Lifecycle state*: _Proposed_
+    ** *Name*: _initial-passwd-generate_, for example.
+    ** *Stregth*: _Weak_
+    ** *Expression*: _Generate_
+    ** This mapping needs to be _weak_ so that it doesn't overwrite any existing password. +
+        Weak mapping is used only when the target attribute has no value.
+* Copy password from midPoint to the resource in case a user changes the password in midPoint.
+    ** *Lifecycle state*: _Proposed_
+    ** *Name*: _passwd-change_, for example.
+    ** *Stregth*: _Normal_
+    ** *Expression*: _As is_
+    ** If your users are not expected to ever use midPoint to change their passwords, you don't need this mapping.
+
+*Refer to xref:/midpoint/reference/admin-gui/resource-wizard/object-type/credentials/[instructions on working with credentials in the midPoint GUI]*.
+
+Refer to these resources for more information on credentials:
+
+* xref:/midpoint/reference/security/credentials/[]
+* xref:/midpoint/reference/resources/resource-configuration/schema-handling/credentials/[]
+* xref:/midpoint/reference/security/credentials/password-policy/[]
+
 explanation: explanatory video, module 7, 10:47
 
 === Simulate provisioning
+
+As always, before you put the new settings to production, simulate first to see if you get expected results.
+If you followed this Methodology from the start, you already have a xref:/midpoint/methodology/first-steps/connect/#reconcile-your-ldap-accounts[task for a simulated reconciliation] ready.
+If not, create it according to the linked guidance.
+
+After you run the simulated reconciliation, check the simulation results.
+You may see some accounts are renamed on either side as midPoint is trying to fix the data and make them consistent.
+
+=== Put the LDAP Provisioning into Production
+
+Having inspected and verified the changes as desired,
+turn the proposed changes into reality.
+
+For that to make it happen, you need to move all the mappings from the _Proposed_ lifecycle state to _Active_.
+
+After that, run the production reconciliation task in the LDAP resource.
 
 explanation in explanatory video, module 7: 18:16
 
