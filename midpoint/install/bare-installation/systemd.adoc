@@ -8,22 +8,28 @@
 :page-wiki-metadata-modify-date: 2021-02-08T18:10:14.581+01:00
 :page-upkeep-status: green
 :page-moved-from: /midpoint/install/systemd/
+:page-toc: top
 
-This page describes the method how to set up xref:distribution.adoc[midPoint server] for systemd run control.
-This is the usual setup to start midPoint automatically after system boot on UNIX-like (Linux) systems.
+This page describes how to set up xref:distribution.adoc[midPoint server] for `systemd` run control.
+This is the usual setup to start midPoint automatically after a system boot on UNIX-like (Linux) systems.
 
-[TIP]
-====
-This page describe the behaviour with static definition of the systemd service - example.
-To generate the systemd service customized to your environment you can use feature of xref:/midpoint/install/bare-installation/midpoint-sh/#generate[midpoint.sh].
+In the instructions on this page, a static definition of the `systemd` service is used.
+If you want to generate the `systemd` service customized to your environment, you can use the following feature of xref:/midpoint/install/bare-installation/midpoint-sh/#generate[midpoint.sh]:
 
+[source,bash]
+----
 /opt/midpoint/bin/midpoint.sh generate
-====
+----
 
-The following steps assume the midPoint installation in `/opt/midpoint` directory, owned (both directory and its content) as (previously created) user `midpoint`.
-The service will be started as user `midpoint` and will listen on default TCP 8080 port.
+The following steps assume the midPoint installation in the `/opt/midpoint` directory.
+Both the directory and its content are owned by the previously created user `midpoint`.
+The service will be started as the user `midpoint` and will listen on the default TCP port 8080.
 
-. Create a new file `/etc/systemd/system/midpoint.service` with the following content:
+== Start midPoint Service
+
+To start midPoint as a `systemd` service:
+
+. Create a new `/etc/systemd/system/midpoint.service` file with the following content:
 +
 .midpoint.service
 [source,bash]
@@ -35,23 +41,28 @@ Description=MidPoint Standalone Service
 [Service]
 User=midpoint
 WorkingDirectory=/opt/midpoint
-ExecStart=/usr/bin/java -Xmx2048m -Dmidpoint.home=/opt/midpoint/var -jar /opt/midpoint/lib/midpoint.war
+ExecStart=/usr/bin/java -Xmx2048m -Dmidpoint.home=/opt/midpoint/var -jar /opt/midpoint/lib/midpoint.jar
 SuccessExitStatus=143
 ###TimeoutStopSec=120s
 [Install]
 WantedBy=multi-user.target
 ----
 +
-Of course, `-Xmx2048m` needs to be modified for bigger deployments accordingly.
+For larger deployments, modify `-Xmx2048m` accordingly.
 +
-`ExecStart` line for versions 4.6 and later is different, because the packaging was changed from WAR to JAR:
+If you wish to customize JVM parameters, modify the `ExecStart` directive in the `midpoint.service` file and restart midPoint.
 +
+[NOTE]
+====
+If you are installing a version older than 4.6, you need to change the file extension in the `ExecStart` line from JAR to WAR as those versions use a different packaging method.
+
 [source,bash]
 ----
-ExecStart=/usr/bin/java -Xmx2048m -Dmidpoint.home=/opt/midpoint/var -jar /opt/midpoint/lib/midpoint.jar
+ExecStart=/usr/bin/java -Xmx2048m -Dmidpoint.home=/opt/midpoint/var -jar /opt/midpoint/lib/midpoint.war
 ----
+====
 
-. Run the following commands to enable midpoint service:
+. Run the following commands to enable the midPoint service:
 +
 [source,bash]
 ----
@@ -59,37 +70,47 @@ sudo systemctl daemon-reload
 sudo systemctl enable midpoint
 ----
 
-. Start midPoint as systemd service using the following command:
+. Start midPoint as a `systemd` service using the following command:
 +
 [source,bash]
 ----
 sudo systemctl start midpoint
 ----
 
-. You can monitor the startup in `/opt/midpoint/var/log/midpoint.log` (standard midPoint log) or in `/var/log/syslog` (the file name may vary; if systemd is used, `/opt/midpoint/var/log/midpoint.out` is *not* used.
 
-. You can stop midPoint as systemd service using the following command:
-+
+[TIP]
+====
+You can specify service dependencies with `systemd`.
+For example, to specify that midPoint requires a PostgreSQL database (running as a `systemd` service on the same host), uncomment the lines `Requires` and `After`.
+`systemd` will then start PostgreSQL before midPoint, and when PostgreSQL goes down, it will also automatically shutdown midPoint.
+====
+
+== Stop midPoint Service
+
+You can stop midPoint as a `systemd` service using the following command:
+
 [source,bash]
 ----
 sudo systemctl stop midpoint
 ----
 
-. To disable automatic midPoint startup/shutdown, use the following command:
-+
+To disable automatic midPoint startup/shutdown, use the following command:
+
 [source,bash]
 ----
 sudo systemctl disable midpoint
 ----
 
-If you wish to customize JVM parameters, just modify `ExecStart` directive in the `midpoint.service` file and restart midPoint.
+== Monitor midPoint
 
-[TIP]
-====
-Systemd allows you to specify service dependencies.
-For example to specify that midPoint requires PostgreSQL database (running as systemd service on the same host), just uncomment the lines `Requires` and `After`.
-Systemd will start PostgreSQL before midPoint, and when PostgreSQL goes down, it will also automatically shutdown midPoint.
-====
+You can monitor the startup in:
+
+* `/opt/midpoint/var/log/midpoint.log` - The standard midPoint log.
+* `/var/log/syslog` - The system log file.
+Its name and location depends on the system in which you are running midPoint.
+
+When using `systemd`, the `/opt/midpoint/var/log/midpoint.out` log file, which would otherwise capture the standard output of the midPoint process, is *not* used.
+
 
 == See Also
 
