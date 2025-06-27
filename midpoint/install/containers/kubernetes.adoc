@@ -1,7 +1,7 @@
 = Vanilla Kubernetes
 :page-nav-title: Vanilla Kubernetes
 :page-display-order: 30
-:page-toc: float-right
+:page-toc: top
 :toclevels: 4
 :page-keywords:  [ 'install', 'kubernetes' ]
 :page-moved-from: /midpoint/install/kubernetes/about/
@@ -12,12 +12,19 @@
 
 {% for v in site.data.midpoint-versions %}{% if v.status == null or v.status == "released" %}{% assign lastReleased = v %}{% endif %}{% endfor %}
 
-This page describes how midPoint uses vanilla Kubernetes for containerized installation.
+This page describes how midPoint uses vanilla Kubernetes for a containerized installation.
 
 
 == Deployment
 
 This chapter introduces schemes of different deployment types and describes the used components.
+
+The following deployments are supported:
+
+* xref:#basicDepl[Basic deployment]
+* xref:#simpleDepl[Simple deployment with PVC and Secret]
+* xref:#advancedDepl[Advanced deployments]
+
 
 [#basicDepl]
 === Basic Deployment
@@ -25,28 +32,28 @@ This chapter introduces schemes of different deployment types and describes the 
 .Basic deployment in Kubernetes
 image::kubernetes-diagram.png[]
 
-To start the environment, we need several objects.
-We can group them by type/purpose:
+To start the environment, you need several objects.
+You can group them by type/purpose:
 
 * *StatefulSet* +
-Control objects which provide templates for pods, including scale, i.e. the amount of requested instances.
+Control objects which provide templates for Pods, including the scale, i.e. the amount of requested instances.
 
 * *Service* +
-"Meeting point", i.e. an internal transparent proxy for communication.
-As pods has dynamic IP addresses, the IPs are assigned after pods are created.
-The name of service is known in advance and so it can be used to establish connection.
+The "meeting point", i.e. a transparent internal proxy for communication.
+As Pods have dynamic IP addresses, the IPs are assigned after Pods are created.
+The name of service is known in advance and so it can be used to establish a connection.
 For example, midPoint contacts the repository using the service definition.
 
 * *Ingress* +
-Entry point for the user.
-This is a reverse proxy, the first point of contact for communication on shared ports (http - TCP/80, https - TCP/443) from outside.
+The entry point for the user.
+This is a reverse proxy, the first point of contact for communication on shared ports from outside (HTTP - TCP/80, HTTPS - TCP/443).
 Once the definition matches, the communication is passed to the defined service.
 
-* *_Pod_* +
+* *Pod* +
 Pods are not defined directly in this deployment, they are created according to the StatefulSet definition.
 +
-Technically, it is the place where the application is running.
-The other objects create a correctly configured pod and make the pod reachable.
+Technically, it is the place where the application is running. +
+The other objects create a correctly configured Pod and make it reachable.
 
 [#simpleDepl]
 === Simple Deployment with PVC and Secret
@@ -82,23 +89,23 @@ In case of scaling, all Pods will share the same PVC.
 * *ConfigMap* +
 An object that can keep the content used as an environment variable or mounted to the Pod's filesystem.
 
-== Working with Deployment
+== Working with Deployments
 
-=== Prepared Object Definition
+=== Default Object Definition
 
-A ready-to-use definition is located in the midPoint link:https://github.com/evolveum/midpoint-kubernetes[Github] repository (link:https://github.com/Evolveum/midpoint-kubernetes/archive/refs/heads/main.zip[download ZIP]).
+A ready-to-use definition is located in the midPoint link:https://github.com/evolveum/midpoint-kubernetes[Github] repository.
 
 For the following steps, you need to have the content available locally.
-You can download the ZIP file and unzip it.
+You can link:https://github.com/Evolveum/midpoint-kubernetes/archive/refs/heads/main.zip[download the ZIP file] and unzip it.
 
 [NOTE]
 ====
 The commands mentioned below are supposed to be run in the terminal / command line.
 
 `kubectl` is used to communicate with the Kubernetes cluster.
-It is supposed you have a working setting with which you can connect, authenticate and communicate with the Kubernetes cluster.
+You should have a working setting with which you can connect, authenticate and communicate with the Kubernetes cluster.
 
-For testing purposes, you can request the list of nodes in the cluster : `kubectl get nodes`
+For testing purposes, you can request the list of nodes in the cluster with `kubectl get nodes`
 
 If you encounter any issues with `kubectl`, refer to link:https://kubernetes.io/docs/home/[Kubernetes documentation].
 ====
@@ -108,7 +115,8 @@ If you encounter any issues with `kubectl`, refer to link:https://kubernetes.io/
 All objects except the *ingress* definition can be used as they are.
 
 The ingress definition can be found in the `301_ingress.yaml` file.
-However, before you can deploy the definition, you should to address the following topics:
+
+Before you can deploy it, you need to configure the following:
 
 * *ingressClassName* +
 In the definition, the presence of *nginx* is expected.
@@ -123,17 +131,17 @@ If you want to use a different certificate, it has to be explicitly set in the i
 * *host* +
 A *midpoint.example.com* host is set in the definition file.
 This value should be resolvable so that the host's IP address can be retrieved.
-There are several options how to do that:
+There are several ways to do that:
 
   ** Change the value (FQDN) to something else that is under your control.
 
-  ** Add the host as a new record to the */etc/hosts* file (C:\Windows\System32\drivers\etc\hosts on Windows).
+  ** Add the host as a new record to the */etc/hosts* file (`C:\Windows\System32\drivers\etc\hosts` on Windows).
 
   ** Add the host as a static record on your local DNS resolver.
 
+[#accessInfo]
 The pre-defined environment will be available with the following information:
 
-[#accessInfo]
 .Access information
 [%noheader%autowidth]
 |====
@@ -145,21 +153,30 @@ The pre-defined environment will be available with the following information:
 
 |====
 
-. At the Kubernetes site, the FQDN is set using the <<#ingressHost,ingress>> object.
+At the Kubernetes site, the FQDN is set using the <<#ingressHost,ingress>> object.
 
-. The init password is generated by default.
-** In the <<#basicDepl,basic deployment>> and <<#simpleDepl,simple deployment>> deployments, the password is set in the StatefulSet definition for midPoint to: +
-MP_SET_midpoint_administrator_initialPassword=Test5ecr3t
-** In <<#advancedDepl,advanced deployments>>, there is a dedicated secret object with the initial password (see <<#advancedDeplH>>).
+The init password is generated by default.
+* In the <<#basicDepl,basic>> and <<#simpleDepl,simple>> deployments, the password is set in the StatefulSet definition for midPoint to: +
+`MP_SET_midpoint_administrator_initialPassword=Test5ecr3t`
+* In <<#advancedDepl,advanced deployments>>, there is a dedicated secret object with the initial password (see <<#advancedDeplH>>).
 
 [#basicDeplH]
 === Basic Deployment Handling
 
+This is suitable for quick testing or demos.
+
 <<#basicDepl,Basic deployment>> uses the `./deployment/basic` deployment path.
+
+Objects in this deployment are prepared to use their own namespace, i.e. a logical group for the objects.
+The provided files create and use a namespace called *midpoint-deployment*.
+
+Once the environment is created, it takes several seconds to get it up and running.
+The first run can take longer as the image has to be downloaded from the public registry (Docker hub).
+
+For information on how to access the environment, see the predefined <<#accessInfo,login credentials>>.
 
 [WARNING]
 ====
-Basic deployment is suitable for quick testing or demos.
 All data in this environment are put in a dynamic (non-persistent) store which means that if you remove a Pod, all related data are deleted.
 
 It is not possible to partially restart the environment.
@@ -169,7 +186,10 @@ Similarly, if you restart midPoint, you lose the key to access the encrypted dat
 
 Before applying the configuration files, make sure that you have configured <<#ingressNote,ingress>> for your environment.
 
-.Apply configuration to create a midPoint environment
+==== Create an Environment
+
+To apply a configuration and create a midPoint environment, run:
+
 [source,bash]
 ----
 kubectl apply -f ./deployment/basic
@@ -186,7 +206,10 @@ statefulset.apps/midpoint-repository created +
 statefulset.apps/midpoint created
 ====
 
-.Delete the objects related to the midPoint environment
+==== Delete an Environment
+
+To delete the objects related to the midPoint environment, run:
+
 [source,bash]
 ----
 kubectl delete -f ./deployment/basic
@@ -203,14 +226,6 @@ ingress.networking.k8s.io "midpoint" deleted +
 namespace "midpoint-deployment" deleted
 ====
 
-Objects in this deployment are prepared to use their own namespace, i.e. a logical group for the objects.
-The provided files create and use a namespace called *midpoint-deployment*.
-
-Once the environment is created, it takes several seconds to get it up and running.
-The first run can take longer as the image has to be downloaded from the public registry (Docker hub).
-
-For information on how to access the environment, see <<#accessInfo>>.
-
 [#simpleDeplH]
 === Simple Deployment with PVC and Secret Handling
 
@@ -218,25 +233,13 @@ This section extends the information in <<#basicDeplH>>.
 
 <<#simpleDepl,Simple deployment>> uses the `./deployment/simple` deployment path.
 
-[WARNING]
-====
-The *repository data* and *midPoint home data* are stored in Persistent Volume Claim.
-They are persisted even if a Pod is removed as they are not removed together with the *StatefulSet* definition.
-
-This may be undesirable in testing as data from previous runs may be present in the environment.
-
-Note that dedicated objects are still part of the created namespace.
-If you remove a namespace, all member objects are removed even if they are not directly addressed.
-This also applies to PVC in the namespace.
-====
-
 Before applying the configuration files, make sure that you have configured <<#ingressNote,ingress>> for your environment.
 
 No PVC is explicitly defined.
-The definition is "hidden" in the StatefulSet in the *volumeClaimTemplates* section.
+The definition is found in the StatefulSet in the *volumeClaimTemplates* section.
 If you prefer to use a different volume size, you can change the definition in the relevant StatefulSet before applying the files.
 
-.Volume sizing in the provided YAML definitions
+.Volume sizing in the provided YAML definition
 [%autowidth]
 |====
 | Pod name | Volume size
@@ -251,7 +254,22 @@ If you prefer to use a different volume size, you can change the definition in t
 The PVC is created based on the template value with the first run.
 In case the PVC already exists, it is used directly (e.g. the pod is re-created).
 
-.Apply the configuration to create the midPoint environment
+[WARNING]
+====
+The *repository data* and *midPoint home data* are stored in Persistent Volume Claim.
+They are persisted even if a Pod is removed as they are not removed together with the *StatefulSet* definition.
+
+This may be undesirable in testing as data from previous runs may be present in the environment.
+
+Note that dedicated objects are still part of the created namespace.
+If you remove a namespace, all member objects are removed even if they are not directly addressed.
+This also applies to PVC in the namespace.
+====
+
+==== Create an Environemnt
+
+To apply the configuration and create the midPoint environment, run:
+
 [source,bash]
 ----
 kubectl apply -f ./deployment/common/001_namespace.yaml -f ./deployment/simple
@@ -268,6 +286,8 @@ secret/midpoint-repository created +
 statefulset.apps/midpoint-repository created +
 statefulset.apps/midpoint created
 ====
+
+==== Delete an Environment
 
 When removing objects from the Kubernetes environment, you can decide if custom data (repository data and midPoint home directory) should also be removed.
 With the following command, you can remove the defined objects while keeping the namespace and PVC (custom data) for future use.
@@ -291,7 +311,7 @@ ingress.networking.k8s.io "midpoint" deleted
 
 If you want to completely remove all related data for the midPoint environment, you can delete the namespace.
 All related objects are members of that namespace.
-This also includes indirectly created PVC (we just define a template in StatefulSet, not the PVC directly).
+This also includes indirectly created PVCs (we only define a template in StatefulSet, not PVCs directly).
 
 Once a namespace deletion is requested, all related objects are removed in cascade.
 
@@ -307,7 +327,7 @@ kubectl delete -f ./deployment/common/001_namespace.yaml
 namespace "midpoint-deployment" deleted
 ====
 
-For information on how to access the environment, see <<#accessInfo>>.
+For information on how to access the environment, the predefined <<#accessInfo,login credentials>>.
 
 [#advancedDeplH]
 === Advanced Deployment Handling
@@ -316,56 +336,61 @@ This section extends the information in <<#simpleDeplH>>.
 
 <<#advancedDepl,Advanced deployment>> uses the `./deployment/advanced` deployment path.
 
-Before applying the configuration, make sure that you have configured <<#ingressNote,ingress>> for your environment.
-
-All prepared objects will be members of the namespace, i.e. a logical group of objects, and so you need to create it before any other object.
+All prepared objects will be members of the same namespace, i.e. a logical group of objects, and so you need to create it before any other object.
 The definition is available in the common directory.
 
 The definition of the persistent Volume Claim (PVC) is also available in the common directory.
 
-.Create a namespace and PVC for the midPoint environment
+Before applying the configuration, make sure that you have configured <<#ingressNote,ingress>> for your environment.
+
+==== Create an environment
+
+. Create a namespace and PVC for the midPoint environment:
++
 [source,bash]
 ----
 kubectl apply -f ./deployment/common
 ----
-
++
 .output from the *apply* command
 [%collapsible]
 ====
 namespace/midpoint-deployment created +
 persistentvolumeclaim/midpoint created
 ====
-
++
 There is no default administrator password.
 You can set the init password by an environment variable.
 The definition is prepared to use a *midPoint-init-pass* secret object with the *passwd* key.
 The object should be created before the midPoint Pod is started.
 To create the object, run the following command (you can change the password before executing the command):
 
-.Create a secret object with the initial midPoint password
+. Create a secret object with the initial midPoint password:
++
 [source,bash]
 ----
 kubectl create -n midpoint-deployment secret generic midpoint-init-pass --from-literal=passwd=Test5ecr3t
 ----
-
++
 .output from the *create* command
 [%collapsible]
 ====
 secret/midpoint-init-pass created
 ====
 
-.Create configMap with the post-initial-objects (content from the directory)
+. Create configMap with the post-initial-objects (content from the directory):
++
 [source,bash]
 ----
 kubectl create configmap -n midpoint-deployment post-initial-objects --from-file=deployment/post-initial-objects/
 ----
-
++
 .output from the *create* command
 [%collapsible]
 ====
 configmap/post-initial-objects created
 ====
-
++
 [NOTE]
 ====
 The size of the object is limited.
@@ -394,16 +419,15 @@ spec:
           - configMap:
               name: post-initial-objects-2
 ----
-
 ====
 
-Now you can apply the rest of the files.
-
-.Apply the rest of the environment
+. Apply the rest of the environment:
++
 [source,bash]
 ----
 kubectl apply -f ./deployment/advanced
 ----
++
 .output from the *apply* command
 [%collapsible]
 ====
@@ -415,13 +439,15 @@ statefulset.apps/midpoint-repository created +
 statefulset.apps/midpoint created
 ====
 
+==== Shut Down an environment
+
 To shutdown the environment, you have the following options:
 
-* Scale the replicas down to 0 +
+* *Scale the replicas down to 0* +
 Scaling down keeps all the definitions in place.
-The StatefulSet, as a control object, is instructed to create 0 replicas, i.e. shutdown all running pods.
+The StatefulSet, as a control object, is instructed to create 0 replicas, i.e. shutdown all running Pods.
 +
-This enables you to, for example, selectively shutdown midPoint instances but keep the repository up for maintenance.
+This enables you, for example, to selectively shutdown midPoint instances but keep the repository up for maintenance.
 +
 .Scale midPoint instances to 0 replicas
 [source,bash]
@@ -443,7 +469,7 @@ statefulset.apps/midpoint scaled
 +
 [NOTE]
 ====
-If there is more than one replica, you will need to configure midPoint for cluster.
+If there is more than one replica, you will need to configure midPoint for a cluster.
 The provided configuration is midPoint cluster ready.
 The relevant settings are related to :
 
@@ -458,15 +484,16 @@ For details, refer to - xref:/midpoint/reference/deployment/clustering-ha/[].
 *Cluster setup in production deployments requires an active subscription.*
 ====
 
-* Remove the object definition from Kubernetes.
-
+* *Remove the object definition from Kubernetes*
++
 In order to remove all objects except for the Persistent Volume Claims (PVC) and manually created objects (initial password /secret/ and post-initial-objects /configMap/), you can use the available definition to select the objects to be removed.
-
++
 .Partially delete the midPoint environment
 [source,bash]
 ----
 kubectl delete -f ./deployment/advanced
 ----
++
 .output from the *delete* command
 [%collapsible]
 ====
@@ -477,44 +504,43 @@ ingress.networking.k8s.io "midpoint" deleted +
 statefulset.apps "midpoint-repository" deleted +
 statefulset.apps "midpoint" deleted
 ====
-
++
 To remove all objects, including user data (volumes, secret with init password and configMap with Post-initial-objects), the whole namespace can be removed.
 Kubernetes will then remove all objects located in the namespace.
-
-.Delete the namespace with the midPoint environment (cascade clean up)
++
+.Delete the namespace with the midPoint environment (cascade cleanup)
 [source,bash]
 ----
 kubectl delete -f ./deployment/common/001_namespace.yaml
 ----
++
 .output from the *delete* command
 [%collapsible]
 ====
 namespace "midpoint-deployment" deleted
 ====
 
-== Additional Information
 
-=== Keystore
+== Keystore
 
 Keystore contains the key needed to access sensitive information in the repository.
 If you "lose" the key on the midPoint site, the system will start but some operations may fail.
-For example, it will not be possible to connect to the resource as credentials are not available, and users will not be able to log in.
+For example, it would not be possible to connect to the resource as credentials are not available, and users would not be able to log in.
 
 To make the key persist over restarts, or to share it between multiple Pods, you need to store it outside the midPoint Pod.
 You have the following options:
 
-* PVC +
-Handling the content inside Pods:
-  ** Can be defined by a template, and created when the Pod is deployed (see <<#simpleDeplH>>).
-  However, this only addresses persisting keys, and is not suitable for cluster deployments.
-  ** Cen be explicitly defined and linked from Pod definition (see <<#advancedDeplH>>).
-  This covers both the permanency and sharing requirements.
-  +
-  .configuration subset related to the PVC mount into the midPoint Pod as home directory
-  [%collapsible]
-  ====
-  [source,yaml]
-  ----
+* *PVC*: Handling the content inside Pods can be:
+** Defined by a template, and created when a Pod is deployed (see <<#simpleDeplH>>).
+However, this only addresses persisting keys, and is not suitable for cluster deployments.
+** Defined explicitly, and linked from a Pod definition (see <<#advancedDeplH>>).
+This meets both the permanency and sharing requirements.
++
+.configuration subset related to the PVC mount into the midPoint Pod as home directory
+[%collapsible]
+====
+[source,yaml]
+----
     volumes:
       - name: midpoint-home
         persistentVolumeClaim:
@@ -523,14 +549,14 @@ Handling the content inside Pods:
       volumeMounts:
         - name: midpoint-home
           mountPath: /opt/midpoint/var/
-  ----
-  ====
-  +
-  .configuration subset related to the dedicated PVC with keystore mount into the midPoint Pod.
-  [%collapsible]
-  ====
-  [source,yaml]
-  ----
+----
+====
++
+.configuration subset related to the dedicated PVC with keystore mount into the midPoint Pod.
+[%collapsible]
+====
+[source,yaml]
+----
     volumes:
       - name: secret-vol
         persistentVolumeClaim:
@@ -542,13 +568,13 @@ Handling the content inside Pods:
       volumeMounts:
         - name: secret-vol
           mountPath: /opt/secret-volume
-  ----
-  ====
+----
+====
 
 * Secret +
 Can be updated only "externally" using Kubernetes tools, i.e. no update from inside of the Pod is possible.
-The Pod has it mounted into the filesystem in the read-only mode.
-This approach covers both the permanency and sharing between Pods requirements.
+The Pod mounts it into the filesystem in the read-only mode.
+This approach meets both the permanency and sharing between Pods requirements.
 +
 .create a *secret-volume* secret containing a *keystore.jceks* file
 [source,bash]
@@ -595,10 +621,10 @@ See also:
 * xref:/midpoint/reference/security/crypto/migrating-encryption-keys/[]
 * xref:/midpoint/reference/security/crypto/[]
 
-==== Certificate for Resource Connection
+=== Resource Connection Certificate
 
 To establish secure connections to other systems, you need to store a trusted certificate in the trust store.
-The keystore is used also as a trust store by default.
+The keystore is also used as a trust store by default.
 
 For details, refer to xref:/midpoint/reference/security/crypto/ssl-connections-client-side-/[].
 
