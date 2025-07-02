@@ -751,16 +751,6 @@ So far, you've correlated (as in connected) the identities across your source an
 That's not the end of the story, though: you'll see how to automatically fix incorrect data soon.
 ====
 
-== Automate the processes
-
-After the steps you've done up to now, your LDAP and HR data can be considered reasonably clean.
-With that, you can *move on to automating the setup* so that it works autonomously:
-
-* Periodically check the HR system and import new accounts, if any.
-* Regularly check the LDAP system and clean up (delete) any illicit accounts.
-* Provision LDAP accounts for new employees imported from HR.
-* Create passwords for new HR accounts when provisioned to LDAP.
-
 == Provision Accounts to Target Systems
 
 . Create outbound mappings for the target system (module 7, 7:30)
@@ -874,27 +864,40 @@ In total, create *three activation outbound mappings*:
     ** *Lifecycle state*: _Proposed_
     ** *Name*: _account-status-based-on-mp-user_, for example.
     ** *Strength*: _Strong_
-    ** You can leave *Source* empty because midPoint already knows the default source for this mapping (_effective status_).
-    ** The activation mapping controls account status in the target system based on the effective status of their focal object in midPoint.
-    ** *Lifecycle state*: _Proposed_
+    ** You can leave *Source* empty because midPoint already knows the default source for this mapping (effective status).
+    ** The activation mapping controls the account status in the target system based on the effective status of the respective focal object in midPoint.
 * icon:user-slash[] *Disable instead of delete*
     ** *Lifecycle state*: _Proposed_
-    ** This mapping has no configurable options.
-    ** The purpose of this mapping is to ensure accounts don't get deleted immediately,
-        but are rather deactivated first and
-        deleted only after the grace period set in Delayed delete mapping expires.
+    ** This ensures that illegal accounts don't get deleted but rather disabled.
+        It's best to use this in conjunction with the Delayed delete configuration.
 * icon:clock[] *Delayed delete*
     ** *Lifecycle state*: _Proposed_
     ** Set *Delete after* to a value appropriate to your use case.
-    ** Accounts marked for deletion will be deactivated first and deleted no sooner than after the time set here elapses.
+    ** Accounts marked for deletion will deleted no sooner than after the grace period set here elapses.
         *** For testing, sensible values are in minutes.
-        *** For production, sensible values are likely much longer (weeks or months).
+        *** For production, sensible values are likely weeks or months.
 
 image::../ldap-outbound-activation-mappings.webp[Outbound activation mappings for a target resource]
 
 activation explanation: explanatory video, module 7, 5:30
 
 === Create initial passwords in the target system
+
+When you provision accounts to target systems, you need to take care of users' initial passwords.
+There may be at least two reasons:
+
+* Some systems refuse to create a user with a blank password.
+* Without a password, the new user would either be unable to log in at all,
+    or the system would let them in without a password.
+    Neither of which is likely a behavior you want.
+
+That means midPoint needs to supply an initial password for new accounts.
+It's up to the app using the target system to require a password change upon the first login.
+
+Moreover, you may let your users change their password directly in midPoint.
+In such a case, you need to tell midPoint to propagate the changed password to the target system.
+
+*Refer to xref:/midpoint/reference/admin-gui/resource-wizard/object-type/credentials/[instructions on working with credentials in the midPoint GUI]*.
 
 For the purposes of the setup we're building in this guide, you are going to use two outbound mappings for credentials:
 
@@ -911,8 +914,6 @@ For the purposes of the setup we're building in this guide, you are going to use
     ** *Stregth*: _Normal_
     ** *Expression*: _As is_
     ** If your users are not expected to ever use midPoint to change their passwords, you don't need this mapping.
-
-*Refer to xref:/midpoint/reference/admin-gui/resource-wizard/object-type/credentials/[instructions on working with credentials in the midPoint GUI]*.
 
 Refer to these resources for more information on credentials:
 
@@ -931,16 +932,116 @@ If not, create it according to the linked guidance.
 After you run the simulated reconciliation, check the simulation results.
 You may see some accounts are renamed on either side as midPoint is trying to fix the data and make them consistent.
 
+If some results are not as expected, adjust the resource configurations as needed.
+You can run the simulation over and over again safely, it doesn't touch your data.
+
 === Put the LDAP Provisioning into Production
 
-Having inspected and verified the changes as desired,
-turn the proposed changes into reality.
+Having inspected and verified the results of the simulation,
+it is turn them into reality.
 
-For that to make it happen, you need to move all the mappings from the _Proposed_ lifecycle state to _Active_.
+For that to happen, you need to move all the mappings (the "regular" ones, as well as those for activation, and credentials) from the _Proposed_ lifecycle state to _Active_.
 
 After that, run the production reconciliation task in the LDAP resource.
 
+You have turned on configuration for provisioning to the target LDAP resource for all attributes, as well as activation and passwords.
+You don't have yet set up an automatic synchronization between the source and target resources, that is, the HR and LDAP.
+However, your configuration is almost ready for that and we'll get to that very soon.
+
 explanation in explanatory video, module 7: 18:16
+
+== Automate the processes
+
+After the steps you've done up to now, your LDAP and HR data can be considered reasonably clean and in sync.
+With that, you can *move on to automating the setup* so that it works autonomously:
+
+* Periodically check the HR system and import new accounts, if any.
+* Regularly check the LDAP system and clean up (delete) any illicit accounts.
+* Provision LDAP accounts for new employees imported from HR.
+* Create passwords for new HR accounts when provisioned to LDAP.
+
+=== Generate Usernames in MidPoint
+
+Up until now, we've used the employee number from the HR system and the UID attribute from the LDAP system for user names.
+
+Now, it's time to configure midPoint to let it create usernames on its own so that it can provide LDAP accounts to new users created in in the HR system.
+That's because if a new person joins the organization, they don't have an LDAP account, meaning there's nowhere to take their username from.
+
+For midPoint to be an authoritative source of new usernames, you need to take a couple of steps:
+
+* Disable the HR inbound mapping _empnum-to-name_ which takes the `empnum` attribute and uses it for the focus `name` attribute.
+* Disable the LDAP inbound mapping _inbound-uid-username-to-name_ which takes the `uid` attribute and uses it for the focus `name` attribute.
+* Activate the _Person object template_ that can generate usernames based on the focal object name and surname. 
+
+==== Disable the obsolete inbound mappings for name
+
+. For the *HR resource*:
+    .. In the HR resource, go to xref:/midpoint/reference/admin-gui/resource-wizard/object-type/mapping/[mapping configuration].
+    .. In *Inbound mappings*, set the _empnum-to-name_ mapping to the _Archived_ lifecycle state
+    .. Save the configuration.
+
+. For the *LDAP resource*:
+    .. In the LDAP resource, go to xref:/midpoint/reference/admin-gui/resource-wizard/object-type/mapping/[mapping configuration].
+    .. In *Inbound mappings*, set the _inbound-uid-username-to-name_ mapping to the _Archived_ lifecycle state
+    .. Save the configuration.
+
+==== Activate the Person object template mapping for usernames
+
+
+
+- enable mapping in object template
+    - object template in MP is an object that allows running mappings whenever a focal object based on the template is created (e.g., user)
+    - can be either global (for specific focus type, e.g., user), or archetype-specific (e.g., for Person)
+        - there's a built-in object template for the Person archetype in MP - contains 2 default mappings - generate-fullname and generate-name-jsmith-8-2 (with iterator)
+            - this Person object template is tied to the Person archetype which is used for everybody we import from the HR system.
+            - various users can have various archetypes which can induce different behavior
+        - the username generator jsmith is weak so it only generates the value when the attribute is empty and doesn't change it when the person changes their name (e.g., when married)
+        - object template mappings work only with focal objects, they have focal object attributes on both sides
+        - if you want to enforce the values, make the mappings strong (e.g., full name)
+- disable HR inbound mapping for name
+- disable LDAP inbound mapping for name - LDAP is no more the source system for us
+
+- to automate sync with HR, we need a reconciliation task that is set to run repeatedly in given intervals (minutes, hours, ... can also be cron-ed); otherwise the task is the same
+- to automate LDAP account creation, we need to make MP create them
+    - important to understand concepts of assignment and inducements:
+        - assignment is a policy, a decision that an object (e.g., user) should have something (e.g., a role)
+        - inducement is an indirect assignment - object (inducement) assigned to a user causes the user to have something (e.g. a role or account)
+        - rule of thumb: users have assignments (roles, orgs, services, accounts, archetypes, ..); roles, orgs, services, accounts, archetypes have inducements - they cause something to happen to users who have them assigned (access rights, accounts, ...)
+    - archetype can be considered a birth right and we'll add LDAP provisioning to the Person archetype - resource account construction inducement in the Person archetype
+        - video: module 8: 22:45
+        - video 25:10 - mappings in the archetype which we won't use, but may be worth mentioning?
+- Entitlements and associations
+    - accounts are resource objects representing resource accounts
+        - entitlement - resource object representing resource privelage, e.g., AD group
+        - entitlements can be associated with accounts ==> membership
+        - provisioning manages entitlements, i.e., provisioning translates association into account--entitlement relation
+        - entitlements are resource objects like accounts with their own kind and intent
+    - associations are configured in resource account object type (can be predefined in object template)
+    - two possible ways for associations (28:58):
+        - roles are pointing to users (objectToSubject)
+        - users pointing to roles (subjectToObject)
+    - midPoint doesn't store role memberships, it fetches the info on demand - searches all the groups for a user DN, for example.
+        - Q: does that apply to 4.9+ as well? (with all the caching and such)
+    - lifecycle states:
+        - long-term leaves - account is suspended in MP -> disabled in LDAP 
+        - former employees - account is archived in MP -> deleted in LDAP -- but with disabled instead of delete + delayed delete 
+
+how delayed delete works
+    - MP creates a trigger when the account is supposed to be deleted, is stored in account shadow
+    - MP recalculates the account and deletes
+    - trigger scanner scans timestamps and triggers the actions (usually runs in 5 minutes intervals ??? - what if the delay is only 2 minutes?)
+
+- assignments and inducements enforce policies - if an object (e.g., user) should have something, e.g., a role, MP ensures that; creates the resource account and populates it with the right data, manages attributes of groups etc.
+    - strong mappings ensure that MP enforces the correct values even if someone changes them in the target system - MP is authoritative
+
+- during the migration to MP, MP can be set to tolerate group membership changes by external (legacy) systems; after the migration is done, MP can be set as intolerant
+- when you turn on the automatic provisioning to AD via MP, don't forget to turn off provisioning to LDAP via legacy systems
+- validity check scanner - runs each 15 minutes and checks validFrom and validTo to compute effective state (not used in this training)
+- shadow refresh task (basically simplified reconciliation) - if MP has some changes cached in shadow objects which it couldn't have pushed previously to resource because it was down, for example, shadow refresh task triggers maintenance operations to push these changes to resource; also cleans up dead shadows after their retention period (by default 7 days)
+    - dead shadow: when account is deleted on target system but shadow exists in MP. All the associations still exist, account can be recreated based on the dead shadow.
+ 
+
+username generator logic explained in module 8 training video on 0:10:00
 
 ---
 = The old original content follows
