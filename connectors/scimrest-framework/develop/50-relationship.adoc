@@ -1,0 +1,92 @@
+= `relationship` Concept
+
+ConnID & schema for Connector allows you to specify some attributes as
+`reference` to other objects.
+
+The `relationship` describes connection between such objects, allows you
+to specify subject and object in simple relationships.
+
+== Example
+
+=== `relationship` definition
+
+[source,groovy]
+----
+relationship("UserOrganizationMembership") {
+    subject("User") {
+        attribute("organization") {
+            resolver {
+                resolutionType PER_OBJECT
+                search {
+                    attributeFilter("member").eq(value)
+                }
+            }
+        }
+    }
+    object("Organization") {
+        attribute("member") {
+            resolver {
+                resolutionType PER_OBJECT
+                search {
+                    attributeFilter("organization").eq(value)
+                }
+            }
+        }
+    }
+}
+----
+
+This example defines named relationship `UserOrganizationMembership`.
+
+ * `User` is subject of relationship, will contains virtual attribute
+`organization` which will list all organizations user is member of.
+ * `Organization` is object of the relationship, and the list of all `User`
+who are members of that organization, will be available in virtual
+attribute `member` of Organization.
+ * The attributes `organization` and `member` are added to the object class schemas automatically - no need
+to define them also in schemas.
+* They are virtual (`emulated`) because they specified `search` `resolver` in order to determine their values.
+* Example assumes filter support for searching using `organization` and
+`member` is also declared and specified.
+
+=== Supporting implementations
+
+To dynamically resolve values for virtual (`emulated`) attributes,
+corresponding search support must be defined. If the systems does not
+have general purpose search, you may need to determine REST endpoints
+and add them to `search` support. This can be done in separate file eg.
+`User.Organization.support.search.groovy`.
+
+
+[source,groovy]
+----
+objectClass("Organization") {
+    search {
+        endpoint("users/{username}/orgs") {
+            responseFormat JSON_ARRAY
+            pagingSupport { // IDEA: lambda may delegate also to RequestBuilder
+                request.queryParameter("limit", paging.pageSize)
+                        .queryParameter("page", paging.pageOffset)
+            }
+            supportedFilter(attribute("member").eq().anySingleValue()) {
+                request.pathParameter("username", value.value.name)
+            }
+        }
+    }
+}
+
+objectClass("User") {
+    search {
+        endpoint("orgs/{org}/members") {
+            responseFormat JSON_ARRAY
+            pagingSupport { // IDEA: lambda may delegate also to RequestBuilder
+                request.queryParameter("limit", paging.pageSize)
+                        .queryParameter("page", paging.pageOffset)
+            }
+            supportedFilter(attribute("organization").eq().anySingleValue()) {
+                request.pathParameter("org", value.value.uid)
+            }
+        }
+    }
+}
+----
