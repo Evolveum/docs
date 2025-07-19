@@ -151,8 +151,8 @@ If you plan to store historical data in midPoint, you must account for that when
 .Shared vs dedicated database
 ====
 The xref:/midpoint/reference/repository/native-postgresql/[native repository] of midPoint relies on PostgreSQL.
-It is recommended to use a separate server for the database even for smaller midPoint deployments.
-You may even consider to separate databases for xref:/midpoint/reference/security/audit/#separate-repository-configuration-for-audit[audits] and for the repository, as the access patterns and sizing requirements are quite different.
+We recommend using a separate server for the database even for smaller midPoint deployments.
+You may even consider two separate databases for xref:/midpoint/reference/security/audit/#separate-repository-configuration-for-audit[audits] and for the repository, because the access patterns and sizing requirements are quite different.
 ====
 
 [[connector_servers_sizing]]
@@ -236,18 +236,18 @@ In most cases, the infrastructure is prepared by the administrators on the custo
 
 === Basic Single-Node Deployment
 
-The following schema represents a basic scenario:
+The following schema represents a basic deployment environment:
 
-//image::environment-schema-basic.png[]
-image::midpoint-environment-schema-basic.svg[title="Basic single-node midPoint deployment"]
+Basic single-node midPoint deployment
+image::midpoint-environment-schema-basic.svg["Basic midPoint deployment schema with midPoint and its repository in the center and lines showing access routes to resources and user's workstation. Optional VPN is placed between midPoint and the work station"]
 
 In the center of the schema, the largest rectangle represents a virtual machine, usually running Linux, with the xref:/midpoint/install/bare-installation/distribution/#purpose-and-quality[basic required set of tools] installed.
 
 ==== Shared Database Repository
 
 For the database repository (DB), an existing DB server is usually used.
-You have access to the DB using the SQL via the TCP/IP from the midPoint server. 
-Do not forget to configure the firewalls to enable communication over the used ports—5432 typically for PostgreSQL, 1433 for MS SQL, 1521 for Oracle, etc.
+You have access to the database using SQL via TCP/IP from the midPoint server.
+Do not forget to configure the firewalls to enable communication over the used ports.
 
 The database needs to be configured prior to midPoint installation so that the person who installs midPoint can configure the midPoint instance correctly.
 In the single-node mode, the DB can be placed on a separate DB server.
@@ -259,11 +259,14 @@ If you need SMS notifications, you also need access to an SMS gateway and have t
 
 ==== Secure Remote Deployment
 
-If the deployment is remote (i.e., you don't host it on-site), you need to secure the communication between end-user workstations and the midPoint instance.
-One of the options is to use a virtual private network (VPN) for each team member who needs to access midPoint.
+If your deployment is not public and you don't host it on your infrastructure, you need to secure the communication between end-user workstations and the midPoint instance.
+One of the options is to use a virtual private network (VPN) for everyone who needs to access midPoint.
 VPN provides a tunnel from the user's workstation to midPoint (or the load balancer before it).
 
 A separate SSH access for troubleshooting purposes is advised, so that you have a chance to examine the situation in case the VPN or the load balancer fail.
+We recommend setting up an SSH access to your midPoint nodes.
+You can use it to access midPoint configuration files and logs in case something goes wrong.
+If you deploy no xref:/midpoint/install/containers/kubernetes/[Kubernetes], though, you do not need SSH to manage the nodes remotely.
 
 ==== Resources
 
@@ -280,38 +283,42 @@ The list of options is endless and very much depends on what exactly you need to
 
 The situation gets a bit more complex when you deploy midPoint on two or more nodes:
 
-//image::environment-schema-HA.png[]
-image::midpoint-environment-schema-HA-two-nodes.svg[title="Deployment of midPoint with two nodes, load balancer, VPN, and a few example resources"]
+.Deployment of midPoint with two nodes, load balancer, VPN, and a few example resources
+image::midpoint-environment-schema-HA-two-nodes.svg["Two-node midPoint deployment schema with two midPoint node and their shared repository in the center and lines showing access routes to resources and user's workstation. Optional VPN and load balancer are placed between midPoint and the work station"]
 
 ==== Work Distribution
 
 In multi-node deployment, the job distribution among the nodes is handled centrally.
 
 The repository DB keeps track of the task states, i.e., which are to be done, in progress, or done.
-This helps to ensure that no single task is processed by two nodes concurrently.
-The Quartz library then serves as a smart timer, creating worker tasks which it gives to nodes for processing.
-The available tasks are picked by the nodes on the first-come-first-served basis, which ensures reasonably even task distribution.
+MidPoint uses the Quartz job scheduling library on each node.
+The Quartz library instances use the central job store to ensure that no single task is processed by multiple nodes concurrently.
+// TODO link to HA for job store details links @dakle 2025-07-19
+The available tasks are picked by the nodes on the first-come-first-served basis, which ensures a reasonably even task distribution.
 
 Refer to xref:/midpoint/reference/tasks/task-manager/[] for details on task handling in midPoint.
 
 ==== Communication Among Nodes
 
-Primarily, the nodes communicate with the central Quartz library rather than among themselves,
-with the exception of *cache invalidation*.
+Primarily, the nodes communicate with the central repository database rather than among themselves.
+One exception is *cache invalidation*.
 When a node changes data in the midPoint database, the node informs other nodes about the need to invalidate their cache.
 The *communication between nodes runs over HTTPS*.
 
-==== Node Management Access
+Refer to the xref:/midpoint/reference/deployment/clustering-ha/#cache-invalidation[article on high-availability deployment] for details about node communication.
 
-Identity engineers need to access all nodes, either using the web UI or the REST API, be it via a load balancer or directly. 
-Depending on the setup, they may need to connect to the nodes through a VPN which tunnels them to a particular node or the load balancer.
+==== Node Troubleshooting Access
+
+Identity engineers and midPoint users in general usually do not need to care to which node they are connecting because the nodes are all equal.
+If midPoint runs on an infrastructure like Kubernetes and uses xref:/midpoint/operations-manual/#_syslog_logging[remote logging],
+you can remotely inspect and manage, diagnose, and fix individual nodes if something goes wrong, without the need to access them directly.
+On the other hand, if your nodes store logs locally and you cannot manage them centrally like with Kubernetes,
+you need the ability to access a chosen node directly via SSH, for example. 
 
 ==== All Nodes Are Created Equal
 
-Similarly, each midPoint node needs full access to all the resources other nodes have.
-These are, for instance, the shared HA DB repository, the source and target systems, or an SMTP server for notifications.
-All nodes need to have the same access level regardless of whether you deploy midPoint on 200 nodes or just one.
-This is because *all nodes are created equal*: when one node goes down, others need to replace it in full.
+All nodes need to have the same configuration and access levels regardless of whether you deploy midPoint on 200 nodes or just one.
+There must be no differences because *all nodes are created equal*: when one node goes down, others need to replace it in full.
 
 You can check that connections to resource work as expected using `ping`, `telnet`, or `wget`, for instance.
 
@@ -329,6 +336,10 @@ VPN can be shared.
 We recommend having the same operating system, midPoint version, and resource data for all environments.
 If _same_ is not possible, as similar as possible is desirable.
 Any differences may lead to situations where something is working and is well tested in one environment, but does not work in another.
+
+Regardless of how similar you can keep your environments,
+*we suggest you xref:/midpoint/reference/simulation/[simulate every change]* on the production environment before you deploy it.
+Using simulations, you can discover issues before they can do any damage to your production data.
 
 If the data are sensitive and cannot be used in the development environment, you can obfuscate them and only use a part of them as a sample.
 However, the schema and all attributes that you use need to be used the same way as in the production environment to minimize differences.
