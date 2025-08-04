@@ -178,7 +178,7 @@ We strongly recommend deploying these components on shared servers.
 There are several approaches to implement high availability (HA) for midPoint deployments.
 Each strategy has different characteristics and costs:
 
-* <<virtualization_based_HA,Virtualization-based high availability>>
+* <<virtualization-based-failover,Virtualization-Based Strategy for Failover>>
 
 * <<load_balanced_shared,Multiple-node deployment>>
 
@@ -195,20 +195,21 @@ Even longer outages (hours) do not usually impact operation of the infrastructur
 This is important to keep in mind when choosing the right HA strategy.
 ====
 
-[[virtualization_based_HA]]
-=== Virtualization-Based High Availability
+[[virtualization-based-failover]]
+=== Virtualization-Based Strategy for Failover
 
-The easiest way to implement high availability (HA) is to use the HA features of the underlying virtualization infrastructure.
+The easiest way to implement a failover strategy is to leverage the underlying virtualization infrastructure.
 If the host machine running the midPoint virtual machine fails, it is easy to move the entire virtual machine to a different host.
 The transfer inflicts some downtime (usually a few minutes).
 However, since midPoint is not a business critical system, this downtime is generally acceptable.
 
 In this scenario, midPoint is set up to run in a single-node configuration (default), and no extra configuration is necessary.
 You only need to set up backups at adequate frequency to minimize data loss in case of fire.
-The high availability and failover mechanism is completely transparent.
+The failover mechanism is completely transparent.
 MidPoint has internal mechanisms to recover from system outages which are utilized after midPoint restarts on a different machine.
 
-This is a cost-efficient failover strategy, especially if midPoint and the database run on the same virtual machine.
+This approach does not achieve high availability per se because midPoint runs on a single node and if that node fails, midPoint goes down. 
+However, it is a cost-efficient failover strategy to prevent a prolonged midPoint downtime, especially if midPoint and the database run on the same virtual machine.
 
 [[load_balanced_shared]]
 === High Availability Through Multiple Nodes
@@ -225,11 +226,15 @@ Refer to the <<multi-node-deployment,section on multiple-node deployment>> for d
 MidPoint does not explicitly support repository-level clustering.
 Even in big deployments, the bottle neck is usually the amount of resources or the effective communication speed of the resources.
 
-We suggest to primarily *set up a proper backup solution*, verify the time to recovery, and always xref:/midpoint/reference/simulation/[*simulate everything* before you make changes to production].
+We suggest to primarily *set up a proper backup solution* and verify the time to recovery.
 
 If you require clustering the DB, you can set up an link:https://www.geeksforgeeks.org/system-design/active-passive-active-active-architecture-for-high-availability-system/[active-passive] failover mechanism and take advantage of the PostgreSQL database-side clustering support on the JDBC driver level.
 
 // This is best covered in [midPoint] Advice on Database High Availability --  https://lists.evolveum.com/pipermail/midpoint/2024-May/008167.html
+
+This is the most expensive set-up and it is seldom justifiable due to the cost of the HA database system.
+The usual compromise in this case is to use active-passive database HA strategies.
+Due to the low criticality of midPoint, this is usually acceptable from the operational point of view.
 
 == Software and Infrastructure Requirements
 
@@ -247,6 +252,7 @@ image::midpoint-environment-schema-basic.svg["Basic midPoint deployment schema w
 
 In the center of the schema, the largest rectangle represents a virtual machine, usually running Linux, with the xref:/midpoint/install/bare-installation/distribution/#purpose-and-quality[basic required set of tools] installed.
 MidPoint runs on this virtual machine.
+It may also be a xref:/midpoint/install/containers/[Docker container with a midPoint image].
 The database repository preferably runs on a separate virtual machine, albeit possibly on the same physical server.
 
 ==== Shared Database Repository
@@ -266,14 +272,15 @@ If you need SMS notifications, you also need access to an SMS gateway and have t
 ==== Secure Access to Your Deployment
 
 If your setup requires access to your midPoint deployment over the public Internet, you need to secure the communication between end users' computers and the midPoint instance.
-One of the options is to use a virtual private network (VPN) for everyone who needs to access midPoint.
-VPN provides a tunnel from the user's machine to midPoint (or the load balancer before it).
+Typically, HTTP communication encrypted using link:https://en.wikipedia.org/wiki/Transport_Layer_Security[TLS] is enough.
+A more heavyweight solution is to use a virtual private network (VPN) for everyone who needs to access midPoint.
+TLS encrypts the communication between users and midPoint server (or the load balancer before it), VPN provides a tunnel from the user's machine to midPoint (or the load balancer).
 
-==== Troubleshooting Access to Nodes
+==== Optional SSH Access to Nodes
 
 You can set up an SSH access to your midPoint nodes.
-You can use it to access midPoint configuration files and logs in case something goes wrong.
-If you deploy on xref:/midpoint/install/containers/kubernetes/[Kubernetes] and use xref:/midpoint/operations-manual/#_syslog_logging[remote logging], you do not need SSH access to individual nodes to manage, diagnose, and fix them remotely.
+You can use it, for example, to access midPoint configuration files and logs or to troubleshoot your deployment.
+The options for issue resolution vary depending on how you deploy and set up midPoint.
 
 ==== Resources
 
