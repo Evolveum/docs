@@ -1,39 +1,152 @@
-= Task
+---
+midpoint-feature: task-management
+doc-type: intro
+---
+
+= Tasks and activities
 :page-wiki-name: Task
 :page-wiki-id: 13074801
 :page-wiki-metadata-create-user: semancik
 :page-wiki-metadata-create-date: 2013-12-03T17:16:26.193+01:00
 :page-wiki-metadata-modify-user: peterkortvel@gmail.com
 :page-wiki-metadata-modify-date: 2016-02-20T15:41:50.298+01:00
+:page-upkeep-status: green
+:page-toc: top
+:page-description: Discover the conceptual foundation of tasks, how they relate to activities, what they are used for, and how you can increase your productivity with tasks
 
+MidPoint performs virtually every operation through a task.
+Whether it is an atomic change, such as renaming a user in the graphical user interface, or a complex job like synchronizing or reconciling resource objects, all work is carried out by tasks.
+This article explains the conceptual foundation of tasks, how they relate to activities, what they are used for, and how you can increase your productivity when you leverage tasks.
 
-== Introduction
+== What is a task
 
-The Task structure provides a context to most midPoint operations and functions.
-It contains contextual information such as identity of the user that invoked the operation, it contains security context, it may be bound to scheduling data and so on.
-It also holds the xref:/midpoint/architecture/concepts/operation-result/[operation result] data structure.
-Each "business" operation in midPoint should be executed in a context of a task.
+In midPoint, a task is a business logic definition through which the execution engine schedules, runs, and monitors the actual work to be done.
+Think of a task as a container that:
 
+* Has its own lifecycle (ready ― running ― done / suspended / failed).
+* Can be started manually, by a cron‑like schedule, or by another task.
+* Carries metadata such as a name, description, owner, priority, or retry policy.
+* Persists its state (progress, last run time, result) in the repository, meaning it can survive downtimes and restarts.
 
-== Task Manager
+Tasks for simple changes, such as when you change your password, get created, executed, closed, and deleted under the hood and you cannot inspect or manage them anyhow.
+For the more complex jobs, such as import or reconciliation, you can define and tweak various aspects of the task for the job, set it to repeat at defined intervals, or distribute it to selected number of midPoint nodes.
 
-Tasks are managed by xref:/midpoint/reference/tasks/task-manager/[Task Manager] component.
-The task manager creates the tasks and manages the lifecycle of tasks.
-Task manager can create broad range of tasks from lightweight synchronous tasks to a persistent asynchronous and scheduled tasks.
-See the xref:/midpoint/reference/tasks/task-manager/[Task Manager] page for more details.
+Refer to xref:/midpoint/reference/tasks/task-manager/[] for details about task management.
 
+*Tasks do not carry out the actual work* themselves; instead, they delegate the job to be done to *activities*.
 
-== Task Usage
+=== What is an activity
 
-.Creating a lightweight task instance
-[source,java]
-----
-Task task = taskManager.createTaskInstance(MyClass.class.getName() + ".myOperation");
-OperationResult result = task.getResult();
-----
+An activity is the concrete unit of work that lives inside a task.
+While a task defines when and under what conditions a job runs, an activity specifies what actually happens during that run.
+Each activity contains a work definition that tells midPoint which action to perform (e.g., import, reconciliation, live synchronization) and on which set of items it should operate.
 
+Activities can be simple (a single predefined operation) or composite (a sequence of sub‑activities).
+Activities are the building blocks that the task scheduler executes, and they report their own status back to the parent task.
 
-== See Also
+Refer to xref:/midpoint/reference/tasks/activities/[] for details.
 
-* xref:/midpoint/reference/tasks/task-manager/[Task Manager]
-* xref:/midpoint/reference/tasks/activities/[Activities]
+=== What are the differences between tasks and activities
+
+[cols="1,2,2"]
+.How activities differ from tasks
+
+|=====
+
+| Aspect
+| Task
+| Activity
+
+| *Purpose*
+| Defines when and how work is executed
+| Performs the concrete operations that constitute the work
+
+| *Granularity*
+| Coarse‑grained; one task may encompass many activities
+| Fine‑grained; each activity is a single step (e.g., “import objects”, “reconcile accounts”, “run script”)
+
+| *Scheduling*
+| Defined at the task level (cron expression, interval, manual start)
+| Inherited from the parent task; activities run according to the schedule of the parent task
+
+| *State tracking*
+| Tracks overall progress, success or failure of the whole job
+| Reports its own status (started, completed, error) to the parent task which aggregates the results
+
+| *Configuration*
+| Configured via `<task>` elements in the repository or GUI (priority, retry, notification)
+| Configured via `<activity>` sub‑elements inside a task definition (type, parameters, filters)
+
+|=====
+
+== What can tasks do in midPoint
+
+Both ad-hoc and automated periodic jobs are done in tasks.
+Here is a list of jobs in midPoint tasks can handle:
+
+* xref:/midpoint/reference/tasks/synchronization-tasks/import-and-reconciliation/[Import]: Typically a manually initiated import of objects from a resource to midPoint.
+* xref:/midpoint/reference/tasks/synchronization-tasks/import-and-reconciliation/[Reconcile]: Synchronize xref:/midpoint/reference/resources/shadow/[shadows] in midPoint with their resource-side counterparts.
+* xref:/midpoint/reference/tasks/synchronization-tasks/live-synchronization/[Live synchronization]: Continuous updating of midPoint objects based on changes in the related resource.
+* xref:/midpoint/reference/tasks/recompute-task/[Recompute]: Reevaluate and update xref:/midpoint/reference/schema/focus-and-projections/[focal objects] with respect to all applicable policies.
+* xref:/midpoint/reference/misc/reports/[Report]: Generate formatted reports based on query results or dashboards.
+* xref:/midpoint/reference/tasks/custom-task-java/[Custom task]: Develop a custom code and run it using a task.
+
+== How tasks help you be more productive
+
+You can use tasks in midPoint to automate jobs you may have done manually up until now.
+
+Modern organizations rely on a growing number of IT systems like Active Directory, SaaS apps, HR databases, etc.
+Keeping the data in those systems consistent, up‑to‑date, and compliant is a continuous operational need.
+MidPoint tasks give you a reliable, schedule‑driven way to automate such repetitive data‑intensive jobs, freeing staff to focus on higher‑value work while guaranteeing that critical identity‑management processes run on time and can be audited.
+
+=== Example of business case for tasks
+
+Here is an example of how delegating manual work to tasks can save a lot of time.
+Managing employee identities across various systems that operate independently requires a great deal of manpower and can lead to costly errors.
+When an organization automates this work using tasks, IT professionals can devote their freed‑up time to innovation and help the company progress.
+
+.How tasks help your productivity
+[cols="1,2,2"]
+|====
+
+| Step
+| What the task does
+| Business impact
+
+| *Schedule*
+| Define a recurring task that runs every night outside business hours
+| Guarantees consistent, timely, and automatic sync during off-peak hours
+
+| *Work definition*
+| Inside the task, configure an activity to read data from the external resources (AD, HR, etc.) and synchronize them according to the preconfigured mapping and synchronization rules
+| Eliminates stale accounts and ensures all employees have the correct access rights across systems
+
+| *Error handling*
+| Set the activity error‑handling policy to retry on transient failures and notify the admin on permanent errors
+| Reduces the downtime caused by network glitches and provides immediate visibility when something goes awry
+
+| *Reporting*
+| Enable the task’s built‑in reporting to generate a daily summary (new accounts, deprovisioned accounts, conflicts resolved) and send it to the security team
+| Enables continuous auditing and compliance reporting with minimal effort
+
+| *Scalability*
+| Because activities can be parallelized, the task can process thousands of objects concurrently on a multi‑node deployment
+| Handles growth in user count without increasing operational overhead
+
+|====
+
+By encapsulating the reconciliation logic into a recurring task, you can turn a labor‑intensive, error‑prone process into a reliable and scalable service that can be audited when needed and free the IT team to focus on higher‑value initiatives while maintaining strict identity governance.
+
+== See also
+
+* xref:/midpoint/reference/tasks/task-manager/[]
+* xref:/midpoint/reference/tasks/synchronization-tasks/import-and-reconciliation/[]
+* xref:/midpoint/reference/tasks/synchronization-tasks/live-synchronization/[]
+* xref:/midpoint/reference/tasks/recompute-task/[]
+* xref:/midpoint/reference/tasks/activities/[]
+* xref:/midpoint/reference/misc/reports/[]
+* xref:/midpoint/reference/resources/shadow/[]
+* xref:/midpoint/reference/schema/focus-and-projections/[]
+* xref:/midpoint/reference/tasks/custom-task-java/[]
+* xref:/midpoint/reference/deployment/clustering-ha/[]
+* xref:/midpoint/architecture/concepts/operation-result/[]
