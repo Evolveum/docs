@@ -80,9 +80,30 @@ The table below summarizes the recommended resources for typical scenarios:
 | negligible
 | negligible
 | Custom sizing ^*^
-
-
 |===
+
+=== JVM heap size
+
+The allocated memory should be higher than the maximum JVM heap. With MaxRAMPercentage=70–80, the JVM heap will be ~70–80% of the allocated memory limit; the remainder covers metaspace, direct buffers, JIT, and threads.
+Keep the maximum number of task threads less than or equal to the CPU limit. As a rule of thumb, start with concurrency ≈ number of CPU cores and adjust based on GC logs and throughput.
+Regarding the elevated memory consumption in your midPoint deployment, you can fine-tune the JVM by adding the following options to the environment. (Use JAVA_OPTS in midPoint containers; JAVA_TOOL_OPTIONS also works, but JAVA_OPTS is the documented knob.)
+
+[source,containers]
+----
+- name: JAVA_OPTS
+  value: >-
+    -XX:+UseG1GC
+    -XX:MaxRAMPercentage=80
+    -XX:InitialRAMPercentage=80
+    -XX:MaxMetaspaceSize=512m
+    -XX:MaxDirectMemorySize=256m
+----
+
+[source,bare-instalation]
+----
+JAVA_OPTS="$JAVA_OPTS -XX:+UseG1GC -XX:MaxRAMPercentage=80 -XX:InitialRAMPercentage=80 -XX:MaxMetaspaceSize=512m -XX:MaxDirectMemorySize=256m"
+----
+
 
 ^*^ Deployments with more than 100,000 users are supported in midPoint.
 However, due to the variability in large-scale environments, it is recommended to consult the specific hardware requirements with link:https://evolveum.com/services/consulting-services/[Evolveum Support].
@@ -208,7 +229,7 @@ You only need to set up backups at adequate frequency to minimize data loss in c
 The failover mechanism is completely transparent.
 MidPoint has internal mechanisms to recover from system outages which are utilized after midPoint restarts on a different machine.
 
-This approach does not achieve high availability per se because midPoint runs on a single node and if that node fails, midPoint goes down. 
+This approach does not achieve high availability per se because midPoint runs on a single node and if that node fails, midPoint goes down.
 However, it is a cost-efficient failover strategy to prevent a prolonged midPoint downtime, especially if midPoint and the database run on the same virtual machine.
 
 [[load_balanced_shared]]
