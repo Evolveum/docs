@@ -118,7 +118,7 @@ E.g. a normal user (the `user` object class) may have attribute `info`. If such 
 
 === Resource Configuration Example
 
-[source,xml]
+[source,MidPoint 4.8 and lower]
 ----
 <connectorConfiguration xmlns:icfc="http://midpoint.evolveum.com/xml/ns/public/connector/icf-1/connector-schema-3">
         <icfc:configurationProperties xmlns:icfcldap="http://midpoint.evolveum.com/xml/ns/public/connector/icf-1/bundle/com.evolveum.polygon.connector-ldap/com.evolveum.polygon.connector.ldap.ad.AdLdapConnector">
@@ -140,6 +140,24 @@ E.g. a normal user (the `user` object class) may have attribute `info`. If such 
 
 ----
 
+[source,MidPoint 4.9 and higher]
+----
+    <connectorConfiguration xmlns:icfc="http://midpoint.evolveum.com/xml/ns/public/connector/icf-1/connector-schema-3">
+        <icfc:configurationProperties xmlns:icfcldap="http://midpoint.evolveum.com/xml/ns/public/connector/icf-1/bundle/com.evolveum.polygon.connector-ldap/com.evolveum.polygon.connector.ldap.ad.AdLdapConnector">
+            <icfcldap:host>medusa.lab.evolveum.com</icfcldap:host>
+            <icfcldap:port>636</icfcldap:port>
+            <icfcldap:baseContext>DC=win,DC=evolveum,DC=com</icfcldap:baseContext>
+            <icfcldap:bindDn>CN=midpoint admin1,CN=Users,DC=win,DC=evolveum,DC=com</icfcldap:bindDn>
+            <icfcldap:connectionSecurity>ssl</icfcldap:connectionSecurity>
+            <icfcldap:bindPassword>
+                <t:clearValue>secret</t:clearValue>
+            </icfcldap:bindPassword>
+            <icfcldap:pagingBlockSize>5</icfcldap:pagingBlockSize> <!-- ridiculously small, just to test paging -->
+            <icfcldap:managedAssociationPairs>"user"+memberOf -# "group"+member</icfcldap:managedAssociationPairs>
+            <icfcldap:managedAssociationPairs>"group"+ memberOf -# "group"+ member</icfcldap:managedAssociationPairs>
+        </icfc:configurationProperties>
+    </connectorConfiguration>
+----
 
 === Resource Sample
 
@@ -189,7 +207,7 @@ Active Directory will maintain the group membership after account rename automat
 
 Example:
 
-[source,xml]
+[source,MidPoint 4.8 and lower]
 ----
 ...
 <association>
@@ -205,6 +223,91 @@ Example:
     <explicitReferentialIntegrity>false</explicitReferentialIntegrity>
 </association>
 ...
+----
+
+[source,MidPoint 4.9 and higher]
+----
+        <associationType>
+            <name>membership</name>
+            <subject>
+                <objectType>
+                    <kind>account</kind>
+                    <intent>default</intent>
+                </objectType>
+                <association>
+                    <ref>ri:group</ref>
+                    <sourceAttributeRef>ri:group</sourceAttributeRef> <!-- this is the default (the same as "ref") -->
+                    <outbound>
+                        <name>group-outbound</name>
+                        <documentation>
+                            Creates an association value from each role that has appropriate projection (to entitlement/group).
+                        </documentation>
+                        <expression>
+                            <associationConstruction>
+                                <objectRef>
+                                    <mapping>
+                                        <expression>
+                                            <associationFromLink/>
+                                        </expression>
+                                    </mapping>
+                                </objectRef>
+                            </associationConstruction>
+                        </expression>
+                    </outbound>
+                    <inbound>
+                        <name>group-inbound</name>
+                        <documentation>
+                            Creates an assignment from each association value (a group) that has appropriate owner (a role);
+                            except for situations where related assignment exists, or where an indirect assignment of the group
+                            exists.
+
+                            When the association value is removed, this mapping removes only those assignments that were created
+                            by it (in the past).
+                        </documentation>
+                        <expression>
+                            <associationSynchronization>
+                                <objectRef>
+                                    <correlator/>
+                                    <mapping>
+                                        <expression>
+                                            <shadowOwnerReferenceSearch/>
+                                        </expression>
+                                        <target>
+                                            <path>targetRef</path>
+                                        </target>
+                                    </mapping>
+                                </objectRef>
+                                <synchronization>
+                                    <reaction>
+                                        <situation>unmatched</situation>
+                                        <actions>
+                                            <addFocusValue/>
+                                        </actions>
+                                    </reaction>
+                                    <reaction>
+                                        <situation>matched</situation>
+                                        <actions>
+                                            <synchronize/>
+                                        </actions>
+                                    </reaction>
+                                    <reaction>
+                                        <situation>matchedIndirectly</situation>
+                                        <!-- no actions here -->
+                                    </reaction>
+                                </synchronization>
+                            </associationSynchronization>
+                        </expression>
+                    </inbound>
+                    <tolerant>true</tolerant>
+                </association>
+            </subject>
+            <object>
+                <objectType>
+                    <kind>entitlement</kind>
+                    <intent>group</intent>
+                </objectType>
+            </object>
+        </associationType>
 ----
 
 === National Characters
