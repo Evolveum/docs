@@ -1,0 +1,89 @@
+= Dead shadow
+:page-upkeep-status: green
+:page-toc: top
+:page-description: Dead shadows in midPoint track deleted resources, aiding diagnostics and consistency. Learn how they help ensure data integrity in identity management.
+
+Discover what are dead shadows in midPoint, why they exist, what you can use them for, and how they help data integrity and diagnostics.
+
+== What is a dead shadow
+
+In midPoint, dead shadows represent resource-side objects (e.g., accounts or groups) that no longer exist on the resource but remain in midPoint for operational and diagnostic purposes.
+
+Ordinary shadow objects in midPoint represent existing resource-side objects.
+However, sometimes there is a need to represent non-existing objects, such as accounts that were recently deleted.
+We refer to such representations as _dead shadows_.
+
+Dead shadows are very similar to ordinary live shadows.
+They store metadata about the deleted object, such as timestamps and operation details,
+and have identifiers, metadata, resource reference, kind, intent and all the other details regular shadows have.
+Additionally, they are marked with a boolean `dead` flag,
+
+== Why keep dead shadows
+
+Dead shadows serve critical roles: they help diagnose deletion issues, prevent accidental re-creation of deleted objects, and maintain consistency during reconciliation.
+
+For example, if a resource account is deleted externally,
+midPoint marks its shadow as dead to track its removal,
+ensuring it does not mistakenly recreate the object during synchronization.
+Dead shadows are automatically purged after a configurable retention period but remain accessible for auditing or troubleshooting.
+
+Unlike live shadows, dead shadows cannot be reused or modified, ensuring integrity of data in identity management workflows.
+The data are mostly "frozen" in time at the moment when the corresponding resource object (e.g. account) was deleted.
+
+Below are details on why it is handy to keep dead shadows in midPoint repository for some time.
+
+=== Diagnostics
+
+Dead shadows contain information about the operation that have deleted the resource object.
+If we would just delete the shadow, there would be no place to store that information.
+Dead shadows give administrators a chance to diagnose problems with delete operations.
+
+=== Pending operations on manual and semi-manual resources
+
+xref:/midpoint/reference/resources/manual/[Manual and semi-manual resources] are very slow.
+It may take days for an operation to complete.
+The state of the operation is kept in the shadow.
+
+However, this is tricky to do for delete operations.
+Once a delete operation is completed, the shadow should be gone.
+On semi-manual resources, though, even if the delete operation is completed, the deleted account is still present in the CSV export for hours or even days until it is regenerated.
+MidPoint needs to keep the information that the account was deleted recently.
+Otherwise, it would think that the account was re-created on the resource externally in the meantime and it would repeat the command to delete the account.
+Dead shadows are kept to make sure that this does not happen.
+
+=== Consistency mechanism
+
+MidPoint may discover that a resource object has disappeared.
+For example, midPoint tries to read an account linked to a user, discovering that the account was deleted.
+Usually, midPoint tries to re-create the account.
+However, a new account means a new shadow, because internal identifiers (e.g., `entryUUID` or `GUID`) may be different for the re-created account.
+The new account does not contain any information about the old account,
+yet, the old information may be useful, e.g., to investigate the case _why_ has the original account disappeared.
+Hence the old information is kept in the dead shadow.
+
+=== Handling peculiar delete-and-recreate situations
+
+MidPoint provisioning subsystem can be quite fast, perhaps a bit too fast in some situations.
+Incorrectly configured midPoint could try to delete an account, and immediately re-create it.
+This kind of problems is usually very difficult to diagnose, as the resulting situation looks quite normal.
+However, dead shadows are an evidence that something unwanted probably happened.
+
+=== Future potential
+
+MidPoint has to be prepared to work with many kinds of resources,
+from well-behaving centralized databases to all kind of weird distributed monstrosities that have never heard of link:https://en.wikipedia.org/wiki/CAP_theorem[CAP theorem].
+
+In the latter case, there may be, for instance, temporary fluctuations in data.
+On a resource with a distributed database, an account may be successfully deleted on one node.
+However, the following read operation may be directed to a different node, where the previous delete operation did not propagate yet.
+In that case, midPoint may naively think that the account was re-created, while the truth is that is has received outdated data.
+Dead shadows may be helpful in detecting such situations.
+MidPoint might be able to realize that this information is outdated and resolve the situation.
+Such functionality is not present in midPoint yet, but it may come in the future.
+
+== See also
+
+* xref:/midpoint/reference/resources/shadow/dead/[]
+* xref:/midpoint/reference/resources/shadow/integrity-check/[]
+* xref:/midpoint/reference/resources/shadow/purpose/[]
+* xref:/midpoint/reference/resources/manual/[]
