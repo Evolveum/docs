@@ -7,25 +7,36 @@
 :page-wiki-metadata-modify-date: 2016-12-14T20:13:10.657+01:00
 :page-alias: { "parent" : "/midpoint/guides/" }
 :page-upkeep-status: green
+:page-toc: top
+:page-description: This minimalistic guide demonstrates how to synchronize groups between Active Directory (AD) and midPoint.
+:page-keywords: Active Directory, AD, group synchronization
 
-This is a minimalistic HOWTO to demonstrate synchronization of groups between AD and midPoint.
+This minimalistic guide demonstrates how to synchronize groups between Active Directory (AD) and midPoint.
 
 [TIP]
 ====
-If you are not experienced using Active Directory resources, please see xref:/connectors/resources/active-directory/active-directory-ldap/[].
+If you are not experienced using Active Directory resources, see xref:/connectors/resources/active-directory/active-directory-ldap/[].
 ====
 
-This tutorial consists of two steps:
+This guide shows you how to:
 
-. Basic synchronization of users and groups
+* <<synchronization,Synchronize AD users and groups with midPoint>> - When a new account is created in AD, it appears in midPoint as a corresponding account shadow and a user.
+When a new group is created, it appears in midPoint as a new entitlement shadow and a role.
+* <<provisioning,Provision midPoint users and groups to AD>>
 
-. Using a meta-role to simplify the solution
+* <<use-metarole,Use a metarole to simplify the solution>>
 
 
-== Basic synchronization of users and groups
+[[synchronization]]
+== Synchronize AD users and groups with midPoint
 
-The most important parts of AD-LDAP resource are shown here:
-
+. Configure the two most important schema handling section parts of an AD-LDAP resource - an account object class, and a group object class. +
+In our example below, both classes are similar.
+The group object class defines the handling of the following attributes - DN, CN, and Description.
+You can see that the DN is constructed from the role name, suffixed with "ou=Groups,dc=example,dc=com", placing it in the `example.com/Groups` organizational unit.
+The `<association>` element in the user schema handling defines an association between a user account and a group.
+See xref:/midpoint/reference/resources/entitlements/#associations[Associations] for details.
++
 [source,xml]
 ----
 <c:resource oid="11111111-2222-3333-4444-000000000000">
@@ -114,12 +125,9 @@ The most important parts of AD-LDAP resource are shown here:
 </c:resource>
 ----
 
-The schema handling section defines an account object class (in a traditional way) and then a group object class.Group class definition is similar to the account one - it defines handling of three attributes, namely DN, CN and Description.
-We can see e.g. that DN is constructed from the role name, suffixed with "ou=Groups,dc=example,dc=com", placing it in example.com/Groups OU.
-The <association> element in user schema handling defines an association between user account and a group.
-See xref:/midpoint/reference/resources/entitlements/[Entitlements] (section on associations).
-Besides that, we define correlation and synchronization in order to synchronize users and roles/groups between midPoint and AD resource.
-
+. Configure a correlation and a synchronization so that you can synchronize users and roles/groups between midPoint and the AD resource.
+Notice how we define that groups (i.e., `ri:CustomGroupObjectClass` / `kind=entitlement` / `intent=group`) have to be synchronized with roles, and how we configure reactions to individual situations:
++
 [source,xml]
 ----
 <c:resource ...>
@@ -205,11 +213,8 @@ Besides that, we define correlation and synchronization in order to synchronize 
 </c:resource>
 ----
 
-Here, the user-related part is written as usual.
-The new one is group-related part.
-However, there is nothing special even in this part: it simply says that groups (i.e. ri:CustomGroupObjectClass / kind=entitlement / intent=group) have to be synchronized with roles, and describes reactions to individual situations.
-Besides this, there are two synchronization tasks defined:
-
+. Define a task that synchronizes users:
++
 [source,xml]
 ----
 <task oid="11111111-2222-3333-4444-100000000000">
@@ -227,8 +232,9 @@ Besides this, there are two synchronization tasks defined:
 </task>
 ----
 
-This one synchronizes users (nothing special here).
-
+. Define a task that synchronizes groups, as indicated by the "kind = entitlement" property in an extension. +
+Note that as groups are defined as the default intent of the entitlement kind, it is not necessary to specify intent here.
++
 [source,xml]
 ----
 <task oid="11111111-2222-3333-4444-100000000001">
@@ -249,26 +255,11 @@ This one synchronizes users (nothing special here).
 </task>
 ----
 
-This one synchronizes groups, as indicated by "kind = entitlement" property in an extension.
-Note that groups are defined as default intent of entitlement kind, so it is not necessary to specify intent here.
-What this setup does:
+[[provisioning]]
+== Provision midPoint users and groups to AD
 
-. *AD->midPoint*
-
-** It synchronizes AD accounts and groups from AD to midPoint - i.e. when a new account is created in AD, it appears in midPoint as a corresponding account shadow and a user.
-When new group is created, it appears in midPoint as a new entitlement shadow and a role.
+. Add an assignment to roles that instructs midPoint to provision roles to AD.
 +
-You can try it to see if it works.
-
-. *midPoint->AD*
-
-* It is able to provision users from midPoint to AD: you just have to add or assign a user the corresponding resource account.
-
-* It is able to provision groups from midPoint to AD.
-
-The second point is a bit more complicated: at minimum, you have to tell the midPoint that the role should be provisioned to AD.
-It is done by adding the following assignment to the role:
-
 [source,xml]
 ----
     <assignment>
@@ -280,12 +271,13 @@ It is done by adding the following assignment to the role:
     </assignment>
 ----
 
-Just like a user can have assigned an account on a resource, a role can have assigned an "account" (a group, in this case) on a resource.
-What is missing in both cases, is a rule that would say _"any user having this role has to have an account on AD with corresponding group assigned"_.
+. Make sure that users with the role defined in the previous step have an AD account with a corresponding group assigned. +
+A role can have an "account" (in this case, a group) assigned on a resource, just like a user can.
 For this, an inducement is used.
-By using inducements, you can prescribe not only that an account on a particular resource should exist, but you can also set its attributes and/or assignments - and exactly that is what we are interested in: assigning an entitlement (a group) that corresponds to this role.
-You can use associationTargetSearch, or a less flexible, but perhaps more straightforward way that uses a simple object reference:
-
+By using inducements, you can prescribe not only that an account on a particular resource should exist, but you can also set its attributes and assignments.
+This enables you to assign an entitlement (a group) that corresponds to this role.
+You can use `associationTargetSearch`, or a less flexible, but perhaps a more straightforward way that uses a simple object reference:
++
 [source,xml]
 ----
     <inducement>
@@ -305,28 +297,28 @@ You can use associationTargetSearch, or a less flexible, but perhaps more straig
        </construction>
     </inducement>
 ----
++
+Note that `oid="88c95eb4-f2a3-4b63-b269-18696e52c03f"` points to the shadow of this role, i.e., the group we mentioned.
+Now, when you assign this role to a user, an account will be created for them on a resource, and it will be a member of the given group.
+MidPoint enables you to avoid all these nuances by using its sophisticated mechanisms, namely:
 
-(note that oid="88c95eb4-f2a3-4b63-b269-18696e52c03f" points to a shadow of this role -> i.e. the group we are talking about)Now, when you assign this role to a user, an account for him will be created on a resource, and it will be a member of the given group.MidPoint allows you to avoid all these nuances by using its sophisticated mechanisms, namely:
+* Object templates - Used to automatically assign a metarole to any created role.
+* Roles with higher-order inducements (metaroles) - Used to create all necessary assignments/inducements to that role.
 
-* object templates,
 
-* roles with higher-order inducements (meta roles).
+[[use-metarole]]
+== Using a role to simplify the solution
 
-An object template is used to automatically assign a meta role to any role created.
-A meta role is used to create all the necessary assignments/inducements to that role.
-This leads us to the next step of implementation.
+Using metaroles, you can simplify the synchronization and provisioning between your AD and midPoint.
+Metaroles enable you to:
 
-== Using a meta-role to simplify the solution
+* Create an assignment to an AD group on a resource.
+* Create an inducement prescribing a creation of user accounts with an AD group on the resource.
 
-See *samples/resources/ad/ad-resource-groups-advanced.xml*, but *[.underline]#do not#* import it at this moment, as we will import things in it stepwise.
-First, we create a meta-role that will do exactly the thing we did manually in the above:
+Proceed as follows:
 
-. it creates an assignment to an AD group on our resource,
-
-. it creates an inducement prescribing creation of user accounts with AD group on the resource.
-
-Note that for the meta-role, item #1 is an inducement (as it creates assignments for any role that possesses this metarole) and item #2 is a second-order inducement (as it creates first-order inducements for any role that possesses this metarole).
-
+. Create a metarole with an inducement that creates assignments for any role possessing this metarole, and a second-order inducement that creates first-order inducements for any role possessing this metarole.
++
 [source,xml]
 ----
 <role oid="11111111-2222-3333-4444-200000000001"
@@ -372,15 +364,16 @@ Note that for the meta-role, item #1 is an inducement (as it creates assignments
     </inducement>
 </role>
 ----
++
+You can test the metarole by importing it and creating a role, e.g., "r1", that has the metarole assigned.
+You will see that an r1 group has been created in your AD.
+Also, a midPoint shadow has been created and linked to the r1 group.
+Moreover, if you now create a new midPoint user, and assign them the r1 role, their account on the AD will be created and it will be a member of the r1 AD group.
 
-If you import this metarole and create a role (e.g. "r1") having this metarole assigned, you'll see that on AD a group r1 has been created, and a midPoint shadow for it has been created as well, and linked to group r1.
-Moreover, if you now create a new midPoint user, and assign him role r1, his account on AD will be created and it will be a member of r1 AD group.
-
-Now, what is missing?
-If you create a role in midPoint, you have to manually assign it our metarole.
-Similarly, if a group is created in AD, the corresponding role in midPoint is again without the metarole.
-Here, an object template is going to help us.
-
+. Create an object template that automatically assigns the metarole to newly created roles. +
+With this object template, you will not have to assign the metarole to new roles that you create in midPoint manually.
+Similarly, if a group is created in AD, the corresponding role in midPoint will be assigned the metarole automatically.
++
 [source,xml]
 ----
 <objectTemplate oid="11111111-2222-3333-4444-300000000001"
@@ -407,9 +400,8 @@ Here, an object template is going to help us.
 </objectTemplate>
 ----
 
-Besides creating the template, we have to tell midPoint to use it for roles.
-We have to include the following to the system configuration:
-
+. In the system configuration, instruct midPoint to use the metarole for roles.
++
 [source,xml]
 ----
 <objectTemplate>
@@ -418,28 +410,24 @@ We have to include the following to the system configuration:
 </objectTemplate>
 ----
 
-Now, when you create a role (let's say r2), it will get automatically assigned the metarole, what causes creation of AD group and automatic assignment of this group to any user that has this "r2" role.
-In a similar way, when you create a group (let's say r3) in AD, a role r3 will be created in midPoint and it will be assigned this metarole.
+. Test the metarole by creating a new "r2" role.
+The role will get the metarole assigned automatically.
+This will cause a creation of an AD group, and an automatic assignment of this group to any user that has the "r2" role.
+Similarly, if you created an "r3" group in the AD, an r3 role would be created in midPoint and it would be assigned this metarole.
 
 [TIP]
 ====
-Actually, this example is a way too simplistic.
-For example, in reality, we would not want to provision all roles (including e.g. Superuser) to the Active Directory resource.
-So we would probably mark roles that have to be provisioned by some flag (let's say role type == "replicated") and then use this condition in the object template and in synchronization settings.
-We skipped this in order to focus on basic principles of synchronization.
-For a more realistic setting, please see the xref:/midpoint/reference/samples/story-tests/orgsync/[OrgSync Story Test].
+The presented example is a simplified one.
+In real deployments, you might not want to provision all roles (including e.g. Superuser) to the Active Directory resource.
+You would probably mark roles that have to be provisioned by a flag (e.g., role type == "replicated") and then use this condition in the object template and in your synchronization settings.
+For a more realistic setting, see the xref:/midpoint/reference/samples/story-tests/orgsync/[OrgSync Story Test].
 ====
-
-For more information please see:
-
-* xref:/midpoint/reference/resources/entitlements/[Entitlements]
-
-* xref:/midpoint/reference/roles-policies/roles/assignment/configuration/[Assignment Configuration] (namely section "Entitlements Association")
-
-* xref:/midpoint/reference/samples/story-tests/orgsync/[OrgSync Story Test] (namely section about Responsibility synchronizing - what is presented here is basically a simplification of the responsibility synchronization of this story test)
-
-Thanks to Tim Tompkins for providing a sample AD resource definition from which parts of this HOWTO were taken.
 
 == See Also
 
 * xref:/connectors/resources/active-directory/active-directory-ldap/[]
+* xref:/midpoint/reference/resources/entitlements/[Entitlements]
+* xref:/midpoint/reference/resources/entitlements/#associations[Associations]
+* xref:/midpoint/reference/samples/story-tests/orgsync#new-hr-employee-record-responsibility[OrgSync Story Test] - A broader version of the simplified example presented in this page.
+
+Thanks to Tim Tompkins for providing a sample AD resource definition from which parts of this HOWTO were taken.
