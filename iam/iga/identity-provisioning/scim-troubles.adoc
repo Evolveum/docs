@@ -1,0 +1,409 @@
+= SCIM Troubles
+
+== What Is SCIM?
+
+System for Cross-domain Identity Management (SCIM) is an IETF specification (https://tools.ietf.org/html/rfc7642[RFC7642]) of a RESTful service for identity provisioning.
+SCIM specification describes services to create, read, update and delete (a.k.a. "CRUD") data about users and groups.
+SCIM services are provided by systems that store identity data, such as applications with their own database, cloud service providers and so on.
+SCIM services are invoked by software systems that need to manage the identities.
+
+== Universal Provisioning Interface
+
+SCIM is built on a noble idea to define a universal interface for identity provisioning that every application can use.
+This sound like a great idea - and in fact it is.
+The problem is that implementing such an interface is much harder than it seems.
+This approach was xref:/iam/myths/universal-provisioning-interface/[tried many times in the past],
+including https://en.wikipedia.org/wiki/Service_Provisioning_Markup_Language[attempts of protocol specification] that were very similar to SCIM.
+Such efforts were not successful in the past.
+In fact such attempts often introduce additional complexity to the system, and result in maintenance nightmares in the long run.
+We see people trying the same approach over and over for almost two decades.
+The result is always the same.
+
+This seems to be very counter-intuitive.
+Creating an _interface_ is a well-know and usually very useful architectural pattern.
+How it is possible that such a best practice does not work for identity provisioning?
+The answer is far from being straightforward, therefore it is perhaps best to illustrate that using a couple of examples.
+
+== Interoperability
+
+SCIM specifies a nice schema for the user (or rather glossref:account[an account]).
+Every user should look like this in SCIM notation:
+
+.Example of user representation in SCIM (simplified)
+[source,json]
+----
+{
+  "userName":"jdoe",
+  "name":{
+    "formatted": "John Doe, PhD.",
+    "familyName": "Doe",
+    "givenName": "John",
+    "honorificSuffix": "PhD."
+  },
+  "emails":[
+    {
+      "value":"john.doe@example.com",
+      "type":"work",
+      "primary": true
+    }
+  ]
+}
+----
+
+This looks very nice and sane.
+However, all the systems are not the same.
+Let's have a look at seemingly simple concept of user's name.
+Some systems have the name neatly separated to its components such as first name and last name.
+Other systems are much simpler, combining everything in one messy string.
+
+SCIM allows variations in the representation of name.
+System `A` may return this:
+
+[source,json]
+----
+{
+  "userName":"jdoe",
+  "name":{
+    "familyName": "Doe",
+    "givenName": "John",
+    "honorificSuffix": "PhD."
+  },
+  ...
+}
+----
+
+While system `B` may return this:
+
+[source,json]
+----
+{
+  "userName":"jdoe",
+  "name":{
+    "formatted": "John Doe, PhD."
+  },
+  ...
+}
+----
+
+So far so good.
+However, the trouble comes when we want to _create_ an account on both system `A` and system `B`.
+SCIM has no way to indicate that system `A` needs `familyName` and `givenName` while system `B` needs `formatted` name.
+
+It is perhaps no big deal for system `B`.
+SCIM service endpoint may be smart enough to accept both forms of the name as it is easy to format full name from its components.
+However, what should poor system `A` do if it gets formatted name such as `Hrabě Felix Teleke z Tölökö`.
+Which part is given name, which part is family name, where is the middle name and which parts are honorific titles?
+The client that sends just the formatted name is fully SCIM-compliant, as SCIM schema allows this.
+The service `A` is also fully SCIM-compliant.
+Yet they cannot interoperate.
+The correct behavior needs to be configured or hardcoded in the client.
+Which makes interoperability quite difficult to achieve.
+
+You may think that this is not really a problem.
+In fact, you may be right, given the common identity management practices of today's world.
+People are used to the fact that integration with every new system is a slow and painful process.
+However, SCIM is not supposed to work just for the needs of today.
+SCIM was supposed to be an improvement.
+In that respect SCIM falls quite short.
+
+This particular problem is perhaps not that bad when it comes to user's name.
+Getting the name right is going to require interaction with the user anyway.
+Unfortunately, the same problem permeates entire SCIM schema.
+
+Is password required to create new user?
+How should we encode/hash the password?
+What about user activation status (is user _enabled_ or _disabled_)?
+Does the service support activation mechanism at all?
+Is there any way to indicate an _archived_ account or any other account lifecycle states?
+What about activation dates (valid from, valid to)?
+What filter operators are supported?
+Can more than one value be present in multi-valued attributes and what "types" are valid?
+Is rename operation supported?
+Those are the necessary minimum for even a mediocre identity management mechanism.
+Sadly, SCIM does not have the answers to any of these questions.
+
+All of that boils down to interoperability - or rather lack of it.
+SCIM is obviously designed to make implementation of SCIM _servers_ quite easy.
+This is achieved by shifting all the responsibilities to the SCIM client.
+SCIM client needs to know a lot of out-of-band details about the service to work properly.
+The consequence is that vast majority of practical SCIM clients are developed to work with a particular service, and they work _only_ with that service.
+They are not portable to other services.
+They are not interoperable.
+This is not really what one would expect from a standard protocol, is it?
+
+== Standard Schema For Identity Management
+
+One of the value proposition of SCIM is the introduction of a standardized identity schema.
+However, the way how SCIM does it creates a whole lot of problems.
+Standardized identity schema is a good thing, isn't it?
+How can this be a problem?
+
+_Common_ identity schema is a good thing, in principle.
+The problem is that different communities and deployments have different ideas what is _common_.
+For example, LDAP community still xref:/iam/ldap/ldap-survival-guide/[cannot agree how to disable an account] - and LDAP exists for almost three decades.
+There are 3-4 official grouping mechanisms in LDAP, plus pretty much every LDAP server has its own because the standard ones have their problems.
+Agreeing on common schema is really hard.
+It is even harder to standardize it.
+Which was obviously very clear to SCIM authors as the SCIM standard schema is _very_ vague.
+
+Then there is a pile of pre-existing software systems.
+Some of them are LDAP based with `inetOrgPerson` and `eduPerson` schemas.
+Those are not strictly compatible with SCIM schema as there is no reasonable way how to express mutivalue LDAP `cn` in SCIM `name`.
+Oh yes, using `cn` with multiple values is a very rare sight.
+However, this means you cannot make a bridge between LDAP and SCIM that will be fully compliant to both standards.
+You have to cut corners.
+Then there are systems that have their own schemas that are not really SCIM-compatible either.
+They will have to cut even more corners to expose SCIM-compliant interface.
+Each such compromise means that there is a loss in fidelity.
+It means there will be things that cannot be done with SCIM - or that you have to bend SCIM standard or resort to dirty hacks.
+When it comes to identity, one schema does not rule them all.
+
+Let us digress a bit into dark history of identity management.
+Similar problems were present in Identity Connector Framework (ICF) that was created by Sun Microsystems back in 2000s.
+ICF was not even trying to go as far as to define how a _name_ or an _address_ of a person should be presented.
+What ICF mandated is that each account must have two identifiers:
+
+* `pass:[__UID__]`, which is unique, and it should be immutable if possible.
+You can imagine that as LDAP `entryUUID` or a value of database autoincrement column.
+It may be generated by the system where the account is created.
+
+* `pass:[__NAME__]`, which is provided by the user when account is created.
+This is usually a username or login name.
+
+That may sound like a minimal and very reasonable requirement - but it is not.
+Turns out it is neither minimal nor reasonable.
+There are systems that do not have `pass:[__UID__]` at all.
+There are systems that do not have `pass:[__NAME__]` at all.
+There are systems where `pass:[__NAME__]` does not need to be unique.
+There are systems where a combination of several identifiers is needed to uniquely identify an account.
+There are systems that use both `pass:[__UID__]` and `pass:[__NAME__]`, but `pass:[__UID__]` is required as identifier to modify account.
+There are systems that use both `pass:[__UID__]` and `pass:[__NAME__]`, but `pass:[__NAME__]` is required as identifier to modify account.
+There are so many options and variants - and we are still talking just about simple identifiers.
+This is the most basic stuff of identity management.
+Everything else is going to be harder.
+
+Identity Connector Framework is dead for more than a decade.
+However, there is ConnId project that follow up on that effort.
+We have made many improvements over the years in ConnId design and code.
+However, even such a small piece of hardcoded identifier schema haunted us all the time.
+Hardcoded schema for identity management interface does not work.
+It cannot work.
+
+But wait a minute!
+There is a hardcoded identity schema in xref:/midpoint/[midPoint]!
+Pretty much all identity management platforms have such schemas.
+How is it possible that identity management systems work?
+
+Simply speaking, identity management systems work because they are _systems_.
+They are not mere specifications written down on a piece of paper.
+There is code, a _huge_ pile of code for that matter.
+There is man-_decades_ worth of pure development work in midPoint, plus additional effort for testing, documentation, communication and management overhead and all the other things around it.
+The code allows MidPoint to _map_ data between incompatible schemas.
+MidPoint was designed to do precisely that.
+MidPoint can dynamically discover how the schemas look like.
+MidPoint can wire them together.
+MidPoint has tools to quickly change the mappings when the schemas evolve.
+MidPoint can simulate missing or non-standard functionality.
+MidPoint is flexible enough to adapt to standard violations and do all the dirty hacks in identity playbooks.
+However, there is a price to pay.
+You probably do not want to spend man-decades to develop your SCIM-based integration solution.
+
+To cut the long story short: What works for identity management _systems_ is not the same thing that works for identity management _interfaces_.
+
+SCIM is in its second version now, and there are talks about a third revision.
+There were two SPML versions before SCIM, and a handful of provisioning protocols before that.
+Those attempts go back for almost two decades.
+SCIM had a lot of previous failures to learn from.
+Therefore, it is quite a big surprising how many issues still remain deeply embedded in SCIM.
+
+Business-wise, we should probably be happy about the current state of SCIM and the hype and all.
+Lots of incompatible SCIM endpoints mean that there will be strong need for identity management systems.
+We can sell midPoint subscriptions by truckloads.
+However, we just cannot be happy about something that is so wrong from engineering perspective.
+
+Of course, SCIM can be improved.
+It seems that SCIM can be transformed to a good identity management interface _eventually_.
+Future SCIM versions may provide a means for a service to expose all the information that the client needs.
+However, that is where all the ideas of _universal identity provisioning interface_ get really complex.
+There is plethora of combinations of service capabilities, credential types and formats, activation options and entitlement schemes.
+Fully-compliant SCIM client will need to support them all, it will need to dynamically discover which are the right options and adapt its functionality.
+This will effectively turn SCIM clients into small identity provisioning systems.
+
+== Issues, Issues And More Issues
+
+SCIM has a prefabricated concepts of _user_ and _group_.
+It is almost unbelievable that group membership is controlled by `members` attribute of a group.
+This is a well-known approach that goes back (at least) to 1990s.
+This approach is so well known especially because it is always quite problematic.
+Majority of deployments have groups that contain pretty much every user in the organization.
+Which means that now we have a `Group` SCIM object that has many values in its `members` attribute.
+Groups with thousands to millions users are not entirely rare.
+Imagine how the SCIM client lists groups with that many members, how long the SCIM response is going to be.
+There is a workaround to request all group attributes except `members`, which is something that a reasonable client always wants to do.
+However, `members` attribute still needs to be used for group modification.
+Which means that both the client and service have to be implemented _very_ carefully to avoid performance issues.
+It would be all so much easier if the group membership relation was reversed, if `groups` attribute of the _user_ was used instead.
+Or even better: if group mechanics was just a special case of some well-defined entitlement or role management mechanism.
+Which leads us to `entitlements` and `roles` attributes of the user, which are mentioned, but not really defined.
+Quite obviously, SCIM leaves a lot to be desired here.
+
+There is a lot of smaller issues that make it hard to use SCIM for serious business.
+There is no good way to indicate that user has a password, without revealing information about the password (e.g. its hashed value).
+However, this functionality is often needed, e.g. if we want to set a password for a user but only if the user does not have a password yet.
+Username is mandatory, and it has to be globally unique within a service.
+However, the username may be generated by the service to ensure the uniqueness.
+In that case, the username may not be present in the create operation, which is somehow in conflict with the fact that username is required.
+Global uniqueness of username may also be a problem for multi-tenant systems.
+Such systems have to use workarounds, such as introducing internal structure to the username.
+Some systems may not need username at all.
+SCIM forces such systems to duplicate the `id` into username, which also seems to be xref:/connectors/connid/1.x/icf-issues/#schema[an anti-pattern].
+
+There are more issues, but it perhaps makes no sense to enumerate them all.
+The big picture should be quite clear now.
+Those issues may be caused by the way how many protocols are developed nowadays.
+Many protocols are developed _during_ standardization process, not before the process.
+Therefore, there is not enough time and opportunity to validate the protocol by using it in diverse real-world scenarios.
+SCIM obviously suffers from this _premature standardization_ problem.
+
+== Future Of SCIM
+
+There was SPML once.
+It is dead now.
+Then there was SPML2.
+That one is dead too.
+(No, XML was not the primary reason for SPML failure.)
+SCIM 1.0 came next, stuck around for a couple of years, just to be quickly replaced.
+SCIM 2.0 has a really tough act to follow here.
+
+SCIM 2.0 is undoubtedly an improvement over SPML and SCIM 1.0.
+SCIM 2.0 _is_ better.
+However, that is not the right question.
+The question is whether SCIM 2.0 is _good enough_.
+
+SCIM 2.0 may be a good starting point, which comes after many failures.
+However, it is just a start.
+It needs major improvements.
+It has to be cleaner, richer and more dynamic.
+Yet, there is a significant price to pay to get such things.
+There will be new complexity.
+A lot of complexity.
+Therefore, forget about simple universal SCIM clients.
+The clients will be either simple or universal, but not both.
+
+== Pragmatic Look At SCIM
+
+Despite all that was said so far, SCIM 2.0 can still be useful.
+It just needs to be used reasonably, one needs to be aware of the limitations and set the expectations right.
+Our recommendations:
+
+* If you are just starting, it may be a good idea to start with SCIM 2.0.
+It is better to start with SCIM than to reinvent everything - especially if you are new to identity management.
+Identity management is much more complex that it seems.
+Chances are that you end up with something much worse than SCIM if you try to do it your way.
+SCIM 2.0 is not a bad starting point.
+
+* Do not expect that SCIM will solve all your problems.
+Do not expect that your service will be accessible by any SCIM client.
+It won't.
+You will need special client that can be _based_ on SCIM.
+However, you need to develop such client yourself.
+Do not expect that your client can access any arbitrary SCIM service.
+It won't.
+You have to adapt your client for every new service.
+In fact, expect that practical interoperability is going to be really low.
+However, it may still be better to use SCIM 2.0 instead of building a service or client on a green field.
+
+* Do not use SCIM groups if you can avoid it.
+The way how SCIM deals group membership is a well-known anti-pattern and it is bound to cause a lot of problems sooner or later.
+Create your own entitlement mechanism instead.
+
+* It may be a good idea to avoid using the pre-fabricated `User` type as well.
+The fixed schema of `User` may not suit your purposes.
+There is no point for you to translate your LDAP `eduPerson` schema to SCIM `User` when your clients are going to translate it back to LDAP anyway.
+It may be much better to create your own `EduUser` resource from scratch.
+
+* It is probably not worth the effort to migrate your existing identity provisioning interface to SCIM 2.0.
+Unless your identity provisioning interface is really primitive, you are going to struggle to make SCIM do what you need it to do.
+You will need to create a lot of custom SCIM extensions.
+You will need to change the behavior.
+You will most likely end up violating SCIM specifications anyway.
+The benefit of SCIM adoption is that it will be easier to understand your API for people that have seen a SCIM interface before.
+However, they will need to understand your custom extensions anyway, and they will almost certainly need to write custom client code.
+You have to decide for yourself if such benefit is worth for your specific case.
+Make proper considerations.
+Do not blindly grab SCIM 2.0 just because it is a "standard".
+
+As long as you are aware of all the limitations of SCIM and it still satisfies your needs, adoption of SCIM may bring you benefits.
+Having limitations are not the primary problem of SCIM.
+Every technology has limitations, and SCIM can be a good fit for many simple solutions.
+The real problem is that there are massively inflated expectations about SCIM.
+Lot of engineers with a limited experience in identity management see SCIM as a silver bullet.
+It is not.
+It is just an ordinary technology in its early stages of development.
+
+== SCIM In MidPoint
+
+MidPoint was not using SCIM for a very long time.
+MidPoint is older than SCIM.
+MidPoint already had rich API when SCIM was just being developed.
+MidPoint API is much richer that SCIM, it is build for dynamic environment, and it has more features.
+Adopting SCIM as our API would be a significant downgrade, due to numerous limitations of SCIM.
+As SCIM is not meant to support interoperable implementations, we do not see any point in providing SCIM server in midPoint.
+
+NOTE: Clever reader will notice that midPoint has a user schema that is _very_ similar to SCIM schema.
+The reason is that midPoint schema and SCIM schema are based on the same specifications such as VCARD and FOAF.
+However, even though the schemas are similar, they are not the same.
+SCIM and midPoint schemas are not directly compatible.
+
+However, SCIM is becoming a popular choice for providing application identity management APIs.
+These SCIM implementation are not strictly interoperable.
+Client that works with one SCIM server is very unlikely to work flawlessly with another SCIM server.
+Yet, all the SCIM-based APIs look similar.
+Therefore, it is much easier to implement client for a SCIM-based service that to support arbitrary REST API.
+This effect was utilized in a SCIM/REST connector framework which is currently being developed, planned for midPoint 4.11.
+
+The SCIM/REST connector framework will use _low-code_ approach to quickly build new SCIM-based connectors.
+The framework could be used to create a new SCIM-based connector by specifying the details about the particular SCIM servers.
+These details cannot be automatically discovered using SCIM protocol, therefore they need to be provided in a form of connector declaration.
+Some connectors will certainly require even some custom code to fully support custom functionality.
+Such functionality can be added to the connector in a form of custom scripts.
+
+== This Is All Wrong!
+
+__
+This Is All Wrong!
+SCIM is a standard!
+You should behave and support the standards.
+Come on!
+Implement SCIM service in midPoint.
+Now!
+__
+
+Well, technically, SCIM is an _informational_ RFC, not a standard.
+However, even if it was a standard, what is a values of a standard if it does not really work?
+We believe that the primary reason for having standards is _interoperability_.
+SCIM is not doing incredibly well on that front.
+
+However, we admit that we may be wrong with our assessment of SCIM.
+In that case please contact us and let us know what exactly we have got wrong.
+We will fix it.
+We may even reconsider our approach to support SCIM in the future.
+However, there are two conditions:
+
+. SCIM has to mature.
+There are many improvements that needs to be done in SCIM for it to become useful.
+
+. There needs to be an incentive.
+Funding needs to be secured for both development and _maintenance_ of SCIM interface, or there needs to be significant demand from midPoint subscribers.
+Hype is not a significant motivation just by itself.
+Not for us, anyway.
+
+Let the community decide.
+If you like the ideas of SCIM *and* the solutions that SCIM provides than go ahead and use it.
+We will be more than happy to admit that we were wrong about SCIM if that is really the case.
+If you find it useful to use SCIM with midPoint then let us know.
+Just please, do all of us a favor: *try using SCIM before you talk about it*.
+Make sure that your evaluation of SCIM is based on real-world experience and that it is not just driven by hype and inflated expectations.
+What we need is a robust engineering solution, not a television show.
+Everything works perfectly in slide shows and talks.
+However, we are not going to deploy and run those, are we?

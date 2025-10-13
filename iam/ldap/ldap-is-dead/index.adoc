@@ -1,0 +1,270 @@
+= LDAP Is Dead
+Radovan Semančík
+:page-toc: top
+:page-keywords: [ 'LDAP', 'directory service', 'identity management' ]
+:page-description: LDAP is riddled with problems, yet it does not evolve. LDAP is not alive any more.
+:page-alias: { "parent" : "/connectors/resources/ldap/" }
+
+https://en.wikipedia.org/wiki/Lightweight_Directory_Access_Protocol[Lightweight Directory Access Protocol (LDAP)] is a protocol used to maintain glossref:account[accounts] in enterprise and telco environments.
+Despite being widely used, LDAP is deeply problematic, incomplete and unmaintained protocol.
+Even though LDAP has xref:/iam/ldap/ldap-survival-guide/[numerous problems], it has not evolved in almost two decades.
+There are only two reasons for a software system to stop evolving:
+It is either _perfect_ or it is _dead_.
+
+Everybody who has ever used LDAP knows in their heart that LDAP is xref:/iam/ldap/ldap-survival-guide/[far from being perfect].
+There are schema issues, missing functionalities, ambiguities and redundancies, architectural oversights, obsolete mechanisms, necessary non-standard extensions, proprietary solutions and antique artifacts - all the classic symptoms of a specification in a desperate need of major revision.
+Yet, the revision never happened.
+In fact, nobody even speaks about revising LDAP specifications and fixing the problems.
+We all just keep using the good old broken protocol, silently working around the problems, pretending that everything is just fine.
+Honestly, I have never really understood why are we doing that.
+
+== LDAP Problems
+
+Strictly speaking, LDAP is a protocol that is specified in a link:https://www.rfc-editor.org/rfc/rfc4510[series of Internet Engineering Task Force RFCs], which also includes information models, schemas, authentication mechanisms, identifier format, search filter structure and other details.
+The specifications are quite comprehensive.
+Interoperability was clearly one of the primary goals of specification authors.
+
+However, LDAP practice does not really comply with the specifications.
+There are many conventions, unwritten rules, dos and don'ts, server-specific tricks and workarounds in the LDAP world.
+Strict adherence to LDAP specification is an assurance to get you into interoperability problems.
+E.g. the usual LDAP grouping mechanisms do not really work unless standard schema is modified in non-standard way.
+This is a widely accepted fact in LDAP community, therefore most LDAP servers come off-the-shelf with a pre-violated schema.
+
+I'm not talking about server-to-server interoperability here, which (as far as I know) was never the intention of the protocol.
+I'm talking about simple down-to-earth client-to-server interoperability.
+In practice, LDAP server cannot be easily replaced without adjusting all the clients.
+Client cannot connect to an LDAP server without setting up annoying details, such as account object class, identifier names, group object class, account and group locations or identifier patterns, attribute names and reference mechanisms - details that should have been specified by the standard.
+By the way, LDAP has more than three (!) grouping mechanisms, which are mutually non-compatible.
+This is just insane.
+
+Moreover, non-standard extensions are necessary to support reasonable interaction with the server once you dare to go beyond the very basics.
+Non-standard mechanisms such as _memberOf_ and Virtual List Views (VLV) are absolutely necessary to work with LDAP data at scale.
+Permissive modify is necessary for maintaining consistency (in case the server has not already deviated from the specifications for your convenience).
+Such non-standard mechanisms have server-specific nuances, working slightly differently in each implementation.
+
+Even worse, some issues are not solved at all, not even by non-standard extensions.
+Account activation (ability to _disable_ and _enable_ an account) is a notorious example.
+Every LDAP server has its own method to do it (except for OpenLDAP, which does not have any way to do it).
+There are server-specific mechanisms, specifics and tweaks for almost everything.
+
+TIP: See xref:/iam/ldap/ldap-survival-guide/[LDAP Survival Guide] for all the gory details, including description of common workarounds for several popular LDAP servers.
+
+In practice, LDAP interoperability is very limited.
+Honestly, it is mostly just a myth.
+There is no LDAP server that I know of which is completely compliant with LDAP specifications, and I have seen a lot of LDAP servers during my long career.
+LDAP protocol is mostly used for password-based authentication for simple applications, using just one or two basic LDAP operations (_search_ and _bind_).
+Some applications are bold enough to support rudimentary authorization based on LDAP groups, despite all the notorious problems.
+However, LDAP clients always have to adapt to a specific LDAP server, its data structure, configuration, design choices and conventions.
+Isn't it strange that we have got used to this painful practice so easily?
+
+== Dead, Undead or Legacy
+
+You may think that my "LDAP is dead" statement is too bold or premature.
+Maybe it is.
+There are many operational LDAP servers out there, many applications support LDAP authentication, the ecosystems seem to (somehow) work.
+However, that is not the point.
+
+The point is that we are using LDAP for integrations like it is still the 1990s.
+Every integration path is customized and fine-tuned to specific server.
+This is error-prone, time-consuming and fragile.
+It requires expertise that is increasingly harder to come by.
+Clearly, this not the right way.
+
+Moreover, cybersecurity and identity landscape is vastly different from it was in the 1990s.
+We are supposed to have _zero trust_ now, and machine identities are finally getting some attention.
+LDAP is built to use service accounts for application authentication.
+Are you regularly updating the credentials of the service accounts?
+Can you?
+Do you even know that you should?
+
+Can LDAP adapt to new cybersecurity landscape and requirements?
+Technically, it could.
+There is nothing in the protocol itself that would prohibit that.
+Will it adapt?
+That is very unlikely.
+Last significant update of LDAP specifications was in June 2006.
+Even though there are painful problems all this time, nobody bothered to fix them - for almost two decades.
+My interpretation is that LDAP community thinks that LDAP is not worth fixing any more.
+
+Nevertheless, LDAP should be considered unmaintained legacy protocol by now.
+Call it _dead_, _dying_, _undead_, _legacy_ or whatever you want.
+These are just terminology nuances.
+
+One thing is clear: If LDAP cannot be fixed, it will get replaced.
+It is perhaps for the better.
+The legacy of the 1990s (and the 1980s in its X.500 roots) goes very deep into LDAP core.
+The foundations are very obvious in LDAP schema among other places.
+
+It will take many years for LDAP to visibly decline, even more _decades_ to disappear completely.
+However, LDAP eventual demise is inevitable.
+It has started already.
+LDAP is dead.
+Identity industry should finally get over LDAP and move on.
+
+== Replacing LDAP
+
+Right!
+LDAP needs to be replaced.
+What to replace LDAP with?
+That is a billion-dollar question.
+Quite literally.
+
+Some parts of LDAP functionality are easy to replace, others are not.
+
+_Authentication_ is the easy part:
+Just don't use LDAP for authentication.
+LDAP is not sufficient for your needs, anyway.
+You absolutely _need_ strong authentication (passkeys, multi-factor), which LDAP cannot really provide.
+Use _OpenID Connect_ and/or proper authentication server instead of LDAP.
+LDAP was never meant to be an authentication server anyway.
+
+_Authorization_ functionality is much more difficult to replace.
+In fact, there is no easy answer to _authorization question_ in the identity industry at large.
+There is no easy way to conduct authorization properly.
+_Rough-grain_ is not the problem.
+Rough-grain authorization can be enforced by the single sign on (SSO) server, as a follow-up to authorization.
+Many servers that implement _OpenID Provider_ functionality are capable of enforcing rough-grain authorization.
+The servers can decide which applications are allowed or denied for a particular user.
+However, when it comes to _fine-grain_ authorization, things tend to get unbelievably complicated.
+There is a good reason for this complexity.
+_Fine-grain_ authorization inherently depends on the application data and, even more importantly, on application _concepts_.
+Therefore, the specific details of authorization mechanism are going to be different for each application.
+However, even LDAP is not able to address that.
+The usual practice of LDAP integration is for application to consume LDAP groups.
+The application implements its local kind of authorization magic on top of the groups.
+Identity administrator can control user membership in the groups, but no other details of the authorization magic.
+Similar functionality can be reproduced even without LDAP, e.g. by a creative use of OpenID Connect scopes, or by employing SCIM to control group membership (see below).
+Such approaches leave a lot to be desired - but so does LDAP.
+At the enterprise scale, full-featured identity management solution (xref:/iam/iga/[Identity governance and administration] platform) is a must anyway, which can easily replace LDAP group management functionality.
+
+.Authorization mechanisms
+TIP: There are some efforts to externalize and standardize authorization, albeit most of them are still quite basic and not sufficient for real-world scenarios.
+However, there is _some_ progress.
+Authorization is likely to improve in time.
+
+Then there is _synchronization_ and _provisioning_.
+These mechanism make sure that identity data are consistent across all the relevant directories, databases and applications.
+As LDAP was designed for distributed (replicated) directories, LDAP servers were traditionally seen as central points for identity data synchronization.
+Even though LDAP was never designed for _heterogeneous_ synchronization, synchronization capabilities of LDAP servers are often (ab)used by synchronization and provisioning engines of all kinds.
+
+.LDAP Synchronization
+NOTE: Even though there is LDAP synchronization standard (RFC5433), it is not widely used.
+In fact, it is properly implemented and used only by a single LDAP server (OpenLDAP).
+Even though the standard is almost 20 years old, all other LDAP servers still use their own proprietary synchronization mechanisms.
+So much for LDAP standardization.
+
+Strictly speaking, _synchronization_ and _provisioning_ are not LDAP responsibilities, and LDAP server cannot implement them alone.
+Additional software is always needed anyway.
+There are many systems that can handle synchronization without any need for LDAP.
+This is the domain where xref:/iam/iga/[identity governance and administration (IGA)] platforms really shine.
+However, IGA tools need to access the data somehow.
+LDAP was instrumental as a common protocol to access (some) identity repositories.
+However, LDAP is slowly replaced by SCIM.
+
+System for Cross-domain Identity Management (SCIM) is an IETF specification (RFC7642) of a service for identity provisioning.
+SCIM specification describes services to create, read, update and delete (a.k.a. "CRUD") data about users and groups, which is almost exactly the functionality that LDAP provides.
+SCIM has (theoretical) advantage over LDAP, as it can be used to reach much more than just identity repositories.
+In theory, every application is supposed to implement SCIM API, allowing standardized external access to identity data.
+However, there is xref:/iam/iga/identity-provisioning/scim-troubles/[a lot of problems] when it comes to practice.
+Despite the problems, SCIM may be a better choice than LDAP for future applications.
+
+== Conclusion
+
+When it comes to its future potential, LDAP is dead.
+It is cold rotting corpse.
+Despite being dead, it still kicks.
+It is being used in many deployments, which have to deal with the same unsolvable problems over and over again.
+
+LDAP is not going to disappear quickly.
+It will take years, even decades.
+It is going to be slow and painful death.
+
+Soon, LDAP won't be considered for new deployments.
+LDAP functionalities are going to be replaced by other protocols, such as OpenID Connect or SCIM.
+The sooner we let LDAP go, the better.
+LDAP is not evolving, it has become a dead weight.
+Sticking to LDAP is holding us back.
+It is time to let go.
+
+== FAQs and Buts
+
+Confused?
+You are probably thinking "This can't be right!" - especially if you are part of the identity community for some time already.
+Maybe some of your thoughts and questions can be answered below.
+
+=== But There Are Massive LDAP Directories Out There!
+
+Yes, there are many LDAP directories, even massive, heavily replicated ones.
+Yes, they are still being deployed.
+The software works all right, I'm not questioning that.
+
+Yet, the directories are using their own LDAP dialects, extensions and proprietary mechanisms.
+As long as you adapt to the dialect and server-specific mechanisms, you may be just fine.
+However, what is the point of having a standard when you have to adapt to specific server?
+
+LDAP is not an interoperable standard any more.
+Can you easily switch one LDAP server for another, without even touching the applications?
+Protocol is all about interoperability.
+LDAP fails miserably in that aspect.
+
+Any proprietary protocol will do to run these directories - and in fact it often does.
+There are many (maybe too many) non-SQL database options these days, with many massive deployments.
+IT is difficult to be sure, but it is quite likely that there are much more non-LDAP than LDAP identity repositories already.
+
+=== But LDAP is Such a Popular Protocol!
+
+LDAP is not "popular", it is just widely used.
+Few people honestly like LDAP, even fewer people really understand it.
+LDAP experts are ageing and retiring, which may be one of the reasons why LDAP does not evolve any more.
+
+=== What About Active Directory?
+
+__Active Directory (AD) is based on LDAP, isn't it?
+How can be LDAP dead, if there are thousands upon thousands of AD instances out there?__
+
+Firstly, AD is not LDAP.
+LDAP is just one of several means to access AD data - and it is neither the best one nor the most used one.
+In fact, AD is not even _based_ on LDAP in any way.
+LDAP was just glued onto AD as an after-thought.
+This is very obvious if you look just a little bit deeper into AD.
+
+Secondly, AD is a strange life form, in its very essence.
+It seems to be both dead and alive at the same time.
+However, as of now, Microsoft seems to be phasing out AD in favor of Entra ID.
+Therefore, AD may in fact finally rest in peace sooner or later.
+
+=== You Do Not Know What You Are Talking About!
+
+Maybe I don't.
+It is always difficult to be sure.
+However, my history with LDAP goes back for almost three decades.
+I was deploying LDAP directories for enterprises and telcos back when iPlanet was still a thing.
+I helped with maintenance of Apache Directory API.
+I have created a tool for easier configuration and maintenance of OpenLDAP.
+I have developed flexible and feature-rich LDAP and AD connector for midPoint from scratch.
+I had to analyze and test many LDAP servers while doing so, implementing obscure mechanisms and workarounds.
+I have seen a thing or two in the LDAP world.
+See my xref:/iam/ldap/ldap-survival-guide/[LDAP Survival Guide], a list of workarounds that I have compiled during my long afair with LDAP.
+However, you do not need to take my word for this.
+Just go ahead and look at those LDAP implementations yourself.
+
+=== You Are Just an LDAP Hater!
+
+If fact, I am quite the opposite.
+I really *like* LDAP.
+I immediately liked in back in the 1990s, and I still like it.
+I think that LDAP is simple, elegant in its own way, and there are many good things about it.
+It is very sad that the bad things are completely ruining the experience.
+It is almost unbelievable that there is no will to fix numerous problems that LDAP has.
+
+However, I have lost all hope that LDAP could ever be fixed.
+There is no will in the community.
+I have tried a long time ago, and I have failed.
+For me there is no point in using broken and unfixable tool, pretending that everything is fine.
+It is time to move on, to look beyond LDAP, into the future.
+
+== See Also
+
+* xref:/iam/ldap/ldap-survival-guide/[]
+
+* xref:/iam/iga/identity-provisioning/scim-troubles/[]

@@ -1,8 +1,8 @@
-= MidPoint In Container
+= MidPoint in a Container
 :page-nav-title: Containers
 :page-display-order: 20
 :page-liquid:
-:page-toc: float-right
+:page-toc: top
 :toclevels: 4
 :page-keywords:  [ 'install', 'container', 'arm', 'arm64' ]
 :page-moved-from: /midpoint/install/docker/alpine-based-docker-image/
@@ -15,148 +15,139 @@
 
 == Quick Start
 
-The containers are the easiest and the fastest way how to start working with midPoint.
-In case this is your the fist contact with midPoint, please see the xref:../../quickstart[Quick Start] page, where you can find basic and useful information.
+Containers are the easiest and the fastest way to start working with midPoint.
+
+If this is your the fist time installing midPoint, see xref:../../quickstart[].
 
 //TODO sync with quick start page...
 
-== Benefits of midPoint in container
+== Benefits of midPoint in a Container
+
+Using containerized midPoint has multiple benefits:
 
 * Dependency under full control +
-The container is created with the required Java version.
+Containers are created with the required Java version.
 
 * Cloud friendly +
-The container can be run both locally (e.g. docker, podman) or even in the cloud (e.g. kubernetes, aws, Azure, Google cloud).
+Container can be run both locally (e.g. Docker, Podman), and in cloud (e.g. Kubernetes, AWS, Azure, Google Cloud).
 
 * The starting state is guaranteed +
-Anytime, you can easily start the new environment in many scenarios in fully controlled way.
+You can start the environment in a fully controlled way to support a range of scenarios.
 
 * Pre-configured environment +
-Basic configuration is available.
-The environment is almost ready to run - only small specific setting is needed.
-All requirements to initialize the repository are available. +
-The image can be easily xref:./customization.adoc[Customized] by the configuration to cover the most of the expected usage.
+All elements required to initialize the repository are available. +
+A basic configuration is available and the environment only needs a few configuration steps to run. +
+The image can be xref:./customization.adoc[customized] to cover most use cases.
 
 [WARNING]
 ====
-Image is based on standards from OCI (Open Container Initiative).
-The documentation is focused on Docker or vanilla Kubernetes usage. +
-You can use any other compatible environment.
-In that case, the following content is still valid for you.
-Small customization of the configuration for the specific environment may be needed.
+The image is based on Open Container Initiative (OCI) standards.
+The installation documentation is focused on using midPoint in Docker or vanilla Kubernetes. +
+You can use any other OCI compatible environment.
+While the installation instructions will still apply, you may need to customize your environment configuration.
 ====
 
-== Deployment
+== Deployment Schema
 
-For the regular operation the repository (relation DB) is needed.
-The native repository schema, which is available for postgreSQL is required.
-As long as we are in container environment, this is covered by additional container with PostgreSQL instance.
+MidPoint requires a repository, i.e. a relation DB, for standard operation.
+Also, a native repository structure (schema), which is available for postgreSQL, is required.
+In a containerized environment, this is covered by an additional container with a PostgreSQL instance.
 
-The structure (schema) has to be initiated in advance.
-Once the correct schema version is ready, the midPoint checks the initial object (content) and push it if necessary.
+The schema has to be initialized in advance.
+Once a correct schema version is ready, midPoint checks the initial object (content) and pushes it if necessary.
 
 [NOTE]
 ====
-There is a generic repository implementation available, which also covers other than PostgreSQL DB.
-This repository schema is deprecated.
-The available feature set is limited and no new features are available with this repository schema.
-In case you are historically using this repository schema, we strongly recommend to migrate to native repository.
+A generic repository implementation, which also covers other than PostgreSQL databases, is available.
+However, this repository schema is deprecated.
+Its feature set is limited, and no new features are available for this repository schema.
+If you are using this repository schema for historic reasons, we strongly recommend to migrate to xref:/midpoint/reference/repository/native-postgresql[native repository].
 
-The availability of deprecated generic repository schema may require the active subscription.
+The availability of the deprecated generic repository schema may require an active subscription.
 
 ====
 
-.Schema of the containerized environment (base setup)
+.Schema of a containerized environment (basic setup)
 image::containerized_env.png[]
 
-In basic setup there are 3 containers needed.
+In a basic setup, 3 containers are needed.
 
-* midPoint instance - *midpoint_server* in the diagram +
-Once the environment is ready the midPoint itself can be started.
+* *A midPoint instance* (_midpoint_server_) +
+Once the environment is ready, midPoint can be started.
 +
 Image : evolveum/midpoint +
-Tag : <xref:/midpoint/release/{{ lastReleased.version }}[released] version> (e.g. {{ lastReleased.version }}-alpine )
+Tag : <xref:/midpoint/release/{{ lastReleased.version }}[released midPoint version number]><base OS>,for example {{ lastReleased.version }}-alpine.
 
-* Initialization of the environment - *data_init* in the diagram +
-This container handles all the requirements for the environment, which have to be prepared before the midPoint instance will start.
+* *Initialization of the environment* (_data_init_) +
+This container handles all requirements for the environment.
+These need to be prepared before the midPoint instance starts.
 +
-The requirement is to use the same version of the image as for container with midPoint to ensure the correct version of definition is used.
+The initialization image version has to match the midPoint container version to ensure the correct definition is used.
 
-** Repository init +
-The process uses ninja application to connect to the database as a client.
+** Repository init (_Network data_) +
+The process uses a ninja application to connect to the database as a client.
 If needed, the repository structure (schema) is created. +
-In the diagram this communication is shown as _Network data_.
 
-** Configuration init +
-The process uses ninja application to prepare basic native repository configuration.
-All additional information like DB URI is updated afterward via environment variable(s) on the container. +
-In the diagram this communication is shown as _Storage data_.
+** Configuration init (_Storage data_) +
+The process uses a ninja application to prepare the basic native repository configuration.
+All additional information, such as the DB URI, is updated at a later point via environment variables in the container. +
 +
 [NOTE]
 ====
-In the complex installation the init phase can be skipped by the design.
-In that case the environment is initialized separately as explicit process during the build of the environment. +
-The provided configuration counts with the situation that the environment is prepared directly during the first run.
+In a complex installation, the initialization phase can be skipped by design.
+The environment would then be initialized separately as an explicit process during the build of the environment. +
+The provided configuration assumes that the environment is prepared directly during the first run.
 ====
 
-* *Repository* - *midpoint_data* in the diagram +
-For the repository we only need a _running_ instance of PostgreSQL server, where it is possible to connect from the midPoint container.
-All the rest is handled from client side of the connection
+* *Repository* (_midpoint_data_) +
+For the repository, you only need a running instance of a PostgreSQL server that can connect from the midPoint container.
+Everything else is handled by the client side of the connection.
 +
 Image : postgres +
-Tag : see xref:/midpoint/release/{{ lastReleased.version }}/#databases[release] notes for recommended version (e.g. 16-alpine)
+Tag : <PostgreSQL version number><base OS>, for example 16-alpine. See the xref:/midpoint/release/{{ lastReleased.version }}/#databases[release notes] for the recommended version of PostgreSQL.
 
-For more information see the dedicated subpage:
+For more information, refer to:
 
-* xref:./customization.adoc[container customization]
-* xref:./docker[docker compose] related page
-* xref:./kubernetes[kubernetes] page
+* xref:./customization.adoc[]
+* xref:./docker[]
+* xref:./kubernetes[]
 
-== Build the container
+== Build the Container
 
-We build the images in our link:https://jenkins.evolveum.com/view/midPoint-docker/[jenkins] infrastructure.
-After basic tests (e.g. the environment can be started) the images are pushed to the public link:https://hub.docker.com/r/evolveum/midpoint[Docker hub] repository.
-All the necessary resources for the docker image build are publicly available like other our resources on link:https://github.com/Evolveum/midpoint-docker[GitHub].
+We build the images in our link:https://jenkins.evolveum.com/view/midPoint-docker/[Jenkins] infrastructure.
+After some basic tests, in which we make sure, for example, that the environment can be started, we push the tested images to the public link:https://hub.docker.com/r/evolveum/midpoint[Docker hub] repository.
+All the necessary resources for the Docker image build are publicly available, as well as our other resources, on link:https://github.com/Evolveum/midpoint-docker[GitHub].
 
-=== Structure of the image name
+=== Docker Image Name
 
-The name consists of the image name and the tag.
-The name is "stable" in form *evolveum/midpoint*.
-The tag differs depending on the version and base OS used for the image.
+The full Docker image name consists of the base image name and a tag.
+The base image name is fixed (*evolveum/midpoint:*); while the tag differs depending on the midPoint version and the base operational system (OS) used for the image.
 
-Currently we are using following Base OSs
+The following base operational systems are supported:
 
-.Used based OSs for the image and their tag suffixes
+.Used base OSs for images and their tag suffixes
 |===
-| BaseOS| suffix for the tag
+| Base OS| Suffix for the tag| Description
 
 | Alpine
 | -alpine
+| Planned to replace Ubuntu as the default.
 
 | Rocky Linux
 | -rockylinux
+|
 
 | Ubuntu
 | -ubuntu
+| Default. Omitting the suffix defaults to "-ubuntu".
 |===
 
-[NOTE]
-====
-Currently the Ubuntu based image is default - without suffix (alias to -ubuntu).
-We are planning the switch to the alpine as the default base OS.
-====
+See examples of full image names:
 
-[NOTE]
-====
-Since 4.8.3 the images are published for AMD64 and ARM64 platforms.
-The images are published with multiplatform manifest.
-You are requesting simply the tag and the proper platform is automatically selected.
-No extra step is needed.
-====
-
-.example of the tags
+[[image_name_examples]]
+.Examples of tags
 |====
-| Version | Base Os | image
+| Version | Base OS | Full image name
 
 | 4.8 release
 | Ubuntu
@@ -194,9 +185,11 @@ evolveum/midpoint:{{ lastReleased.version }}
 
 [NOTE]
 ====
-*Support* branch / support build is build of the working code.
-It is used to cumulate the bug fixes between the releases.
-If you are looking for some fix (e.g. the ticket is closed with code update ) the support build contains the fix with the first following build.
-It is a rolling tag so in it is changing in time.
-Check for update of the image from time to time.
+* _Support_ images are built from unreleased code.
+They are used to aggregate bug fixes between releases.
+If you are looking for a bug fix, i.e. the respective ticket is closed and has a code update, the fix will be included in the first subsequent support build.
+The name of this tag can change in time so it is recommended to check the naming from time to time.
+* Since version 4.8.3, images are published for the AMD64 and ARM64 platforms.
+The images are published with a multi-platform manifest.
+You only need to request a tag, and the appropriate platform is selected automatically.
 ====

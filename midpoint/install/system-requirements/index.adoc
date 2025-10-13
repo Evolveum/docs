@@ -1,50 +1,62 @@
-= System Requirements
+= MidPoint System Requirements
+:page-nav-title: System Requirements
 :page-wiki-name: System Requirements
 :page-wiki-id: 3145846
 :page-wiki-metadata-create-user: mamut
 :page-wiki-metadata-create-date: 2011-09-27T13:44:16.115+02:00
 :page-wiki-metadata-modify-user: petr.gasparik
 :page-wiki-metadata-modify-date: 2020-07-15T11:06:14.784+02:00
-:page-upkeep-status: red
+:page-upkeep-status: green
 :page-toc: top
+:page-display-order: 10
+:page-description: Recommended system sizing and infrastructure configuration for midPoint deployment in various scenarios
+:page-keywords: system requirements, sizing, infrastructure, clustering
 
-== Deployment Architecture
+This document describes system requirements for midPoint and its components.
 
-The midPoint system consists of the deployment units:
+== Deployment architecture
 
-* MidPoint server
+A midPoint deployment consists of the following units:
 
-* Database system
+* <<midpoint_server_sizing,MidPoint server>>
 
-* Connector servers (optional)
+* <<database_system_sizing,Database system>>
 
-Each of these deployment units have slightly different characteristics and requirements, therefore each is described in a separate section below.
+* <<connector_servers_sizing,Connector servers>> (optional)
+
+Each deployment unit has particular characteristics and requirements as described in the sections below.
 
 [NOTE]
-.Approximation
 ====
-Generally speaking it is very difficult to provide precise sizing of midPoint system, because the sizing will mostly depend on the usage pattern, the number and character of running tasks, connected resources, synchronization and workflow processes and so on.
-It is very difficult to predict all the factors.
-This document provides estimations that are based on production experience of typical deployments and general rules.
-These may or may not be directly applicable to your environment.
-The usual adjustment of the platform size and parameters during system operation according to the IT operation best practices is assumed in this estimation.
+It is impossible to provide precise midPoint platform sizing and parametrization
+because it vastly depends on your particular usage patterns,
+number and nature of running tasks and connected resources,
+as well as synchronization and workflow processes.
+
+This article gives general rules as well as estimates based on our experiences from typical deployments.
+You are expected to adjust the parameters based on your specific situation and IT operation best practices.
 ====
 
-== Sizing of MidPoint Server
+[[midpoint_server_sizing]]
+== MidPoint server sizing
 
-MidPoint server is the main part of any midPoint installation.
-MidPoint server takes most of the load from user interaction and data processing.
-Therefore it is most sensitive to the CPU load and RAM size.
+The midPoint server is the core component of any midPoint installation.
+It handles the majority of user interactions and data processing, making it particularly sensitive to CPU load and RAM size.
+The table below summarizes the recommended resources for typical scenarios:
 
+// TODO: Are the disk size values still valid for 4.9+, with all the new caching?
+//(or probably the DB disk size, but the question stands) 2025-07-08 @dakle
+.Recommended MidPoint server parameters
 [%autowidth]
 |===
-|  | Minimal | Typical up to 5,000 users | Typical up to 50,000 users | Typical up to 100,000 users
+|  | Minimum | Less than 5,000 users | 5,000 - 50,000 users | 50,000 – 100,000 users | More than 100,000 users
 
 | CPU
 | 1 core
 | 4 cores
 | 8 cores
 | 16 cores
+| Custom sizing ^*^
 
 
 | RAM
@@ -52,6 +64,7 @@ Therefore it is most sensitive to the CPU load and RAM size.
 | 8GB
 | 16GB
 | 16GB
+| Custom sizing ^*^
 
 
 | Disk space
@@ -59,6 +72,7 @@ Therefore it is most sensitive to the CPU load and RAM size.
 | 10GB
 | 20GB
 | 40GB
+| Custom sizing ^*^
 
 
 | Disk I/O
@@ -66,222 +80,318 @@ Therefore it is most sensitive to the CPU load and RAM size.
 | negligible
 | negligible
 | negligible
-
-
+| Custom sizing ^*^
 |===
+
+
+^*^ Deployments with more than 100,000 users are supported in midPoint.
+However, due to the variability in large-scale environments, it is recommended to consult the specific hardware requirements with link:https://evolveum.com/services/consulting-services/[Evolveum Support].
+
+
+=== JVM heap size
+
+The allocated memory should be higher than the maximum JVM heap.
+
+With `MaxRAMPercentage=70–80`, the JVM heap will be ~70–80% of the allocated memory limit while the remainder covers metaspace, direct buffers, JIT, and threads.
+
+Keep the maximum number of task threads less than or equal to the CPU limit.
+As a rule of thumb, start with concurrency ≈ number of CPU cores and adjust based on GC logs and throughput.
+Regarding the elevated memory consumption in your midPoint deployment, you can fine-tune the JVM by adding the following options to the environment. (Use JAVA_OPTS in midPoint containers. While JAVA_TOOL_OPTIONS also works, JAVA_OPTS is the documented knob.)
+
+[source,containers]
+----
+- name: JAVA_OPTS
+  value: >-
+    -XX:+UseG1GC
+    -XX:MaxRAMPercentage=80
+    -XX:InitialRAMPercentage=80
+    -XX:MaxMetaspaceSize=512m
+    -XX:MaxDirectMemorySize=256m
+----
+
+[source,bare instalation]
+----
+JAVA_OPTS="$JAVA_OPTS -XX:+UseG1GC -XX:MaxRAMPercentage=80 -XX:InitialRAMPercentage=80 -XX:MaxMetaspaceSize=512m -XX:MaxDirectMemorySize=256m"
+----
+
 
 === Number of midPoint server instances
 
-The sizing table above assumes that there will be a single midPoint instance (node) running.
-Multi-node midpoint instances are usually deployed due to the high availability reasons and these are usually two-node systems.
-In this case each node needs to be dimensioned to take a full load of the system, therefore both node should be deployed according to the table below.
+The sizing table above assumes a single midPoint instance (node).
+Multi-node midPoint instances are usually deployed for high availability reasons, and they are usually two-node systems.
+Each node needs to be sized to handle the full load of the system, therefore each node should be deployed according to the midPoint server sizing requirements outlined in the table above.
 
-Another reason for multi-node deployment is to isolate synchronous load (e.g. user interactions) and asynchronous load (e.g. tasks and processes).
-However, there is no universal rule for sizing of such a system.
-Case-to-case analysis and measurements are required in this case.
-However the numbers provided in the table above may be used as a starting point.
+Another reason for multi-node deployments is to isolate synchronous load (e.g., user interactions via GUI or REST API) and asynchronous load (e.g., tasks and processes).
+However, there is no universal rule for sizing such a system, meaning you need to do a case-to-case analysis and measurements.
+The values provided in the table above may serve as a starting point.
 
-== Sizing of Database System
+See also:
+
+* <<high-availability,Details about high availability options>>
+* <<multi-node-deployment,Multi-node deployment system requirements>>
+
+[[database_system_sizing]]
+== Database system sizing
 
 // TODO reference native repo docs, when sizing is written for it:
 // xref:/midpoint/reference/repository/native-postgresql/postgresql-configuration/#db-server-sizing[]
+// checked on 2025-07-08, not written yet. @dakle
 
-Database system is used to store vast majority of midPoint data.
+The repository database stores the vast majority of midPoint data.
 
-[TIP]
-.Shared vs dedicated database
-====
-Previously, we recommended re-using existing database systems for smaller midPoint deployments.
-Also, our repository could use many major RDBMS systems, so the advice was applicaple to more users.
-But many things have changed since.
+The load on the database system depends mostly on the size and nature of the data, usage patterns, and the type and configuration of the database system used.
+Use the values below as general guidelines and adjust them to fit your specific use case.
+For a more precise estimate, contact link:https://evolveum.com/services/consulting-services/[Evolveum Support].
 
-With midPoint 4.4 we introduced the xref:/midpoint/reference/repository/native-postgresql/[Native repository] that relies on PostgreSQL.
-Now we recommend using a separate server for the database, which is now easier than 10 years ago, thanks to various virtualization/cloud technologies.
-You may even consider xref:/midpoint/reference/security/audit/#separate-repository-configuration-for-audit[separate database for audit]
-and main repository, as the access patterns and sizing are quite different.
-====
-
-The load on the database system is the most sensitive to the size and character of the data
-and on the usage patterns and also on the type and configuration of the database system used.
-Therefore use the following number with care.
-For a more precise estimate please consult the database engineers.
-
+.Recommended repository database server parameters
 [%autowidth]
 |===
-|  | Minimal | Typical up to 5,000 users | Typical up to 100,000 users
+|  | Minimal | Less than 5,000 users | 50,000 – 100,000 users | More than 100,000 users
 
 | CPU
 | 1 core
 | 2 cores
 | 8 cores
+| Custom sizing ^*^
 
 | RAM
 | 2GB
 | 3GB
 | 12GB
+| Custom sizing ^*^
 
 | Disk space
 | 1GB
 | 5GB
 | 20GB-100GB for 3 months audit
+| Custom sizing ^*^
 
 | Disk I/O
 | small
 | medium
 | medium to high
+| Custom sizing ^*^
 
 |===
 
-The numbers above assume that midPoint will be used only to store operational data and only a reasonably small amount of historical data (e.g. audit records).
-In case that you plan using midPoint to store historical data then proper data retention and capacity planning must take place before evaluating the database sizing.
+^*^ Deployments with more than 100,000 users are supported in midPoint.
+However, due to the variability in large-scale environments, it is recommended to consult the specific hardware requirements with link:https://evolveum.com/services/consulting-services/[Evolveum Support].
 
-== Connector Servers (optional)
+The recommended values assume that beside storing operational data, you set up midPoint to keep only a reasonably small amount of historical data, such as audit records.
+If you plan to store historical data in midPoint for longer time span, you must account for that when sizing the database.
 
-xref:/connectors/connid/1.x/connector-server/[Connector Servers] are small software components that act as a proxy for connectors that cannot run inside midPoint.
-Deployment of these components is quite rare.
-However the resource requirements of connector servers are extremely small.
-It is usually too small to measure: tiny portion of CPU, RAM and disk space measured in megabytes.
+[[shared-vs-dedicated-database]]
+[TIP]
+.Shared vs dedicated database
+====
+The xref:/midpoint/reference/repository/native-postgresql/[native repository] of midPoint relies on PostgreSQL.
+We recommend using a separate database server even for smaller midPoint deployments.
+This is default for xref:/midpoint/install/#containerized[containerized installation].
+You may also consider two separate databases for xref:/midpoint/reference/security/audit/#separate-repository-configuration-for-audit[audits] and for the repository, as the access patterns and sizing requirements are quite different.
+====
+
+[[connector_servers_sizing]]
+== Connector server (optional)
+
+A xref:/connectors/connid/1.x/connector-server/[Connector Server] is a small software component that acts as a proxy for connectors that xref:/connectors/connid/1.x/connector-server/#why-use-a-connector-server[cannot run inside midPoint].
+Connector servers are rarely deployed.
+
+Resource requirements of connector servers are usually negligible:
+a tiny portion of CPU and RAM, and a disk space measured in megabytes.
 We strongly recommend deploying these components on shared servers.
 
-== High Availability
+[[high-availability]]
+== Your options for high availability deployment
 
-There are several approaches to implement high availability (HA) for midPoint deployment.
+There are several approaches to implement high availability (HA) for midPoint deployments.
 Each strategy has different characteristics and costs:
 
-* HA-based on virtualization
+* <<virtualization-based-failover,Virtualization-Based Strategy for Failover>>
 
-* Load balanced with shared HA database
-
-* Load balanced with dedicated database
+* <<load_balanced_shared,Multiple-node deployment>>
 
 [TIP]
-.Not business critical
+.Is midPoint business-critical for you?
 ====
-Please note that midPoint is an identity management system and as such it is seldom a business critical system.
-If midPoint fails there is usually only a negligible harm.
-The integrated systems (resources) are independent of the midPoint instance (by design).
+MidPoint is an identity management system, and as such, it is seldom a business-critical system.
+If midPoint fails, the impact is usually negligible.
+The integrated systems (resources) are independent of the midPoint instance by design.
 Therefore midPoint failure does not influence the operation of such systems in any significant way.
-MidPoint failure can influence the management capabilities, password resets and so on.
+A midPoint failure can influence identity management capabilities, password resets etc.
 But these functions are usually *not critical* for operation, especially if the outages of midPoint are short (minutes).
 Even longer outages (hours) do not usually impact operation of the infrastructure in any significant way.
 This is important to keep in mind when choosing the right HA strategy.
 ====
 
-=== Virtualization-based HA
+[[virtualization-based-failover]]
+=== Virtualization-based strategy for failover
 
-The easiest way to implement high availability is to use HA features of the underlying virtualization infrastructure.
-In case that the host machine running midPoint virtual machine fails it is easy to fail over the whole virtual machine to a different host.
-There is obviously some downtime while the failover takes place (usually few minutes).
-However as midPoint is not critical system this is more than acceptable.
+The easiest way to implement a failover strategy is to leverage the underlying virtualization infrastructure.
+If the host machine running the midPoint virtual machine fails, it is easy to move the entire virtual machine to a different host.
+The transfer inflicts some downtime (usually a few minutes).
+However, since midPoint is not a business critical system, this downtime is generally acceptable.
 
-This is very cost-efficient failover strategy.
-It is recommended especially if midPoint and the database runs on the same virtual machine.
+In this scenario, midPoint is set up to run in a single-node configuration (default), and no extra configuration is necessary.
+You only need to set up backups at adequate frequency to minimize data loss in case of fire.
+The failover mechanism is completely transparent.
+MidPoint has internal mechanisms to recover from system outages which are utilized after midPoint restarts on a different machine.
 
-In this case midPoint is set up to run in a single-node configuration (which is default) and no extra configuration is necessary.
-The HA mechanisms are completely transparent.
-MidPoint has internal mechanisms to recover from system outages that will be automatically used in this setup after the failover.
+This approach does not achieve high availability per se because midPoint runs on a single node and if that node fails, midPoint goes down.
+However, it is a cost-efficient failover strategy to prevent a prolonged midPoint downtime, especially if midPoint and the database run on the same virtual machine.
 
-=== Load Balanced with Shared HA Database
+[[load_balanced_shared]]
+=== High availability through multiple nodes
 
-In this case there are several instances of midPoint servers that are load balances on the HTTP layer by using standard HTTP load balancer (sticky mode).
-All the midPoint servers are connecting to the same database which has internal HA mechanisms.
-MidPoint is sharing the database engine with other applications.
+This approach relies on deploying multiple instances (nodes) of midPoint and using a standard HTTP load balancer at the HTTP layer (in the link:https://en.wikipedia.org/wiki/Load_balancing_(computing)#Persistence[sticky mode]).
+All midPoint nodes connect to the same database.
+Depending on xref:/midpoint/install/#installation-options[how you installed midPoint], you may choose to share the database with other systems or dedicate it to midPoint.
+As <<shared-vs-dedicated-database,mentioned above>>, we always recommend using a dedicated database for midPoint.
 
-This set-up assumes using a shared database instance that already had HA mechanisms.
-As this database is shared with several applications then even an active-active HA mechanisms are justifiable as the cost of the HA set-up is divided among several applications.
+Refer to the <<multi-node-deployment,section on multiple-node deployment>> for details.
 
-=== Load Balanced with Dedicated Database
+=== Database high availability
 
-In this case there are several instances of midPoint servers that are load balances on the HTTP layer by using standard HTTP load balancer (sticky mode).
-All the midPoint servers are connecting to the same database which has internal HA mechanisms.
-The database engine installation is dedicated for midPoint.
+MidPoint does not explicitly support repository-level clustering.
+Even in big deployments, the bottle neck is usually the amount of resources or the effective communication speed of the resources.
+
+We suggest to primarily *set up a proper backup solution* and verify the time to recovery.
+
+If you require clustering the DB, you can set up an link:https://www.geeksforgeeks.org/system-design/active-passive-active-active-architecture-for-high-availability-system/[active-passive] failover mechanism and take advantage of the PostgreSQL database-side clustering support on the JDBC driver level.
+
+// This is best covered in [midPoint] Advice on Database High Availability --  https://lists.evolveum.com/pipermail/midpoint/2024-May/008167.html
 
 This is the most expensive set-up and it is seldom justifiable due to the cost of the HA database system.
 The usual compromise in this case is to use active-passive database HA strategies.
-Due to the low criticality of midPoint this is usually acceptable from the operational point of view.
+Due to the low criticality of midPoint, this is usually acceptable from the operational point of view.
 
-== Software requirements
+== Software and infrastructure requirements
 
-Please, refer to specific xref:/midpoint/release/[midPoint Releases] documentation for software requirements.
+When starting an IAM project, you must prepare not only the midPoint servers but also the database and load balancer (if required).
+You need access to the infrastructure where these servers are running, as well as to the source and target systems.
 
-== Infrastructure requirements
+Refer to the xref:/midpoint/release/[midPoint Releases] documentation for software requirements.
 
-When we start the AIM project, not only midPoint server(s), database and load balancer (if required) must be prepared.
-We also need to have access to infrastructure, where these servers are running and also access to source and target systems.
-In most cases, infrastructure is prepared on customer site by their administrators.
-The next schema represents the basic scenario:
+=== Basic single-node deployment
 
-image::environment-schema-basic.png[]
+The following schema represents a basic deployment environment:
 
-You can see one midPoint installation with sample connections.
-In most cases, the biggest square with midPoint logo is represented as Linux virtual machine with xref:/midpoint/install/bare-installation/distribution/#before-you-start[preinstalled] Java SE development Kit (for example OpenJDK), Apache Tomcat from linux repository prepared to run as service, and tools like telnet, wget, mlocate.
-Rarely a Windows server is used.
-Sometimes customer also xref:/midpoint/install/bare-installation/distribution/#installation[installs] the latest midPoint release, but in most cases, installation is provided by Identity engineer (supplier).
+.Basic single-node midPoint deployment
+image::midpoint-environment-schema-basic.svg["Basic midPoint deployment schema with midPoint and its repository in the center; lines showing access routes to example source and target resources and user's computer. Optional VPN is placed between midPoint and the computer"]
 
-Database repository in most cases we use shared on existing DB server and have access to it over SQL protocol (for example MS SQL on default TCP port 1433, 1521 for Oracle, ...) from midPoint server - please configure also firewall(s).
-Also, a new DB schema is created for midPoint with new technical user and DB owner permissions.
-Sometimes we have separated DB server or can we use DB server in the same virtual machine as midPoint is installed but only in single node version.
+In the center of the schema, the largest rectangle represents a virtual machine, usually running Linux, with the xref:/midpoint/install/bare-installation/distribution/#purpose-and-quality[basic required set of tools] installed.
+MidPoint runs on this virtual machine.
+It may also be a xref:/midpoint/install/containers/[Docker container with a midPoint image].
+The database repository preferably runs on a separate virtual machine, albeit possibly on the same physical server.
 
-If e-mail notifications are needed, access to SMTP server and also the new account with send privileges is required.
-Sometimes it is also required access to SMS gateway and have the account privileges to send SMS.
+==== Shared database repository
 
-Many development and deployments are provided remotely, the best practice is to prepare secure VPN access for each team members separately with direct access to midPoint server over SSH, enabled tunneling and with HTTPS access (8443 is default internal tomcat port, or 443 with transformation to tomcat port).
-MidPoint Web UI (self service) in most cases is also accessible for all employees in customer's intranet over HTTPS.
+For the database repository (DB), you can use an existing DB server or set up a new dedicated one.
+The midPoint server needs to have access to it using SQL via TCP/IP.
+Do not forget to configure the firewalls to enable communication over the used ports.
 
-Other source systems are HR, for example, represented as Excel table (on schema _HR 1_) when HR manager after each change (or once a day/week) save actual content to CSV file to the location, where midPoint can read, proceed & rename it (File share).
-If there is a sophisticated HR system, we can access employee and organizational structure data over prepared read only DB views directly over SQL (on schema _HR 2_) prepared by HR supplier - SQL account required.
-Or we can use existing SOAP or REST APIs to read these data - API account/key is required.
+The database needs to be configured prior to midPoint installation so that the person who installs midPoint can configure the midPoint instance correctly.
+If you deploy in containers, see xref:/midpoint/install/containers/#deployment-schema[] for details.
 
-The most frequent target system is LDAP (for example Open LDAP with standard port 636 or 389), or Active Directory when we also need Remote Desktop Connection (RDP) - ideal is directly from the workstation, but tunneling over midPoint server is also possible.
-Also, the technical account with full permissions to concerned DN or domain is required.
+==== Notification system
 
-Connection to other target systems can be over REST API (Application 1 - HTTPS), or SOAP, SCIM (Application 2, 3, ... - HTTPS), SQL or something proprietary (for example xref:/connectors/connectors/com.evolveum.polygon.connector.sap.SapConnector/[SAP and JCo]) - need to enable API, open firewall on servers where system is running and account with concerned access to manage the identities.
-Sometimes, when the customer also using cloud services (for example Office 365), access to internet is granted over the proxy server.
+If e-mail notifications are needed, access to the SMTP server and an account with send privileges is required.
+If you need SMS notifications, you also need access to an SMS gateway and have the account privileges to send SMS.
 
-Sometimes, midPoint also needs to have local access to the system (Application N), in this case, a xref:/connectors/connid/1.x/connector-server/[connector server] component is installed on the server, where the system is already installed for example to run some scripts to prepare home directory.
+==== Secure access to your deployment
 
-If the situation requires two or more midPoint nodes, the schema looks like this:
+If your setup requires access to your midPoint deployment over the public Internet, you need to secure the communication between end users' computers and the midPoint instance.
+Typically, HTTP communication encrypted using link:https://en.wikipedia.org/wiki/Transport_Layer_Security[TLS] is enough.
+A more heavyweight solution is to use a virtual private network (VPN) for everyone who needs to access midPoint.
+TLS encrypts the communication between users and midPoint server (or the load balancer before it), VPN provides a tunnel from the user's machine to midPoint (or the load balancer).
 
-image::environment-schema-HA.png[]
+==== Optional SSH access to nodes
 
-Over VPN, identity engineer needs access to all nodes (node 1, node2: SSH & Tunnel and also HTTP/S access to local tomcat what can be tunneled), nodes jobs are synchronized over JMX.
+You can set up an SSH access to your midPoint nodes.
+You can use it, for example, to access midPoint configuration files and logs or to troubleshoot your deployment.
+The options for issue resolution vary depending on how you deploy and set up midPoint.
 
-Each midPoint nodes needs to have access to SMTP server (if notifications are required), shared HA DB Repository and all source and target systems to have full HA support and when one node is down, other nodes need to replace his all jobs.
+==== Resources
 
-End user and also identity engineer are using midPoint Web UI over load balancer (HTTPS).
+There are many different communication protocols the resources may use.
+The schema above shows just a couple of the most common ones.
 
-All of these connections to source or target systems we can check over tools: ping, telnet and wget from midPoint server and also from the workstation (after configured tunnels).
+You may have an HR system which is only able to give midPoint CSV files, there may be more complex systems, data of which you can access using SQL, you may need to connect an Active Directory, and so on.
+With some resources, such as xref:/connectors/connectors/com.evolveum.polygon.connector.sap.SapConnector/[SAP and JCo], you need to enable API on the target resources, open your firewall on the servers where the target systems run, and create an account with appropriate permissions to manage identities.
+In certain cases, you may have to deploy a <<connector_servers_sizing,connector server>> to access some special resources.
+The list of options is endless and very much depends on what exactly you need to manage with midPoint.
+
+=== Multi-node deployment
+
+The situation gets a bit more complex when you deploy midPoint on two or more nodes:
+
+.Deployment of midPoint with two nodes, a load balancer, optional VPN, and a few example resources
+image::midpoint-environment-schema-HA-two-nodes.svg["MidPoint deployment schema with two midPoint nodes and their shared repository in the center; lines showing access routes to example source and target resources and user's computer. Load balancer and an optional VPN are placed between midPoint and the computer"]
+
+==== Work distribution
+
+In multi-node deployment, the job distribution among the nodes is handled centrally.
+
+The repository DB keeps track of worker task states, i.e., which are to be done, in progress, or done.
+MidPoint uses the Quartz job scheduling library on each node.
+The Quartz library instances use the xref:/midpoint/reference/tasks/task-manager/configuration/#jdbc-scheduler-job-store[central JDBC scheduler job store] to ensure that no single task is processed by multiple nodes concurrently.
+The available worker tasks are picked by the nodes on the first-come-first-served basis, which ensures a reasonably even task distribution.
+
+Refer to xref:/midpoint/reference/tasks/task-manager/[] for details on task handling in midPoint.
+
+==== Communication among nodes
+
+The nodes communicate primarily with the central repository database rather than among themselves.
+One exception is *cache invalidation*.
+When a node changes data in the midPoint database, the node informs other nodes about the need to invalidate their cache.
+The *communication between nodes runs over HTTPS*.
+
+Refer to the xref:/midpoint/reference/deployment/clustering-ha/#intra-cluster-communication[article on high-availability deployment] for details about node communication.
+
+==== All nodes are created equal
+
+All nodes need to have the same configuration and access levels regardless of whether you deploy midPoint on 200 nodes or just one.
+There must be no differences because *all nodes are created equal*: when one node goes down, others need to replace it in full.
+
+You can check that connections to resources work as expected using `ping`, `telnet`, or `wget`, for instance.
 
 == Environment requirements
 
-In IAM projects we are using at least two environments: test & production.
-In many cases there are also local midPoint installation on the identity engineers workstation or third development environment on customer's infrastructure.
+Usually, at least two environments are typically used for the development of an IAM deployment: test and production.
+In many cases, there is also a local midPoint installation on the identity engineer's computer and a separate development environment in the customer's infrastructure.
 
-The best practice is to have the same as the possible configuration in all of these environments but completely isolated without no access for example from test midPoint to production Application 1.
-VPN can be shared of course.
+=== Keep the environments as similar as possible
 
-For identity development, it's ideal to have in the test environment the same operating system & version, same application version and data as you have in production for all source and target systems.
-More and more differences mean more and more use cases, when something is working and well tested in the test environment, but don't work in production when the same configuration is deployed with the appropriate changed endpoints and accounts.
+The best practice is to use a configuration that is as similar as possible in all these environments.
+However, the environments should also be completely isolated so that the test environment cannot touch production data on a resource.
+VPN can be shared.
 
-If data are sensitive, and is a problem to take it for the development phase, we can have obfuscated and only some sample data, but schema and all attributes what you are using we need to have filled in the same way as in production to minimize differences and need all use cases what you have in system.
-What does this mean?
-For example, you think, all employee data in HR is correct - because HR guys say it of course - but you have some old data, that these HR guys inherited, or was migrated from old HR system, or have some new mandatory fields empty, or filled only with one space, or have a keying mistake in family name, or no diacritical characters, or in local language and not in English that you are using in other systems, or some employees are duplicated, or in wrong organizational structure, and so on.
-What will happen when you have these discrepancies?
-User can have wrong login name, wrong access, paired login in one target system with account of another employee, or not disabled or deleted accounts for old employees and so on.
+We recommend having the same operating system, midPoint version, and resource data for all environments.
+If _same_ is not possible, as similar as possible is desirable.
+Any differences may lead to situations where something works and is well tested in one environment, but does not work in another.
 
-If we are also deploying the solution to production, we need to have access to the production environment and the data there.
-It is not necessary to obfuscate data for test or development environment, because the same identity engineer is doing the development, testing and deploy part.
+Regardless of how similar you can keep your environments,
+*we suggest you xref:/midpoint/reference/simulation/[simulate every change]* on the production environment before you deploy it.
+Using simulations, you can discover issues before they can do any damage to your production data.
 
-We have many and many and many bad experiences when in test environment we don't have access to production data in the development phase.
-In deployment phase to production, we must do quick fixes in configuration and connectors because the ideal world of sample data consistency and the real world of production data is too different and all your clear presumptions in practice are uprooted.
-Please don't waste our time and your money and our nerves with pseudo security decisions.
+If the data you manage with midPoint are sensitive and cannot be used in the development environment, you can obfuscate them and only use a part of them as a sample.
+However, the schema and all attributes that you use need to be used the same way as in the production environment to minimize differences.
 
-After all, IDM project is about consolidating user, organizational structure, and access data.
-We will find every discrepancy and exception in the production (if we do it), and you will need to decide what to do with it.
-It is not a good choice to do this when you are doing acceptance testing or have problems in production and hard deadlines.
+When deploying the solution to production, you need to have access to the production environment and the data there.
+In this case, it is not necessary to obfuscate data for the test or development environments, because the same identity engineer is responsible for the development, testing and deployment.
 
-== See Also
+[WARNING]
+====
+Irrespective of whether you use the original or obfuscated data, you need to be able to use production data in the development phase to prevent future issues.
+
+Note that running an IDM project involves consolidating users, changing the data structures, and accessing data in general.
+Every discrepancy and exception will surface in production, and you will need to decide how to handle it.
+That is why it is best to implement your IDM project when you are not doing acceptance testing, have problems in production, or face hard deadlines.
+====
+
+== See also
 
 * xref:/midpoint/release/[midPoint Releases]
 
-* xref:/midpoint/reference/deployment/ha/[High Availability and Load Balancing]
+* xref:/midpoint/reference/repository/native-postgresql/[]
+
+* xref:/midpoint/reference/deployment/clustering-ha/[]

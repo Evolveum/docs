@@ -1,119 +1,132 @@
-= Customization in Container environment
+= Customization in Container Environment
 :page-nav-title: Customization
 :page-display-order: 100
 :page-liquid:
 :page-toc: float-right
 :toclevels: 4
 :page-keywords:  [ 'customization', 'container' ]
+:page-toc: top
 
 {% for v in site.data.midpoint-versions %}{% if v.status == null or v.status == "released" %}{% assign lastReleased = v %}{% endif %}{% endfor %}
 
-== Customization of the containers
+MidPoint images are prepared to be flexible in usage.
+You should be able to apply all of the common settings without needing to rebuild the image.
 
-The image is prepared to be flexible in usage.
-All the common settings should be possible to realize without rebuilding the image.
+The available options are covered in the `/opt/midpoint/bin/*midpoint.sh*` file.
 
-To change the setting the available options are covered by the file located in /opt/midpoint/bin/*midpoint.sh*.
+There are two ways in which the file can be used:
 
-There are two ways how the file can be used .
+* `<<initnative,Environment initialization>>` which covers the common needs related to the initialization of the environment (first run).
 
-* <<mpset,*MP_SET_*>> environment variable +
-This part cover the most flexible part of the possible customization of the image.
-
-* `<<initnative,Environment initiation>>` +
-This part covert all the common needs related to the init of the environment (first run).
+* <<mpset,MP_SET_>> environment variable which enables you to customize the image for midPoint runtime.
 
 [NOTE]
 ====
-Bash script defining also TRAPs. +
-Without this definition the TERM or KILL signal would not be passed to the midPoint application in case of shutting down of the container.
-This situation would not provide application time to properly ends operation. +
-With the defined TRAPs signal properly reach the midPoint application and the operations are properly finished. +
-From user point of view the termination of the container doesn't need to wait 10s timeout before environment forcing to kill the container and in read the termination take just few seconds.
+The `midpoint.sh` bash script also defines TRAPs. +
+Without this definition, the TERM or KILL signals would not be passed to the midPoint application in case the container is shut down.
+If that happened, the application would not have enough time to end operations properly. +
+From user perspective, the termination of the container does not need to have a 10s timeout before the environment force-kills the container because it only takes a few seconds.
 ====
 
 [#initnative]
-=== Environment initiation
+== Environment Initialization Variables
 
-This section is focused on handling available files.
-What exactly will happen is controlled by the environment variables.
-There are available several environment variables.
-Following logic is applied only in case the relevant environment variable is set.
+This section describes handling of the available files during the initialization of the environment.
 
-Once the required variable is set there is need to run `midpoint.sh init-native`.
-This process will od all required operations.
+The specific behavior is controlled by the environment variables that are described below.
+These are convenient when you do not have a persistent storage (volume) for the home directory but still want to control initialization of the environment.
+
+To apply the configuration, define the environment variables listed below, and run `midpoint.sh init-native`.
 
 * *MP_CHECK* +
-Touch file (can be empty) which existence is checked during midpoint start.
-Once the file exists it prevent start of application.
-It the file is missing (or it is removed) the start continue as usual.
+Defines a touch file (can be empty) whose existence is checked during midPoint start.
+If the file exists, it prevents the application start.
+If the file is missing, the start continues as usual.
 +
-.example of the value
+This is used mainly in advanced scenarios where there is a need to force midPoint to wait until an external condition is met.
+In the most common use cases, this option will not be useful.
++
+.example
 [source]
 MP_CHECK=/opt/midpoint/var/init_in_progress
-+
-The usage is mainly in advanced scenarios when there is need to force midPoint to wait until the external condition is met.
-In the most common use cases this option will not be useful.
+
 
 [#initcfg]
 * *MP_INIT_CFG* +
-The default config.xml file is prepared for the generic repository.
-Sample config.xml file for the native repository contain all we need to have set.
-All the rest of the configuration can be set / overwrite by the *MP_SET_* prefixed environment variables.
-Using this variable the native repository sample config.xml file will be copied (and properly renamed) to the directory set by the value of the variable.
+Defines the directory to which the `config.xml` file is copied.
 +
-.example of the value - target directory is /opt/midpoint/var (file will be /opt/midpoint/var/config.xml)
+  . Open the sample `config-native.xml` which contains the necessary configuration for the native repository.
+  . Update the configuration as needed and save the file as `config.xml`.
+  . Set the MP_INIT_CFG property to the directory to which you want the file copied during initialization.
+
++
+If you do not provide a native repository configuration, a default generic repository `config.xml` file will be used instead. +
+For example, the following sets the target directory as `/opt/midpoint/var` (the file will be located as follows: `/opt/midpoint/var/config.xml`)
 [source]
 MP_INIT_CFG=/opt/midpoint/var
-+
-This option is needed all the time until there is available persistent storage (volume) for the home directory.
 
 * *MP_DB_PW* +
+Defines the path to which the generated database password file should be saved.
 The password for the database access has to be the same on the client and server side.
-As far as the roles are split, the password has to be set in advance to be the same on both side of communication.
-The value is the path to the file, where the generated password should be saved.
 +
-.example of the value - the generated password will be saved to /opt/db-pw/dbpassword
+You need to generate the password before the DB container is started.
+As the preferred repository initialization is a _push_ operation (the object is created remotely in a DB that is already running), this cannot be done in one step.
+Therefore, generating the password for the database means there will be two phases in the container initialization.
+One for the DB password generation, and another one for the repository initialization.
++
+.example - the generated password will be saved to /opt/db-pw/dbpassword
 [source]
 MP_DB_PW=/opt/db-pw/dbpassword
-+
-In case of generating of the password the step has to be done before the DB container is started.
-As the preferred repository initiation is push (object is created remotely in the already running database) this cannot be done in one step.
-Generating of the password for the database mean two phase init container - one for DB PW generation and second one for the repo init.
 
 * *MP_PW* +
-In case you prefer to have your own generated password for keystore, this option will interest you.
-As a value the location for the file is provided.
+Defines the path to which a new generated keystore password is saved as a file.
+By default, the "changeit" password is used for the keystore.
+As the default is not secure, it is recommended to have a new password generated instead of using the default: +
+  . In the MP_PW variable, define the path to which you want the password generated as a file: +
+  `MP_PW=<path_to_password>`
+  . Tell midPoint that you want to use the newly generated password as the keystore password: +
+  `MP_PW_midpoint_keystore_keystorePassword_FILE=<path_to_password>`
 +
 .example of the value - the generated password will be saved to /opt/midpoint/var/keystorepw
 [source]
 MP_PW=/opt/midpoint/var/keystorepw
-+
-Once the password is used there have to be set the file as keystore password for the midPoint container otherwise the default "changeit" will be used.
 
-=== Environment variables
+== Runtime Environment Variables
+
+This section describes environment variables that you can use for midPoint runtime, i.e. after the environment has been initialized.
 
 * *MP_MP_ENTRY_POINT* +
-The <<entry-point, entry point>> can be used to copy some file before the system start. It is usable mainly with container approach like Docker.
-
+The <<entry-point,entry point>> can be used to copy a file before the system starts.
+It is mostly used when deploying midPoint in containers, such as in Docker.
 * *MP_MEM_MAX* +
-Alias for *JAVA_OPTS* variable *-Xmx[0-9]*. It may be usefull especially in case the "simply" key=value syntax would be prefered to the complex set of values in one variable.
+An alias for the *JAVA_OPTS* variable *-Xmx[0-9]* that defines the maximum heap size.
+It is useful especially if you want to use the `key=value` syntax, as opposed to more complex sets of values in one variable.
 
 * *MP_MEM_INIT* +
-Alias for *JAVA_OPTS* variable *-Xms[0-9]*. It may be usefull especially in case the "simply" key=value syntax would be prefered to the complex set of values in one variable.
+An alias for the *JAVA_OPTS* variable *-Xms[0-9]* that defines the initial heap size.
+It is useful especially if you want to use the `key=value` syntax, as opposed to more complex sets of values in one variable.
 
 * [#mpset]*MP_SET_* +
-To make the passing the variable for java easier there has been set "mapping" for the environment variables starting with *MP_SET_*. The result will be *-D* parameters in *JAVA_OPTS* which is already passed to java process. The benefit is in maintaining configuration mainly for midpoint run in the containers where passing additional argument mean list all of them and not only new one. With this mapping it is easier to maintain or even generate the configuration for the container instance.
+To pass environmental variables to Java more easily, there is a "mapping" for variables starting with *MP_SET_*.
+This results in *-D* parameters in the *JAVA_OPTS* variable which is already passed to Java.
+This is beneficial mostly for midPoint run in a container where if you want to pass an additional argument, you need to list all of the already used arguments.
+With this mapping, it is easier to maintain or even generate the configuration for the container instance.
 +
-By the processing *MP_SET_* "prefix" is removed and for the rest there is replaced _ with . (dot). The is exception _FILE which is handled. The prefix *-D* is added and the final result is added to the *JAVA_OPTS* variable which is used for the starting.
+In processing, the *MP_SET_* prefix is removed, and in the remaining part, "_" (underscores) are replaced with "." (dots).
+There is an exception, `_FILE`, which is handled.
+The *-D* prefix is added and the final result is then added to the *JAVA_OPTS* variable which is used for starting midPoint.
 
 [#mpset]
-==== MP_SET_ example
+=== MP_SET_ Example
+This shows how you can use the *MP_SET_* environmental variable in the following scenarios:
 
-* config.xml - repository configuration +
-One of the usage for *MP_SET_* prefixed environment variable is xref:/midpoint/reference/repository/configuration/#example-config-xml[repository configuration].
-+
-.subset of the config.xml (for illustration only)
+* <<config_xml,Repository configuration file `config.xml`>>
+* <<embedded_tomcat,Embedded Tomcat>>
+
+[[config_xml]]
+==== Config.xml
+Below is a snippet from a sample `config.xml` file that contains xref:/midpoint/reference/repository/configuration/#example-config-xml[repository configuration].
+
 [source,xml]
 ----
 <?xml version="1.0"?>
@@ -126,10 +139,10 @@ One of the usage for *MP_SET_* prefixed environment variable is xref:/midpoint/r
     </midpoint>
 </configuration>
 ----
-+
-In case we want to set / overwrite these values the following structure of environment variables should be used :
-+
-.environment variable in Docker-compose syntax
+
+To set/overwrite these values, the *MP_SET_* environmental variable should be used as follows:
+
+.The MP_SET_ environment variable in the Docker Compose syntax
 [source,docker-compose]
 ----
 service:
@@ -138,8 +151,8 @@ service:
      - MP_SET_midpoint_repository_jdbcUrl=jdbc:postgresql://localhost:5432/midpoint
      - MP_SET_midpoint_repository_jdbcUsername=midpoint
 ----
-+
-.environment variable in Kubernetes syntax
+
+.The MP_SET_ environment variable in the Kubernetes syntax
 [source,kubernetes]
 ----
 spec:
@@ -151,40 +164,82 @@ spec:
         - name: MP_SET_midpoint_repository_jdbcUsername
           value: 'midpoint'
 ----
-+
-.environment variable in Docker syntax
+
+.The MP_SET_ environment variable in the Docker syntax
 [source,docker]
 ----
 docker run -e MP_SET_midpoint_repository_jdbcUrl=jdbc:postgresql://localhost:5432/midpoint -e MP_SET_midpoint_repository_jdbcUsername=midpoint ...
 ----
 
-* embedded Tomcat +
-Other usage is to change embedded xref:/midpoint/devel/guides/environment/embedded-tomcat/[Tomcat setting].
-+
-.subset of server properties (application.yml)
+[[embedded_tomcat]]
+==== Embedded Tomcat
+You can use the *MP_SET_* environmental variable to change the settings of an xref:/midpoint/devel/guides/environment/embedded-tomcat/[embedded Tomcat].
+
+.Subset of server properties (application.yml)
 [source]
 ----
 server:
   port: 8080 # Server HTTP port.
 ----
-+
-As a example we can change the port from 8080 to 8081.
-+
+
+As an example, we can change the port from `8080` to `8081`:
+
 [source]
 ----
 MP_SET_server_port=8081
 ----
 
 [[entry-point]]
-==== Entry Point
-*MP_ENTRY_POINT* option is pointing to the folder in the container's filesystem, which is handled as a read only source mainly for post-initial-objects.
-The content is copied to proper midpoint's structure (/opt/midpoint/var) before starting the midpoint instance with keeping the same sub folder structure.
+=== Entry Point
+The *MP_ENTRY_POINT* variable defines the folder in the container's filesystem which is handled as a read only source mainly for post-initial-objects.
+The content of the referenced folder is copied to the midPoint structure (`/opt/midpoint/var`) before starting the midPoint instance, while keeping the same sub-folder structure.
+During the processing of *MP_ENTRY_POINT*, a check is performed for the presence of:
 
-During the processing of the *MP_ENTRY_POINT* it checks the existence of the file or file with extension .done (processed post-initial-object is renamed with suffix .done).
-Once the file in any form ("exact" name or with the .done suffix) exists, the file is skipped so any future changes on the copied version are kept without overwriting - only new files are copied.
-This way the post-initial-objects can be re-used several times with the same behaviour all the time.
+* `post-initial-object.done` file (a processed post-initial-object is renamed with the suffix `.done`)
+* `*.done` files
 
-.example of the behaviour : MP_ENTRY_POINT=/opt/entry-point
+If such a file exists, i.e. `post-initial-object.done` or another `*.done` file, it is skipped so that any future changes on the copied version are kept without overwriting.
+This means that only new files are copied.
+This way the post-initial-objects can be re-used several times with the same behavior.
+
+If you are not going to use the *MP_ENTRY_POINT* feature, you can remove the following configuration lines:
+
+[source,kubernetes]
+----
+- MP_ENTRY_POINT=/opt/midpoint-dirs-docker-entrypoint
+----
+
+[source,docker]
+----
+- ./midpoint_server/container_files/mp-home:/opt/midpoint-dirs-docker-entrypoint/:ro
+----
+
+If you do not remove them, the `./midpoint_server/container_files/mp-home` directory has to exist.
+Otherwise, Docker Compose will create it.
+As the container runs under the root user, the newly created directory will have the permissions set to the root user (UID, GID).
+To prevent this, make sure the directory structure is prepared in advance.
+
+[NOTE]
+====
+In theory, you can mount the entry point directly to the midpoint's structure.
+However, this may result in one of the following unexpected outcomes:
+
+* The mount point will be in the "writable" mode. +
+In that case, the file will be suffixed with *.done*, and it will be ignored in subsequent runs.
+
+* The mount point will be in the read-only mode. +
+MidPoint will fail to start and it will not be possible to rename the file, which is handled as a critical error.
+====
+
+==== Entry Point Example
+
+In the example below, the following logic is applied:
+
+* *post-initial-objects*: The file exists and so nothing changes.
+* *user.xml*: The _user.xml.done_ file exists in the destination and so nothing changes.
+* *role.xml*: The file does not exist and so it will be copied to */opt/midpoint/var/post-initial-objects/role.xml*.
+
+.example of the behavior : MP_ENTRY_POINT=/opt/entry-point
 [source]
 ----
 /opt/entry-point
@@ -197,48 +252,17 @@ This way the post-initial-objects can be re-used several times with the same beh
   - user.xml.done
 ----
 
-* *post-initial-objects* exists so no change
-* *user.xml* in the destination there exists _user.xml.done_ so no action will happen
-* *role.xml* does not exist so it will be copied to */opt/midpoint/var/post-initial-objects/role.xml*
+== Volumes
 
-[NOTE]
-====
-In the theory you can mount it directly to the midpoint's structure but the resulting behaviour will be, the most probably, a little bit different than expected.
-With the first run there can be two possible situations:
+Until you attach a volume, all changes are kept only in the container which may be discarded.
+The image is ready to attach the volume to midPoint home - `/opt/midpoint/var`.
+By attaching the external store (volume), you will keep the data in the midPoint home directory outside of the container.
+This makes it safe to remove the container and create a new one by attaching the volume (changing the image version - e.g. new support branch build).
 
-* the mount point will be in "writable" mode +
-In that case the file will be renamed with adding suffix *._done* and respective next run (with new container) will be ignoring the files.
+Volumes are handled in the container similarly to mount points.
+There may be multiple volumes mapped in a cascade.
 
-* the mount point will be read-only mode +
-The midpoint start will fail and it will not be possible to rename the file, which is handled as critical error.
-====
-
-If *MP_ENTRY_POINT* feature is not needed the following lines can be removed:
-
-.kubernetes syntax
-[source]
-- MP_ENTRY_POINT=/opt/midpoint-dirs-docker-entrypoint
-
-.docker syntax
-[source]
-- ./midpoint_server/container_files/mp-home:/opt/midpoint-dirs-docker-entrypoint/:ro
-
-In case the lines are kept in the example, the directory *./midpoint_server/container_files/mp-home* should exists.
-Otherwise docker-compose will create it.
-As the container runs under root the newly created directory will have the permission set (UID, GID) for the root user.
-To prevent this behavior prepare the directory structure in advance.
-
-=== Volumes
-
-Until you will attach the volume all the changes are kept only in the container which may be discarded.
-The image is ready to attach the volume to midPoint home - /opt/midpoint/var.
-By attaching the external store (volume) you will keep stored data from midPoint home out of container.
-This way it is safe to remove the container and create new one attaching the volume (changing image version - e.g. new support branch build)
-
-Volumes are handled in the container similar to mount points.
-There may be more volumes mapped in cascade.
-
-.midpoint structure
+.midPoint structure
 [source]
 ----
 /opt/midpoint/var
@@ -261,6 +285,15 @@ There may be more volumes mapped in cascade.
 - work
 ----
 
+.Local filesystem structure
+[source]
+----
+/tmp/workdir
++ connectors
+| - connector-ssh-1.0.jar
+- docker-compose.yml
+----
+
 [NOTE]
 ====
 * connector-ssh-1.0.jar +
@@ -271,29 +304,20 @@ There may be more volumes mapped in cascade.
 ** link:https://repo1.maven.org/maven2/org/python/jython-standalone/2.7.2/jython-standalone-2.7.2.jar[download] (external link)
 
 * ojdbc11.jar
-** Oracle JDBC
-** link:https://www.oracle.com/database/technologies/appdev/jdbc-downloads.html[download] (external link)
+** Oracle JDBC link:https://www.oracle.com/database/technologies/appdev/jdbc-downloads.html[download] (external link)
 ====
 
-.local filesystem structure
-[source]
-----
-/tmp/workdir
-+ connectors
-| - connector-ssh-1.0.jar
-- docker-compose.yml
-----
+To attach the connector subdirectory to a container, use the following definition:
 
-In case you want to attach the subdirectory with the connector to container the following definition should be used :
-
-.binding directory from external filesystem to container (docker syntax)
+.Binding directory from external filesystem to container (Docker syntax)
 [source]
 ----
 - ./connectors:/opt/midpoint/var/connid-connectors
 ----
 
-There is also option to bind directly the file.
-.binding specific file from external filesystem to container (docker syntax)
+You can also bind the file directly:
+
+.Binding specific file from external filesystem to container (Docker syntax)
 [source]
 ----
 - ./connectors/connector-ssh-1.0.jar:/opt/midpoint/var/connid-connectors/connector-ssh-1.0.jar
@@ -302,6 +326,7 @@ There is also option to bind directly the file.
 
 [WARNING]
 ====
-Once you will use the volume / mount point the original content will be hidden.
-Based on the usage the original content can be copied but not in all the cases.
+Once you use the volume / mount point, the original content will be hidden.
+Depending on the runtime engine, the original content may be copied into the volume before or during startup.
+However, once the mount is in place, the original data becomes inaccessible from within the running environment.
 ====
