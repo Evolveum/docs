@@ -1,0 +1,166 @@
+= Define rules for LDAP mapping, synchronization, and correlation
+:page-nav-title: Define LDAP data handling rules
+:page-display-order: 220
+:page-toc: top
+:experimental:
+:icons: font
+
+== Define synchronization rules
+
+Define the synchronization rules for the LDAP resource.
+Use the _Proposed_ lifecycle state to prevent any damage to real data before you validate the configuration.
+
+[cols="2,1,1,1,4"]
+|====
+| Name | Situation | Reaction | Lifecycle state | Comments
+
+| link-unlinked
+| Unlinked
+| Link
+| Proposed
+| There's a focus for the account but it's not linked to the shadow of the account yet, let's link it.
+	This isn't used during the first import, but it's necessary for later when the account shadows are in midPoint already.
+
+| synchronize-linked
+| Linked
+| Synchronize
+| Proposed
+| Synchronize the data between the remote account and the focus based on mappings.
+
+| synchronize-deleted
+| Deleted
+| Synchronize
+| Proposed
+| Restore "illegally" deleted accounts on the resource using the shadow in midPoint.
+
+| delete-unmatched-resource-object
+| Unmatched
+| Delete resource object
+| Draft
+| Delete orphaned ("illegal") resource objects, i.e., those not present in HRIS and thus not having shadow in midPoint.
+	Potentially destructive in case of misconfiguration. +
+	Keep in _Draft_ (effectively disabled) until you learn later in the guide about options other than hard delete.
+
+| create-correlation-case-for-disputed
+| Disputed
+| Create correlation case
+| Proposed
+| In case a candidate owner isn't found with 100% certainty, create a correlation case to let a human operator resolve the situation.
+	You'll learn more a bit later.
+
+|====
+
+[TIP]
+====
+See xref:/midpoint/features/current/synchronization/[] to learn about the topic in more depth.
+====
+
+== Create inbound mappings for correlation
+
+As the LDAP resource is currently strictly an inbound resource, meaning that _it can't push_ any data _to_ midPoint, you're going to define a new kind of mappings.
+The thing is, to successfully correlate accounts on the LDAP server with the users in midPoint, you need _inbound_ mappings for the LDAP resource, i.e., _from_ LDAP _to_ midPoint.
+However, as you don't want any data coming from LDAP to midPoint, the regular inbound mappings aren't the best fit.
+
+That's why you're going to define inbound mappings _strictly for correlation_ purposes.
+MidPoint will use these mapping rules only to know which resource attribute to correlate with which _internal_ (focus) user attribute.
+
+These are the mappings to use:
+
+[cols="2,1,1,1,1,5"]
+|====
+| Name | Source | Expression | Target | Lifecycle state | Comments
+
+| inbound-employeeNumber-for-correlation
+| `employeenumber`
+| As is
+| `personalNumber`
+| Active
+| Used for correlating employee number in the resource with the personal number in midPoint.
+
+| inbound-surname-for-correlation
+| `sn`
+| As is
+| `familyName`
+| Active
+| Used for the second correlation rule when the default employee number correlation fails.
+
+| inbound-givenName-for-correlation
+| `givenname`
+| As is
+| `givenName`
+| Active
+| Used for the second correlation.
+
+| inbound-locality-for-correlation
+| `l`
+| As is
+| `locality`
+| Active
+| Used for the second correlation.
+
+|====
+
+Refer to this guide on how to define mappings: xref:/midpoint/reference/admin-gui/resource-wizard/object-type/mapping/[].
+Use *inbound mappings* and set them to be used for correlation only:
+
+. Click icon:edit[] btn:[Edit] on the far-right on each mapping row.
+. In *Use for*, select _Correlation_.
+. Click icon:arrow-right-from-bracket[rotate=180] btn:[Exit wizard].
+
+// TODO: task 12 - rework /midpoint/reference/master/admin-gui/resource-wizard/object-type/mapping/
+// to be better structured and contain more info on advanced mapping settings,
+// so that I can just link it from here instead of writing the whole guide on correlation-only setting.
+
+== Define LDAP correlation rules
+
+Now is the time to define correlation rules for the LDAP resource accounts.
+
+Correlation in midPoint is a mechanism used to identify the owner of a resource object, such as an account.
+It involves finding the corresponding focus object associated with a particular resource object.
+This process essentially binds the xref:/glossary/#shadow[shadows] of the resource objects to their appropriate midPoint xref:/glossary/#focus[focal objects].
+
+Refer to xref:/midpoint/features/current/correlation/[] for more details on the topic.
+
+In general, to correlate objects from various resources, you need to find a common identifier.
+In the case of the showcase data this guide uses, the common identifier are the employee numbers.
+If an LDAP server entry has the same employee number as a user in midPoint, they're surely a match.
+
+For the cases when this bullet-proof matching fails due to erroneous data, for instance,
+you can set up a fall-back correlation rule using a set of other attributes, such as first name + surname + locality.
+Such rule doesn't have as high confidence because there may be cases when two people of the same name are in the same place.
+For this lower confidence, this rule is set to create a correlation case,
+meaning it can only suggest which focus object should be bound to which resource shadow, but a human operator needs to confirm the match.
+
+In the suggested setup below, the fall-back rule that uses names+locality has the confidence of only 0.5.
+That means that even if all the three attributes match, the match would be only 50% sure and, thus, a correlation case would be created by midPoint.
+
+Refer to this guide on setting up correlation: xref:/midpoint/reference/admin-gui/resource-wizard/object-type/correlation/[].
+
+Here are the correlation rules to use.
+
+[cols="~,~,1,1,1,~"]
+|====
+| Rule name | Description | Weight | Tier | Enabled | xref:/midpoint/reference/admin-gui/resource-wizard/object-type/correlation/#set-up-correlators[Correlators] (Item : Search method)
+
+| personalNumber-correlation
+| Correlation using `personalNumber`. Doesn't require human intervention.
+|
+| 1
+| True
+| `personalNumber` : Exact match
+
+| last-resort-correlation
+| Correlation using givenName, familyName and locality. Trusted only by 50%, human intervention is needed.
+| 0.5
+| 10
+| True
+| `givenName` : Exact match +
+    `familyName` : Exact match +
+    `locality`: Exact match
+|====
+
+[NOTE]
+====
+The attributes used in the correlation rules are acquired by the correlation-only inbound mappings.
+// TODO: Add link to the relevant section of the mapping GUIDe /admin-gui/resource-wizard/object-type/mapping/ when it's written
+====

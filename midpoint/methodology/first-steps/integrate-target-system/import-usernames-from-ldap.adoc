@@ -1,0 +1,68 @@
+= Import usernames from LDAP
+:page-nav-title: Import usernames from LDAP
+:page-display-order: 240
+:page-toc: top
+:experimental:
+:icons: font
+
+== Import Usernames From LDAP
+
+When setting up the HR resource, you used _empnum_ for account names in midPoint
+because the HR system does not have any better unique identifier.
+
+Now, however, you have the LDAP resource connected and with that, you gave midPoint access to much more human friendly usernames that are stored in the LDAP system.
+It is a good time now to adjust the HR and LDAP resource mappings so that account owner focal objects are named using the LDAP usernames.
+
+Here's the outline of what you're going to do to achieve that:
+
+. Set the _name_ attribute mapping strength in the HR resource to to _weak_.
+. Create an inbound mapping for _name_ in the LDAP resource with an appropriate source attribute containing the usernames.
+. Run a simulated reconciliation task to validate the new setup.
+	** First, test it on a single account.
+	** Then, simulate it on all accounts.
+. Reconcile the accounts again for real.
+
+== Adjust the Mappings to Prepare for Username Import From LDAP
+
+Firstly, adjust the HR resource _name_ mapping:
+
+. In your HR resource, open inbound mapping settings.
+. Locate the mapping populating the _name_ attribute with the value of the source _empnum_ attribute. +
+	In this guide, it is called _empnum-to-name_.
+. In advanced settings of the mapping, change its *strength* to _weak_.
+
+Secondly, add a new inbound mapping for the _name_ attribute in the LDAP resource:
+
+. Look into your LDAP data and locate the name of the attribute that holds usernames. They have to be unique across all accounts. +
+	In the sample data used in this guide, the name of the attribute is _uid_.
+. In your LDAP resource, open inbound mapping settings.
+. Add a new mapping according to the table below. +
+	Adjust the mapping name and the source attribute name according to your data.
+
+[cols="6*"]
+.Strong inbound mapping to copy _uid_ parameter with usernames to _name_ parameter
+|====
+| Name                         | Source | Expression | Target | Lifecycle state | Comments
+| inbound-uid-username-to-name | uid    | As is      | name   | Proposed        | Set the mapping *Strength* to _Strong_ and leave the *Use for* as _Undefined_.
+|====
+
+== Test the Configuration Update
+
+Before you make the leap, test the new configuration using a simulated import.
+Firstly, on a single user using the _Simulated development_ execution mode, then on the whole set of accounts.
+
+When you view the results of the simulation, you should see the _focus object renamed_ notice.
+
+image::../ldap-import-username-simulation-focus-renamed.webp[title="A single user import preview simulation result showing that the username would have been imported successfully and the focus object would have been renamed"]
+
+After the single user import preview, run the simulated development reconciliation task you already have under *icon:tasks[] Defined tasks* from the previous reconciliations.
+Inspect the results, you should see, among other things, that the focus objects would be renamed according to the LDAP username inbound mapping.
+
+Once you confirm the simulation yields expected results, run the real production reconciliation task which you used to reconcile the LDAP accounts previously.
+
+[NOTE]
+====
+No incorrect data in your target system will be fixed yet.
+So far, you've correlated (as in connected) the identities across your source and target systems.
+That's not the end of the story, though: you'll see how to automatically fix incorrect data soon.
+====
