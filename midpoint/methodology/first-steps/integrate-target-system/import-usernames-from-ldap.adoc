@@ -5,8 +5,6 @@
 :experimental:
 :icons: font
 
-== Import usernames from LDAP
-
 When setting up the HR resource, you used employee numbers (`empnum`) for account names in midPoint
 because the HR system does not have any better unique identifier.
 
@@ -15,16 +13,22 @@ It is a good time now to adjust the HR and LDAP resource mappings so that accoun
 
 Here's the outline of what you're going to do to achieve that:
 
-. Set the _empnum-to-name_ inbound attribute mapping strength in the HR resource to to _weak_.
-. Create a new inbound mapping for _name_ in the LDAP resource with an appropriate source attribute containing the usernames.
+. Adjust source and target resource mappings to enable importing usernames from LDAP.
+    .. In the HRIS resource, set the _empnum-to-name_ inbound mapping strength to to _weak_.
+    .. Create a new inbound mapping for _name_ in the LDAP resource with an appropriate source attribute containing the usernames.
 . Run a simulated reconciliation task to validate the new setup.
-	.. Test on a single account.
-	.. Simulate on all accounts.
-. Reconcile the accounts again for real.
+. Reconcile the accounts in production to rename midPoint users.
+
+:sectnums:
 
 == Adjust the mappings to prepare for username import from LDAP
 
-Firstly, adjust the HR resource _name_ mapping:
+To use the LDAP usernames as the primary identifier for user in midPoint, you need to adjust mappings for both the source (which is HRIS here) and target (LDAP) resources.
+
+=== Make the old HRIS name mapping weak
+
+Firstly, adjust the strenght of the HR resource _name_ mapping so that it does not overwrite non-empty values.
+Refer to xref:/midpoint/reference/expressions/mappings/#_mapping_strength[] for details on mapping strength options.
 
 . In your HR resource, open inbound mapping settings.
 . Locate the mapping populating the _name_ attribute with the value of the source _empnum_ attribute. +
@@ -32,7 +36,11 @@ Firstly, adjust the HR resource _name_ mapping:
 . In advanced settings of the mapping, change its *strength* to _weak_.
     ** Refer to xref:/midpoint/reference/admin-gui/resource-wizard/object-type/mapping/advanced-mappings/[] for a guide on setting mapping strength.
 
-Secondly, add a new inbound mapping for the _name_ attribute in the LDAP resource:
+=== Add new mapping to LDAP for usernames
+
+Secondly, add a new inbound mapping for the _name_ attribute in the LDAP resource.
+Leave this mapping set as _strong_ so that it can overwrite existing values.
+This is the default and it is useful when a user's username changes, for instance.
 
 . Look into your LDAP data and locate the name of the attribute that holds usernames. They have to be unique across all accounts. +
 	In the sample data used in this guide, the name of the attribute is _uid_.
@@ -87,6 +95,8 @@ Once you confirm the simulation yields expected results, run the real production
 a| image::../ldap-username-import-before-rename.webp[]
 a| image::../ldap-username-import-after-rename.webp[]
 |====
+
+:sectnums!:
 
 == What is next
 
