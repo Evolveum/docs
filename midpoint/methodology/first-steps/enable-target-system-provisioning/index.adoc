@@ -1,0 +1,187 @@
+= Enable target system provisioning
+:page-nav-title: Provision to target system
+:page-display-order: 300
+:page-toc: top
+:experimental:
+:icons: font
+
+In this module, you will set midPoint up so that it creates new accounts in LDAP after it fetches them from HRIS,
+and corrects mistakes in LDAP based on the _truth_ in HRIS.
+
+Here’s the outline of what you’re going to do in this module:
+
+. Create outbound LDAP mappings.
+. Run a simulated reconciliation task to validate the new setup.
+. Put the configuration to production.
+. Create a new account in the HRIS source system to see the new configuration in action.
+
+Aside the introduction of the ability to populate LDAP with the accounts created in the HRIS source system, the configuration has one pleasant "side effect".
+That is, once deployed on production, midPoint will typos and other mistakes in LDAP for existing accounts as well.
+
+== Create outbound mappings for LDAP
+
+The first step is to tell midPoint which _internal_ user attributes map to which LDAP attributes.
+
+If you follow this guide along with the pre-configured training Docker images for midPoint, HRIS, and LDAP, you can review the rules in the table below; the midPoint Docker image is pre-configured with these rules in the _Draft_ lifecycle state.
+Only their names may differ.
+If you have your own data sources, you need to inspect them and devise which datum goes where on your own.
+Should your resource be LDAP or similar, you can use the mapping scripts in the table for inspiration on how to transform the data appropriately.
+
+.Inbound vs. outbound mappings
+[NOTE]
+====
+So far, you have used only _inbound_ mappings and used most of them for correlation purposes only.
+Even if LDAP did not _write_ any data to midPoint users (except for usernames), the correlation-only mappings need to be inbound.
+Now, the data flows not _to_ midPoint (_indbound_), but _from_ midPoint.
+Hence, the mappings need to be _outbound_.
+====
+
+Refer to this guide on setting up outbound mappings: xref:/midpoint/reference/admin-gui/resource-wizard/object-type/mapping/#outbound_mappings[].
+
+[cols="5*"]
+|====
+| Name                                 | Source         | Expression | Target           | Lifecycle state
+| out-name-fullname-to-dn              | name, fullName | Script     | `dn`             | Proposed
+| out-name-fullname-to-cn-weak         | name, fullName | Script     | `cn`             | Proposed
+| out-full-name-to-displayName         | fullName       | As is      | `displayName`    | Proposed
+| out-familyName-to-sn                 | familyName     | As is      | `sn`             | Proposed
+| out-givenName-to-givenName           | givenName      | As is      | `givenName`      | Proposed
+| out-name-to-uid                      | name           | As is      | `uid`            | Proposed
+| out-locality-to-l                    | locality       | As is      | `l`              | Proposed
+| out-personalNumber-to-employeeNumber | personalNumber | As is      | `employeeNumber` | Proposed
+|====
+
+.Script for `out-name-fullname-to-dn`
+----
+def dn
+    if (iteration == 0) {
+        cn = fullName
+    } else {
+        cn = fullName + ' (' + name + ')'
+    }
+    return basic.composeDnWithSuffix('cn', cn,
+        'ou=users,' + basic.getResourceIcfConfigurationPropertyValue(resource, 'baseContext')
+    )
+----
+
+.Script for `out-name-fullname-to-cn`
+----
+def cn
+    if (iteration == 0) {
+        cn = fullName
+    } else {
+        cn = fullName + ' (' + name + ')'
+    }
+    return cn
+----
+
+// == Set up outbound activation mapping rules
+
+// The activation rules can stay as they are because we enabled them for deleting orphaned accounts already
+// Accounts > Activation > Outbound > Administrative status mapping -- the source can be left empty because if empty, MP infers it should use administrative status ($focus/activation/administrativeStatus), which is exactly the value one usually wants.
+// If you need to override the default behavior, you can specify a source using path expression to reference attributes from the user ($focus) or shadow ($shadow) (e.g.,  <path>$focus/activation/effectiveStatus</path>),
+// or script expressions and use Groovy scripts to compute the value dynamically
+// Hard-coding literal values is also an option.
+// The behavior is the same since 4.8 to 4.10. 4.9/4.10 introduced changes to object lifecycle handling (e.g., ARCHIVED is no longer propagated to effectiveStatus), but these do not affect the administrative status mapping logic directly
+
+// == Set up outbound password configuration
+
+== Generate initial password for new LDAP users
+
+The accounts created in the HR information system do not have any credentials (passwords) associated
+because the HRIS is simply a database of people, it does not deal with accesses.
+LDAP accounts, however, cannot be created _passwordless_.
+
+For this reason, you need to configure midPoint to create a random password for each user that "arrives" from HRIS and is to be pushed to LDAP.
+In this guide, we use simplified approach where users do not know their initial LDAP password and, in the real world, would be expected to reset via the company help desk, for example.
+
+*Refer to this guide on credential management: xref:/midpoint/reference/admin-gui/resource-wizard/object-type/credentials/[]*.
+
+Here are the details of the setup:
+
+* Create a new [.nowrap]#icon:arrow-right-from-bracket[] *outbound*# credential mapping.
+* *Name* it _generate-initial-password_, for instance.
+* Give it a _weak_ *strength*.
+* Set the *expression* option to _Generate_.
+* No need to change anything in the *Optional* configuration step.
+* Set the lifecycle state of the mapping to _Proposed_.
+
+This mapping populates the password attribute with a random generated password only if the attribute is empty.
+Under any other circumstance, the mapping does not change the password because you set it as _weak_.
+
+== Let users change their LDAP password in midPoint
+
+Unless you manage authentication and credentials using SSO or other midPoint-unrelated system,
+your users may find it useful to have the option to self-manage their LDAP password directly in midPoint.
+More so if a new user comes, has the initial LDAP password auto-generated, and needs to reset it to be able to actually access the LDAP server.
+
+* Create a new [.nowrap]#icon:arrow-right-from-bracket[] *outbound*# credential mapping.
+* *Name* it _change-password_, for instance.
+* Give it a _normal_ *strength*.
+* Set the *expression* to _As is_.
+* No need to change anything in the *Optional* configuration step.
+* Set the lifecycle state of the mapping to _Proposed_.
+
+The strength of this mapping dictates that it updates the target value when the source changes,
+but leaves it be in case the source stays the same but the target value is updated not through midPoint (user changed it directly on the resource, for example).
+The _As is_ expression simply copies the password from midPoint to the resource.
+
+.Credential mappings overview
+image::credential-mapping-overview.webp["Credential mappings overview"]
+
+== Test your new configuration
+
+With mappings and credential handling set up, you are ready to test the new configuration.
+
+This is the stage when you are about to correct mistakes on the target system, such as incorrectly filled in names, wrong employee numbers (remember the correlation cases?), and so on.
+The amount of changes depends on the quality of the data in your systems.
+
+If you follow this guide along with the pre-configured training Docker images, you can expect something along these lines:
+
+.Simulated reconciliation task results overview
+image::ldap-provisioning-reconcile-simul-devel.webp["Simulated reconciliation task results overview"
+
+And should you open one of the accounts under *Projection renamed*, you would see the data on LDAP would be corrected based on the HRIS data.
+Nothing was changed yet because this was a simulation.
+
+.Simulated correction of data on LDAP based on HRIS data
+image::ldap-provisioning-reconcile-simul-devel-data-correction.webp["Projection renamed showing simulated changes on an LDAP account"
+
+Review the simulation results.
+If all looks as expected, proceed to the next section.
+
+If you see some unexpected or unwanted changes, now is the time to investigate:
+
+* Which one of your resources holds correct data?
+* Do your mappings point to correct attributes?
+* Are lifecycle states of all required configurations (mappings, credentials) set to _Proposed_ instead of _Draft_?
+
+Usually, you would either let midPoint change the data in the target system (LDAP), or fix them in the source system (HRIS).
+You could also adjust mappings to introduce certain conditional behavior or mark some LDAP accounts as _Do not touch_ to resolve their situation later.
+
+== Put the provisioning configuration to production
+
+After you verify everything works as expected, the last step is to put the configuration to production.
+
+Put everything that is in the _Proposed_ lifecycle state to the _Active_ state:
+
+* Mapping rules
+* Activation rules
+* Credential mapping rules
+
+To confirm the _active_ configuration yields the same results as did the _proposed_ rules,
+you can run one last simulation: Use a reconciliation task with _development_ mode on _production_ configuration to work with production configuration without actually affecting the resource data.
+
+After clicking btn:[Show simulation results], you should see the same result you got during the previous simulations with the _Proposed_ configuration.
+If it does not, compare the results and check the resource configuration.
+
+Once ready, run the real reconciliation task to fix the target system data for real.
+
+After the production reconciliation task finishes, your target system data should be consistent with what you have in your source system.
+For all users you have correlated in the previous modules, their misspelled names should be corrected, employee numbers fixed, and so on.
+
+== What is next
+
+Now that you have data between source and target systems synchronized and consistent,
+it is time to automate some processes.
+In the next module, you will learn how to generate usernames for accounts in the target LDAP resource, and ensure all users have an account in the target resource.
