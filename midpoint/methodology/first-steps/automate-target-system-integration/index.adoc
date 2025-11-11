@@ -1,0 +1,65 @@
+= Automate target system provisioning
+:page-nav-title: Automate provisioning
+:page-display-order: 400
+:experimental:
+:icons: font
+
+You now have source and target resource systems connected and data synchronized to consistency between them.
+When attributes for a user change in the source HRIS system, your midPoint configuration can propagate the changes to the target.
+It is now the time to automate some of the provisioning processes to increase the autonomy of your configuration.
+
+== Generate usernames for new users
+
+The first thing to do is to automate username generation.
+Up until now, we took usernames from the target LDAP resource (the only inbound mapping we had for the target system).
+This approach works well for existing accounts that already have the username populated in the LDAP resource,
+but what about new users?
+Once HR department registers a new user in the HRIS, the account gets arrives to midPoint, but it has no place from which to obtain the username.
+
+Let us change that.
+Similarly to passwords, midPoint can generate usernames as well.
+The difference here is that passwords are random strings, while usernames consist, typically, of the first and last names and possibly some numbers.
+For this reason, you are going to use a script for this task.
+
+To generate usernames, you will:
+
+. Archive the _empnum-to-name_ HRIS inbound mapping.
+    ** You do not need it anymore.
+        This is the initial mapping to fill focal object _name_ attribute with the employee number.
+        We used employee numbers as the only unique attribute the HRIS provided.
+        The new usernames will fulfill this purpose.
+. Archive the _inbound-uid-username-to-name_ inbound LDAP mapping.
+    ** This is the mapping used to populate focal object _name_ with usernames (_uid_) from LDAP.
+        It is no longer needed as you already have all the pre-existing LDAP users in in midPoint and new users will be added via midPoint.
+. Use the Person object template to define new mapping for username generation.
+. Create a new test user in the source HRIS resource.
+. Reload the HRIS user in midPoint.
+. Use import preview for to check whether generating usernames works correctly.
+. Create a recurring HRIS reconciliation task to import new users automatically in the future.
+
+=== Archive obsolete mappings
+
+In the beginning, you have used `empnum` from the HRIS as a unique value for the _name_ attribute (which needs to be unique.
+Later on, after you have connected the LDAP target system, you have replaced it with `uid` which contains usernames, at least in our example training data.
+
+However, you have already imported all the users from the target system to midPoint and reconciled them,
+hence there is no need for either of the mappings.
+
+Let us archive them.
+Start with the HRIS mapping:
+
+. Go to the source HRIS resource > [.nowrap]#icon:male[] *Accounts*# > mapping configuration.
+. In [.nowrap]#icon:arrow-right-to-bracket[] *Inbound*# mappings, find the mapping that copies the unique attribute from HRIS to the focal object _name_ attribute.
+    In our guide here, its name is _empnum-to-name_.
+. Set its lifecycle to _Archived_.
+
+When done, *do exactly the same with the LDAP target resource* attribute mapping you used to map LDAP usernames to the _name_ focus attribute in midPoint.
+In our guide here, its name is _inbound-uid-username-to-name_.
+
+[TIP]
+====
+We use the _Archived_ lifecycle state here to indicate that the mapping is unlikely to be active again.
+For temporary mapping deactivation, you could use the _Suspended_ state.
+All _Archived_, _Suspended_, and _Draft_ states represent deactivated mappings,
+but midPoint has those three states to express different reasons for mapping deactivation.
+====
