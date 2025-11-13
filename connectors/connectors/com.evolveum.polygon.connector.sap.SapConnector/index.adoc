@@ -190,7 +190,11 @@ To speed up reading user details you can set to config _tableParameterNames_ onl
 
 === Reading any SAP table data
 
+==== Specify ObjectClass with _tables_ configuration
+
 Over BAPI function RFC_GET_TABLE_ENTRIES you can read any SAP table.
+To access a table, you have to include the table in the `S_TABU_NAM/TABLE` permission.
+Each table row will be converted to a single projection in an object class.
 You need only define table name and its structure in _tables_ parameter as follows:
 
 [source]
@@ -198,7 +202,7 @@ You need only define table name and its structure in _tables_ parameter as follo
 {table name in SAP} as {alias in object class}={first field name:length{:IGNORE|KEY}},{next field what you need...}
 ----
 
-if you don't need an attribute, you can ignore it using "IGNORE".
+If you don't need an attribute, you can ignore it using "IGNORE".
 To set what column will be mapped to icfs:uid and icfs:name, please use "KEY" word.
 For example activity groups are by default defined as:
 
@@ -211,7 +215,70 @@ You could find fields names and lengths for example https://www.sapdatasheet.org
 
 Data are returned by SAP as fixed width with no delimiter, so you must define all field names and their length in order to parse them correctly.
 
-If you update _tableParameterNames_ or tables connector parameters via midpoint Configuration -> Repository objects, please delete <schema> section before saving it in order to generate new schema.
+If you update _tableParameterNames_ or _tables_ connector parameters via midpoint Configuration -> Repository objects, please delete <schema> section before saving it in order to generate new schema.
+
+==== Specify additional columns with _subTables_ configuration
+
+If a single SAP table is missing information that you need, you can specify additional tables, that can be fetched from SAP for each projection.
+The BAPI function RFC_GET_TABLE_ENTRIES is also used here, so you can specify any table you need.
+The sub-tables are queried with the "KEY" of the root table.
+To access a table, you have to include the table in the `S_TABU_NAM/TABLE` permission.
+
+If you update the _subTables_ configuration via midpoint, please delete <schema> section before saving it in order to generate the new schema.
+
+You can specify additional tables in the following format in the _subTables_ configuration.
+Each config value represents one table, that is queried according to the root projection and added as new multi-value attribute:
+
+[source]
+----
+{table name} for {root table name}[ format {XML|TSV}][ as {attribute name}]={{column name}:{column size}[("{filter value}")]:{IGNORE|MATCH|OUTPUT}},{more columns...}
+----
+
+The table definition part consists of:
+
+* `{table name}`: name of the table in SAP (e.g. "AGR_TEXTS")
+* `for {root table name}`: name of the table inside the _tables_ configuration (e.g. "AGR_DEFINE")
+* optional `format XML`: default format that represents every selected column as individual XML tag
+* optional `format TSV`: Tab-separated values (SAP usually doesn't use TAB characters, so the values won't be escaped)
+* optional `as {attribute name}`: name of the attribute inside the ObjectClass (default: table name)
+
+Each column definition consists of:
+
+* `{column name}`: name of the SAP column to structure the output (e.g. "AGR_NAME")
+* `{column size}`: size of the SAP column in characters
+* optional `("{constant value}")`: filter the sub-table result by this exact value (e.g. `("00000")`)
+* optional `OUTPUT`: default behavior that includes the column in the result
+* optional `IGNORE`: don't include the column in the result
+* optional `MATCH`: the value of this has to match with an identically named column of the root table; otherwise the row is filtered (and don't include the column in the result)
+
+====
+This is an example to load the short description of an ActivityGroup.
+This selects the row with language "E" (english) and line number "00000" of AGR_TEXTS, selects the TEXT column and returns it as ConnId attribute "ShortDescription" (by SAP convention, the line 0 represents the short description of a role, all following lines combined are the long description):
+[source]
+----
+AGR_TEXTS for AGR_DEFINE format TSV as ShortDescription=MANDT:3:IGNORE,AGR_NAME:30:MATCH,SPRAS:1("E"):IGNORE,LINE:5("00000"):IGNORE,TEXT:80
+----
+====
+
+====
+This is an example to load the names of all single roles, that are referenced by a composite role:
+[source]
+----
+AGR_AGRS for AGR_DEFINE format TSV=MANDT:3:IGNORE,AGR_NAME:30:MATCH,CHILD_AGR:30,ATTRIBUTES:10:IGNORE
+----
+====
+
+====
+This is an example to load all role flags as XML (role flags include for example the value COLL_AGR="X" for composite roles):
+[source]
+----
+AGR_FLAGS for AGR_DEFINE format XML=MANDT:3:IGNORE,AGR_NAME:30:MATCH,FLAG_TYPE:10,MISC:52:IGNORE,FLAG_VALUE:32
+----
+or more precise for the composite flag:
+----
+AGR_FLAGS for AGR_DEFINE format TSV as COLL_AGR=MANDT:3:IGNORE,AGR_NAME:30:MATCH,FLAG_TYPE:10("COLL_AGR"):IGNORE,MISC:52:IGNORE,FLAG_VALUE:32
+----
+====
 
 === SAP permissions
 
