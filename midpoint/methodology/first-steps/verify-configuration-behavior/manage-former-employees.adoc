@@ -40,7 +40,7 @@ You will update the leaving employee in HRIS and observe how midPoint handles th
 As always, all changes are initiated in the source HR information system.
 To update a user in the HRIS, use the same steps as in xref:/midpoint/methodology/first-steps/verify-configuration-behavior/handle-source-system-data-updates/[].
 
-. Pick a user to update, e.g., Martin Knight (employee number: 1006).
+. Pick a user to update, e.g., _Martin Knight_ (employee number: 1006).
 . Update their *Status* to _Long-term leave_.
 . Export HRIS users to CSV.
 
@@ -75,4 +75,79 @@ They need their accounts back as they were before they left.
 . Update the user who is returning in HRIS—set their *Status* back to _In_.
 . Wait for the recurring reconciliation task to run.
 . Check the user's *Lifecycle state*, *Effective status*, and *Administrative status* of their LDAP projection.
-    They should be _Active_ and _Enabled_.m
+    They should be _Active_ and _Enabled_.
+
+== Employee leaves for good
+
+The second exercise in this module is similar to the first but with some added points.
+For this work, pick a user on which to simulate leaving the employment.
+In this module, we use _Martin Knight_ (employee number: 1006) again.
+
+=== Update the user status in HRIS
+
+. In the HRIS user interface, modify the user's *Status* to _Former employee_.
+. Export HRIS users to CSV.
+. Wait for the recurring HRIS reconciliation task to pick up the change.
+
+=== Verify the user is deactivated and waiting for deletion on LDAP
+
+Once the reconciliation task picks up the changed employment status of the user's account, you have configured midPoint to:
+
+* Set the user's *Lifecycle state* to _Archived_.
+* Set the user's *Effective status* to _Disabled_ (displayed in the top-right corner of the screen).
+* Disable the account on the LDAP resource (mapped to the `roomNumber` user attribute).
+* Set up the trigger for delayed deletion of the LDAP resource account.
+    ** If you have used values suggested by this guide, the grace period before the account is actually deleted is five minutes.
+
+[NOTE]
+====
+When you are on the user profile screen, it is not enough to refresh the page to see the updates made by the reconciliation task to the user (such as changed lifecycle state).
+You need to go [.nowrap]#icon:arrow-left[] btn:[Back]# to the user list, and open the user profile again.
+====
+
+=== Verify the delayed delete trigger
+
+Once the trigger is in place, you can go to the user's profile in midPoint, click *Projections*, select the LDAP resource, and see the timer when you hover your mouse over the account icon.
+
+If you are on the Docker images prepared for this guide, you can check accounts with triggers on the *AD account notices* dashboard:
+
+. Under [.nowrap]#icon:tachometr-alt[] *Dashboards*#, select *AD account notices*.
+
+[TIP]
+====
+The trigger is stored in the midPoint xref:/midpoint/architecture/concepts/shadow/[shadow object] corresponding to the resource account.
+It is not stored in the user's focal object nor in the actual account on the remote resource.
+====
+
+.If you have renamed your AD/LDAP resource…
+[NOTE]
+====
+The dashboard widget for showing the number of accounts without an AD account depends on the resource name.
+If you have renamed the AD resource to anything other than `AD`, the dashboard would wrongly show that all users in midPoint are without an AD account.
+
+Should that be your case, either rename your AD resource to `AD`, or adjust the object collection used in the dashboard as follows:
+
+. In [.nowrap]#icon:filter[] *Object collections*#, find and open for editing the collection _Users without AD accounts_.
+. Click [.nowrap]#icon:edit[] btn:[Edit raw]#.
+. Edit the filter part of the collection:
++
+[source,XML]
+----
+<filter>
+    <q:text>
+        linkRef/@ not matches (
+        . type ShadowType
+        and resourceRef/@/name = "AD" <!--1-->
+        and kind = "account" )
+    </q:text>
+</filter>
+----
+<1> Rewrite the quoted string so that it matches exactly the name of your AD (LDAP) resource.
++
+. Click btn:[Save] and go back to dashboards.
+    The dashboard should show accurate data now.
+
+Refer to xref:/midpoint/reference/admin-gui/dashboards/[] to learn more about dashboards.
+====
+
+After the grace period elapses, check ... TBC
