@@ -1,5 +1,5 @@
-= Confirm safe management of long-term leaves and former employees
-:page-nav-title: Manage inactive employees
+= Handle long-term leaves and former employees safely
+:page-nav-title: Inactive employee accounts
 :page-display-order: 530
 :page-toc: top
 :experimental:
@@ -105,19 +105,52 @@ When you are on the user profile screen, it is not enough to refresh the page to
 You need to go [.nowrap]#icon:arrow-left[] btn:[Back]# to the user list, and open the user profile again.
 ====
 
-=== Verify the delayed delete trigger
+=== Check the delayed delete trigger
 
-Once the trigger is in place, you can go to the user's profile in midPoint, click *Projections*, select the LDAP resource, and see the timer when you hover your mouse over the account icon.
+The delayed delete activation rule places a trigger on accounts that are to be deleted instead of having them deleted right away.
+In laymen terms, the trigger says, for instance, "delete this AD account on 2025-11-23 07:57:19".
 
-If you are on the Docker images prepared for this guide, you can check accounts with triggers on the *AD account notices* dashboard:
+To act upon triggers, there is the trigger scanner task which periodically scans objects with triggers.
+Once it discovers an object with a trigger the time of which is in the past, it performs the action specified in the trigger.
+For a trigger to be fired, its time stamp must be in the past.
+That means triggers are never fired earlier than at the time specified by their time stamp.
+On the other side, the action may be delayed depending on the schedule of the trigger scanner task.
 
-. Under [.nowrap]#icon:tachometr-alt[] *Dashboards*#, select *AD account notices*.
+By default, the trigger scanner task is scheduled to run every 5 minutes.
+In the Docker image prepared for this guide, it is set to 1 minute.
+You can check and change the schedule in [.nowrap]#icon:tasks[] *Server tasks*# > [.nowrap]#icon:save[] *System tasks*# > Trigger scanner > [.nowrap]#icon:calendar[] *Schedule*#.
+You can also use the [.nowrap]#icon:play[] btn:[Run now]# button there if you do not want to wait for the next scheduled run.
+// TODO: We're missing an article on triggers and trigger scanners @dakle 2025-11-23
+
+.Trigger scanner schedule configuration screen
+image::trigger-scaner-task-edit-schedule.webp["Trigger scanner schedule configuration screen"]
 
 [TIP]
 ====
 The trigger is stored in the midPoint xref:/midpoint/architecture/concepts/shadow/[shadow object] corresponding to the resource account.
 It is not stored in the user's focal object nor in the actual account on the remote resource.
 ====
+
+Once the trigger is in place:
+
+. Go to the user's profile in midPoint
+. Click *Projections*
+. Select the LDAP resource
+. Hover your mouse over the account icon to see the timer.
+
+.The AD account for user Martin Knight pending delete
+image::midpoint-knight-ldap-projection-pending-delete.webp["The AD account for user Martin Knight is pending deletion"]
+
+If you are on the Docker images prepared for this guide, you can check accounts with triggers using the *AD account notices dashboard*:
+
+. Under [.nowrap]#icon:tachometr-alt[] *Dashboards*#, select *AD account notices*.
+. Click [.nowrap]#*More info* icon:arrow-circle-right[]# on the *Users with accounts with triggers* tile to list *users* with triggers on any of their accounts.
+. Click [.nowrap]#*More info* icon:arrow-circle-right[]# on the *Accounts with triggers* tile to list *accounts* with triggers.
+. Click [.nowrap]#*More info* icon:arrow-circle-right[]# on the *Users without AD accounts* to list users without an AD account.
+    ** This number will grow by one once the grace period for Martin Knight's AD account expires.
+
+.AD notices dashboard showing one account is pending delete
+image::midpoint-dashboard-ad-notices-one-pending-delete.webp["AD notices dashboard showing one account is pending delete"]
 
 .If you have renamed your AD/LDAP resource…
 [NOTE]
@@ -150,4 +183,26 @@ Should that be your case, either rename your AD resource to `AD`, or adjust the 
 Refer to xref:/midpoint/reference/admin-gui/dashboards/[] to learn more about dashboards.
 ====
 
-After the grace period elapses, check ... TBC
+=== Confirm the AD account has been deleted
+
+After the grace period elapses, midPoint deletes the AD account projection for the user Martin Knight who is no longer entitled to have one because he left the company.
+For the account to be _actually_ deleted on the resource, the recurring HRIS reconciliation task must run as well.
+
+To verify the AD account has been deleted, check *Projections* for user _knight_ in midPoint.
+He should have only the one to the HRIS; the AD projection should be deleted.
+
+.User Martin Knight's projections contain only the HRIS now
+image::midpoint-knight-ldap-projections-only-hris.webp["User Martin Knight's projections contain only the HRIS now"]
+
+You can also use the *AD account notices* dashboard—the *Users without AD accounts* tile should now show one more account than before.
+
+The user _knight_ remains in midPoint because in the setup we use in this guide, we keep track of all users who have ever been part of the company,
+similarly to how a university keeps track of all students who have ever enrolled at the university.
+
+Finally, you can also check the AD/LDAP server to verify the account is not there.
+
+:sectnums!:
+
+== Next steps
+
+In the next module, you will test how the exiting configuration copes with adding a new outbound mapping to the target resource.
