@@ -1,0 +1,73 @@
+= Override malicious user status
+:page-nav-title: Override user status
+:page-display-order: 610
+:experimental:
+:icons: font
+
+The first task in the series of overriding source data is to force-disable a user's account regardless of the user's status in the source HRIS resource.
+The goal is to prevent the user from accessing target systems—in the case of this guide, the Active Directory.
+
+== What awaits you in this module
+
+. Pick an active user, i.e., a user whose `status` in the HRIS equals to `In`.
+. Find the user in midPoint and set the *administrative status* for the user to _Disabled_.
+. Verify the effect of you action on the user's AD account.
+
+== About administrative status
+
+The xref:/midpoint/reference/concepts/activation/#administrative-status[administrative status] defines an explicit decision of midPoint administrator about the status of a user.
+As such, it overrides all other constraints on activation, including the lifecycle status we use in this guide to determine who is eligible to an AD account.
+For this reason, the administrative status is the go to property for ad-hoc disabling a user because it does not get overwritten by any mapping like the xref:/midpoint/methodology/first-steps/connect-source-system/define-mapping-and-synchronization-rules/#map-user-data[lifecycle status would] in our case.
+
+.Effective status vs. administrative status
+[TIP]
+====
+xref:/midpoint/reference/concepts/activation/#effective-status[ Effective status ] is a virtual status, a computed combination of all constraints on an object activation.
+It cannot be set directly, it depends on the `validFrom` and `validTo` attributes, the lifecycle status, or administrative status.
+If any of the constraints affecting the effective status says the account should be disabled, including setting the administrative status to _Disabled_, the effective status changes to _Disabled_.
+That is what you see in the GUI at top of the user profile.
+The administrative status is, under normal circumstances, _Undefined_, meaning it does not affect the effective status anyhow.
+====
+
+:sectnums:
+
+== Set administrative status for a user
+
+For this exercise, let us say that the contract termination specialist Ashley Jackson is the user you need to disarm immediately.
+
+. In [.nowrap]#icon:user[] *Users*# > [.nowrap]#icon:user[] *Personas*#, open _Ashley Jackson_ (user _ajackson_) for editing.
+. Select [.nowrap]#icon:recycle[] *Activation*# on the left.
+. Click *Show empty fields* if you do not see any fields to edit.
+    ** By default, the administrative status is _Undefined_ because that means "no override". See the note on computing the effective status above.
+. In *Administrative status*, select _Disabled_.
+. Click [.nowrap]#icon:save[] btn:[Save]#.
+
+.Set administrative status for Ashley Jackson
+image::midpoint-user-set-administrative-status-to-disabled.webp["Set administrative status for Ashley Jackson"]
+
+The effect of this action is immediate.
+Changing the administrative status of a user triggers update according to the policies and rules you have set all across the ecosystem, meaning the update propagates to the AD server without having to wait for the next scheduled reconciliation.
+
+== Verify the effect of administrative status change
+
+To confirm the effect of you setting the administrative status, click the [.nowrap]#icon:magnifying-glass-chart[] *Audit Log Viewer*# to head over to the audit log, and see the three related events there (request, resource, execution).
+
+.Changing the administrative status to Disabled triggers disabling the user on the target AD resource
+image::midpoint-audit-log-administrative-status-change-triggers-ldap-attribute-provisioning.webp["Changing the administrative status to Disabled triggers disabling the user on the target AD resource"]
+
+Click the time stamp on the *Resource* entry in the audit log to see the exact change your action caused:
+
+.The mapping rules in effect translate effective status _Disabled_ to the `roomNumber` resource attribute value `disabled`
+image::midpoint-audit-log-administrative-status-change-triggers-ldap-attribute-provisioning-detail.webp["The mapping rules in effect translate effective status Disabled to the roomNumber resource attribute Disabled"]
+
+You can check directly on the AD resource that your change of the administrative status provisioned Ashley Jackson the `disabled` value into the `roomNumber` attribute, effectively barring her from the AD resource.
+
+.The attribute `roomNumber` with the value `disabled` has been provisioned to the AD account of the user disabled by the administrative status
+image::ldap-account-disabled-attribute-roomnumber.webp["Attribute roomNumber with the value disabled has been provisioned to the account of the user disabled by the administrative status"]
+
+:sectnums!:
+
+== How to revert the changes made by administrative status
+
+Should you need to enable the user and take all the disabling action back, change the *Administrative status* attribute back to _Undefined_.
+The effective status then gets calculated based on all "usual" policies and rules and if the gets back to the state they were in before.
