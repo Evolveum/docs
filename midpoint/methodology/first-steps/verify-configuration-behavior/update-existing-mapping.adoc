@@ -5,25 +5,27 @@
 :experimental:
 :icons: font
 
-In this module, you will see that even mappings used in production can be safely updated, tested using simulations, and then re-deployed to production in the updated form.
+In this module, you will see that mappings used in production can be safely updated, tested using simulations, and then re-deployed to production without any downtime.
 
 == What awaits you in this module
 
 In the previous module, you have newly imported the `job` attributed from the HRIS and provisioned it to the AD resource.
-The issue with the values from HRIS is that beside the actual position name, they contain an ugly internal codes, like `124#CEO`.
-Your goal in this module is to remove the codes and fill the midPoint and AD `title` attributes with clean values, such as `CEO`.
+The issue with the values from HRIS is that beside the actual position name, they contain ugly internal codes, like `124#CEO`.
+Your goal in this module is to remove the codes and populate the `title` attribute in midPoint and AD with clean values, such as `CEO`.
 
-The trick to learn here is that you need to keep the old configuration in production during the testing up until the point when you are ready to seamlessly replace it on produciton with the new configuration.
+The trick to learn here is how to make such a configuration update without causing any downtime.
+You need to keep the old configuration in production during the testing until you are ready to seamlessly replace it with the new configuration.
+For this to work, you will use two new lifecycle states.
 
 Suggested reading: xref:/midpoint/reference/concepts/object-lifecycle/#relation-of-task-configurations-and-lifecycle-states[Relation of task configurations and lifecycle states]
 
-:sectnums
+:sectnums:
 
 == How to ensure continuity using lifecycle states
 
-While it is true that you already have an inbound mapping in the HRIS for the `job` attribute, you cannot simply update it.
-You would either forfeited the option to test the new configuration using simulations (because the mapping is _active_, i.e., on production),
-or you would put it back to the _Proposed_ lifecycle state, which would mean it would not be available on production during the testing phase.
+While it is true that you already have an inbound mapping in the HRIS resource for the `job` attribute, you cannot simply update it.
+By doing that, you would forfeit the option to test the new configuration using simulations because the mapping is _active_, i.e., on production.
+Alternatively, you could move the mapping to the _Proposed_ lifecycle state, but that would mean putting it out of production during the testing phase, i.e., downtime.
 
 To ensure the continuity without interruption, you need to keep the old mapping on production and create a new mapping to test with.
 Once the testing is over, you will swap them using the appropriate lifecycle phases:
@@ -39,11 +41,11 @@ Let us adjust the inbound mappings for the HRIS resource.
 
 === Deprecate the old mapping
 
-Firstly, put the old inbound production mapping on HRIS to the _Deprecated_ lifecycle state.
+Firstly, put the old inbound production mapping to the _Deprecated_ lifecycle state.
 This is a purely semantic change but it is useful because it makes it clear that it is intended to go away sooner or later.
 It is important to know that while _deprecated_, the configuration object is *still used on production*.
 
-.Deprecated mapping is still used on production
+.Deprecated HRIS mapping is still used on production
 [cols="5*", options="header"]
 |================================================================================
 | Name         | From resource attribute | Expression | Target  | Lifecycle state
@@ -55,7 +57,7 @@ It is important to know that while _deprecated_, the configuration object is *st
 Secondly, create a new inbound HRIS mapping in the _Proposed_ lifecycle state.
 You do not want to put it to production yet, you need to test it first—hence, _propose_ it before you _activate_ it.
 
-.New mapping first needs to be tested. See below for the script.
+.New HRIS mapping first needs to be tested. See below for the script.
 [cols="5*", options="header"]
 |=====================================================================================
 | Name              | From resource attribute | Expression | Target  | Lifecycle state
@@ -79,38 +81,27 @@ if (input == null || input.indexOf(separator) == -1) { <1>
 <1> If the input string is `null`, empty, or cannot be split by the separator, return the string unchanged.
 <2> Split the string by the hash character (set in the `separator` variable) and return the second part of the string.
 
-[TIP]
-====
-The script parses the value using '#' character and returns the second item.
-For `123#CEO`, it returns `CEO`.
-To be on the safe side, it takes care of anomalies as well:
-
-* `CEO`: returns `CEO`
-* empty string: returns empty string
-* `null`: returns `null`
-====
-
 .HRIS inbound mappings with the old job-to-title mapping deprecated and the new job-to-title-nice mapping proposed
 image::hris-inbound-mapping-job-to-title-deprecated-job-to-title-nice-proposed.webp.webp["HRIS inbound mappings with the old job-to-title mapping deprecated and the new job-to-title-nice mapping proposed"]
 
 [TIP]
 ====
-You do not need to change the outbound mapping to AD because it will use the new value corrected in midPoint by the HRIS inbound mapping.
+You do not need to change the outbound mapping to the AD resource because it will use the new value produced by the HRIS inbound mapping.
 ====
 
-== Test the new mapping behavior
+== Test the new mapping
 
 With the new _proposed_ configuration ready, it is time to test it.
 
-. In the HRIS resource, run the simulated development import task you have prepared there already.
+. In the HRIS resource, run the simulated development reconciliation task you have prepared there from previous modules.
 . After the task finishes, click btn:[Show simulation result].
-. In the *Resource object affected* tile, you should see changes to all users mapped from HRIS to midPoint.
+. In the *Resource object affected* tile, you should see changes to all users mapped from the HRIS to midPoint.
     Click [.nowrap]#*More info* icon:arrow-circle-right[]#, open an item in the list, and inspect the changes made to the item.
 
 [NOTE]
 ====
-Simulated development task evaluates all _active_ and _proposed_ configuration items, but makes no permanent to the data.
-At the same time, the real scheduled reconciliation task executes all _active_ and _deprecated_ configuration items,
+Simulated development task evaluates all _active_ and _proposed_ configuration items, but makes no permanent changes to the data.
+At the same time, the scheduled production reconciliation task executes all _active_ and _deprecated_ configuration items,
 so the old configuration is still in production.
 ====
 
@@ -123,8 +114,8 @@ Currently, your production HRIS reconciliation task (the recurring one) uses the
 To seamlessly move production from the old deprecated configuration to the new proposed one, _archive_ the _deprecated_ mapping and _activate_ the _proposed_ mapping.
 
 . In the HRIS resource, open inbound mapping configuration.
-. Set the lifecycle state of the _job-to-title_ mapping to _Archived_.
-. Set the lifecycle state of the _job-to-title-nice_ mapping to _Active_.
+. Set the _job-to-title_ mapping lifecycle state to _Archived_.
+. Set the _job-to-title-nice_ mapping lifecycle state to _Active_.
 . Wait for the recurring HRIS reconciliation task to pick up the changes and provision the nicer job titles to all accounts on LDAP.
 
 .HRIS inbound mappings with the old job-to-title mapping archived and the new job-to-title-nice mapping active
@@ -132,7 +123,7 @@ image::hris-inbound-mapping-job-to-title-archived-job-to-title-nice-active.webp.
 
 == Verify the results on AD
 
-Once the recurring HRIS reconciliation task processes the change, have a look at the AD projections in user profiles in midPoint to see the new prettified job titles are there.
+Once the recurring HRIS reconciliation task processes the change, have a look at the AD projections in user profiles in midPoint to see the new prettified job titles there.
 
 .Improved job title format shown in AD projection in midPoint
 image::midpoint-ldap-projection-job-title-nicer.webp["Improved job title format shown in AD projection in midPoint"]
@@ -150,5 +141,5 @@ The mapping in the _Archived_ lifecycle state can eventually be removed.
 
 == Next steps
 
-This module concludes the section of the First steps guide dedicated to confirmation the functionality and resilience of the setup you have created.
-Up next is the last section fo this guide, dedicated to overriding wrong source data.
+This module concludes this section of the First steps guide dedicated to confirming the functionality and resilience of the setup you have created.
+Up next is the last section of this guide: overriding wrong source data.
