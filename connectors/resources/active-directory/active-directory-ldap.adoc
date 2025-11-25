@@ -1,5 +1,5 @@
-= Active Directory with LDAP connector
-:page-wiki-name: Active Directory with LDAP connector
+= Active Directory With LDAP Connector
+:page-wiki-name: Active Directory With LDAP Connector
 :page-wiki-id: 21528769
 :page-wiki-metadata-create-user: semancik
 :page-wiki-metadata-create-date: 2015-11-23T14:02:25.046+01:00
@@ -8,64 +8,54 @@
 :page-toc: top
 :page-upkeep-status: orange
 :page-upkeep-note: merge with "Active Directory HOWTO"?
+:page-description: This describes how to configure and use the Active Directory Connector (LDAP), including required permissions, limitations, and best practices.
+:page-keywords: LDAP, active directory connector
 
 // TODO: merge with "Active Directory HOWTO"?
+
+This describes how to configure and use the *Active Directory Connector (LDAP)*, including required permissions, limitations, and best practices.
 
 [%autowidth,cols="h,1"]
 |===
 | Status
-| Provisioning works well. Synchronization works well.
+| Both provisioning and synchronization work well.
 
 | Recommended connector
 | xref:../../connectors/com.evolveum.polygon.connector.ldap.ad.AdLdapConnector/[]
 |===
 
 
-== Resource Configuration
+== Resource configuration
 
-(Remote connector server is not needed for this connector)
+No remote connector server is needed for this connector.
 
 
-=== Administrative Account for Provisioning/Synchronization
+=== Administrative account for provisioning and synchronization
 
-We have successfully tested both provisioning and synchronization of users with the following access privileges using Active Directory domain "Delegate Control" mechanism:
+To support provisioning and synchronization of users:
 
-* Create, delete and manage user accounts
+. In the Active Directory domain "Delegate Control" mechanism, assign the following privileges to the midPoint administrative account:
 
-* Reset user passwords and force password change at next logon
-
-* Read all user information
-
-* Create, delete and manage groups
-
-* Modify the membership of a group
-
-* Create, delete and manage inetOrgPerson accounts (TODO: is this needed?)
-
-* Reset inetOrgPerson accounts and force password change at next logon (TODO: is this needed?)
-
-* Read all inetOrgPerson information
-
-* Create, delete and manage managed service accounts (MSA)
-
+    ** Create, delete and manage user accounts
+    ** Reset user passwords and force password change at next logon
+    ** Read all user information
+    ** Create, delete and manage groups
+    ** Modify the membership of a group
+    ** Create, delete and manage managed service accounts (MSA)
++
 [NOTE]
-In the new versions of windows the option *Create, delete and manage groups* disappear from the list to select.
-Without this permission the proper provision is not possible.
-The successful tests has been reached with the *Domain admin* membership for the account used by the midpoint to access the AD.
+If you are using a newer version of Windows where the *Create, delete and manage groups* option is not available, make the midPoint account that accesses AD a member of the *Domain admin* group.
 
-.Powershell command to add the account *midpoint* to Domain admin group
+. Add the midPoint account to the Domain admin group using the following Powershell command:
++
 [source,powershell]
 ----
 Add-ADGroupMember -Identity 'CN=Domain Admins,CN=Users,DC=ad2019,DC=lab,DC=evolveum,DC=com' -Members 'CN=MidPoint,CN=Users,DC=ad2019,DC=lab,DC=evolveum,DC=com'
 ----
 
-For LiveSync, you also need "Replicating Directory Changes" (DS-Replication-Get-Changes) permission (please refer to link:https://support.microsoft.com/en-us/help/303972[https://support.microsoft.com/en-us/help/303972] and link:https://support.microsoft.com/en-ae/help/891995/how-to-poll-for-object-attribute-changes-in-active-directory-on-window[https://support.microsoft.com/en-ae/help/891995/how-to-poll-for-object-attribute-changes-in-active-directory-on-window]).
-
-[NOTE]
-All the permissions in AD have own GUID which is unique ID used for the assignment.
-In case of DS-Replication-Get-Changes permission it is 1131f6aa-9c07-11d1-f79f-00c04fc2dcd2 (https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-adts/1522b774-6464-41a3-87a5-1e5633c3fbbb).
-
-.Powershell command to assign *DS-Replication-Get-Changes* permission
+. For LiveSync, make sure you have the "Replicating Directory Changes" (DS-Replication-Get-Changes) permission.
+Assign it by using the following Powershell command:
++
 [source,powershell]
 ----
 #############
@@ -85,9 +75,16 @@ $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
 $acl.AddAccessRule($ace)
 Set-Acl -Path $path -AclObject $acl
 ----
++
+See link:https://support.microsoft.com/en-us/help/303972[https://support.microsoft.com/en-us/help/303972] and link:https://support.microsoft.com/en-ae/help/891995/how-to-poll-for-object-attribute-changes-in-active-directory-on-window[https://support.microsoft.com/en-ae/help/891995/how-to-poll-for-object-attribute-changes-in-active-directory-on-window]).
++
+[NOTE]
+Each permission in AD has its own GUID.
+This unique ID is used for assignments.
+In case of the DS-Replication-Get-Changes permission, it is `1131f6aa-9c07-11d1-f79f-00c04fc2dcd2` (https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-adts/1522b774-6464-41a3-87a5-1e5633c3fbbb).
 
 
-== Recommended Connector
+== Recommended connector
 
 *Framework:* ConnId +
 *Bundle:* com.evolveum.polygon.connector-ldap +
@@ -95,30 +92,30 @@ Set-Acl -Path $path -AclObject $acl
 *Connector:* com.evolveum.polygon.connector.ldap.ad.AdLdapConnector
 
 
-== Connector Configuration
+== Connector configuration
 
-(currently, no published documentation)
+Currently, there is no published documentation.
 
 [NOTE]
-.Active Directory LDAP Strangeness
+.Active Directory LDAP strangeness
 ====
-Active Directory in the default configuration is not really LDAPv3-compliant server.
-It has many quirks, extensions, modification and twists the LDAP standard almost beyond recognition.
-The LDAP connector was modified to survive this brutal "intepretation" of the LDAP specifications.
-However, there are many things that needs to be taken into account when configuring AD resource:
+Active Directory in the default configuration is not really an LDAPv3-compliant server.
+It has many quirks, extensions, modifications, and it twists the LDAP standard almost beyond recognition.
+The LDAP connector was modified to survive this brutal "interpretation" of the LDAP specifications.
+However, there are many things that needs to be taken into account when configuring an AD resource:
 
-* `instanceType`, `nTSecurityDescriptor` and `objectCategory` are formally defined as mandatory attributes in the `top` object class (!!!). This means they are (formally) mandatory for all objects accessed using LDAP connection.
-But the reality is different.
+* `instanceType`, `nTSecurityDescriptor` and `objectCategory` are formally defined as mandatory attributes in the `top` object class. This means they are (formally) mandatory for all objects accessed using an LDAP connection. +
+However, the reality is different.
 It seems to be OK to create an object without these attributes.
-Therefore for a proper operation of midPoint we recommend to modify the schema using the `limitations` mechanism in midPoint xref:/midpoint/reference/resources/resource-configuration/schema-handling/[Resource Schema Handling] by setting `minOccurs=0`. (This is already done in the sample referenced below.)
+Therefore, for a proper operation of midPoint, we recommend to modify the schema using the `limitations` mechanism in the midPoint xref:/midpoint/reference/resources/resource-configuration/schema-handling/[Resource Schema Handling] by setting `minOccurs=0`. (This is already done in the sample referenced below.)
 
-* The objects can easily have attributes that are not defined in any object classes that they have.
-E.g. a normal user (the `user` object class) may have attribute `info`. If such extra attributes are used in your AD instance then the best way is to configure them as operational attributes in the connector configuration and define them explicitly in xref:/midpoint/reference/resources/resource-configuration/schema-handling/[Resource Schema Handling] (see bug:MID-3379[]).
+* Objects can easily have attributes that are not defined in any object classes that they have.
+E.g., a normal user (the `user` object class) may have an `info` attribute. If such extra attributes are used in your AD instance, then the best way is to configure them as operational attributes in the connector configuration and define them explicitly in the xref:/midpoint/reference/resources/resource-configuration/schema-handling/[Resource Schema Handling] (see bug:MID-3379[]).
 ====
 
-=== Resource Configuration Example
+=== Resource configuration examples
 
-[source,xml]
+[source,MidPoint 4.8 and lower]
 ----
 <connectorConfiguration xmlns:icfc="http://midpoint.evolveum.com/xml/ns/public/connector/icf-1/connector-schema-3">
         <icfc:configurationProperties xmlns:icfcldap="http://midpoint.evolveum.com/xml/ns/public/connector/icf-1/bundle/com.evolveum.polygon.connector-ldap/com.evolveum.polygon.connector.ldap.ad.AdLdapConnector">
@@ -140,34 +137,54 @@ E.g. a normal user (the `user` object class) may have attribute `info`. If such 
 
 ----
 
+[source,MidPoint 4.9 and higher]
+----
+    <connectorConfiguration xmlns:icfc="http://midpoint.evolveum.com/xml/ns/public/connector/icf-1/connector-schema-3">
+        <icfc:configurationProperties xmlns:icfcldap="http://midpoint.evolveum.com/xml/ns/public/connector/icf-1/bundle/com.evolveum.polygon.connector-ldap/com.evolveum.polygon.connector.ldap.ad.AdLdapConnector">
+            <icfcldap:host>medusa.lab.evolveum.com</icfcldap:host>
+            <icfcldap:port>636</icfcldap:port>
+            <icfcldap:baseContext>DC=win,DC=evolveum,DC=com</icfcldap:baseContext>
+            <icfcldap:bindDn>CN=midpoint admin1,CN=Users,DC=win,DC=evolveum,DC=com</icfcldap:bindDn>
+            <icfcldap:connectionSecurity>ssl</icfcldap:connectionSecurity>
+            <icfcldap:bindPassword>
+                <t:clearValue>secret</t:clearValue>
+            </icfcldap:bindPassword>
+            <icfcldap:pagingBlockSize>5</icfcldap:pagingBlockSize> <!-- ridiculously small, just to test paging -->
+            <icfcldap:managedAssociationPairs>"user"+memberOf -# "group"+member</icfcldap:managedAssociationPairs>
+            <icfcldap:managedAssociationPairs>"group"+ memberOf -# "group"+ member</icfcldap:managedAssociationPairs>
+        </icfc:configurationProperties>
+    </connectorConfiguration>
+----
 
-=== Resource Sample
+See full resource samples for midPoint 4.8 and lower:
 
-link:https://github.com/Evolveum/midpoint-samples/blob/master/samples/resources/ad-ldap/ad-ldap-medusa-medium.xml[See resource sample],
-link:https://github.com/Evolveum/midpoint-samples/blob/master/samples/resources/ad-ldap/AD%20advanced/resources/ADfirststep.xml[advanced example], or
-link:https://github.com/Evolveum/midpoint-samples/blob/master/samples/resources/ad-ldap/ad-ldap-medusa-native-references.xml[sample with native references].
+* link:https://github.com/Evolveum/midpoint-samples/blob/master/samples/resources/ad-ldap/ad-ldap-medusa-medium.xml[Resource sample]
+* link:https://github.com/Evolveum/midpoint-samples/blob/master/samples/resources/ad-ldap/AD%20advanced/resources/ADfirststep.xml[Advanced resource sample]
+
+See a full resource sample for midPoint 4.9 and higher:
+
+* link:https://github.com/Evolveum/midpoint-samples/blob/master/samples/resources/ad-ldap/ad-ldap-medusa-native-references.xml[Sample with native references].
 
 === Limitations
 
-* Active Directory LDAP schema is violating LDAP standards and best practices in numerous ways.
-The connector is build to tolerate these "quirks" in the AD schema.
-However the underlying LDAP library may complain about the schema issues.
-It is usually safe to ignore these warnings.
+Active Directory LDAP schema violates LDAP standards and best practices in a number of ways.
+The connector is built to tolerate these "quirks" in the AD schema.
+The underlying LDAP library may complain about the schema issues, however, it is usually safe to ignore these warnings.
 
 
-== Recommendation and Notes
+== Best practices
 
 === Passwords
 
-To avoid clear-text password visible in the repository, please refer to xref:/midpoint/reference/resources/resource-configuration/string-to-protectedstring-connector-configuration/[String to ProtectedString Connector Configuration].
+To avoid plain text passwords visible in the repository, refer to xref:/midpoint/reference/resources/resource-configuration/string-to-protectedstring-connector-configuration/[String to ProtectedString Connector Configuration].
 
-=== Full Active Directory Schema
+=== Full Active Directory schema
 
-Active Directory has huge schema.
-The schema when encoded in XSD has several megabytes.
-This might take several hundreds of megabytes of memory when processed.
+Active Directory has a huge schema.
+When encoded in XSD, the schema has several megabytes.
+This might require several hundreds of megabytes of memory when processed.
 Make sure that your midpoint instance has enough memory (heap) to handle that.
-The impact of AD schema can be limited by reducing the number of object classes that are processed by midPoint:
+The impact of the AD schema can be limited by reducing the number of object classes that are processed by midPoint:
 
 [source]
 ----
@@ -180,16 +197,16 @@ The impact of AD schema can be limited by reducing the number of object classes 
     </schema>
 ----
 
-See also bug:MID-2716[]
+See bug:MID-2716[]
 
-=== Explicit Referential Integrity
+=== Explicit referential integrity
 
-We recommend turning off explicitReferentialIntegrity for associations with groups.
-Active Directory will maintain the group membership after account rename automatically.
+We recommend turning off `explicitReferentialIntegrity` for associations with groups.
+Active Directory will maintain the group membership after renaming accounts automatically.
 
 Example:
 
-[source,xml]
+[source,MidPoint 4.8 and lower]
 ----
 ...
 <association>
@@ -207,15 +224,99 @@ Example:
 ...
 ----
 
-=== National Characters
+[source,MidPoint 4.9 and higher]
+----
+        <associationType>
+            <name>membership</name>
+            <subject>
+                <objectType>
+                    <kind>account</kind>
+                    <intent>default</intent>
+                </objectType>
+                <association>
+                    <ref>ri:group</ref>
+                    <sourceAttributeRef>ri:group</sourceAttributeRef> <!-- this is the default (the same as "ref") -->
+                    <outbound>
+                        <name>group-outbound</name>
+                        <documentation>
+                            Creates an association value from each role that has appropriate projection (to entitlement/group).
+                        </documentation>
+                        <expression>
+                            <associationConstruction>
+                                <objectRef>
+                                    <mapping>
+                                        <expression>
+                                            <associationFromLink/>
+                                        </expression>
+                                    </mapping>
+                                </objectRef>
+                            </associationConstruction>
+                        </expression>
+                    </outbound>
+                    <inbound>
+                        <name>group-inbound</name>
+                        <documentation>
+                            Creates an assignment from each association value (a group) that has appropriate owner (a role);
+                            except for situations where related assignment exists, or where an indirect assignment of the group
+                            exists.
 
-Although LDAP protocol and data structures are designed to be safe for use with national characters,
-Active Directory obviously leaves a large room for improvement in this area.
-For example, although LDAP specification states that DNs using different national characters should be considered different identifiers, Active Directory might consider them to be the same (see bug:MID-7355[]).
+                            When the association value is removed, this mapping removes only those assignments that were created
+                            by it (in the past).
+                        </documentation>
+                        <expression>
+                            <associationSynchronization>
+                                <objectRef>
+                                    <correlator/>
+                                    <mapping>
+                                        <expression>
+                                            <shadowOwnerReferenceSearch/>
+                                        </expression>
+                                        <target>
+                                            <path>targetRef</path>
+                                        </target>
+                                    </mapping>
+                                </objectRef>
+                                <synchronization>
+                                    <reaction>
+                                        <situation>unmatched</situation>
+                                        <actions>
+                                            <addFocusValue/>
+                                        </actions>
+                                    </reaction>
+                                    <reaction>
+                                        <situation>matched</situation>
+                                        <actions>
+                                            <synchronize/>
+                                        </actions>
+                                    </reaction>
+                                    <reaction>
+                                        <situation>matchedIndirectly</situation>
+                                        <!-- no actions here -->
+                                    </reaction>
+                                </synchronization>
+                            </associationSynchronization>
+                        </expression>
+                    </inbound>
+                    <tolerant>true</tolerant>
+                </association>
+            </subject>
+            <object>
+                <objectType>
+                    <kind>entitlement</kind>
+                    <intent>group</intent>
+                </objectType>
+            </object>
+        </associationType>
+----
 
-Therefore, we *strongly recommend* to avoid use of national characters in Active Directory, especially in the identifiers (`dn` and hence also `cn`).
-MidPoint xref:/midpoint/reference/concepts/polystring/[polystring] functionality is designed especially for this purpose.
-Following mapping may help create identifier without national characters:
+=== National characters
+
+Although the LDAP protocol and data structures are designed to be safe for use with national characters, Active Directory leaves room for improvement in this area.
+For example, although the LDAP specification states that DNs using different national characters should be considered different identifiers, Active Directory might consider them to be the same (see bug:MID-7355[]).
+
+Therefore, we *strongly recommend to avoid* using national characters in Active Directory, especially in identifiers (`dn`, `cn`).
+The midPoint xref:/midpoint/reference/concepts/polystring/[PolyString] functionality is designed specifically for this purpose.
+The following mapping may help create identifiers without national characters:
 
 [source,xml]
 ----
@@ -239,14 +340,15 @@ Following mapping may help create identifier without national characters:
 </attribute>
 ----
 
-An equivalent mapping would be probably needed for `cn` attribute as well.
+You may need an equivalent mapping for the `cn` attribute as well.
 
 === Increase maxObjects limit
-By default, connector configuration maxObjects has preconfigured value of 10.
-We recommend to increase this value for production deployment where heavy loads are expected to ensure that all objects will be correctly processed by midPoint, otherwise you could exceed limitation.
-Also, this configuration can be useful in case that there are big groups, such asActive directory Domain users group contain all domain users.
-In such a case operations with such groups can take a long time.
-Increasing number of connectors in pool makes more connector instances available for other operations.
+By default, the `maxObject` option in the connector configuration is set to 10.
+We recommend to increase this value for production deployments where heavy loads are expected to ensure that all objects are correctly processed by midPoint.
+
+This configuration can also be useful with large groups.
+For example, the Active directory Domain users group contains all domain users and operations on that group can require more time.
+Increasing the number of connectors in the pool makes more connector instances available for other operations.
 
 [source,xml]
 ----
@@ -258,7 +360,7 @@ Increasing number of connectors in pool makes more connector instances available
     </connectorConfiguration>
 ----
 
-== See Also
+== See also
 
 * xref:/connectors/connectors/com.evolveum.polygon.connector.ldap.ad.AdLdapConnector/[Active Directory Connector (LDAP)]
 
@@ -270,11 +372,4 @@ Increasing number of connectors in pool makes more connector instances available
 
 * xref:/midpoint/devel/design/ad-connector-design-notes/[AD Connector Design Notes]
 
-
-== External links
-
-* What is link:https://evolveum.com/midpoint/[midPoint Open Source Identity & Access Management]
-
-* link:https://evolveum.com/[Evolveum] - Team of IAM professionals who developed midPoint
-
-* link:http://ldapwiki.com/wiki/WILL_NOT_PERFORM[WILL_NOT_PERFORM] - wiki page explaining a lot of error messages returned by Active Directory
+* link:https://ldapwiki.com/wiki/Wiki.jsp?page=WILL_NOT_PERFORM[WILL_NOT_PERFORM] - A wiki page explaining numerous error messages returned by Active Directory

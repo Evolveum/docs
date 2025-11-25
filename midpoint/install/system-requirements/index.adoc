@@ -8,12 +8,13 @@
 :page-wiki-metadata-modify-date: 2020-07-15T11:06:14.784+02:00
 :page-upkeep-status: green
 :page-toc: top
+:page-display-order: 10
 :page-description: Recommended system sizing and infrastructure configuration for midPoint deployment in various scenarios
 :page-keywords: system requirements, sizing, infrastructure, clustering
 
 This document describes system requirements for midPoint and its components.
 
-== Deployment Architecture
+== Deployment architecture
 
 A midPoint deployment consists of the following units:
 
@@ -37,7 +38,7 @@ You are expected to adjust the parameters based on your specific situation and I
 ====
 
 [[midpoint_server_sizing]]
-== MidPoint Server Sizing
+== MidPoint server sizing
 
 The midPoint server is the core component of any midPoint installation.
 It handles the majority of user interactions and data processing, making it particularly sensitive to CPU load and RAM size.
@@ -80,14 +81,41 @@ The table below summarizes the recommended resources for typical scenarios:
 | negligible
 | negligible
 | Custom sizing ^*^
-
-
 |===
+
 
 ^*^ Deployments with more than 100,000 users are supported in midPoint.
 However, due to the variability in large-scale environments, it is recommended to consult the specific hardware requirements with link:https://evolveum.com/services/consulting-services/[Evolveum Support].
 
-=== Number of MidPoint Server Instances
+
+=== JVM heap size
+
+The allocated memory should be higher than the maximum JVM heap.
+
+With `MaxRAMPercentage=70–80`, the JVM heap will be ~70–80% of the allocated memory limit while the remainder covers metaspace, direct buffers, JIT, and threads.
+
+Keep the maximum number of task threads less than or equal to the CPU limit.
+As a rule of thumb, start with concurrency ≈ number of CPU cores and adjust based on GC logs and throughput.
+Regarding the elevated memory consumption in your midPoint deployment, you can fine-tune the JVM by adding the following options to the environment. (Use JAVA_OPTS in midPoint containers. While JAVA_TOOL_OPTIONS also works, JAVA_OPTS is the documented knob.)
+
+[source,containers]
+----
+- name: JAVA_OPTS
+  value: >-
+    -XX:+UseG1GC
+    -XX:MaxRAMPercentage=80
+    -XX:InitialRAMPercentage=80
+    -XX:MaxMetaspaceSize=512m
+    -XX:MaxDirectMemorySize=256m
+----
+
+[source,bare instalation]
+----
+JAVA_OPTS="$JAVA_OPTS -XX:+UseG1GC -XX:MaxRAMPercentage=80 -XX:InitialRAMPercentage=80 -XX:MaxMetaspaceSize=512m -XX:MaxDirectMemorySize=256m"
+----
+
+
+=== Number of midPoint server instances
 
 The sizing table above assumes a single midPoint instance (node).
 Multi-node midPoint instances are usually deployed for high availability reasons, and they are usually two-node systems.
@@ -103,7 +131,7 @@ See also:
 * <<multi-node-deployment,Multi-node deployment system requirements>>
 
 [[database_system_sizing]]
-== Database System Sizing
+== Database system sizing
 
 // TODO reference native repo docs, when sizing is written for it:
 // xref:/midpoint/reference/repository/native-postgresql/postgresql-configuration/#db-server-sizing[]
@@ -163,17 +191,17 @@ You may also consider two separate databases for xref:/midpoint/reference/securi
 ====
 
 [[connector_servers_sizing]]
-== Connector Servers (Optional)
+== Connector server (optional)
 
-xref:/connectors/connid/1.x/connector-server/[Connector Servers] are small software components that act as a proxy for connectors that xref:/connectors/connid/1.x/connector-server/#why-use-a-connector-server[cannot run inside midPoint].
-Deployments of these components are quite rare.
+A xref:/connectors/connid/1.x/connector-server/[Connector Server] is a small software component that acts as a proxy for connectors that xref:/connectors/connid/1.x/connector-server/#why-use-a-connector-server[cannot run inside midPoint].
+Connector servers are rarely deployed.
 
 Resource requirements of connector servers are usually negligible:
 a tiny portion of CPU and RAM, and a disk space measured in megabytes.
 We strongly recommend deploying these components on shared servers.
 
 [[high-availability]]
-== Your Options for High Availability Deployment
+== Your options for high availability deployment
 
 There are several approaches to implement high availability (HA) for midPoint deployments.
 Each strategy has different characteristics and costs:
@@ -196,7 +224,7 @@ This is important to keep in mind when choosing the right HA strategy.
 ====
 
 [[virtualization-based-failover]]
-=== Virtualization-Based Strategy for Failover
+=== Virtualization-based strategy for failover
 
 The easiest way to implement a failover strategy is to leverage the underlying virtualization infrastructure.
 If the host machine running the midPoint virtual machine fails, it is easy to move the entire virtual machine to a different host.
@@ -208,11 +236,11 @@ You only need to set up backups at adequate frequency to minimize data loss in c
 The failover mechanism is completely transparent.
 MidPoint has internal mechanisms to recover from system outages which are utilized after midPoint restarts on a different machine.
 
-This approach does not achieve high availability per se because midPoint runs on a single node and if that node fails, midPoint goes down. 
+This approach does not achieve high availability per se because midPoint runs on a single node and if that node fails, midPoint goes down.
 However, it is a cost-efficient failover strategy to prevent a prolonged midPoint downtime, especially if midPoint and the database run on the same virtual machine.
 
 [[load_balanced_shared]]
-=== High Availability Through Multiple Nodes
+=== High availability through multiple nodes
 
 This approach relies on deploying multiple instances (nodes) of midPoint and using a standard HTTP load balancer at the HTTP layer (in the link:https://en.wikipedia.org/wiki/Load_balancing_(computing)#Persistence[sticky mode]).
 All midPoint nodes connect to the same database.
@@ -221,7 +249,7 @@ As <<shared-vs-dedicated-database,mentioned above>>, we always recommend using a
 
 Refer to the <<multi-node-deployment,section on multiple-node deployment>> for details.
 
-=== Database High Availability
+=== Database high availability
 
 MidPoint does not explicitly support repository-level clustering.
 Even in big deployments, the bottle neck is usually the amount of resources or the effective communication speed of the resources.
@@ -236,14 +264,14 @@ This is the most expensive set-up and it is seldom justifiable due to the cost o
 The usual compromise in this case is to use active-passive database HA strategies.
 Due to the low criticality of midPoint, this is usually acceptable from the operational point of view.
 
-== Software and Infrastructure Requirements
+== Software and infrastructure requirements
 
 When starting an IAM project, you must prepare not only the midPoint servers but also the database and load balancer (if required).
 You need access to the infrastructure where these servers are running, as well as to the source and target systems.
 
 Refer to the xref:/midpoint/release/[midPoint Releases] documentation for software requirements.
 
-=== Basic Single-Node Deployment
+=== Basic single-node deployment
 
 The following schema represents a basic deployment environment:
 
@@ -255,7 +283,7 @@ MidPoint runs on this virtual machine.
 It may also be a xref:/midpoint/install/containers/[Docker container with a midPoint image].
 The database repository preferably runs on a separate virtual machine, albeit possibly on the same physical server.
 
-==== Shared Database Repository
+==== Shared database repository
 
 For the database repository (DB), you can use an existing DB server or set up a new dedicated one.
 The midPoint server needs to have access to it using SQL via TCP/IP.
@@ -264,19 +292,19 @@ Do not forget to configure the firewalls to enable communication over the used p
 The database needs to be configured prior to midPoint installation so that the person who installs midPoint can configure the midPoint instance correctly.
 If you deploy in containers, see xref:/midpoint/install/containers/#deployment-schema[] for details.
 
-==== Notification System
+==== Notification system
 
 If e-mail notifications are needed, access to the SMTP server and an account with send privileges is required.
 If you need SMS notifications, you also need access to an SMS gateway and have the account privileges to send SMS.
 
-==== Secure Access to Your Deployment
+==== Secure access to your deployment
 
 If your setup requires access to your midPoint deployment over the public Internet, you need to secure the communication between end users' computers and the midPoint instance.
 Typically, HTTP communication encrypted using link:https://en.wikipedia.org/wiki/Transport_Layer_Security[TLS] is enough.
 A more heavyweight solution is to use a virtual private network (VPN) for everyone who needs to access midPoint.
 TLS encrypts the communication between users and midPoint server (or the load balancer before it), VPN provides a tunnel from the user's machine to midPoint (or the load balancer).
 
-==== Optional SSH Access to Nodes
+==== Optional SSH access to nodes
 
 You can set up an SSH access to your midPoint nodes.
 You can use it, for example, to access midPoint configuration files and logs or to troubleshoot your deployment.
@@ -292,14 +320,14 @@ With some resources, such as xref:/connectors/connectors/com.evolveum.polygon.co
 In certain cases, you may have to deploy a <<connector_servers_sizing,connector server>> to access some special resources.
 The list of options is endless and very much depends on what exactly you need to manage with midPoint.
 
-=== Multi-Node Deployment
+=== Multi-node deployment
 
 The situation gets a bit more complex when you deploy midPoint on two or more nodes:
 
 .Deployment of midPoint with two nodes, a load balancer, optional VPN, and a few example resources
 image::midpoint-environment-schema-HA-two-nodes.svg["MidPoint deployment schema with two midPoint nodes and their shared repository in the center; lines showing access routes to example source and target resources and user's computer. Load balancer and an optional VPN are placed between midPoint and the computer"]
 
-==== Work Distribution
+==== Work distribution
 
 In multi-node deployment, the job distribution among the nodes is handled centrally.
 
@@ -310,7 +338,7 @@ The available worker tasks are picked by the nodes on the first-come-first-serve
 
 Refer to xref:/midpoint/reference/tasks/task-manager/[] for details on task handling in midPoint.
 
-==== Communication Among Nodes
+==== Communication among nodes
 
 The nodes communicate primarily with the central repository database rather than among themselves.
 One exception is *cache invalidation*.
@@ -319,19 +347,19 @@ The *communication between nodes runs over HTTPS*.
 
 Refer to the xref:/midpoint/reference/deployment/clustering-ha/#intra-cluster-communication[article on high-availability deployment] for details about node communication.
 
-==== All Nodes Are Created Equal
+==== All nodes are created equal
 
 All nodes need to have the same configuration and access levels regardless of whether you deploy midPoint on 200 nodes or just one.
 There must be no differences because *all nodes are created equal*: when one node goes down, others need to replace it in full.
 
 You can check that connections to resources work as expected using `ping`, `telnet`, or `wget`, for instance.
 
-== Environment Requirements
+== Environment requirements
 
 Usually, at least two environments are typically used for the development of an IAM deployment: test and production.
 In many cases, there is also a local midPoint installation on the identity engineer's computer and a separate development environment in the customer's infrastructure.
 
-=== Keep the Environments as Similar as Possible
+=== Keep the environments as similar as possible
 
 The best practice is to use a configuration that is as similar as possible in all these environments.
 However, the environments should also be completely isolated so that the test environment cannot touch production data on a resource.
@@ -360,7 +388,7 @@ Every discrepancy and exception will surface in production, and you will need to
 That is why it is best to implement your IDM project when you are not doing acceptance testing, have problems in production, or face hard deadlines.
 ====
 
-== See Also
+== See also
 
 * xref:/midpoint/release/[midPoint Releases]
 
