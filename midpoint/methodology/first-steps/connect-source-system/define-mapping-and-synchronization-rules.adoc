@@ -8,17 +8,38 @@
 Before you can import any user accounts, you need to define user data handling rules,
 as well as specify synchronization rules on how to behave when users are discovered, updated, deleted, and so on.
 
-At this point, both the synchronization and mapping rules can be set as _Active_ because the whole resource is still in the _Proposed_ lifecycle state.
-You can consider lifecycle states as hierarchical.
-Refer to xref:/midpoint/reference/concepts/object-lifecycle/[] for more details about lifecycle states.
+== What awaits you in this module
+
+You are about to create two sets of rules telling midPoint how to manage the HRIS application data.
+Firstly, you need to define synchronization rules.
+
+Synchronization situation is what happens when midPoint correlates (synchronizes) its object repository with a remote resource, such as the HRIS.
+Newly discovered accounts not yet seen by midPoint are unmatched, accounts removed from the resource are deleted, etc.
+Read more on the topic:
+
+* xref:/midpoint/reference/synchronization/introduction/[]
+* xref:/midpoint/reference/synchronization/situations/[]
+
+Each synchronization situation can have some reaction from midPoint, such as linking a new xref:/midpoint/reference/schema/focus-and-projections/[focal object] to a discovered account.
+You are now about to define reactions to synchronization situations.
+
+Secondly, you will create mapping rules, telling midPoint which source attribute maps to which focal object attribute.
+Mapping rules are basically a mapping table telling midPoint which "external" (application resource) attribute (e.g., `surname`) corresponds to which "internal" (focus) attribute (e.g., `familyName`).
+
+See xref:/midpoint/features/current/mapping/[] to learn more about the topic.
+
+Lastly, you will configure midPoint so that it can only read from the HRIS application, not write to it.
+This is an additional data protection layer should you make a mistake when you deploy the configuration to production.
+
+:sectnums:
 
 == Set synchronization rules
 
-Firstly, let's tell midPoint what to do in what situation.
+Firstly, tell midPoint what to do in what synchronization situation.
 
-* Refer to this guide on creating synchronization rules: xref:/midpoint/reference/admin-gui/resource-wizard/object-type/synchronization/[]
+*Follow this configuration guide: xref:/midpoint/reference/admin-gui/resource-wizard/object-type/synchronization/[]*
 
-These are the rules to define at this stage of your project:
+Define these rules:
 
 [cols="2,1,1,1,4"]
 |====
@@ -28,14 +49,14 @@ These are the rules to define at this stage of your project:
 | Unmatched
 | Add focus
 | Active
-| The account from CSV doesn't exist in midPoint yet, so let's create the user in midPoint.
+| The account from CSV does not exist in midPoint yet, so create the user (focus) in midPoint.
 
 // technically not needed in clean MP but they need to add it later anyway so I'm putting it here already @dakle
 | link-unlinked
 | Unlinked
 | Link
 | Active
-| There's a focus for the account but it's not linked to the shadow of the account yet, let's link it. This isn't used during the first import, but it's necessary for later when the account shadows are in midPoint already.
+| There is a focus for the account but it is not linked to the shadow of the account yet, let us link it. This is not used during the first import, but it is necessary for later when the account shadows are in midPoint already.
 
 | synchronize-linked
 | Linked
@@ -47,21 +68,26 @@ These are the rules to define at this stage of your project:
 
 [TIP]
 ====
-See xref:/midpoint/features/current/synchronization/[] to learn about the topic in more depth.
+At this point, both the synchronization and mapping rules can be set as _Active_ because the whole resource is still in the _Proposed_ lifecycle state.
+You can consider lifecycle states as hierarchical.
+Refer to xref:/midpoint/reference/concepts/object-lifecycle/[] for more details about lifecycle states.
 ====
 
 == Map user data
 
-Secondly, you need to map various data in the user objects on the resource to user attributes in midPoint.
+Secondly, you need to map the resource-side account attributes to the attributes of user focal objects in midPoint.
 
-* Refer to this guide on creating mapping rules: xref:/midpoint/reference/admin-gui/resource-wizard/object-type/mapping/[].
+*Follow this configuration guide: xref:/midpoint/reference/admin-gui/resource-wizard/object-type/mapping/[]*
 
-* Use *inbound mappings* because you're pulling attributes _from_ the resource _to_ midPoint.
+Use *inbound mappings* because you are pulling attributes _from_ the HRIS application _to_ midPoint.
 
-See xref:/midpoint/features/current/mapping/[] to learn about the topic in more depth.
+Below are the rules to define.
 
-Below are the rules to define now.
-Your source attribute names may be different based on your source system attribute naming.
+[NOTE]
+====
+The resource-side attribute names (ie., Source) match those used in the xref:/midpoint/methodology/first-steps/connect-source-system/#playground-data-used-in-this-guide[MID-301 course training data].
+If you use your own systems, adjust the source names as needed.
+====
 
 .Mappings for HRIS accounts data manipulation
 [cols="2,1,1,1,1,5"]
@@ -73,42 +99,45 @@ Your source attribute names may be different based on your source system attribu
 | As is
 | `name`
 | Active
-| Name must be unique so the employee number is the best choice now. Later, you can generate unique usernames, for example.
+| The `name` attribute values must be unique, hence the employee number is the best choice now.
+    Later, you will generate unique usernames.
 
 | empnum-to-personalNumber
 | `empnum`
 | As is
 | `personalNumber`
 | Active
-| empnum is also important for employee identification so we map it to another dedicated parameter. It'll stay there even after you create unique usernames.
+| `empnum` is also important for employee identification, so we map it to a dedicated attribute. It will stay there even after you create unique usernames.
 
 | firstName-to-givenName
 | `firstName`
 | As is
 | `givenName`
 | Active
-| We'll construct a full name from first and last names.
+.2+<.^| First and last names are used to construct a full name.
 
 | surname-to-familyName
 | `surname`
 | As is
 | `familyName`
 | Active
-|
+
 
 | locality-to-locality
 | `locality`
 | As is
 | `locality`
 | Active
-| User location can be later used with the full name for a last-resort correlation.
+| User location will be later used with the full name for a last-resort correlation.
 
 | status-to-lifecycleState
 | `status`
 | Script
 | `lifecycleState`
 | Active
-| Find the script to use beneath the table.
+| Translate textual status to midPoint user lifecycle state.
+    Find the script to use beneath the table.
+    Click btn:[Show script] to edit the script.
 
 |====
 
@@ -147,11 +176,12 @@ You are correct, but the rationale behind this naming convention is that *mappin
 This approach helps to ensure that.
 
 As for spaces vs. dashes—you can use either, but dash signs are generally the saver option.
+Treat mapping names as filenames.
 ====
 
 == Make the resource read-only
 
-If you're dealing with a resource the data of which you don't want to change, it's best to adjust the xref:/midpoint/reference/resources/resource-configuration/capabilities/[configured capabilities] of the resource so that mistakes can't happen.
+If you are dealing with a resource the data of which you do not want to change, it is best to adjust the xref:/midpoint/reference/resources/resource-configuration/capabilities/[configured capabilities] of the resource so that mistakes cannot happen.
 
 . In your HR resource, go to icon:info[] *Details*.
 . Disable the *Create*, *Update*, and *Delete* capabilites.
@@ -161,4 +191,10 @@ If you're dealing with a resource the data of which you don't want to change, it
 
 image::../hris-resource-capabilities.webp[title="Resource capabilities screen with the Create, Update, and Delete capabilities highlighted and disabled as per the instructions above"]
 
-With this configuration finished, you are now ready for the next step: xref:/midpoint/methodology/first-steps/connect-source-system/import-accounts-from-hris/[]
+:sectnums!:
+
+== Next steps
+
+With this configuration finished, you are now ready to import users to midPoint.
+
+[.nowrap]#icon:arrow-right[] *xref:/midpoint/methodology/first-steps/connect-source-system/import-accounts-from-hris/[]*#
