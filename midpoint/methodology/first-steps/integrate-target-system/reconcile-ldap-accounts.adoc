@@ -1,30 +1,42 @@
-= Reconcile the LDAP accounts
-:page-nav-title: Reconcile the LDAP accounts
+= Reconcile the Active Directory accounts
+:page-nav-title: Reconcile AD accounts
 :page-display-order: 230
 :page-toc: top
 :experimental:
 :icons: font
+:page-description: Reconcile the Active Directory accounts with the data midPoint has from the HRIS to align AD with the HRIS.
 
-== Simulate LDAP reconciliation
+Reconcile the Active Directory accounts with the data midPoint has imported from HRIS to align AD accounts with their HRIS counterparts.
+Use marks to label accounts that cannot be processed automatically, and resolve correction cases created where midPoint could not determine the account owners reliably.
+
+== What awaits you in this module
+
+You will bring your AD as close the HRIS as possible.
+You will first simulate reconciliation to test your configuration and see how close the data you have in AD are to what your HRIS claims to be true.
+
+When you analyze the simulation results, you will use account marks to prevent midPoint from deleting some accounts, such as service accounts that have no counterpart in HRIS.
+
+Once all accounts are either marked or correlated, you will reconcile AD on production and resolve the correlation cases that arise when midPoint cannot match some HRIS and AD accounts with 100% certainty.
+
+You will not yet delete any orphaned accounts because you have not yet activated the synchronization rule for that.
+
+:sectnums:
+
+== Simulate AD reconciliation
 
 To test your configuration, run a simulated reconciliation task on the development environment.
 
-*Use this guide for xref:/midpoint/reference/tasks/synchronization-tasks/import-and-reconciliation/gui/[instructions on creating tasks].*
+*Follow this guide: xref:/midpoint/reference/tasks/synchronization-tasks/import-and-reconciliation/gui/[]*
 
-. In your LDAP target resource, create a *Reconciliation Task*.
-. Switch on the simulation toggle to first preview the changes and prevent any harm to your data.
-. Name the task, e.g., _Reconciliation with LDAP - development simulation_.
-. On the *Execution* screen, select the *preview mode* with *development configuration*.
+. In your AD target resource, create a *Reconciliation Task*.
+. Switch on the *simulation toggle*.
+. Name the task, e.g., _Reconcile AD - development simulation_.
+. On the *Execution* screen, select the _preview_ *mode* with the _development_ *configuration*.
 . After you configure and create the simulated reconciliation task,
 	run it and xref:/midpoint/reference/tasks/synchronization-tasks/import-and-reconciliation/gui/#read-simulation-results[inspect the simulation results] to see how your mapping and synchronization rules work.
 
-When reviewing the simulation results in icon:chart-line[] *Operational statistics*, you should get a result similar to the examples below.
+When reviewing the simulation results in icon:chart-line[] *Operational statistics*, you will see a result similar to the examples below.
 
-The content of the table depends on the data in your systems as well as your actual configuration and marks applied.
-When you run the reconciliation for the first time on the resource, the original state is always _No record_.
-
-The numbers you will see in the table depend on your actual data.
-In general, you should see most accounts linked at the synchronization end, some of them possibly disputed and unmatched, as below.
 
 .Synchronization situation transitions
 [cols="8*"]
@@ -35,65 +47,56 @@ In general, you should see most accounts linked at the synchronization end, some
 | No record       | Unmatched              | Unmatched            |                   | 5          | 0       | 0        | 7
 |====
 
-Should you run the task again without changing anything, the original state will match the synchronization start from the previous reconciliation.
-This only means that midPoint already knows about the accounts, so their original state is not _no record_.
-The numbers stay the same, though.
-
-.Synchronization situation transitions
-[cols="8*"]
-|====
-| Original state  | Synchronization start  | Synchronization end  | Exclusion reason  | Succeeded  | Failed  | Skipped  | Total
-| Unlinked        | Unlinked               | Linked               |                   | 47         | 0       | 0        | 47
-| Disputed        | Disputed               | Disputed             |                   | 3          | 0       | 0        | 3
-| Unmatched       | Unmatched              | Unmatched            |                   | 5          | 0       | 0        | 5
-|====
-
-
 // Image not needed thanks to the tables, I think @dakle 2025-10-16
-// image::../ldap-correlation-simulation-result-operational-statistics.webp[title="Operational statistics of the simulated LDAP reconciliation task"]
+// image::../ldap-correlation-simulation-result-operational-statistics.webp[title="Operational statistics of the simulated AD reconciliation task"]
 
 The numbers in the above examples say the following:
 
-* 48 accounts that were found on the resource are unlinked and would be linked.
-* 2 accounts that were found cannot be correlated reliably (the `empnum` did not match, but the first name, surname, and locality did), so they are disputed and correlation case would be created.
-* 4 accounts that were found would stay unmatched because no focus object was found for them.
-	According to the synchronization rules we set before, these accounts would be deleted from the LDAP resource.
+* 47 accounts that were found on the resource are unlinked and would be linked.
+* 3 accounts cannot be correlated reliably (the `empnum` did not match, but the first name, surname, and locality did), so they are disputed and correlation case would be created.
+* 5 accounts would stay unmatched because no focus object was found for them.
+	According to the synchronization rules we set before, these accounts would be deleted from the AD resource.
 
-The correlation was simulated so none of the synchronization end situations actually happened.
+This was simulation so none of the reactions actually happened.
+
+[NOTE]
+====
+The original state of accounts that midPoint has not yet ever seen is always _No record_.
+Should you run the task again without changing anything, the original state will match the synchronization start from the previous reconciliation.
+This only means that midPoint already knows about the accounts, so their original state is not _No record_ anymore.
+The numbers stay the same.
+====
 
 == Mark unmatched accounts to prevent deletion
 
-In case your target LDAP resource contains accounts that cannot be correlated with the focal objects you have in midPoint from the source HR system,
-you can mark some of them to protect them from being prematurely deleted.
-This is useful if you are not sure about the exact purpose of some service accounts, for example,
-or need to further investigate as to why an account can't be correlated.
+Pay now closer attention to the *unmatched accounts*.
+They are safe now because you have not yet activated the synchronization rule that would delete them, but you will, eventually, because that is the desired course of action for such accounts.
 
-Refer to xref:/midpoint/reference/concepts/mark/[] and xref:/midpoint/reference/admin-gui/resource-wizard/object-type/policies/#mark_manually[marking object in GUI] for details on using object marks.
+The unmatched accounts can be service accounts with no HRIS counterpart, legitimate normal accounts with multiple errors (e.g., wrong employee number and one of the names or the locality), or they can be malicious or obsolete orphaned accounts.
+You need to decide what to do with them individually, and that is what marking is for:
 
-Here's the marking strategy you can use:
+* No mark means the account will be deleted (after you activate the synchronization rule for that).
+* _Correlate later_ mark is for valid accounts that cannot be correlated due to erroneous data.
+* _Do not touch_ mark is for accounts you are not sure about and need to investigate them.
+* _Protected_ mark is for legitimate services accounts with no HRIS counterpart.
 
-* If you know a certain account is valid and present in HR but cannot be correlated due to some error in data, mark it as _Correlate later_.
-* If you need to preserve an account that is not in HR, such as service accounts, protect it using the _Protected_ mark.
-* If you are not sure why an account unknown to HR exists, mark it as _Do not touch_ so that it does not get deleted and you can investigate and decide their fate later.
-* If you discover LDAP accounts that should not be there at all, like legacy or obviously malicious accounts, don't mark them anyhow.
-	They will get deleted as per the synchronization rules.
+The point here is to mark the accounts you want to keep and move on with your deployment even if there are inconsistencies and unknowns in your data.
+This way you get tangible results soon without having to wait for a solution to every obstacle.
 
-Be careful if your HR system does not contain or export former employees data your target system has data on.
-In such situation, you would not have the former employees in midPoint and their AD/LDAP accounts would appear as orphaned.
+*Follow this guide: xref:/midpoint/reference/admin-gui/resource-wizard/object-type/policies/#simulations[Mark accounts after simulation]*
+
+Refer to xref:/midpoint/reference/concepts/mark/[] for more details on the topic.
 
 [TIP]
 ====
-The point here is that you can move on with your deployment even if there are inconsistencies and unknowns in your data.
-
-Mark these points of data and leave them for later as per the xref:../#the-concept-of-an-iterative-cyclic-approach[iterative approach].
-This way you get tangible results soon without having to wait for a solution to every obstacle.
+Be careful if your HR system does not contain or export former employees data your target Active Directory system has data on.
+In such situation, you would not have the former employees in midPoint and their AD accounts would appear as orphaned.
+If you would wish to keep such accounts, mark them.
 ====
 
-image::../ldap-marked-accounts.webp[]
-
 Now, if you run the simulated correlation task again,
-you'd see a new entry in the operational statistics of the task telling you how many accounts there are with _No record_ and what's their _Exclusion reason_ (you marked them to avoid their deletion).
-The one remaining _Unmatched_ account is the hacker account that needs to be deleted as soon as possible.
+you would see a new entry in the table telling you how many unmatched accounts are _excluded_ and for what reason.
+The one remaining _Unmatched_ account in our training data is the malicious account that will be deleted as soon as possible.
 
 [cols="8*""]
 .Synchronization situation transitions
@@ -106,97 +109,86 @@ The one remaining _Unmatched_ account is the hacker account that needs to be del
 |====
 
 // https://youtu.be/GIlr7xYi8UI?t=326
-// TODO: improve the object marking GUIde (#86)
+// TODO: improve the object marking GUIde
 
-== Check the simulated results using filters in the account list
+=== Use filters to check account status and marks
 
-Aside viewing the task simulation results, you can use another way to confirm your setup behaves as expect.
-You can view the LDAP accounts and their *Situations*.
-Even when you simulate reconciliation, the situations of the resource accounts reflect the results of the simulation, i.e., midPoint knows which accounts would be _matched_, _disputed_, etc., and updates the account situations accordingly.
+Aside viewing the task simulation results, you can use the resource account list to confirm your setup behaves as expected.
+Even when you simulate reconciliation, the situations of the accounts in the list reflect the results of the simulation.
 
-. Under the LDAP resource, go to *icon:male[] Accounts*.
-. Use the *Situation* filter above the account list to see accounts in various states:
-	** Select _Unlinked_ to see accounts that would be linked, i.e., their respective focal object (owner) can be determined automatically under the current configuration.
-	** Select _Unmatched_ to see accounts that can't be matched to their respective focal objects. +
-		Some of them are marked by you as protected or for later correlation.
-		Unmatched accounts that are not marked will be deleted if you have the xref:#define-synchronization-rules[synchronization rule for that] (action _Delete resource object_ for the _Unmatched_ situation)
-	** Select _Disputed_ to see accounts that can't be matched with 100% certainty to their respective focal objects. +
-		You'll get a correlation case to resolve these after you run real production correlation task. +
-		In the sample data used in this guide, the disputed account would be Anna Lopez who has a wrong `empnum` in HRIS and has to be correlated using `givenName`, `familyName`, and `locality` as such.
+. Under the AD resource, go to *icon:male[] Accounts*.
+. Use the *Situation* menu above the account list to select an account state you wish to filter.
 . Click icon:search[] btn:[Basic] to confirm the selected search criterion.
 
-In the list, if you see, for example, accounts that are _unmatched_ and not marked but you are not sure whether it's safe to have them deleted, xref:#mark-unmatched-accounts-to-prevent-deletion[mark them] now.
-You can investigate later.
+The list also shows the marks on the accounts.
+Using the menu at the far right of the account row, you can modify the marks.
 
-image::../ldap-accounts-disputed-after-simulation.webp[title="List filtered to show only disputed LDAP resource accounts"]
+Use the btn:[×] button next to the *Situation* menu to clear the filter.
 
-== Reconcile your LDAP accounts
+.Account list showing unmatched accounts with marks
+image::ldap-marked-accounts.webp["Account list showing unmatched accounts with marks"]
 
-Once you confirm that your LDAP configuration works as expected
-and no accounts you need to preserve are about to be deleted, you can run the _real_ reconciliation between HRIS and LDAP.
+== Reconcile your AD accounts
 
-Firstly, *switch all the configurations under your LDAP resource to _Active_* with the exception of _delete-unmatched-resource-object_.
-Keep that one in _Draft_ until you learn how to disable accounts instead of deleting them.
+Once you confirm that your AD configuration works as expected and you mark accounts as needed,
+run the _real_ AD reconciliation.
 
-[TIP]
-====
-Use the icon:heart-pulse[] btn:[Check detailed lifecycle] button in the top menu within the resource to view a list of individual resource components and their current lifecycle states.
-====
+. Switch the *lifecycle state* of the AD resource to _Active_.
+    ** Ensure all the configurations are _active_ as well:
+        *** Mapping rules
+        *** Synchronization rules
+            **** Keep the one synchronization situation reaction that deletes orphaned accounts in _Draft_ until later.
+        *** Correlation rules
+        *** Object types
+. Create a new reconciliation task, link:#simulate-ldap-reconciliation[same as you did before].
+    ** Switch on the *simulation toggle*.
+    ** Name the task, e.g., _Reconcile AD - production simulation_.
+    ** On the *Execution* screen, select the _preview_ *mode* with the _production_ *configuration*.
+        *** This production simulation is the last check before you deploy.
+    ** Run the task and xref:/midpoint/reference/tasks/synchronization-tasks/import-and-reconciliation/gui/#read-simulation-results[inspect the results].
+. Lastly, create a new reconciliation task; this time, it is for production.
+    ** Keep the *simulation toggle* off.
+    ** Name the task, e.g., _Reconcile AD - real production_.
+    ** Run the production reconciliation task.
 
-Then, do the one last simulation, this time on production configuration:
+The expected result of running the production reconciliation task is that:
 
-. Create a xref:/midpoint/reference/tasks/synchronization-tasks/import-and-reconciliation/gui/[new reconciliation task] for the LDAP resource.
-. Switch on the simulation toggle to first preview the changes and prevent any harm to your data.
-. Name the task, e.g., _Reconciliation with LDAP - production simulation_.
-. On the *Execution* screen, select the *preview mode* with *production configuration*.
-. After you configure and create the simulated reconciliation task,
-	run it and xref:/midpoint/reference/tasks/synchronization-tasks/import-and-reconciliation/gui/#read-simulation-results[inspect the simulation results] to see how your mapping and synchronization rules work.
-
-The operational statistics numbers should be the same as when you ran the task in the simulated development configuration.
-
-At last, if everything in the results shows as expected,
-create yet another reconciliation task―this time with the simulation toggle switched off―and *run the reconciliation for real*.
-
-The expected result of running the reconciliation on production is that:
-
-* MidPoint creates correlation cases for accounts it cannot reconcile with 100% certainty (e.g., when `empnum` differs in HRIS and LDAP).
-* All accounts that match "cleanly" between HRIS and LDAP are linked and their focal objects have two projections now.
-* The accounts you need to get rid of (e.g., the hacker account in our data) are not yet deleted from the LDAP system because the synchronization rule is in _Draft_ state still.
+* MidPoint creates correlation cases for accounts it cannot reconcile with 100% certainty (e.g., when `empnum` differs in HRIS and AD).
+* All accounts that match "cleanly" between HRIS and AD are linked and their focal objects (users) have two projections now.
++
+.User with two projections to the HRIS and AD systems
+image::user-projections-hris-ad.webp["User with two projections to HRIS and AD systems"]
+* The accounts you need to get rid of (e.g., the hacker account in our data) are not yet deleted from the AD server.
 
 == Resolve correlation cases
 
-If any of the LDAP accounts fail to reconcile with 100% certainty and
-midPoint falls back to the xref:#define-ldap-correlation-rules[_last-resort-correlation_ correlation rule],
-the production correlation task (as per the xref:#define-synchronization-rules[synchronization rules]) creates a correlation case for a human operator to resolve.
+As per your synchronization rules, if midPoint cannot reliably determine an AD account owner (focus), it sets the account as _disputed_ and creates a correlation case.
 
-A correlation case is the way for you to efficiently find an owner for disputed accounts particularly thanks to the suggested supposed owners you can select from.
+In the case of this guide, when the `employeeNumber` AD attribute does not match the `empnum` HRIS attribute for an account, midPoint uses the _last-resort-correlation_ rule you have set up earlier and correlates the two accounts with a lower certainty.
+Accounts correlated like this are not linked automatically but are, according to the _create-correlation-case-for-disputed_ synchronization rule, rather presented in a correlation case to a human operator for a manual resolution.
 
-You can find all active correlation cases under icon:case_thick[] *Cases*.
+A correlation case is the way for you to efficiently find an owner for disputed accounts, particularly thanks to the suggestions from which you can select.
 
-If you use the sample CSV data provided in this guide, you would see this list of correlation cases:
+It is now the time to resolve the correlation cases that have arisen from the production reconciliation.
 
-.List of correlation cases in midPoint. _CSV LDAP simulation_ is the LDAP resource simulated by using the CSV file provided in this guide.
-[cols="9*"]
-|====
-| Name                                                        | Description  | Object               | Actors                                  | Opened | Closed | Outcome  | State | Workitems
-| Correlation of account 'geena' on CSV LDAP simulation       |              | CSV LDAP simulation  | midPoint Administrator (administrator)  |        |        |          | open  | 1
-| Correlation of account 'bcarpenter' on CSV LDAP simulation  |              | CSV LDAP simulation  | midPoint Administrator (administrator)  |        |        |          | open  | 1
-| Correlation of account 'alopez' on CSV LDAP simulation      |              | CSV LDAP simulation  | midPoint Administrator (administrator)  |        |        |          | open  | 1
-|====
+*Follow this guide: xref:/midpoint/reference/correlation/correlation-cases/[]*
 
-When you click a case to open it for an inspection:
+image::ldap-hris-correlation-case-workitem-resolution.webp["A correlation case workitems screen showing a suggested resource object owner candidate"]
 
-* icon:circle[] *Basic* shows details about the particular case.
-* icon:circle[] *Correlation* lets you know how closely the resource object shadow and its suggested focal object matches.
-* icon:circle[] *Workitems* is the workbench to resolve the correlation case.
+.Resolving a correlation case does not correct the wrong data
+[NOTE]
+====
+In our training data, it is the CFO Anna Lopez with the employee number `1002`, who has a wrong number in Active Directory and, hence, does not get correlated automatically.
+After you resolve her correlation case, her accounts are assigned correctly, yet her employee number does not get magically fixed in AD.
+That will have to wait until later modules where you learn how to enable Active Directory provisioning.
+====
 
-Check the suggested resource object shadow owners on the icon:circle[] *Workitems* screen.
-If any of them is the right one, click the the btn:[Correlate] button in the particular candidate column.
-In case no suitable owner exists in the database, there is also an option to btn:[Create new] focal object in midPoint.
-That's not, however, recommended for cases with an authoritative 3rd-party system like the HR system herein.
+:sectnums!:
 
-image::../ldap-hris-correlation-case-workitem-resolution.webp[title="Workitems screen in the correlation section of midPoint, showing a suggested resource object shadow owner candidate"]
+== Next steps
 
-If you're using our sample data to follow this guide, you have one correlation case to resolve after the production reconciliation task finishes, and that's Anna Lopez who has a wrong _empnum_ in the HR system.
+You have reached another important milestone in your IGA journey and, should this be a real-world project for you in your organization, you have the next batch of tangible results to present to your peers.
 
-Now that you have LDAP data reconciled with your HRIS data, you can move forth to xref:/midpoint/methodology/first-steps/integrate-target-system/import-usernames-from-ldap/[].
+The next step is to move away from using employee numbers as usernames and introduce something more human-friendly.
+
+[.nowrap]#icon:arow-right[] *xref:/midpoint/methodology/first-steps/integrate-target-system/import-usernames-from-ldap/[]*#
