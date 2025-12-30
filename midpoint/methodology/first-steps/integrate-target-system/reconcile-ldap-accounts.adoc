@@ -11,14 +11,14 @@ Use marks to label accounts that cannot be processed automatically, and resolve 
 
 == What awaits you in this module
 
-You will bring your AD as close the HRIS as possible.
-You will first simulate reconciliation to test your configuration and see how close the data you have in AD are to what your HRIS claims to be true.
+You will bring your AD as close to the HRIS as possible.
+You will first simulate reconciliation to test your configuration and see how close are your Active Directory data to what your HRIS claims to be true.
 
 When you analyze the simulation results, you will use account marks to prevent midPoint from deleting some accounts, such as service accounts that have no counterpart in HRIS.
 
-Once all accounts are either marked or correlated, you will reconcile AD on production and resolve the correlation cases that arise when midPoint cannot match some HRIS and AD accounts with 100% certainty.
+Once all valid accounts are either marked or correlated, you will reconcile AD on production and resolve the correlation cases that arise when midPoint cannot match some HRIS and AD accounts with 100% certainty.
 
-You will not yet delete any orphaned accounts because you have not yet activated the synchronization rule for that.
+The production reconciliation will not delete any orphaned and malicious accounts because you have not yet activated the xref:/midpoint/methodology/first-steps/integrate-target-system/define-rules-for-data-handling/#define-synchronization-rules[synchronization rule] for that.
 
 :sectnums:
 
@@ -28,14 +28,14 @@ To test your configuration, run a simulated reconciliation task on the developme
 
 *Follow this guide: xref:/midpoint/reference/tasks/synchronization-tasks/import-and-reconciliation/gui/[]*
 
-. In your AD target resource, create a *Reconciliation Task*.
+. In your AD resource, create a *Reconciliation Task*.
 . Switch on the *simulation toggle*.
 . Name the task, e.g., _Reconcile AD - development simulation_.
 . On the *Execution* screen, select the _preview_ *mode* with the _development_ *configuration*.
-. After you configure and create the simulated reconciliation task,
-	run it and xref:/midpoint/reference/tasks/synchronization-tasks/import-and-reconciliation/gui/#read-simulation-results[inspect the simulation results] to see how your mapping and synchronization rules work.
+. After you create the simulated reconciliation task,
+	run it and xref:/midpoint/reference/tasks/synchronization-tasks/import-and-reconciliation/gui/#read-simulation-results[inspect the simulation results] to see how your data handling rules work.
 
-When reviewing the simulation results in icon:chart-line[] *Operational statistics*, you will see a result similar to the examples below.
+When reviewing the simulation results in [.nowrap]#icon:chart-line[] *Operational statistics*#, you will see a result similar to the example below.
 
 
 .Synchronization situation transitions
@@ -50,12 +50,12 @@ When reviewing the simulation results in icon:chart-line[] *Operational statist
 // Image not needed thanks to the tables, I think @dakle 2025-10-16
 // image::../ldap-correlation-simulation-result-operational-statistics.webp[title="Operational statistics of the simulated AD reconciliation task"]
 
-The numbers in the above examples say the following:
+The numbers above say the following:
 
-* 47 accounts that were found on the resource are unlinked and would be linked.
+* 47 accounts that were found on the resource are unlinked and would be linked, i.e., the account shadows would be linked to their respective focal objects (users in midPoint).
 * 3 accounts cannot be correlated reliably (the `empnum` did not match, but the first name, surname, and locality did), so they are disputed and correlation case would be created.
 * 5 accounts would stay unmatched because no focus object was found for them.
-	According to the synchronization rules we set before, these accounts would be deleted from the AD resource.
+	After you activate the xref:/midpoint/methodology/first-steps/integrate-target-system/define-rules-for-data-handling/#define-synchronization-rules[_delete-unmatched-resource-object_ synchronization rule], these accounts would be deleted from the AD resource.
 
 This was simulation so none of the reactions actually happened.
 
@@ -72,31 +72,46 @@ The numbers stay the same.
 Pay now closer attention to the *unmatched accounts*.
 They are safe now because you have not yet activated the synchronization rule that would delete them, but you will, eventually, because that is the desired course of action for such accounts.
 
-The unmatched accounts can be service accounts with no HRIS counterpart, legitimate normal accounts with multiple errors (e.g., wrong employee number and one of the names or the locality), or they can be malicious or obsolete orphaned accounts.
-You need to decide what to do with them individually, and that is what marking is for:
+The unmatched accounts can be service accounts with no HRIS counterpart,
+legitimate normal accounts that contain multiple errors (e.g., wrong employee number and one of the names or the locality),
+or they can be malicious or orphaned accounts that you actually want deleted.
+You need to decide what to do with them individually, and that is what marking is for.
 
-* No mark means the account will be deleted (after you activate the synchronization rule for that).
-* _Correlate later_ mark is for valid accounts that cannot be correlated due to erroneous data.
-* _Do not touch_ mark is for accounts you are not sure about and need to investigate them.
-* _Protected_ mark is for legitimate services accounts with no HRIS counterpart.
+Refer to xref:/midpoint/reference/concepts/mark/[] for more details on the topic.
+
+Here is a possible marking strategy to take:
+
+* No mark means the account will be deleted.
+* _Correlate later_ mark is for valid accounts that cannot be correlated now due to erroneous data and you want to handle them later.
+* _Do not touch_ mark is for accounts of unknown purpose or origin and need to investigate them.
+* _Protected_ mark is for legitimate service accounts you need to keep with no HRIS counterpart.
 
 The point here is to mark the accounts you want to keep and move on with your deployment even if there are inconsistencies and unknowns in your data.
 This way you get tangible results soon without having to wait for a solution to every obstacle.
 
 *Follow this guide: xref:/midpoint/reference/admin-gui/resource-wizard/object-type/policies/#simulations[Mark accounts after simulation]*
 
-Refer to xref:/midpoint/reference/concepts/mark/[] for more details on the topic.
+Here are the marks to use on accounts in the MID-301 training data:
+
+[cols="5,2,4", options="header"]
+|====
+| Account                                                     | Mark            | Note
+| `cn=Ana Lopez,ou=users,dc=example,dc=com`                     | Correlate later | The CFO with a wrong employee number in AD
+| `cn=Mail Service Account,ou=users,dc=example,dc=com`          | Protected       | Service account
+| `cn=Secret Admin,ou=users,dc=example,dc=com`                  | _none_          | Malicious account to be deleted
+| `cn=Spam Assassin Service Account,ou=users,dc=example,dc=com` | Protected       | Service account
+| `cn=Test123,ou=users,dc=example,dc=com`                       | Do not touch    | Account of unknown purpose or origin; resolve later
+|====
 
 [TIP]
 ====
 Be careful if your HR system does not contain or export former employees data your target Active Directory system has data on.
 In such situation, you would not have the former employees in midPoint and their AD accounts would appear as orphaned.
-If you would wish to keep such accounts, mark them.
+To keep such accounts, mark them.
 ====
 
-Now, if you run the simulated correlation task again,
-you would see a new entry in the table telling you how many unmatched accounts are _excluded_ and for what reason.
-The one remaining _Unmatched_ account in our training data is the malicious account that will be deleted as soon as possible.
+Now, if you run the simulated reconciliation task again,
+you would see a new entry in the [.nowrap]#icon:chart-line[] *Operational statistics*# table telling you how many unmatched accounts are _excluded_ and for what reason (you marked them).
 
 [cols="8*""]
 .Synchronization situation transitions
@@ -137,24 +152,24 @@ run the _real_ AD reconciliation.
     ** Ensure all the configurations are _active_ as well:
         *** Mapping rules
         *** Synchronization rules
-            **** Keep the one synchronization situation reaction that deletes orphaned accounts in _Draft_ until later.
+            **** Keep the _delete-unmatched-resource-object_ rule in _Draft_ until later.
         *** Correlation rules
         *** Object types
-. Create a new reconciliation task, link:#simulate-ldap-reconciliation[same as you did before].
+. Create a new reconciliation task, link:#simulate-ad-reconciliation[same as you did before].
     ** Switch on the *simulation toggle*.
     ** Name the task, e.g., _Reconcile AD - production simulation_.
     ** On the *Execution* screen, select the _preview_ *mode* with the _production_ *configuration*.
-        *** This production simulation is the last check before you deploy.
+        *** This production simulation is the last check as close to production as possible before you deploy.
     ** Run the task and xref:/midpoint/reference/tasks/synchronization-tasks/import-and-reconciliation/gui/#read-simulation-results[inspect the results].
-. Lastly, create a new reconciliation task; this time, it is for production.
+. Lastly, create a new reconciliation task; this time, for production.
     ** Keep the *simulation toggle* off.
     ** Name the task, e.g., _Reconcile AD - real production_.
     ** Run the production reconciliation task.
 
 The expected result of running the production reconciliation task is that:
 
-* MidPoint creates correlation cases for accounts it cannot reconcile with 100% certainty (e.g., when `empnum` differs in HRIS and AD).
 * All accounts that match "cleanly" between HRIS and AD are linked and their focal objects (users) have two projections now.
+* MidPoint creates correlation cases for accounts it cannot reconcile with 100% certainty (e.g., when `empnum` differs in HRIS and AD).
 +
 .User with two projections to the HRIS and AD systems
 image::user-projections-hris-ad.webp["User with two projections to HRIS and AD systems"]
@@ -164,12 +179,10 @@ image::user-projections-hris-ad.webp["User with two projections to HRIS and AD s
 
 As per your synchronization rules, if midPoint cannot reliably determine an AD account owner (focus), it sets the account as _disputed_ and creates a correlation case.
 
-In the case of this guide, when the `employeeNumber` AD attribute does not match the `empnum` HRIS attribute for an account, midPoint uses the _last-resort-correlation_ rule you have set up earlier and correlates the two accounts with a lower certainty.
+In the case of this guide, when the `employeeNumber` AD attribute does not match the `empnum` HRIS attribute for an account, midPoint uses the _last-resort-correlation_ rule you have set up earlier and correlates the two connected with a lower certainty.
 Accounts correlated like this are not linked automatically but are, according to the _create-correlation-case-for-disputed_ synchronization rule, rather presented in a correlation case to a human operator for a manual resolution.
 
 A correlation case is the way for you to efficiently find an owner for disputed accounts, particularly thanks to the suggestions from which you can select.
-
-It is now the time to resolve the correlation cases that have arisen from the production reconciliation.
 
 *Follow this guide: xref:/midpoint/reference/correlation/correlation-cases/[]*
 
@@ -191,4 +204,4 @@ You have reached another important milestone in your IGA journey and, should thi
 
 The next step is to move away from using employee numbers as usernames and introduce something more human-friendly.
 
-[.nowrap]#icon:arow-right[] *xref:/midpoint/methodology/first-steps/integrate-target-system/import-usernames-from-ldap/[]*#
+[.nowrap]#icon:arrow-right[] *xref:/midpoint/methodology/first-steps/integrate-target-system/import-usernames-from-ldap/[]*#
