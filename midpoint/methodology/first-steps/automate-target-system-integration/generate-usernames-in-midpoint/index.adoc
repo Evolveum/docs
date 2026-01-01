@@ -4,12 +4,13 @@
 :page-toc: top
 :experimental:
 :icons: font
+:page-description: Configure midPoint to generate jsmith82 usernames automatically and automate HRIS reconciliation.
 :page-moved-from: /midpoint/methodology/first-steps/automate-target-system-integration/
 
-Up until now, you sourced usernames from the target LDAP resource (the only inbound mapping we had for the target system).
-This approach works well for existing accounts that already have the username populated in the LDAP resource,
-but what about new users?
-Once HR department registers a new user in the HRIS, the account gets arrives to midPoint, but it has no place from which to obtain the username.
+Up until now, you sourced usernames from the target Active Directory application.
+This approach works well for existing accounts that already have the username populated in Active Directory.
+But what about new users?
+Once the HR department registers a new user in the HRIS, the account arrives to midPoint, but it has no place from which to obtain the username.
 
 Let us change that.
 Similarly to passwords, midPoint can generate usernames as well.
@@ -20,41 +21,40 @@ For this reason, you are going to use a script for this task.
 
 To generate usernames, you will:
 
-. Archive both the HRIS and LDAP inbound mappings for the `name` attribute as they are not going to be needed any longer.
-. Use the Person object template to define new mapping for username generation.
+. Archive both the HRIS and AD inbound mappings for the `name` attribute as they will not be needed any longer.
+. Use the Person object template to define a new mapping for username generation.
     The mapping will be _weak_ so that it does not overwrite existing values.
 . Create new users in the source HRIS resource.
-. Use import preview for to check whether generating usernames works correctly.
+. Use a simulated import to check whether the username generation works correctly.
 . Create a recurring HRIS reconciliation task to import new users automatically on regular basis.
 
-When you are done, you will have automated generation of usernames that are link:https://learn.microsoft.com/en-us/windows/win32/adschema/a-samaccountname[sAMAccountName]-compatible, and set up an interval-based recurring reconciliation task to import the HRIS accounts without a human operator like you needing to run the reconciliation task manually.
+When you are done, you will have automated generation of usernames that are link:https://learn.microsoft.com/en-us/windows/win32/adschema/a-samaccountname[sAMAccountName]-compatible, and set up an interval-based recurring reconciliation task to import the HRIS accounts without a human operator like you needing to import the users manually.
 
 :sectnums:
 
 == Archive obsolete mappings
 
-In the beginning, you have used the `empnum` containing employee number from the HRIS source system as a unique value for the _name_ attribute (which needs to be unique.
-Later on, after you have connected the LDAP target system, you have replaced it with `uid` which contains usernames, at least in our example training data.
+In the beginning, you have used the `empnum` containing employee number from the HR source system as a unique value for the _name_ attribute (which needs to be unique as per midPoint requirements).
+Later on, after you have connected Active Directory, you have replaced it with `uid` which contains usernames, at least in our example training data.
 
-However, you have already imported all the pre-existing users from the target system to midPoint and reconciled them,
-hence there is no need for either of the mappings and you can *archive them*.
+However, you have already reconciled all the pre-existing users so there is no need for either of the mappings because they would be useless for new users.
+This means you can archive them.
 
-Start with the HRIS mapping:
+To archive the HRIS mapping:
 
 . Go to the source HRIS resource > [.nowrap]#icon:male[] *Accounts*# > mapping configuration.
-. In [.nowrap]#icon:arrow-right-to-bracket[] *Inbound*# mappings, find the mapping that copies the unique attribute from HRIS to the focal object _name_ attribute.
-    In our guide here, its name is _empnum-to-name_.
-. Set its lifecycle to _Archived_.
+. In [.nowrap]#icon:arrow-right-to-bracket[] *Inbound*# mappings, find the _empnum-to-name_ mapping that copies the `empnum` attribute from the HRIS to the focal object `name` attribute.
+. Set its *Lifecycle state* to _Archived_.
 
-When done, *do exactly the same with the LDAP target resource* attribute mapping you used to map LDAP usernames to the _name_ focus attribute in midPoint.
-In our guide here, its name is _inbound-uid-username-to-name_.
+When done, do exactly the same with the _inbound-uid-username-to-name_ AD mapping you used to copy the AD usernames in `uid` to the `name` focus attribute in midPoint.
 
 [TIP]
 ====
 We use the _Archived_ lifecycle state here to indicate that the mapping is unlikely to be active again.
 For temporary mapping deactivation, you could use the _Suspended_ state.
-All _Archived_, _Suspended_, and _Draft_ states represent deactivated mappings,
-but midPoint has those three states to express different reasons for mapping deactivation.
+All _Archived_, _Suspended_, and _Draft_ states represent deactivation and configurations in these states are not used,
+but midPoint has those three states to express different reasons for deactivation.
+Refer to xref:/midpoint/reference/concepts/object-lifecycle/[] for more information on the topic.
 ====
 
 == Add username mapping to Person object template
@@ -63,13 +63,13 @@ Object template is a configuration object in midPoint you can use to run mapping
 
 Refer to xref:/midpoint/reference/expressions/object-template/[] and xref:/midpoint/reference/schema/archetypes/person/[] for more details.
 
-The Person object template already contains out-of-the-box a mapping to generate full name.
-You have seen it in action when you assigned the Person archetype to users imported from the HRIS source system.
+The Person object template already contains out-of-the-box a mapping to generate a full name.
+You have seen it in action when you assigned the Person archetype to users imported from the HRIS.
 
 What you are after now is a mapping that would take the given name and surname, and generate a username in the _jsmith82_ format that conforms to the Active Directory sAMAccountName restrictions.
 Such a username consists of the first letter from the given name, concatenates it with the surname, and takes 8 characters from the result.
-Moreover, if the result is not unique in the system (e.g., _Alice Baker_ and _Andrew Baker_ result both in _abaker_), the mapping needs to add up to two digits to make the usernames unique (_abaker2_.._abaker99_).
-It is a usual to start with the number iterator on _2_ to make the usernames more human friendly and intuitive: _abaker_, _abaker2_, _abaker3_, …
+Moreover, if the result is not unique in the system (e.g., _Alice Baker_ and _Andrew Baker_ result both in _abaker_), the username is to contain up to two digits to become unique.
+It is a usual to start with the number iterator at _2_ to make the usernames more human friendly and intuitive: _abaker_, _abaker2_, _abaker3_, …
 
 .Person object template mapping to generate jsmith82-style usernames
 image::person-object-template-mapping-generate-jsmith82-username.webp["Person object template mapping to generate jsmith82-style usernames"]
@@ -79,42 +79,42 @@ To add a new mapping to generate the _jsmith82_ usernames:
 . In [.nowrap]#icon:file-alt[] *Object templates*# > [.nowrap]#icon:file-alt[] *All object templates*#, select *Person Object Template*.
 . In [.nowrap]#icon:circle[] *Mappings*#, click [.nowrap]#icon:plus[] btn:[New]# to create a new mapping.
     ** If you use the pre-configured Docker images for this guide, the username mapping is already there.
-        Inspect it to see what it does.
+        Inspect it to see how it works.
 . *Name* the mapping, e.g., _generate-name-jsmith-8-2_.
+. Set *Strength* to _weak_ so that the mapping does not overwrite existing usernames.
 . Set *Lifecycle state* to _Active_.
     ** You can safely activate the mapping for it is _weak_ and will never overwrite existing values.
-. Set *Strength* to _weak_ so that the mapping does not overwrite existing data on the resource.
 . Select _givenName_ and _familyName_ from _Focus_ in *Source*.
 . Set the *expression* to _Script_.
     ** See the script below.
-. Set *Target* to _name_ as that is the unique identifying attribute for focal objects.
+. Set *Target* to _name_ as that is the uniquely identifying attribute for focal objects (users).
 . Click btn:[Done] in the mapping details and [.nowrap]#icon:save[] btn:[Save]# in the overview screen to save your settings.
 
 .The script to use for generating jsmith82 usernames
 [source,groovy]
 ----
 tmpGivenName = basic.trim(basic.norm(basic.stringify(givenName))) <1>
-tmpFamilyName  = basic.trim(basic.norm(basic.stringify(familyName))) <1>
+tmpFamilyName = basic.trim(basic.norm(basic.stringify(familyName))) <1>
 tmpGivenNameInitial = tmpGivenName?.take(1) <2>
 return (tmpGivenNameInitial + tmpFamilyName?.replaceAll(" ", ""))?.take(8) + iterationToken <3>
 ----
-<1>Take the xref:/midpoint/reference/schema/polystring-normalization/[normalized version of the name string] and remove leading and trailing white characters using `trim()`.
-<2>Truncate the first name only to one character. This is safe even if `firstName` is empty, but it cannot be null.
-<3>Concatenate the first name initial with the surname, shorten it to 8 characters if needed, remove white spaces, and add the xref:/midpoint/reference/concepts/iteration/[iteration token].
+<1> Take the xref:/midpoint/reference/schema/polystring-normalization/[normalized version of the name string] and remove leading and trailing white characters using `trim()`.
+<2> Truncate the first name only to one character. This is safe even if `firstName` is empty, but it cannot be null.
+<3> Concatenate the first name initial with the surname, shorten the result to 8 characters if needed, remove white spaces, and add the xref:/midpoint/reference/concepts/iteration/[iteration token].
 
-== Add new users in source system to test username generation
+== Add new users in HRIS to test username generation
 
 With the object template mapping ready, it is time to put it to test.
-Create new users in your source system and import them to midPoint.
+Create new users in your source HR information system and import them to midPoint.
 
-If you use the training Docker images prepared for this guide, use the Demo HR app (under `http://localhost/hr/`).
-Otherwise, register new users to your own source system; you can use the data from below as a template for inspiration.
+If you use the training Docker images prepared for this guide, use the link:http://localhost/hr/[Demo HR app web interface].
+Otherwise, register new users to your own source system; you can use the data from below for inspiration.
+The instructions below are for the Demo HR app.
 
-. In the Demo HR app under link:http://localhost/hr/[http://localhost/hr/], click btn:[Register user] on the top of the screen.
-. Fill in the values from the table below.
-. Confirm by clicking btn:[Register user] beneath the form.
-. Click btn:[Export users to CSV file] at the bottom of the page to export the users.
-. In midPoint, run simulated import task to preview the changes.
+. In the Demo HR app, click btn:[Register user] at the top of the screen.
+. Fill in the values according to the table below.
+. Add each user by clicking btn:[Register user] beneath the form.
+. Once you add all users, click btn:[Export users to CSV file] at the bottom of the user list screen to export the users.
 
 .Users to be added
 [cols="h,5*"]
@@ -130,27 +130,32 @@ Otherwise, register new users to your own source system; you can use the data fr
 
 == Simulate importing new users to midPoint
 
-. In [.nowrap]#icon:database[] *Resources*# > [.nowrap]#icon:database[] *All resources*#, go to the the source HRIS resource.
-. In [.nowrap]#icon:male[] *Accounts*#, click [.nowrap]#icon:rotate-right[] btn:[Reload]# at the bottom of the list to make midPoint aware of the new accounts.
-. Pick one of the new accounts and select btn:[▼] > *Import preview* at the far right.
-. Select *Simulated production* and click btn:[Select].
-. Observe the _name_ attribute being filled in with a proper username instead of the employee number.
+Before you put the new configuration to production, verify it works using simulations.
+
+Perform an import preview of a single user.
+You can repeat the preview import for multiple new users.
+
+*Follow this guide: xref:/midpoint/reference/tasks/synchronization-tasks/import-and-reconciliation/gui/#simulate-import-of-a-single-object[]*
+
+Once the import finishes, observe the _name_ attribute being filled in with a proper username instead of the employee number.
 
 .Result of preview import operation showing successfully generated username
 image::hris-preview-import-with-jsmith82-username.webp["Result of preview import operation showing successfully generated username"]
 
-After you verify the configuration works for you, import the users to midPoint for real.
-
 == Automate importing users to midPoint
 
-Refer to xref:/midpoint/reference/tasks/synchronization-tasks/import-and-reconciliation/gui/[] for a guide on working with tasks in GUI.
+After you verify generating the usernames works, import the users to midPoint for real.
+You will create a recurring reconciliation task in order to automate the whole process.
+A reconciliation task is more suitable than import because it is going to handle removed users as well.
 
-. Create a new task with the simulation toggle off.
+*Follow this guide: xref:/midpoint/reference/tasks/synchronization-tasks/import-and-reconciliation/gui/[]*
+
+. In the HRIS resource, create a new *reconciliation* task with the *simulation* toggle off.
 . Name it, e.g., _HR Reconciliation_.
 . Set the schedule interval to, e.g., 60 seconds.
-    ** This makes the task automated, running every 60 seconds,
-        meaning every time new accounts appear in the source CSV, they get automatically imported to midPoint.
-        In a real scenario, you would probably set the interval to minutes or hours.
+    ** This makes the task automated, running every 60 seconds.
+        Every time new accounts appear in the source CSV, they get automatically imported to midPoint.
+        In a real scenario, you would probably set the interval to minutes or hours, depending on the amount of identities you would be managing.
 . Save the task and run it.
 
 Wait until the task finishes its first run and head over to [.nowrap]#icon:user[] *Users*# > [.nowrap]#icon:user[] *Persons*#
@@ -164,17 +169,19 @@ You can filter them out, e.g., by the employee number (mapped to `personalNumber
 personalNumber startsWith '900'
 ----
 
-.Users newly imported to the HRIS resource with jsmith82-style usernames generated by midPoint
+.Newly imported users in the HRIS resource with jsmith82-style usernames generated by midPoint
 image::hris-persons-with-jsmith82-usernames.webp["Users newly imported to the HRIS resource with jsmith82-style usernames generated by midPoint"]
 
 // Lab 8-1 also mentions looking into the audit log viewer to see what midPoint did. This could be covered in an article on reading audit logs. @dakle 2025-11-12
 
 :sectnums!:
 
-== What is next
+== Next steps
 
 You have automated sAMAccountName-compatible username generation.
-You have also automated reconciliation of the source HRIS resource with midPoint,
+You have also automated reconciliation of the source HR application with midPoint,
 which means that every time a user is created in and exported from the HRIS, the account is imported to midPoint as well.
 
-The next step is to ensure that every person in midPoint has an account in LDAP provisioned automatically.
+The next step is to ensure that every person in midPoint has an account in Active Directory provisioned automatically.
+
+[.nowrap]#icon:arrow-right[] *xref:/midpoint/methodology/first-steps/automate-target-system-integration/automate-target-resource-account-creation/[]*#
