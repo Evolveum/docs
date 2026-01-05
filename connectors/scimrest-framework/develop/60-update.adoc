@@ -1,0 +1,145 @@
+= Update Script
+
+== Basic Update Script using PATCH
+
+The simplest update script (heavilly using defaults) for `User` object class where REST API provides PATCH operation could look like this:
+
+[source,groovy]
+----
+objectClass("User") {
+    update {
+        endpoint(PATCH, "/users/{id}") {
+            request {
+                contentType APPLICATION_JSON
+            }
+        }
+    }
+}
+----
+
+Where:
+* This simplest script heavily relies on default behavior of connector framework.
+
+* The `endpoint` method specifies the endpoint to be used for
+   update operation. In this case we use path parameter `{id}` which
+   will be replaced with the value of the `id` attribute of the object
+   being updated.
+* The `httpOperation` is set to `PATCH`, so by default `absolute`  mode is automatically set to `false`, which allows a partial update of the object. 
+* The `request` block allows to customize the request. In this case
+   we specify that the content type of the request is JSON.
+** If no body `implementation` is specified, the default implementation
+    will be used which will serialize only changed `updateable` attributes from the `objectClass` into JSON body.
+
+== Basic Update Script using PUT
+
+[source,groovy]
+----
+objectClass("User") {
+    update {
+        endpoint(PUT, "/users/{id}") {
+            request {
+                contentType APPLICATION_JSON
+            }
+        }
+    }
+}
+----
+
+Where:
+
+* This simplest script heavily relies on default behavior of connector framework.
+* The `endpoint` method specifies the endpoint to be used for
+   update operation. In this case we use path parameter `{id}` which
+   will be replaced with the value of the `id` attribute of the object
+   being updated.
+* The `httpOperation` is set to `PUT`, so by default `absolute` mode is automatically set to `true`.
+** The `request` block allows to customize the request. In this case
+   we specify that the content type of the request is JSON.
+** If no body `implementation` is specified, the default implementation
+    will be used which will serialize all `updateable` attributes
+    from the `objectClass` into JSON body.
+** The framework will retrieve original state if necessary to build a full representation of the object for replacement.
+
+== Complex Update Script Examples
+
+=== Multiple Endpoints needed for Update
+
+In some cases, the update operation may require multiple API calls to complete. For example, updating a `User` object may require updating basic information via a `PATCH` request to `/users/{id}` and updating additional attributes via a separate `PUT` request to `/users/{id}/attributes`.
+
+The framework allows you to define multiple endpoints within the `update` block to handle such scenarios. Framework will select the appropriate endpoints to use based on the attributes being updated.
+
+Attributes supported by each endpoint can be defined using `supportedAttributes` keyword.
+
+[source,groovy]
+----
+userClass("User") {
+    update {
+        endpoint("api/v3/users") {
+            httpOperation PATCH
+            supportedAttributes "admin", "email", "login", "password",
+                    "firstName", "lastName", "status", "language"
+            request {
+                contentType APPLICATION_JSON
+            }
+        }
+        endpoint("api/v3/users/{id}/attributes") {
+            httpOperation PUT
+            supportedAttributes "customAttribute1", "customAttribute2"
+            request {
+                contentType APPLICATION_JSON
+            }
+        }
+    }
+}
+----
+
+Where:
+* This script heavily relies on default behavior of connector framework.
+* The `update` block contains two `endpoint` definitions.
+* Each `endpoint` specifies the API endpoint and HTTP operation to be used.
+* The `supportedAttributes` keyword is used to define which attributes are handled by each endpoint.
+** The framework will automatically determine which endpoints to call based on the attributes being updated in the request.
+** Each endpoint can have its own `request` customization as needed.
+** This approach allows for flexible handling of complex update scenarios involving multiple API calls.
+** The default behavior of the connector framework is still leveraged for serialization and request handling.
+
+=== Activation / Locking Attribute with separate endpoints
+
+Some APIs provide dedicated endpoints for activating/deactivating or locking/unlocking objects. If the attribute used for activation / locking can not be updated directly in body of other attributes you may use `supportedAttribute` block, with also value specified to determine which endpoints will be used for switching that attribute value.
+
+[source,groovy]
+----
+objectClass("User") {
+    update {
+
+        // Basic update ommited for clarity
+
+        // Handles transition to active state
+        endpoint(POST, "/user/{name}/activate") {
+            supportedAttribute("active") {
+                value true
+            }
+            request {
+                body EMPTY
+            }
+        }
+        // Handles transition to inactive state
+        endpoint(POST, "api/v3/users/{id}/deactivate") {
+            supportedAttribute("active") {
+                value false
+            }
+            request {
+                body EMPTY
+            }
+        }
+    }
+}
+----
+
+Where:
+
+* This script heavily relies on default behavior of connector framework.
+* The `update` block contains two `endpoint` definitions for handling activation and deactivation.
+* Each `endpoint` specifies the API endpoint and HTTP operation to be used.
+* The `supportedAttribute` block is used to define which attribute and value triggers the use of each endpoint.
+** The framework will automatically determine which endpoint to call based on the value of the `active` attribute in the update request.
