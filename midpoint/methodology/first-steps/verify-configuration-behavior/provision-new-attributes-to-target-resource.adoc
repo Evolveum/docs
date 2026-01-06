@@ -4,23 +4,26 @@
 :page-toc: top
 :experimental:
 :icons: font
+:page-description: Test how your midPoint configuration handles new provisioning requirements and the resulting mapping changes in both the source and target resources
 
 In this module, you will test how your configuration copes with importing new user attributes from the source and provisioning them to the target.
 
 == What awaits you in this module
 
-You will import another user attribute from the HRIS and provision it to the AD resource.
-You will create two new mappings: one inbound mapping to get the HRIS data to midPoint, and one outbound mapping to populate the AD resource account with the data.
+You will import a new user attribute from the HRIS and provision it to Active Directory.
+You will create two new mappings: one inbound mapping to get the HRIS data to midPoint, and one outbound mapping to populate AD accounts with the data.
 
 The attribute in question is the job title.
-The employees have their job titles in the HRIS, but not in the AD resource.
-Your goal is to propagate the job titles to AD as well.
+The employees have their job titles in the HRIS, but not in Active Directory.
+Your goal is to propagate the job titles to AD as well and see if nothing in your midPoint configuration breaks with this change.
 
 :sectnums:
 
-== Create new mapping in HRIS
+== Create new HRIS mapping
 
-In the HRIS resource in midPoint, xref:/midpoint/reference/admin-gui/resource-wizard/object-type/mapping/#inbound_mappings[create a new inbound mapping]:
+In the HRIS resource in midPoint, create a new inbound mapping.
+
+*Follow this guide: xref:/midpoint/reference/admin-gui/resource-wizard/object-type/mapping/#inbound_mappings[Create inbound mappings]*
 
 ** *Name*: e.g., _job-to-title_
 ** *From resource attribute*: _job_
@@ -30,12 +33,20 @@ In the HRIS resource in midPoint, xref:/midpoint/reference/admin-gui/resource-wi
 
 The mapping is in the _Proposed_ lifecycle state, meaning the recurring HRIS reconciliation task cannot work with it yet and you can safely simulate.
 
-.HRIS inbound mapping to insert the job resource value into the title resource object attribute
-image::hris-inbound-mapping-job-to-title.webp["HRIS inbound mapping to insert the job resource value into the title resource object attribute"]
+.Inbound mapping to insert the job attribute value from the HRIS resource into the title attribute in midPoint
+image::hris-inbound-mapping-job-to-title.webp["Inbound mapping to insert the job attribute value from the HRIS resource into the title attribute in midPoint"]
 
-== Create new mapping in AD
+== Create new AD mapping
 
-in the AD resource in midPoint, xref:/midpoint/reference/admin-gui/resource-wizard/object-type/mapping/#outbound_mappings[create a new outbound mapping]:
+In the AD resource in midPoint, create a new outbound mapping.
+
+[NOTE]
+====
+If you use the Docker image prepared for this guide, the mapping is already there pre-configured.
+Just change its lifecycle state to _Proposed_.
+====
+
+*Follow this guide: xref:/midpoint/reference/admin-gui/resource-wizard/object-type/mapping/#outbound_mappings[Create outbound mappings]*
 
 ** *Name*: e.g., _mapping-title_
 ** *From resource attribute*: _title_
@@ -43,15 +54,13 @@ in the AD resource in midPoint, xref:/midpoint/reference/admin-gui/resource-wiza
 ** *Target*: _title_
 ** *Lifecycle state*: _Proposed_
 
-If you use the Docker image prepared for this guide, the mapping is already there pre-configured.
-Just change its lifecycle state to _Proposed_.
-
 == Simulate import from HRIS
 
 Your configuration is ready, it is time to verify what it does.
-Go to the HRIS resource and run the xref:/midpoint/methodology/first-steps/connect-source-system/import-accounts-from-hris/#simulate-first[simulated development import task].
+Go to the HRIS resource and run a simulated development import task.
+You have them ready for use from the earlier module: xref:/midpoint/methodology/first-steps/connect-source-system/import-accounts-from-hris/#simulate-first[].
 
-.Lifecycle states reminder
+.Lifecycle states knowledge refresher
 [NOTE]
 ====
 Tasks in the _preview_ mode with the configuration set to _development_ evaluate all _active_ and _proposed_ configuration items but make no permanent changes.
@@ -59,43 +68,37 @@ Tasks in the _preview_ mode with the configuration set to _development_ evaluate
 
 After the task finishes, click btn:[Show simulation result].
 
-The result should be that a resource object has been affected for all focal objects with projection to the AD resource.
-Click [.nowrap]#*More info* icon:arrow-circle-right[]#, open an item in the list, and inspect the changes made to the item.
-The only change should be the title being provisioned to the AD resource.
+The result should be that a resource object has been affected for all focal objects that have a projection to the AD resource.
+Click [.nowrap]#*More info* icon:arrow-circle-right[]#, open an item in the list, and inspect the changes.
+The only change should be the title being provisioned to AD.
 
 Note that certain users on the AD resource already have the `title` attribute filled in.
-Since the outbound mapping is strong by default, the existing value in the AD is overwritten (which is desired as you cannot know whether data in the non-authoritative resource are correct).
+Since the outbound mapping is _strong_, midPoint overwrites the existing value in AD.
+That is desired as you cannot know whether the data in the non-authoritative Active Directory server are correct.
 
-.HRIS import simulation result for Diane Davis showing the job title would be provisioned to and corrected in the AD resource
-image::hris-import-simul-devel-provision-job-title.webp["HRIS import simulation result for Diane Davis showing the job title would be provisioned to and corrected in the AD resource"]
-
-Namely, in the example data used for this guide, these accounts already have job title filled in in AD:
-
-* `cn=Brad Carpenter,ou=users,dc=example,dc=com`
-* `cn=Jimmy Taylor,ou=users,dc=example,dc=com`
-* `cn=Peter Hunter,ou=users,dc=example,dc=com`
-* `cn=Diane Davis,ou=users,dc=example,dc=com`
-* `cn=Patrick Anderson,ou=users,dc=example,dc=com`
+.HRIS import simulation result for Diane Davis showing the job title would be provisioned to and corrected in Active Directory
+image::hris-import-simul-devel-provision-job-title.webp["HRIS import simulation result for Diane Davis showing the job title would be provisioned to and corrected in Active Directory"]
 
 == Put the configuration to prodution
 
-Once you have verified the configuration did not break anything and works as expected, you can put it to production.
+Once you have verified the configuration did not break anything and works as expected, put it to production.
 
 . Change the lifecycle state of the HRIS inbound mapping to _Active_.
 . Change the lifecycle state of the AD outbound mapping to _Active_.
-. Wait for the recurring HRIS reconciliation task to pick up the changes and provision the job titles to all accounts on LDAP.
+. Wait for the recurring HRIS reconciliation task to pick up the changes and provision the job titles to all accounts in AD.
 
-Once done, have a look at the *Projections* screen in user profiles in midPoint and search for the `title` attribute.
-Similarly, open the AD web administration interface and see the account attributes there.:w
+Once done, have a look at the *Projections* screen in user profiles in midPoint and look for the `title` attribute.
+Similarly, open the link:http://localhost/phpldapadmin/[AD web administration UI] and see the account attributes there.
 
-.The job title now shows correctly on the AD resource
-image::ldap-corrected-job-title.webp["The job title now shows correctly on the AD resource"]
+.The job title is now correct in Active Directory
+image::ldap-corrected-job-title.webp["A user profile screen in LDAP showing user attributes, including the corrected value of the job title attribute"]
 
 :sectnums!:
 
 == Next steps
 
-To be fair, the job title value does not look very nice because it contains the internal code from HRIS.
+To be fair, the job title value does not look very nice because it contains the internal numeric code from the HRIS.
 It is the job for the next module to fix that by amending an existing mapping to make the value more human friendly,
 and to show that midPoint can cope just fine with changes made "on the fly".
 
+[.nowrap]#icon:arrow-right[] *xref:/midpoint/methodology/first-steps/verify-configuration-behavior/update-existing-mapping/[]*#
