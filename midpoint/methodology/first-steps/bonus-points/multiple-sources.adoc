@@ -1,0 +1,92 @@
+= How to handle multiple source systems
+:page-nav-title: Handling multiple sources
+:page-display-order: 710
+:page-toc: top
+:experimental:
+:page-description: How to handle multiple source systems in midPoint
+
+In real deployment, we often need to connect multiple source systems to get all necessary data to midPoint.
+Here, we cover a few scenarios you may face, and outline possible solutions.
+
+== Additional source with different users
+
+For example, you can have source systems for employees and another system for external employees.
+
+This scenario is very simple.
+Connect new source system in the same way you have connected the very first one.
+Since there are no overlaps, each system will be responsible for own set of user objects and their properties.
+
+Most likely you will not have the exact same attributes in both system, therefore you need to count with that when you define your outbound mappings.
+Either you are fine with empty values (and expect it during simulations evaluation), or you have a mapping script handling that.
+Otherwise, there is no difference compared to scenario with only a single source system.
+
+== Additional source with same users but different attributes
+
+For example, you have a primary HR source with all users and their basic attributes.
+You also have an address book source containing the same users with their email and telephone numbers which the HR system does not contain.
+
+In this scenario you want to correlate accounts from both system to the same focal objects (typically users) in midPoint.
+Make sure you have correct correlation rules for both source systems.
+In practice, it might be hard to guarantee that a user is first created in the primary source system, synchronized to midPoint, and only then created in (and synchronized to) the secondary source.
+
+This can be handled in two ways:
+
+. Do not synchronize accounts to the secondary source system until they are imported from the primary one.
+** Do not set any reaction for the _unmatched_ situation in the secondary source resource synchronization settings.
+** Set _unlinked_ situation reaction to _link_ to ensure the accounts for existing midPoint users will be linked.
+** Set up both liveSync and reconciliation tasks for the secondary resource.
++
+LiveSync will skip account that cannot be linked at the moment (because midPoint user do not exist yet) and will not process them again unless there is a change on that account. Therefore, reconciliation running with reasonable period is needed.
++
+TIP: It is possible to configure synchronization from the primary source system to trigger import of a particular account from the secondary source during creation of the new user.
+This is complex configuration far beyond The First Steps methodology.
++
+** Note that users in midPoint will be initially created without the data from the secondary source system.
+    The data from the secondary system will be added later by liveSync or reconciliation task.
+    Keep that in mind when evaluating simulations and designing your mappings and data flows.
++
+CAUTION: It might be complicated to automatically decide whether an _unmatched_ account is only waiting for synchronization from the primary source and will get a focal object to match to, or if this account is truly orphaned.
+
+. If the account in the secondary system is synchronized to midPoint first, create a user with minimal information in the _draft_ lifecycle state.
+** Set _unmatched_ situation reaction to _add focus_ to create a new midPoint users if they do not exist yet.
+** Set _unlinked_ situation reaction to _link_ to ensure the accounts for existing midPoint users will be linked.
+** Set the mappings as _weak_ and the lifecycle state to _draft_.
+    This mapping will be overridden by _strong_ mappings in the primary source system.
+** Add mappings for necessary attributes.
+    Do not forget to add mappings that will be used for correlation from the primary source system (e.g., a mapping for personal number).
+
+NOTE: If a user will stay in draft state for too long and synchronization from primary source system is running, it is probably an orphaned account that should be handled.
+
+== Both source systems contain identical user information
+
+For example, a university scenario with sources for employees and students where one person can be both a student and employee.
+
+NOTE:  This scenario is beyond the First steps methodology.
+Even tough midPoint supports it, it requires complex configuration to handle it in its full complexity.
+This section describes several approaches, but it might require detailed study of relevant features and configuration options.
+
+* Make sure you have correct correlation rules for both source systems.
+* It is recommended to use a single archetype (e.g., Person) for users from both systems.
+    You can use *auxiliary archetypes* to differentiate between them.
+    User might be created first with any of them and later needs to be properly correlated when he/she is created in the other source system.
+* Set _unmatched_ situation reaction to _add focus_ to create a new midPoint users if they do not exist yet.
+* Set _unlinked_ situation reaction to _link_ to ensure the accounts for existing midPoint users will be linked.
+* You need to solve problem of merging same attributes (e.g., given name and family name) from source systems to midPoint properties. This is the most difficult part with several options:
+. Set mapping strength for such attributes to _normal_.
+    In that case the last change will overwrite the old one.
+    Even though this might seem as a simple solution there might be some practical problems, such as the lack of control over the results or the fact that reconciliation process does not touch _normal_ strength mappings.
+    Nevertheless, in some cases, this might be practical solution to start with and you can replace it by a more robust solution later.
+    See xref:/midpoint/reference/expressions/mappings/#_mapping_strength[mapping strength documentation] for details.
+. Create xref:/midpoint/reference/schema/custom-schema-extension/[a custom schema extension] where you can store attributes from both source systems.
+    For example, you will have attributes like _studentGivenName_, _employeeGivenName_.
+    Then, you will add mappings to your object template that will convert these extended attribute to standard midPoint schema base on your requirements.
+    For example, you might decide that data from the employee source system, if exists, will be preferred over data from the student system.
+. Use experimental feature for xref:/midpoint/reference/correlation/multiple-identity-data-sources/[multiple identity data sources].
+    The principle it the same as the schema extension approach, but the configuration is more straightforward.
+    Read about xref:/midpoint/versioning/experimental/[experimental features] before using this approach.
+. There are other options, like using conditional mappings with dynamic ranges that might be preferred in certain situations.
+    Such options are situational and complex to be described specifically. Contact our support if you need help with such case.
+* Do not forget the *lifecycle state* user property needs to be merged base on state from both systems too.
+* Note that it is impossible to simulate import from two sources at the same time.
+    You need to connect them one by one at least to correlate users.
+    When you have users correlated, you can simulate mappings from both sources by running simulated *recomputation* of users.
