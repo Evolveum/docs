@@ -1,132 +1,59 @@
-= MidPilot Validator REST API
+= User documentation of MidPilot Validator service REST API
 
-Validation and Conversion of midPoint objects using the Prism Framework.
-The MidPilot Validator REST API exposes validation-related capabilities of objects midPoint through a REST interface. These capabilities are implemented on top of the Prism framework, which is the core data modeling and schema engine used by midPoint.
-Prism serves as the execution engine behind the Validator REST API.
-The API itself is relatively thin: it accepts input, invokes Prism functionality, and returns structured results.
+Spring Boot REST API that provides validation and conversion capabilities for midpoint code and data.
+The service exposes two endpoints:
 
-Through Prism, the Validator REST API provides two primary services:
+== Build and Run
 
-* Validation of midPoint objects
-* Conversion (serialization) of midPoint objects
+Using Maven:
 
-In MidPoint, validation of objects is tightly integrated with the Prism framework.
-Prism is responsible not only for parsing objects from XML, JSON, or YAML, but also for schema aware validation during and after parsing.
-
-
-== Validation objects of Midpoint
-
-The Prism framework supports localization aware parsing and validation of midPoint objects represented in XML, JSON, and YAML formats.
-Localization information (such as line number, column number, and source location) is captured during parsing and attached to Prism’s internal representation `xNode`.
-This information is then reused during validation to produce precise, source aware validation logs (the validation log is represented by the `ValidationLog` record object), significantly improving diagnostics, troubleshooting, and user feedback.
-
-`xNode` is Prism’s low level, format neutral representation of parsed data.
-Before schema binding occurs, all parsed content exists as an XNode tree.
-
-NOTE: for XML analysis is performed using the stream method to obtain the position of tokens (most DOM APIs lose exact line/column numbers). In the future, it is best practice to replace the entire DOM analysis with Stream method (SAX or StAX)
-
-Now, prism can also analyze incomplete objects (snippets).
-Using the heuristics described below, PRISM tries to guess the correct root definition based on the information from the snippet in order to analyze it.
-In case the definition of a child element is unclear, the technical report of validation log returns a list of possible item definitions.
-
-=== Heuristic of automatic assignment Root definitions of snippet
-In midPoint, PRISM sometimes receives object snippets whose root element definition is unknown.
-To handle this, the heuristic method `findSupposedDefinitionByElement` in the `PrismUnmarshaller` class attempts to identify possible definitions for the root element based on:
-
-* The name of the root element
-
-* Its child elements
-
-* The available definitions from schemas
-
-This is particularly useful for:
-
-* Partial or snippet-based input
-
-* Pre-validation of unknown objects
-
-* REST API input handling from validation service
-
-* Conversion between formats (XML, JSON, YAML)
-
-Method returns `List<ItemDefinition<?>>` – a list of candidate root definitions that match the snippet, possibly empty.
-If the method returns a list with only one definition, it is assigned as the root definition and the analysis continues with the found definition.
-If the list contains multiple definitions, this list is returned in the technical report as an argument in the validation protocol for further processing with precise localization.
-The method for searching for a definition and automatically assigning a definition only works in `validation` mode.
-
-=== Example validate request
-
-==== Validate without parameters
 [source,bash]
 ----
-curl -X POST "localhost:8080/validate" \
-  -H "Content-Type: application/xml" \
-  -d '<schemaHandling>
-    <objectType>
-        <kind>account</kind>
-        <intent>default</intent>
-        <default>true</default>
-        <delineation>
-            <objectClass>user</objectClass>
-        </delineation>
-        <focus>
-        <type>UserType</type>
-        </focus>
-        <attribute>
-            <ref>name</ref>
-            <correlator/>
-            <inbound>
-            <strength>strong</strength>
-            <target>
-            <path>name</path>
-            </target>
-            </inbound>
-            <outbound>
-            <strength>strong</strength>
-            <source>
-                <path>name</path>
-            </source>
-            </outbound>
-        </attribute>
-    </objectType>
-</schemaHandling>'
+mvn clean spring-boot:run
 ----
 
-==== Validate with objectType & itemPath params
+The service will start on:
+
+----
+http://localhost:8080
+----
+
+== Endpoints
+
+=== Validate
+
+Validates the provided input and returns validation results.
+
+*Method:* `POST` +
+*Path:* `/validate` +
+*Consumes:* `application/json`, `application/xml`, `application/yaml` +
+*Produces:* `application/json` +
+
+==== Query Parameters
+
+[cols="1,1,1,2",options="header"]
+|===
+| Name | Type | Required | Description
+
+| objectType
+| string
+| No
+| Object type or Complex type definition against which the content body should be validated
+
+| itemPath
+| string
+| No
+| Path of the item to definition against which the content body should be validated
+|===
+
+==== Request Example (Invalid)
+
 [source,bash]
 ----
-curl -X POST "localhost:8080/validate?objectType=ResourceType&itemPath=schemaHandling/objectType" \
-  -H "Content-Type: application/json" \
-  -d '<attribute>
-        <ref>name</ref>
-        <correlator/>
-        <inbound>
-            <strength>strong</strength>
-            <target>
-              <path>name</path>
-            </target>
-        </inbound>
-        <outbound>
-        <strength>strong</strength>
-        <source>
-          <path>name</path>
-          </source>
-        </outbound>
-      </attribute>'
-----
-
-== Conversion objects of Midpoint
-Object conversion is done using PRISM serialization.
-Conversion between XML, JSON, YAML types works.
-
-=== Example convert request
-[source,bash]
-----
-curl -X POST "http://localhost:8080/convert?targetLanguage=xml" \
-  -H "Content-Type: application/json" \
-  -d '{
-  "mapping": {
-    "@type": "MappingType",
+curl --location 'http://localhost:8080/validate' \
+--header 'Content-Type: application/json' \
+--data '{
+ "mapping": {
     "name": "givenName-familyName-to-cn",
     "source": [
       { "path": "$focus/givenName" },
@@ -134,7 +61,7 @@ curl -X POST "http://localhost:8080/convert?targetLanguage=xml" \
     ],
     "expression": {
       "script": {
-        "code": "givenName + \" \" + familyName"
+        "code": "givenName + ' ' + familyName"
       }
     },
     "condition": {
@@ -148,6 +75,304 @@ curl -X POST "http://localhost:8080/convert?targetLanguage=xml" \
   }
 }'
 ----
+
+==== Response Example (Invalid)
+
+[source,json]
+----
+{
+    "logs": [
+        {
+            "type": "ERROR",
+            "specification": "MISSING_DEFINITION",
+            "location": {
+                "line": 2,
+                "char": 14,
+                "source": "unknown"
+            },
+            "message": "Cannot parse object from element 'mapping', there is no definition for that element",
+            "technicalMessage": {
+                "message": "Cannot parse object from element '%s', there is no definition for that element can you clarify the definition based on the expected definitions from list: '%s'",
+                "arguments": [
+                    {
+                        "value": "com.evolveum.midpoint.prism.path.ItemName$WithoutPrefix",
+                        "type": "QNAME"
+                    },
+                    {
+                        "definitions": [
+                            "PCD:{http://midpoint.evolveum.com/xml/ns/public/common/common-3}mapping {http://midpoint.evolveum.com/xml/ns/public/common/common-3}AbstractMappingType[0,1],RAM",
+                            "PCD:{http://midpoint.evolveum.com/xml/ns/public/common/common-3}mapping {http://midpoint.evolveum.com/xml/ns/public/common/common-3}ObjectTemplateMappingType[0,-1],RAM",
+                            "PCD:{http://midpoint.evolveum.com/xml/ns/public/common/common-3}mapping {http://midpoint.evolveum.com/xml/ns/public/common/common-3}MappingType[0,-1],RAM",
+                            "PCD:{http://midpoint.evolveum.com/xml/ns/public/common/common-3}mapping {http://midpoint.evolveum.com/xml/ns/public/common/common-3}ObjectTemplateMappingType[0,-1],RAM",
+                            "PCD:{http://midpoint.evolveum.com/xml/ns/public/common/common-3}mapping {http://midpoint.evolveum.com/xml/ns/public/common/common-3}MetadataMappingType[0,-1],RAM",
+                            "PCD:{http://midpoint.evolveum.com/xml/ns/public/common/common-3}mapping {http://midpoint.evolveum.com/xml/ns/public/common/common-3}MetadataMappingType[0,-1],RAM",
+                            "PCD:{http://midpoint.evolveum.com/xml/ns/public/common/common-3}mapping {http://midpoint.evolveum.com/xml/ns/public/common/common-3}AutoassignMappingType[0,-1],RAM",
+                            "PCD:{http://midpoint.evolveum.com/xml/ns/public/common/common-3}mapping {http://midpoint.evolveum.com/xml/ns/public/common/common-3}InboundMappingType[0,-1],RAM",
+                            "PCD:{http://midpoint.evolveum.com/xml/ns/public/common/common-3}mapping {http://midpoint.evolveum.com/xml/ns/public/common/common-3}MappingType[0,-1],RAM",
+                            "PCD:{http://midpoint.evolveum.com/xml/ns/public/common/common-3}mapping {http://midpoint.evolveum.com/xml/ns/public/common/common-3}MappingType[1,1],RAM"
+                        ],
+                        "type": "DEFINITION_LIST"
+                    }
+                ]
+            }
+        }
+    ]
+}
+----
+
+
+==== Request Example (Valid)
+
+[source,bash]
+----
+curl --location 'http://localhost:8080/validate' \
+--header 'Content-Type: application/json' \
+--data '{
+    "schemaHandling": {
+        "objectType": {
+            "kind": "account",
+            "intent": "default",
+            "default": "true",
+            "delineation": {
+                "objectClass": "user"
+            },
+            "focus": {
+                "type": "UserType"
+            },
+            "attribute": {
+                "ref": "name",
+                "correlator": "",
+                "inbound": {
+                    "strength": "strong",
+                    "target": {
+                        "path": "name"
+                    }
+                },
+                "outbound": {
+                    "strength": "strong",
+                    "source": {
+                        "path": "name"
+                    }
+                }
+            }
+        }
+    }
+}'
+----
+
+==== Response Example (Valid)
+
+[source,json]
+----
+{
+    "logs": []
+}
+----
+
+==== Request Example with parameters (Valid)
+The objectType parameter can be an object type definition or a complex type definition. In this example, see a complex type definition (ResourceAttributeDefinitionType) as the input parameter against which the snippet will be validated.
+
+[source,bash]
+----
+curl --location 'http://localhost:8080/validate?objectType=ResourceAttributeDefinitionType' \
+--header 'Content-Type: application/xml' \
+--data '<attribute>
+          <ref>ri:fullname</ref>
+          <inbound>
+              <strength>strong</strength>
+              <target>
+                <path>fullName</path>
+              </target>
+          </inbound>
+          <outbound>
+              <strength>strong</strength>
+              <source>
+                <path>fullName</path>
+              </source>
+          </outbound>
+        </attribute>'
+----
+
+
+==== Response Example (Valid)
+In this example see the input parameters objectType and itemPath.
+Object type represents the root type of the object (ResourceType) and itemPath represents the path that points to the definition against which the snippet will be validated.
+
+[source,json]
+----
+{
+    "logs": []
+}
+----
+
+==== Request Example with parameters (Valid)
+
+[source,bash]
+----
+curl --location 'http://localhost:8080/validate?objectType=ResourceType&itemPath=schemaHandling/objectType/attribute' \
+--header 'Content-Type: application/xml' \
+--data '<attribute>
+          <ref>ri:fullname</ref>
+          <inbound>
+              <strength>strong</strength>
+              <target>
+                <path>fullName</path>
+              </target>
+          </inbound>
+          <outbound>
+              <strength>strong</strength>
+              <source>
+                <path>fullName</path>
+              </source>
+          </outbound>
+        </attribute>'
+----
+
+
+==== Response Example (Valid)
+
+[source,json]
+----
+{
+    "logs": []
+}
+----
+
+
+=== Validation Log response
+The API returns a list of validation logs describing issues detected during validation.
+Each entry provides both technical details for troubleshooting and a user-friendly message suitable for display.
+
+==== Response type
+`application/json`
+
+==== Response structure
+
+The response body is a JSON array.
+Each element represents a single validation log.
+
+[source,json]
+----
+[
+    {
+        "validationLogType": "ERROR",
+        "specification": "MISSING_DEFINITION",
+        "location": {
+          "line": 4,
+          "char": 23,
+          "source": "unknown"
+        },
+        "technicalMessage": {},
+        "message": "Item '' has no definition."
+    }
+]
+----
+
+Validation Log Fields
+
+[cols="1,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| validationLogType
+| String
+| Indicates the severity or kind of validation result (for example: ERROR, WARNING).
+
+| specification
+| String
+| Specifies the verification protocol for further processing (for example: MISSING_DEFINITION, MISSING_NAMESPACE).
+
+| location
+| Object[SourceLocation]
+| Specifies where the validation issue occurred (for example, line number, column).
+
+| technicalMessage
+| Object
+| Detailed technical information intended for debugging or automated processing.
+
+| message
+| String
+| User-friendly message explaining the issue in a user-friendly way.
+|===
+
+
+
+=== Convert
+
+Convert the provided Midpoint object and returns converted to target language.
+
+==== Query Parameters
+
+*Method:* `POST` +
+*Path:* `/convert` +
+*Consumes:* `application/json`, `application/xml`, `application/yaml` +
+*Produces:* `application/json`, `application/xml`, `application/yaml` +
+
+[cols="1,1,1,2",options="header"]
+|===
+| Name | Type | Required | Description
+
+| targetLanguage
+| string
+| Yes
+| The language you want to convert.
+|===
+
+
+==== Request Example
+
+[source,bash]
+----
+curl --location 'http://localhost:8080/convert?targetLanguage=json' \
+--header 'Content-Type: application/xml' \
+--data '<attribute>
+          <ref>ri:fullname</ref>
+          <inbound>
+              <strength>strong</strength>
+              <target>
+                <path>fullName</path>
+              </target>
+          </inbound>
+          <outbound>
+              <strength>strong</strength>
+              <source>
+                <path>fullName</path>
+              </source>
+          </outbound>
+        </attribute>'
+----
+
+==== Response Example
+
+[source,json]
+----
+{
+    "#attribute": {
+        "#ref": "ri:fullname",
+        "#inbound": {
+            "#strength": "strong",
+            "#target": {
+                "#path": "fullName"
+            }
+        },
+        "#outbound": {
+            "#strength": "strong",
+            "#source": {
+                "#path": "fullName"
+            }
+        }
+    }
+}
+----
+
+
+=== Convert response description
+The response body contains the converted representation of the input document.
+The Content-Type and structure of the response are determined by the targetLanguage parameter.
+The converted content is semantically equivalent across all target languages.
+Clients must rely on the Content-Type response header to correctly interpret the payload.
+
+*targetLanguage:* is strictly limited to these languages: `json`, `xml`, `yaml` +
 
 == Commands
 
@@ -185,21 +410,3 @@ Convert object (full or snippet) input as string.
 ----
 java -jar validation-services.jar convert <code>
 ----
-
-
-== Integrate Validate & Converter to Midpoint Studio plugin
-=== Validate
-Object validation takes place in the editor in the standard way provided by IntelliJ IDEA.
-
-=== Converter
-
-It's possible convert objects as string and file in Studio plugin.
-
-*Convert file by action:*
-
-Right-click on the selected file and select *MidPoint Actions -> Convert -> XML | JSON | YAML*
-
-*Convert object as string:*
-
-image::images/midpointStudio-converter.png[Converter in MidPoint Studio]
-
