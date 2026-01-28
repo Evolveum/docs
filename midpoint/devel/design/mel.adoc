@@ -1,0 +1,204 @@
+= MidPoint Expression Language (MEL) Design Notes
+:page-nav-title: MEL
+
+MidPoint Expression Language (MEL) is based on https://cel.dev/[Common Expression Language (CEL)] by Google et al.
+
+== Language Features
+
+The expression language is designed as safe (secure) language:
+
+* It allows access to functions that are explicitly allowed (and implemented) as language extensions.
+No generic access to JVM, Java libraries or operating system (files) is allowed.
+
+* The language is *not* Turing-complete by design, making it hard for an attacker to abuse it.
+
+* Care is taken to avoid possibility of infinite loops or even complex computation in the expressions,
+significantly reducing opportunity for resource depletion and DoS.
+
+CEL has a "functional" character.
+It is an _expression_ language, not a programming language.
+It does not have branches or loops.
+However, this is not a major obstacle.
+Iterations can be done using list processing (`filter`, `map`).
+Basic branching can be done with ternary operator (`? :`).
+CEL should be sufficient for vast majority of midPoint mappings, autoassign expression and similar common uses.
+
+Overall, the language seems to be suitable to be used by low-privilege midPoint administrators and power users.
+However, it is probably not suitable for use by ordinary end users.
+
+== Examples
+
+Simple condition:
+
+[source,cel]
+----
+jobCode == 'A1234'
+----
+
+Username generator:
+
+[source,cel]
+----
+focus.givenName.norm.substring(0,1) + focus.familyName.norm.substring(0,7) + iterationToken
+----
+
+CEL with midPoint extensions (MEL) works nicely with polystrings as well (did not work in Groovy):
+
+[source,cel]
+----
+focus.givenName == 'Jack'
+----
+
+Getting list of all OIDs from all `targetRef`s in assignments:
+
+[source,cel]
+----
+focus.assignment.filter(a, has(a.targetRef)).map(a, a.targetRef.oid)
+----
+
+== CEL or MEL
+
+Should we call the language "MidPoint Expression Language" (MEL)?
+
+We are going to extend standard CEL with a lot of functions, for ease of use, convenience,
+but also to provide essential functionality (e.g. prism objects).
+The code will not be backwards compatible with CEL.
+
+To consider: marketing, LLMs
+
+== MEL and Groovy
+
+The ambition is to make CEL/MEL default scripting language for midPoint.
+CEL/MEL may even be the _only_ scripting language enabled by default, which will make midPoint secure by default
+(Filter expression are not considered to be scripting language, these will be enabled).
+
+However, CEL/MEL is unlikely to completely replace Groovy in very complex scenarios.
+Therefore, we would like to keep possibility to enable Groovy even for future deployments,
+as a tool of "last instance" for heavy customizations.
+There is no plan to remove Groovy support in foreseeable future.
+
+== Implementation
+
+Implementation is based on https://github.com/google/cel-java/tree/main[cel-java] by Google.
+The implementation is not well documented, but we can work with the code.
+
+CEL-Java allows definition of custom types and functions (although it is quite cumbersome),
+which we are going to use heavily.
+
+We will not use support for proto (protocol buffer) types, at lease not now, as Prism schema
+does not have easy mapping to protocol buffers schema (e.g. missing presistent item identifiers).
+This can be done later.
+For now the prism types will be dynamic (`dyn`), which means that their interpretation will be
+postponed to runtime.
+CEL compiler will not deal with Prism schema, will not be able to check the types in scripts.
+We can live with that, at least for now.
+
+PolyString, ItemPath, QName, deltas and similar "hardcoded" Prism types will be most likely
+implemented as CEL types as well.
+This is already prototyped on PolyString.
+
+=== Built-in MidPoint Libraries
+
+Built-in midPoint libraries such as `basic` and `midpoint` do not make much sense here.
+These libraries are designed for Java/Groovy to give user the flexibility and ease of use (relative to Java difficulty).
+They are not meant to be secure, and they are heavily riddled with Java concepts (e.g. java typing system).
+
+There are several difficulties using such libraries in CEL:
+
+* CEL is _very_ not like Java.
+It is not Turing-complete object-oriented environment such as Groovy or Python.
+Adapting Java libraries to CEL is far from being straightforward.
+E.g. CEL does not have sufficiently powerful type system or type-based overloading,
+making translation of heavily-overloaded Java functions in our libraries difficult.
+
+* Security.
+CEL is designed to be constrained and safe, which we need to maintain.
+We must make sure that our extensions and libraries that we provide are secure.
+Exposing existing libraries may provide too much unrestrained functionality.
+
+* We would like to have custom language extension (MEL) rather than discrete libraries.
+We would prefer ease of use and understanding.
+We want the expressions to look natural.
+
+Therefore, a better approach seems to be to re-work existing libraries in a CEL-compatible ways,
+to provide the functionality in a manner that is compatible with CEL spirit.
+This will require manual maintenance of the extensions when the "Groovy-like" libraries change.
+However, as this will naturally provide a barrier against exposing any random and possible insecure
+method to CEL environment, this may be in a fact a good thing.
+
+We need to think 10 years ahead, not 10 years back.
+
+=== Google vs Project Nessie
+
+There are two Java implementations of CEL:
+
+* https://github.com/google/cel-java/tree/main[Google cel-java]:
+Original implementation from Google.
+It is somehow incomplete and immature, yet it seems to be a reasonably good fit.
+The project seems to be active.
+However, it seems to be mostly work of one person, with several minor contributors.
+
+* https://github.com/projectnessie/cel-java[Project Nessie cel-java]:
+It has some features that would make mapping of Java objects and types to CEL easier.
+However, we have decided to not map our Java libraries to CEL directly anyway.
+Seems to be even less mature and has lower code change intensity (single maintainer?).
+Most commits are made by a bot (`renovate`).
+
+Google cel-java implementation seems to be a better fit for us.
+
+== What Needs to be Done?
+
+* Put all the prototyped pieces together.
+
+* Implementation of CelScriptEvaluator, with all the details and extensions: exposing structured Prism objects, native Prism and Java objects (polystring, qname, itempath, delta, guradedstring, etc.)
+
+* Good handling of deltas may be particularly hard nut to crack (e.g. for audit reports).
+
+* More tests.
+Switch some (many?) integration tests from Groovy to CEL/MEL.
+
+* Figure out the caching (see below), check performance.
+
+* Documentation
+
+** Reference documentation for CEL/MEL, documenting at least our extensions (material for LLMs).
+
+** Tutorial - very important, as CEL tutorial from Google is not exactly the best thing a world has ever seen.
+
+** Examples: common midPoint use cases.
+
+== Open Questions
+
+* How much do we need to expose midPoint schema to CEL?
+It looks like the DYN CEL type can be sufficient.
+
+* Script caching.
+CEL-Java compilation relies on knowledge of types of variables.
+Current script cache in midPoint considers only script source code as cache key, not the variables.
+
+* Performance. Will it be acceptable? With or without pre-compilation/caching?
+
+* String functions `lc` and `uc` are supposed to work on ASCII chars only.
+We want them to work on international chars as well, which may not be possible and/or break the CEL lang spec.
+
+* JSON support? Do we want/need it?
+
+* Would LLMs be able to create good code, even including custom midPoint extensions to CEL?
+
+== Limitations
+
+* CEL-Java implementation seems to be somehow incomplete and less mature, at least when compared to Rust implementation.
+However, there are ways to proceed.
+Maybe we should consider contributing to cel-java project later?
+
+* CEL-Java seems not to support vararg functions.
+Arrays/lists need to be used instead (e.g. `f([a,b,c])` instead of `f(a,b,c)`).
+This may not be a bad thing, given the functional character of CEL.
+As a workaround, _macros_ may be used to provide illusion of vararg functions (not prototyped yet).
+This can be added later (post 4.11).
+
+== See Also
+
+* https://github.com/google/cel-spec/blob/master/doc/langdef.md[CEL Language Definition]
+
+* https://github.com/google/cel-java/tree/main[Google cel-java implementation]
