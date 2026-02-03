@@ -1,0 +1,412 @@
+= User documentation of MidPilot Validator service REST API
+
+Spring Boot REST API that provides validation and conversion capabilities for midpoint code and data.
+The service exposes two endpoints:
+
+== Build and Run
+
+Using Maven:
+
+[source,bash]
+----
+mvn clean spring-boot:run
+----
+
+The service will start on:
+
+----
+http://localhost:8080
+----
+
+== Endpoints
+
+=== Validate
+
+Validates the provided input and returns validation results.
+
+*Method:* `POST` +
+*Path:* `/validate` +
+*Consumes:* `application/json`, `application/xml`, `application/yaml` +
+*Produces:* `application/json` +
+
+==== Query Parameters
+
+[cols="1,1,1,2",options="header"]
+|===
+| Name | Type | Required | Description
+
+| objectType
+| string
+| No
+| Object type or Complex type definition against which the content body should be validated
+
+| itemPath
+| string
+| No
+| Path of the item to definition against which the content body should be validated
+|===
+
+==== Request Example (Invalid)
+
+[source,bash]
+----
+curl --location 'http://localhost:8080/validate' \
+--header 'Content-Type: application/json' \
+--data '{
+ "mapping": {
+    "name": "givenName-familyName-to-cn",
+    "source": [
+      { "path": "$focus/givenName" },
+      { "path": "$focus/familyName" }
+    ],
+    "expression": {
+      "script": {
+        "code": "givenName + ' ' + familyName"
+      }
+    },
+    "condition": {
+      "script": {
+        "code": "givenName != null && familyName != null"
+      }
+    },
+    "target": {
+      "path": "$projection/attributes/cn"
+    }
+  }
+}'
+----
+
+==== Response Example (Invalid)
+
+[source,json]
+----
+{
+    "logs": [
+        {
+            "type": "ERROR",
+            "specification": "MISSING_DEFINITION",
+            "location": {
+                "line": 2,
+                "char": 14,
+                "source": "unknown"
+            },
+            "message": "Cannot parse object from element 'mapping', there is no definition for that element",
+            "technicalMessage": {
+                "message": "Cannot parse object from element '%s', there is no definition for that element can you clarify the definition based on the expected definitions from list: '%s'",
+                "arguments": [
+                    {
+                        "value": "com.evolveum.midpoint.prism.path.ItemName$WithoutPrefix",
+                        "type": "QNAME"
+                    },
+                    {
+                        "definitions": [
+                            "PCD:{http://midpoint.evolveum.com/xml/ns/public/common/common-3}mapping {http://midpoint.evolveum.com/xml/ns/public/common/common-3}AbstractMappingType[0,1],RAM",
+                            "PCD:{http://midpoint.evolveum.com/xml/ns/public/common/common-3}mapping {http://midpoint.evolveum.com/xml/ns/public/common/common-3}ObjectTemplateMappingType[0,-1],RAM",
+                            "PCD:{http://midpoint.evolveum.com/xml/ns/public/common/common-3}mapping {http://midpoint.evolveum.com/xml/ns/public/common/common-3}MappingType[0,-1],RAM",
+                            "PCD:{http://midpoint.evolveum.com/xml/ns/public/common/common-3}mapping {http://midpoint.evolveum.com/xml/ns/public/common/common-3}ObjectTemplateMappingType[0,-1],RAM",
+                            "PCD:{http://midpoint.evolveum.com/xml/ns/public/common/common-3}mapping {http://midpoint.evolveum.com/xml/ns/public/common/common-3}MetadataMappingType[0,-1],RAM",
+                            "PCD:{http://midpoint.evolveum.com/xml/ns/public/common/common-3}mapping {http://midpoint.evolveum.com/xml/ns/public/common/common-3}MetadataMappingType[0,-1],RAM",
+                            "PCD:{http://midpoint.evolveum.com/xml/ns/public/common/common-3}mapping {http://midpoint.evolveum.com/xml/ns/public/common/common-3}AutoassignMappingType[0,-1],RAM",
+                            "PCD:{http://midpoint.evolveum.com/xml/ns/public/common/common-3}mapping {http://midpoint.evolveum.com/xml/ns/public/common/common-3}InboundMappingType[0,-1],RAM",
+                            "PCD:{http://midpoint.evolveum.com/xml/ns/public/common/common-3}mapping {http://midpoint.evolveum.com/xml/ns/public/common/common-3}MappingType[0,-1],RAM",
+                            "PCD:{http://midpoint.evolveum.com/xml/ns/public/common/common-3}mapping {http://midpoint.evolveum.com/xml/ns/public/common/common-3}MappingType[1,1],RAM"
+                        ],
+                        "type": "DEFINITION_LIST"
+                    }
+                ]
+            }
+        }
+    ]
+}
+----
+
+
+==== Request Example (Valid)
+
+[source,bash]
+----
+curl --location 'http://localhost:8080/validate' \
+--header 'Content-Type: application/json' \
+--data '{
+    "schemaHandling": {
+        "objectType": {
+            "kind": "account",
+            "intent": "default",
+            "default": "true",
+            "delineation": {
+                "objectClass": "user"
+            },
+            "focus": {
+                "type": "UserType"
+            },
+            "attribute": {
+                "ref": "name",
+                "correlator": "",
+                "inbound": {
+                    "strength": "strong",
+                    "target": {
+                        "path": "name"
+                    }
+                },
+                "outbound": {
+                    "strength": "strong",
+                    "source": {
+                        "path": "name"
+                    }
+                }
+            }
+        }
+    }
+}'
+----
+
+==== Response Example (Valid)
+
+[source,json]
+----
+{
+    "logs": []
+}
+----
+
+==== Request Example with parameters (Valid)
+The objectType parameter can be an object type definition or a complex type definition. In this example, see a complex type definition (ResourceAttributeDefinitionType) as the input parameter against which the snippet will be validated.
+
+[source,bash]
+----
+curl --location 'http://localhost:8080/validate?objectType=ResourceAttributeDefinitionType' \
+--header 'Content-Type: application/xml' \
+--data '<attribute>
+          <ref>ri:fullname</ref>
+          <inbound>
+              <strength>strong</strength>
+              <target>
+                <path>fullName</path>
+              </target>
+          </inbound>
+          <outbound>
+              <strength>strong</strength>
+              <source>
+                <path>fullName</path>
+              </source>
+          </outbound>
+        </attribute>'
+----
+
+
+==== Response Example (Valid)
+In this example see the input parameters objectType and itemPath.
+Object type represents the root type of the object (ResourceType) and itemPath represents the path that points to the definition against which the snippet will be validated.
+
+[source,json]
+----
+{
+    "logs": []
+}
+----
+
+==== Request Example with parameters (Valid)
+
+[source,bash]
+----
+curl --location 'http://localhost:8080/validate?objectType=ResourceType&itemPath=schemaHandling/objectType/attribute' \
+--header 'Content-Type: application/xml' \
+--data '<attribute>
+          <ref>ri:fullname</ref>
+          <inbound>
+              <strength>strong</strength>
+              <target>
+                <path>fullName</path>
+              </target>
+          </inbound>
+          <outbound>
+              <strength>strong</strength>
+              <source>
+                <path>fullName</path>
+              </source>
+          </outbound>
+        </attribute>'
+----
+
+
+==== Response Example (Valid)
+
+[source,json]
+----
+{
+    "logs": []
+}
+----
+
+
+=== Validation Log response
+The API returns a list of validation logs describing issues detected during validation.
+Each entry provides both technical details for troubleshooting and a user-friendly message suitable for display.
+
+==== Response type
+`application/json`
+
+==== Response structure
+
+The response body is a JSON array.
+Each element represents a single validation log.
+
+[source,json]
+----
+[
+    {
+        "validationLogType": "ERROR",
+        "specification": "MISSING_DEFINITION",
+        "location": {
+          "line": 4,
+          "char": 23,
+          "source": "unknown"
+        },
+        "technicalMessage": {},
+        "message": "Item '' has no definition."
+    }
+]
+----
+
+Validation Log Fields
+
+[cols="1,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| validationLogType
+| String
+| Indicates the severity or kind of validation result (for example: ERROR, WARNING).
+
+| specification
+| String
+| Specifies the verification protocol for further processing (for example: MISSING_DEFINITION, MISSING_NAMESPACE).
+
+| location
+| Object[SourceLocation]
+| Specifies where the validation issue occurred (for example, line number, column).
+
+| technicalMessage
+| Object
+| Detailed technical information intended for debugging or automated processing.
+
+| message
+| String
+| User-friendly message explaining the issue in a user-friendly way.
+|===
+
+
+
+=== Convert
+
+Convert the provided Midpoint object and returns converted to target language.
+
+==== Query Parameters
+
+*Method:* `POST` +
+*Path:* `/convert` +
+*Consumes:* `application/json`, `application/xml`, `application/yaml` +
+*Produces:* `application/json`, `application/xml`, `application/yaml` +
+
+[cols="1,1,1,2",options="header"]
+|===
+| Name | Type | Required | Description
+
+| targetLanguage
+| string
+| Yes
+| The language you want to convert.
+|===
+
+
+==== Request Example
+
+[source,bash]
+----
+curl --location 'http://localhost:8080/convert?targetLanguage=json' \
+--header 'Content-Type: application/xml' \
+--data '<attribute>
+          <ref>ri:fullname</ref>
+          <inbound>
+              <strength>strong</strength>
+              <target>
+                <path>fullName</path>
+              </target>
+          </inbound>
+          <outbound>
+              <strength>strong</strength>
+              <source>
+                <path>fullName</path>
+              </source>
+          </outbound>
+        </attribute>'
+----
+
+==== Response Example
+
+[source,json]
+----
+{
+    "#attribute": {
+        "#ref": "ri:fullname",
+        "#inbound": {
+            "#strength": "strong",
+            "#target": {
+                "#path": "fullName"
+            }
+        },
+        "#outbound": {
+            "#strength": "strong",
+            "#source": {
+                "#path": "fullName"
+            }
+        }
+    }
+}
+----
+
+
+=== Convert response description
+The response body contains the converted representation of the input document.
+The Content-Type and structure of the response are determined by the targetLanguage parameter.
+The converted content is semantically equivalent across all target languages.
+Clients must rely on the Content-Type response header to correctly interpret the payload.
+
+*targetLanguage:* is strictly limited to these languages: `json`, `xml`, `yaml` +
+
+== Commands
+
+Validate object (full or snippet) input as string.
+
+[source,bash]
+----
+java -jar validation-services.jar validate <code>
+----
+
+Validate object (all or snippet) input as path of file.
+Required flag -f.
+
+[source,bash]
+----
+java -jar validation-services.jar validate <path-of-file> -f
+----
+
+Validate all objects (xml, json, yaml) from midpoint-samples maven repository.
+
+[source,bash]
+----
+java -jar validation-services.jar validate -midpoint-samples
+----
+
+NOTE: or shortcut of -midpoint-samples
+
+[source,bash]
+----
+java -jar validation-services.jar validate -ms
+----
+
+Convert object (full or snippet) input as string.
+[source,bash]
+----
+java -jar validation-services.jar convert <code>
+----
