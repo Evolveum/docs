@@ -1,20 +1,249 @@
 ---
 layout: connector-page
 display-order: 500
-functionality-status: unknown
-development-status: community
-support-status: community
+functionality-status: stable
+development-status: active
+support-status: active
 origin: Provision IAM
-support-provided-by: Provision IAM
+support-provided-by: Evolveum
 target-systems: Zoom
 connector-protocol:
-source-url-master: https://github.com/ExclamationLabs/connector-zoom
+source-url-master: https://github.com/Evolveum/connector-zoom
 description: Identity connector for Zoom.
-documentation-link: https://github.com/ExclamationLabs/connector-zoom
+documentation-link: https://github.com/Evolveum/connector-zoom[Evolveum]
 upkeep-status: green
 ---
 = Zoom Connector
 
+[%autowidth,cols="h,1,1"]
+|===
+| Schema
+| YES
+|
+
+| Provisioning
+| YES
+|
+
+| Live Synchronization
+| NO
+|
+
+| Password
+| YES
+| Not Updatable
+
+| Activation
+| YES
+|
+
+| Filtering changes
+|
+| currently limited
+
+| Paging support
+| YES
+|
+
+| Native attribute names
+| YES
+|
+
+| Scripting
+| NO
+|
+
+| Native references
+| NO
+|
+
+| Last login date
+| NO
+| "last_login_time" can be used in the configured capability
+
+|===
+
+== Introduction
+
+Open source Identity Management connector for [Zoom](https://zoom.us/) that uses the [ConnId](https://connid.tirasa.net/) framework.
+
+* The connector supports Zoom Meeting User, Zoom Phone Users, and Zoom Groups
+* The connector can Create, Update, Delete, and search Zoom users.
+* The connector can enable the Zoom Phone Feature for active Zoom Users.
+* The connector can Assign or Unassign Calling Plans, Phone Numbers, Company Site, and Extension Number to an enabled Zoom Phone User account
+* The connector can Create, Update, Delete, and List Zoom Groups.
+* The list of Zoom Users can be searched by one of three statuses (active, inactive, pending)
+* The connector will download users with all statuses by default unless a status is specified in the search criteria.
+* The connector configuration will allow you to select whether a user to be deactivated, disassociated, or deleted when the Zoom User delete operation is invoked.
+
+== Limitations
+
+* Connector operation requires that you have at least a Zoom Pro Account.
+See [https://zoom.us/pricing](https://zoom.us/pricing) for more information.
+* Basic Free Zoom accounts have rate limits which prevent normal operation of the connector.
+See [https://developers.zoom.us/docs/api/rest/rate-limits/](https://developers.zoom.us/docs/api/rest/rate-limits/) for more information.
+* The connector currently supports the default create user action.
+* The default create action is to set the user in pending status until activation is complete.
+* The default create action requires the user to activate their zoom account by verifying their email address.
+Until activation is completed the account remains in 'pending' status.
+* When a user is in a 'pending' status, the connector can use the API to lookup a user by ID or email address.
+However, the data returned is minimal or empty.
+* A user’s information cannot be updated when the status is pending.
+* A user’s information can be updated and retrieved when the status is active.
+* A user’s information can be retrieved but not updated when the status is inactive
+* A user’s information can only be updated when the account is activated or reactivated.
+
+== Getting started
+
+To begin you will need to register and activate at least a Zoom Pro account with one or more licenses for Zoom User and/or Zoom Phone.
+A normal Zoom account with zero licenses will not operate properly because of [rate limits](https://developers.zoom.us/docs/api/rest/rate-limits/).
+
+You can manage Users and Groups in Zoom's web UI by going to [https://zoom.us/meeting](https://zoom.us/meeting) and using the Admin - User Management links.
+The owner of the account or a user with **Admin** role is required to create the Server to Server OAuth application in the Zoom marketplace.
+
+See [https://marketplace.zoom.us/develop](https://marketplace.zoom.us/develop) for information on setting up a Zoom developer account.
+Once you are authenticated, create a new [Server-Server OAuth](https://developers.zoom.us/docs/internal-apps/s2s-oauth/) app as documented here [https://developers.zoom.us/docs/internal-apps/create/](https://developers.zoom.us/docs/internal-apps/create/)
+
+== Permissions
+
+The following OAuth Scopes will be required in the Server to Server OAuth Application in order to use this connector.
+
+* group:master
+* group:read:admin,
+* group:write:admin
+* phone:master
+* phone:read:admin
+* phone:write:admin
+* user:master
+* user:read:admin
+* user:write:admin
+
+== Configuration Properties
+
+[cols="1,1,4", options="header"]
+|===
+| Item | Required | Description
+
+| Service URL
+| Yes
+| The base URL of the Zoom Web Service. It is normally set to *_https://api.zoom.us/v2_*
+
+| IO Error Retries
+| No
+| Number of retries that will be attempted when an IO error occurs. Default is 5.
+
+| Deep Get Enabled
+| No
+| When a search operation is executed and this value is *true*, the connector will download all attributes for each individual record returned.
+When *false* the Zoom connector will not return Zoom phone attributes.
+The value should be set to true, although it will consume more time to download each record.
+
+| Deep Import Enabled
+| No
+| When an import operation is executed and this value is *true* the connector will download all attributes for each individual record returned.
+When *false* the Zoom connector will not return Zoom phone attributes.
+The value should be set to true, although it will consume more time to download each record.
+
+| Import Batch Size
+| No
+| The default number of records to retrieve per page.
+Import operations will be invoked using the given batch size when it is supplied.
+Since the Zoom API supports paging you can import records one batch/page at a time instead of all at once.
+The default value is 30 and the maximum value is 300.
+
+| Pagination Enabled
+| No
+| The Zoom Connector supports pagination on supported objects.
+This option should be set to true.
+
+| Duplicate Record Returns Id
+| No
+| When a create is attempted and an AlreadyExistsException is generated by the driver invocator, the adapter shall attempt to return the id of the existing record matching the specified email address.
+
+| OAuth2 Token URL
+| Yes
+| The URL used to get an OAuth2 token.
+The default value for Zoom is *_https://zoom.us/oauth/token_*
+
+| OAuth2 Account Id
+| Yes
+| The *_Account ID_* received from the Server-to-Server OAuth2 application you created in the Zoom Marketplace.
+
+| OAuth2 Client Id
+| Yes
+| The *_Client Id_* received from the App Credentials page of the Server-to-Server OAuth2 application you created in the Zoom Marketplace.
+
+| OAuth2 Client Secret
+| Yes
+| The *_Client Secret_* received from the App Credentials page of the Server-to-Server OAuth2 application you created in the Zoom Marketplace.
+
+| OAuth2 Scope
+| No
+| The *_Scopes_* assigned to the Server-to-Server OAuth2 application you created in the Zoom Marketplace.
+As of this writing the Zoom system will provide all scopes defined for the application by default.
+For this reason it may be possible to leave this value blank or populate it with values supplied in a previous section of this document.
+
+| Deactivate On Delete
+| No
+| When this value is *_true_* the connector will deactivate the account when a delete operation is invoked.
+When this value is *false* the _Disassociate on Delete_ action is invoked.
+
+| Disassociate On Delete
+| No
+| When this value is *true* the connector will disassociate the user’s Zoom login from the master account.
+This means the user login with the user’s email address will continue to exist as a basic account.
+When *false* the user account is actually deleted unless _Deactivate on Delete_ is true.
+
+| Immediate Logout on Deactivate
+| No
+| When this value is true the user will be immediately logged out when a deactivate event occurs.
+|===
+
+## Connector Operations
+
+The Zoom connector implements the following connId SPI operations:
+
+* **SchemaOp** - Allows the Connector to describe which types of objects the Connector manages on the target resource.
+This includes the options supported for each type of object.
+* **TestOp** - Allows testing of the resource configuration to verify that the target environment is available.
+* **SearchOp** - Allows the connector to search the Zoom Web Service for resource objects.
+* **CreateOp** - Allows the connector to create Users or Groups
+* **DeleteOp** - Allows the connector to delete Users, or Groups
+* **UpdateDeltaOp** - Allows for updates of the supported Object Types. These are Users and Groups
+
+### Deep Get Explained
+
+The connector supports a **deep get** functionality which returns detailed information for each item returned from a query.
+This feature is necessary because a query may return partial fields for a record.
+This is the case with the Zoom User lookup and the lookup API calls.
+**Deep get** is invoked when the query contains paging parameters such as page size and page offset.
+**Deep get is recommended to be true for this connector.**
+
+### Deep Import Explained
+
+The connector’s deep import option is similar to the deep get option.
+The deep import option is invoked when a query does not have paging parameters.
+**Deep Import is recommended to be true for this connector.**
+
+### Duplicate Record Returns Id Explained
+
+The duplicate record returns Id configuration option is invoked when an HTTP POST request, used to create a record, returns HTTP 409 (Conflict).
+This typically indicates that the record we are attempting to create already exists.
+When this option is true the connector will attempt to get the record by name and return the record’s ID value to the caller.
+In this way a record can be seamlessly imported when it already exists on the target server.
+Unfortunately the Zoom API does not return HTTP 409 instead it returns HTTP 412.
+Because this is the case the connector will always do a lookup for an existing object type before creating the type.
+
+### Email Address Changes
+
+The Zoom API does not allow an email address to be changed once the user is created unless you have Managed Domains enabled.
+You enable this through Account Management.
+The connector will fail gracefully with an error message in the log.
+If more than 3 attempts are made to change a user's address within a 24 hour period, the Zoom API will return a rate limiting error (HTTP 429).
+
+
 == See Also
 
 * https://github.com/ExclamationLabs/connector-zoom
+* https://developers.zoom.us/docs/api/rest/reference/user/methods/#overview
+* https://developers.zoom.us/docs/api/rest/reference/user/methods/#tag/Users
