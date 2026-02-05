@@ -1,76 +1,70 @@
-= SCIMREST Framework
-
-
+= Introduction to SCIMREST framework
+:page-nav-title: SCIMREST framework
+:page-display-order: 1000
+:page-upkeep-status: green
+:page-toc: top
 
 The SCIMREST Framework is ConnId connector framework, designed to provide a flexible and extensible base, implementing common reusable functionality for supported protocols and technologies, reducing the amount of code needed to write to implement connector
 
 IMPORTANT: Connector Framework is still under development, so not all listed functionality is fully implemented yet, and some concept may change during development.
 
+=== What the SCIM REST framework is
 
-== Functionality Overview
+The SCIM REST framework in midPoint is a *low‑code scaffolding layer* that lets you build a SCIM‑based connector without writing a full Java connector from scratch.
+It sits above the generic ConnID infrastructure and below the concrete SCIM REST connector implementation.
 
-Base Connector Framework Support::
-** Set of base classes necessary to integrate with ConnId framework.
+[cols="1,~", options="header"]
+|===
+|Goal |How the framework achieves it
+|Rapid connector creation |You supply a small declarative description (endpoint URL, authentication method, supported SCIM resource types, attribute mappings).
+The framework generates the necessary ConnID‑compatible connector code automatically.
+|Standardised SCIM handling |All SCIM‑specific details—HTTP verbs, JSON payload structures, pagination, bulk operations, error handling—are implemented once in the framework and reused by every connector built on top of it.
+|Uniform ConnID contract |The generated connector conforms to the ConnID SPI, so midPoint treats it exactly like any other ConnID connector (calls create, update, delete, search, etc.).
+This keeps the provisioning engine unchanged regardless of whether the underlying target is a classic LDAP connector or a SCIM REST connector.
+|Configuration‑driven extensibility |New SCIM services can be added simply by filling out a configuration file (or UI form) that describes the service’s SCIM schema and any custom extensions.
+No Java coding is required unless you need special behaviour.
+|===
 
-Schema Mapping & Schema Builder APIs::
-** Provides a way to define and manage schema, and  mappings between protocol representation (SCIM, REST) and ConnId schema.
-** Allows for easy customization of attribute names and types regardless of protocol used.
-** Allows for specifying object classes, attributes, relationships in declarative way.
+A SCIM REST connector in midPoint acts as a thin translation layer.
+When midPoint initiates a provisioning operation (create, update, delete, read, or search), the connector:
 
-Authentication & Authorization::
-** Common configuration model for authentication and authorization mechanisms, such as OAuth 2.0, API keys.
-** Providing initialized REST client with authentication and authorization headers, tokens, and other required parameters to REST and SCIM Support classes.
+[arabic]
+. *Maps* the internal midPoint object model to the corresponding SCIM resource representation (e.g., a `+User+` or `+Group+` JSON payload).
+. *Constructs* the appropriate HTTP request (POST for create, PATCH for update, DELETE for delete, GET for read/search) according to the SCIM 2.0 specification.
+. *Sends* that request to the configured SCIM endpoint, handling authentication, headers, and any required query parameters.
+. *Processes* the response, converting the returned SCIM JSON back into midPoint’s internal format and propagating status or error information to the provisioning workflow.
 
-ConnId Support & Operation Builders::
-** Support for ConnId operations using strategy design pattern, where based on ConnId request, the appropriate strategies are selected to handle the request.
-*** Strategies are configured & provided by protocol specific parts and custom scripts.
+Because SCIM already defines a standard schema and set of operations, the connector does not need to perform complex field‑by‑field transformations beyond the attribute mapping you configure.
+Its role is essentially to forward midPoint’s provisioning intents to the remote service via the standardized REST API.
 
-REST Support::
-** Declarative support for calling, retrieving, creating, updating and deleting data using REST APIs.
-** Endpoint-based strategies for handling ConnId search, update, create, and delete operations.
-** Support for custom strategies for handling non-standard cases such as complex updates, splitting operations into multiple sub-operations, indirect searches.
+=== ConnID vs. SCIMREST
 
-SCIM Support::
-** Supports automatic schema discovery using SCIM 2.0 protocol.
-** Contributes to schema mappings and provides strategies based on discovered SCIM 2.0 schema, so there is no need to manually define schema mappings for SCIM 2.0 compliant applications.
-** Built-in strategies for handling ConnId search, update, create, and delete operations based on SCIM 2.0 protocol.
-*** Multiple strategies for update operations, delete operations.
-*** Support for custom strategies to be defined for handling non-standard cases such as complex updates, splitting operations into multiple sub-operations, indirect searches.
+==== ConnID
 
-Scripting Support::
-** Custom Groovy DSL for configuring & defining custom schema mappings, logic, strategies, and operations.
-** Scripting support is intended to implement custom connectors using Groovy with intent to minimize boilerplate code.
+* *Purpose* – A generic provisioning framework that abstracts various target systems (LDAP, databases, cloud services, etc.) behind a unified connector API.
+* *Implementation* – Uses the ConnId library (formerly "`midPoint Connector Framework`"). Each target system is accessed via a specific _connector_ that implements the ConnId SPI (Service Provider Interface).
+* *Operation model* – Midpoint invokes the connector’s CRUD‑style methods (create, read, update, delete, search, test) and receives objects in the *ConnectorObject* format. The connector handles the translation between Midpoint’s internal `+Object+` model and the target system’s native schema.
+* *Typical use‑cases* – LDAP directories, SQL databases, Microsoft AD, Azure AD, Google Workspace, etc., where a ready‑made ConnId connector exists or a custom one can be written.
 
-// * **SQL Support**:
-// ** Supports automatic schema discovery using SQL database metadata.
-// ** Contributes to schema mappings and provide strategies based on discovered SQL schema, so there is no need to manually define schema mappings for database tables.
-// ** Support for customization of naming, attribute mappings and table relationships.
-// ** Built-in strategies for handling ConnId search, update, create, and delete operations.
-// ** Support for custom strategies for handling non-standard cases such as complex updates, splitting operations into multiple sub-operations, indirect searches.
+==== SCIM REST
 
-== Getting Started using SCIMREST Framework
+* *Purpose* – A lightweight, standards‑based protocol (System for Cross‑Domain Identity Management) that exposes identity resources over a RESTful HTTP API.
+* *Implementation* – Midpoint includes a built‑in _SCIM REST_ connector that talks to any service that implements the SCIM 2.0 specification (e.g., Okta, Azure AD SCIM endpoint, JumpCloud). It does not rely on the ConnId abstraction; instead it directly issues HTTP requests (GET, POST, PATCH, DELETE) against the SCIM endpoints.
+* *Operation model* – Objects are represented as JSON payloads conforming to the SCIM schema (User, Group, etc.). Midpoint maps its internal attributes to SCIM attribute names and uses standard SCIM filtering, pagination, and bulk operations where supported.
+* *Typical use‑cases* – Cloud SaaS applications that expose a SCIM interface for user provisioning, such as identity‑as‑a‑service platforms, HR systems, or any custom service that implements the SCIM spec.
 
-The SCIMREST Framework is still designed using the terminology of ConnId framework, so it is recommended to have basic understanding of ConnID terminology.
+==== Key Differences at a glance
 
-The detailed development process of connector using SCIMREST Framework is described in xref:develop/[Development Guide].
+[cols="1,3,3",options="header",]
+|===
+|Aspect |ConnID |SCIM REST
+|Abstraction layer |Generic connector framework; each target needs a specific ConnId connector. |Direct interaction with a standardized REST API (SCIM 2.0).
+|Protocol |Varies per connector (LDAP, JDBC, SOAP, proprietary APIs, etc.). |Pure HTTP/JSON following SCIM spec.
+|Connector development |Write a Java class implementing ConnId SPI; reuse existing community connectors. |No custom Java code needed if the target already supports SCIM; just configure endpoint URL, credentials, and attribute mappings.
+|Schema handling |Connector translates between Midpoint’s internal schema and target’s native schema. |Mapping is between Midpoint’s schema and SCIM’s fixed schema (User, Group, etc.).
+|Extensibility |High – you can create connectors for virtually any system. |Limited to systems that expose a SCIM‑compliant API.
+|Performance considerations |Depends on underlying protocol; may require batching or paging logic per connector. |SCIM defines bulk and pagination mechanisms; generally efficient over HTTP.
+|===
 
-=== Sample Connectors
-
-The sample connectors are not full fledged connectors, but rather testing examples of how to use the SCIMREST Framework to implement connectors for various protocols and technologies.
-They currnetly only support read-only operations. 
-
-==== Scim.Dev connector
-
-Scim.dev is a sample SCIM 2.0 compliant service, which provides REST API for managing users, groups, and other objects.
-
-Very simple connector, actual implementation is only one Groovy script link:https://github.com/Evolveum/connector-scimrest/blob/main/connector/sample-scimdev/src/main/resources/ScimDev.schema.groovy[`ScimDev.schema.groovy`], which only renames attributes and provides support for references ( associations) for custom object class `Office`.
-
-Search operations, schema discovery and schema mapping is handled by the SCIMREST Framework, so there is no need to implement any additional code for these operations. 
-
-Sources are available in `connector-scimrest` repository in link:https://github.com/Evolveum/connector-scimrest/tree/main/connector/sample-scimdev[`connector/sample-scimdev` directory].
-
-==== Forgejo connector
-
-Forgejo is a self-hosted Git service, which provides REST API for managing users, organizations, and repositories.
-
-Sources are available in `connector-scimrest` repository in link:https://github.com/Evolveum/connector-scimrest/tree/main/connector/forgejo/[`connector/sample-scimdev` directory].
+In practice, choose ConnID when you need to integrate with a system that does not provide a SCIM endpoint or when you already have a suitable ConnId connector.
+Opt for SCIM REST when the target service offers a SCIM 2.0 API, as it requires less custom development and leverages a well‑defined, interoperable protocol.
