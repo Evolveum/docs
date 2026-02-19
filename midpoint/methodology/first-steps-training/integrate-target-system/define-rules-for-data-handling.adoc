@@ -1,0 +1,175 @@
+= Define Active Directory rules for mapping, synchronization, and correlation
+:page-nav-title: Define AD data handling rules
+:page-display-order: 220
+:page-toc: top
+:experimental:
+:icons: font
+:page-description: Create rules to enable midPoint find accounts in the target Active Directory application and match them with accounts it already knows from HRIS.
+
+Create rules to enable midPoint find accounts in the target Active Directory application and match them with accounts it already knows from HRIS.
+
+== What awaits you in this module
+
+You are about to create mapping, synchronization, and correlation rules to ensure midPoint can match the accounts it finds in the Active Directory with the accounts it already knows from HRIS.
+The process is similar to what you have done in xref:/midpoint/methodology/first-steps-training/connect-source-system/define-mapping-and-synchronization-rules/[] but since the AD is a target application, you need to tailor the settings accordingly; most notably, you will learn to create inbound mapping rules limited only to correlation.
+
+:sectnums:
+
+== Define synchronization rules
+
+Define the synchronization rules for the AD resource.
+You can safely use the _Active_ lifecycle state even during testing as long as the whole AD resource is _proposed_.
+
+*Follow this guide: xref:/midpoint/reference/admin-gui/resource-wizard/object-type/synchronization/[]*
+
+[cols="2,1,1,1,4"]
+|====
+| Name | Situation | Reaction | Lifecycle state | Comments
+
+| link-unlinked
+| Unlinked
+| Link
+| Active
+| There is a focus for the account but it is not linked to the shadow of the account yet, let us link it.
+	This is not used during the first import, but it is necessary for later when the account shadows are in midPoint already.
+
+| synchronize-linked
+| Linked
+| Synchronize
+| Active
+| Synchronize the data between the remote account and the focus based on mappings.
+
+| synchronize-deleted
+| Deleted
+| Synchronize
+| Active
+| Restore "illegally" deleted accounts on the resource using the shadow in midPoint.
+
+| delete-unmatched-resource-object
+| Unmatched
+| Delete resource object
+| Draft
+| Delete orphaned ("illegal") resource objects, i.e., those not present in HRIS and thus not having shadow in midPoint.
+	This is potentially destructive in case of misconfiguration. +
+	Keep in _Draft_ (effectively disabled) for now.
+
+| create-correlation-case-for-disputed
+| Disputed
+| Create correlation case
+| Active
+| In case a candidate owner is not found with 100% certainty, create a correlation case to let a human operator resolve the situation.
+	You will learn more about cases in a bit.
+
+|====
+
+Refer to xref:/midpoint/reference/synchronization/introduction/[] for more details on the topic.
+
+== Create inbound mappings for correlation
+
+With inbound ("target") resources like the one for the Active Directory application we have here, you face a new challenge when you need to correlate accounts.
+To successfully correlate accounts, you need _inbound_ mappings for the AD resource, i.e., _from_ the resource _to_ midPoint.
+But the "regular" inbound mappings are not the best fit because you do not want to actually write the data from the resource to midPoint.
+
+That is why you are going to define a *new kind of mappings*: inbound mappings limited to correlation purposes.
+MidPoint will use these mapping rules only to know which resource attribute to correlate with which _internal_ (focus) user attribute.
+
+*Follow these guides:*
+
+* xref:/midpoint/reference/admin-gui/resource-wizard/object-type/mapping/[].
+* xref:/midpoint/reference/admin-gui/resource-wizard/object-type/mapping/advanced-mappings/[]
+
+Use *inbound mappings* and set them to be *used for correlation only*.
+
+Define these mapping rules:
+
+[cols="2,1,1,1,1,5"]
+|====
+| Name | Source | Expression | Target | Lifecycle state | Comments
+
+| inbound-employeeNumber-for-correlation
+| `employeenumber`
+| As is
+| `personalNumber`
+| Active
+| Used for correlating employee number in the resource with the personal number in midPoint.
+
+| inbound-surname-for-correlation
+| `sn`
+| As is
+| `familyName`
+| Active
+| Used for the second correlation rule when the default employee number correlation fails.
+
+| inbound-givenName-for-correlation
+| `givenname`
+| As is
+| `givenName`
+| Active
+| Used for the second correlation.
+
+| inbound-locality-for-correlation
+| `l`
+| As is
+| `locality`
+| Active
+| Used for the second correlation.
+
+|====
+
+.Correlation-only inbound mappings for AD. Note the yellow icon:code-branch[role="yellow"] icons left of the rule names signifying the *Use for* limitation.
+image::ldap-inbound-correlation-mappings.webp["Correlation-only inbound mappings for the AD resource"]
+
+== Define correlation rules
+
+Correlation in midPoint is a mechanism used to identify the owner of a resource object, such as an account.
+It involves finding the right xref:/glossary/#focus[focal object] for a particular resource object.
+This process essentially binds the xref:/glossary/#shadow[shadows] of the resource objects to their appropriate midPoint focal objects.
+
+Refer to xref:/midpoint/features/current/correlation/[] for more details on the topic.
+
+In general, to correlate objects from various resources, you need to *find a common identifier*.
+In this guide, we use the employee numbers as the common identifier.
+If an AD server entry has the same employee number as a user in midPoint, they are surely a match.
+
+For the cases when this bullet-proof matching fails due to erroneous data,
+you can set up a *fallback correlation rule using an attribute combination*, such as first name + surname + locality.
+
+Fallback rules should not have as high *confidence* because there may be cases when two people of the same name are in the same place, for instance.
+Lower-confidence correlation rules can be set to create produce *correlation cases*,
+meaning they can only suggest which focus should be bound to which shadow, but a human operator needs to confirm the match.
+
+In the suggested setup below, the fallback rule using names and locality has the confidence of only 0.5.
+That means that even if all the three attributes agree, the match would be only 50% sure and a correlation case would be created.
+
+*Follow this guide: xref:/midpoint/reference/admin-gui/resource-wizard/object-type/correlation/[]*
+
+Define these correlation rules:
+
+[cols="~,~,1,1,1,~"]
+|====
+| Rule name | Description | Weight | Tier | Enabled | xref:/midpoint/reference/admin-gui/resource-wizard/object-type/correlation/#set-up-correlators[Correlators] (Item : Search method)
+
+| personalNumber-correlation
+| Correlation using `personalNumber`. Does not require human intervention.
+|
+| 1
+| True
+| `personalNumber` : Exact match
+
+| last-resort-correlation
+| Correlation using givenName, familyName and locality. Trusted only by 50%, human intervention is needed.
+| 0.5
+| 10
+| False
+| `givenName` : Exact match +
+    `familyName` : Exact match +
+    `locality`: Exact match
+|====
+
+:sectnums!:
+
+== Next steps
+
+Having all the essential rules in place, you can now continue to reconcile the AD application accounts with what you already have in midPoint.
+
+[.nowrap]#icon:arrow-right[] *xref:/midpoint/methodology/first-steps-training/integrate-target-system/reconcile-ad-accounts/[]*#
