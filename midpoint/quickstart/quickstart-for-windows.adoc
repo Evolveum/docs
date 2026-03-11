@@ -49,10 +49,12 @@ During the initial setup, you need to download the Docker Compose file.
 Once everything is set up, you can work with midPoint offline.
 
 == Installing midPoint
+
 This section explains how to start the midPoint environment using Docker Compose. 
 You will download the compose file, start the containers, retrieve the administrator password, and access the midPoint web interface.
 
-=== Starting the docker container
+=== Starting the docker containers
+
 A working midPoint environment requires more than just a single application. To simplify the setup, we provide a Docker Compose configuration file. It defines all required components and includes the necessary settings. Running this file creates an isolated environment with all parts properly configured.
 
 Open PowerShell and navigate to the directory where you want to store the Docker Compose file using the `cd` command.
@@ -90,10 +92,63 @@ Start the environment in the background:
 docker compose up -d
 ----
 
+After succesfully running this command PowerShell should display something like this:
+
+[source, powershell]
+----
+[+] up 4/4
+ ✔ Network windows_quickstart_net                 Created                                                                  0.0s
+ ✔ Container windows_quickstart-midpoint_data-1   Created                                                                  0.1s
+ ✔ Container windows_quickstart-data_init-1       Exited                                                                   9.6s
+ ✔ Container windows_quickstart-midpoint_server-1 Created                                                                  0.1s
+----
+
 The web GUI becomes available once the environment starts and the initiation (loading initial objects into the empty repository, etc.) is completed. 
 Depending on your environment, this may take several minutes.
 
+If you'd like to stop the environment, use this command: 
+
+[source, powershell]
+----
+docker compose down 
+----
+
+This will stop the containers but it will keep the stored data. 
+Here is a table of useful commands to control the Docker environment.
+After running this command, the PowerShell will print something similar to this:
+
+[+] down 4/4
+ ✔ Container windows_quickstart-midpoint_server-1 Removed                                                                  0.4s
+ ✔ Container windows_quickstart-data_init-1       Removed                                                                  0.0s
+ ✔ Container windows_quickstart-midpoint_data-1   Removed                                                                  0.3s
+ ✔ Network windows_quickstart_net                 Removed                                                                  0.3s
+
+
+The following table shows the most common commands:
+
+.A summary of the available Docker Compose commands.
+[%autowidth]
+|====
+| Command | Result
+
+| `docker compose up -d`
+| Starts the environment based on the Docker Compose file content.
+
+| `docker compose down`
+| Stops the environment (the stored data is kept).
+
+| `docker compose down -v`
+| Stops the environment and cleans up the relevant data.
+
+| `docker ps`
+| Lists all currently running containers.
+
+| `docker ps -a`
+| Lists all containers currently used in the system (including stopped containers).
+
+|====
 === Logging into the midPoint
+
 MidPoint has a web administration user interface. This is the primary user interface for using and configuring midPoint. By default, the user interface is accessible at port `8080`:
 
 `http://localhost:8080/midpoint/`
@@ -113,5 +168,162 @@ In midPoint 4.8.1 and newer versions, there is no default password for security 
 After you first log into the administrator account, change the password or disable the built-in administrator account completely. This is important because the initial password may remain in the logs or environment variables for some time.
 ====
 
-After logging in, you will see the midPoint administration interface. The main navigation menu is located on the left side of the screen and provides access to key sections such as Users, Roles, Resources, and Reports. Use this menu to navigate through the system. When you open a section, the main panel displays the corresponding objects and actions that you can perform. The xref:../install/post-install-orientation.adoc[] can help you navigate further.
+After logging in, you will see the midPoint administration interface. 
+The main navigation menu is located on the left side of the screen and provides access to key sections such as Users, Roles, Resources, and Reports. 
+Use this menu to navigate through the system. When you open a section, the main panel displays the corresponding objects and actions that you can perform. 
+The xref:../install/post-install-orientation.adoc[] can help you navigate further.
+
+== Docker Desktop Environment Walkthrough
+
+As we mentioned earlier, we are using Docker Desktop application.
+Docker Desktop provides a graphical interface for managing containers, images, volumes, and other Docker objects on your local machine.
+Although most commands in this guide are executed in PowerShell, it is useful to know how to navigate the Docker Desktop interface and inspect the running environment visually.
+
+=== Opening Docker Desktop
+
+Start Docker Desktop from the Start Menu.
+After it launches, wait until the application reports that Docker is running.
+The main window provides an overview of your local Docker environment.
+
+=== Containers
+
+The Containers section shows all currently available projects. 
+When containers are started using Docker Compose, Docker Desktop groups them into projects.
+A *project* represents an application environment defined by a `docker-compose.yml` file. 
+Each project typically contains multiple containers that work together to provide the application functionality.
+
+In this guide, Docker Compose created the project `windows_quickstart`. 
+This project contains the containers required to run MidPoint.
+
+image::DockerDesktopProjects.png[]
+
+Select this container and see the details. 
+
+From the project view, you can explore the container details and manage the running environment.
+
+image::DockerDesktopContainers.png[]
+
+In the top-right corner of the project view you will see the *View configurations* button. 
+This opens the Docker Compose configuration used to create the containers.
+
+From there, you can open the `docker-compose.yml` file in your IDE and modify it if needed (for example, to mount additional files into the container or change the exposed port).
+
+To return to the project view, click the *back arrow* in the top-left corner of the page next to the *Compose file viewer* title.
+
+Inside the `windows_quickstart` project you should see three containers:
+
+* `midpoint_server` – runs the MidPoint application (`evolveum/midpoint` image) and exposes the web interface on port `8080`.
+* `midpoint_data` – provides the PostgreSQL database used by MidPoint (`postgres:16-alpine` image).
+* `data_init` – a helper container used during the initialization process.
+
+=== Logs
+
+Select a container and see its detail page. One of the most useful tabs is *Logs*.
+
+The logs view displays the output produced by the container. 
+This is helpful for troubleshooting startup issues or retrieving information written during initialization, such as the initial administrator password generated by MidPoint.
+On the right side in the menu panel are some useful tools for the work with the logs.
+You can: 
+
+* Search through the log.
+* Set the settings for showing the log
+* Copy the log to the clipboard
+* Erase the log. 
+
+=== Files
+
+See the panel *Files*, which provides a graphical view of the container filesystem. 
+You can browse directories and inspect files stored inside the container.
+You can inspect the resource files copied into the cotainer there. 
+
+Open the `/opt/midpoint/var` directory.
+It is used for runtime data generated or used by MidPoint while the application is running. 
+This makes it a convenient location for temporary files or additional resources used during demonstrations or testing.
+
+As an example examine the `config.xml` file.
+If you right-click in the corresponding row and select the option `Edit file` Docker Desktop displays its contents in the built-in editor below the file list.
+
+image::DockerFileEditor.png[]
+
+In the top-right corner of the editor, several actions are available:
+
+* **Save** – saves the changes made to the file.
+* **Undo** – reverts the most recent changes in the editor.
+* **Close** – closes the editor and returns to the file list.
+
+These controls allow you to quickly edit files inside the container without opening a terminal.
+
+[NOTE]
+====
+If you modify the configuration file, the container must be restarted for the changes to take effect.
+You can restart the container from Docker Desktop or by running the following command in PowerShell:
+
+[source,powershell]
+----
+docker compose restart
+----
+====
+
+=== Stats
+
+The *Stats* tab displays real-time resource usage information for the selected container. 
+It shows metrics such as CPU usage, memory consumption, disk I/O, and network activity.
+
+This view can be useful when monitoring the behavior of the container or troubleshooting performance issues. 
+For example, you can check whether the MidPoint container is consuming too much memory or whether the database container is actively processing requests.
+
+
+== Adding a resource to midPoint
+
+Even in the quickstart environment it is possible to experiment with adding a resource, although in a simplified form compared to a full MidPoint deployment.
+In this example, we will connect a resource in the form of a CSV file using the CSV connector.
+
+One way to do this is to copy the file directly into the running container using the `docker cp` command.
+
+IMPORTANT: This approach is suitable mainly for demonstration or testing environments (such as the Docker quickstart). 
+The file is copied directly into the container filesystem. If the container is removed or recreated, the file will be lost. 
+Changes made to the local file on the host system will not be reflected in the copy inside the container.
+
+Copy the resource file into the container.
+Use the `docker cp` command to copy the file from the host system to the container.
+Replace the local file path with yours. 
+
+[source,powershell]
+----
+docker cp C:\example\of\local\file.csv `
+windows_quickstart-midpoint_server-1:/opt/midpoint/var
+----
+
+This copies the `file.csv` into the `/opt/midpoint/var` directory inside the MidPoint container.
+The `/opt/midpoint/var` subdirectory inside the MidPoint container is used for runtime data such as logs, temporary files, and additional resources provided at runtime.
+
+[NOTE]
+====
+`windows_quickstart-midpoint_server-1` in the command is the name of the container you copy the CSV file into. 
+You can figure out the names of the containers by running a command `docker ps` in PowerShell.
+====
+
+Verify the file inside the container (optional).
+You can open a shell inside the container:
+
+[source,powershell]
+----
+docker exec -it windows_quickstart-midpoint_server-1 bash
+----
+
+Then check that the file is present by printing names of objects in the folder where the file is supposed to be:
+
+[source,powershell]
+----
+ls /opt/midpoint/var
+----
+
+[NOTE]
+====
+In production deployments it is recommended to provide configuration files using mounted volumes or container images instead of copying files directly into a running container.
+====
+
+Continue with the tutorial on creating a resource in the MidPoint GUI xref:/midpoint/reference/admin-gui/resource-wizard/create-resource-using-wizard/[create a resource and import accounts from a CSV file via the CSV connector].
+Create the resource *from scratch* using the CSV connector and set the file path to `/opt/midpoint/var/file.csv` 
+
 
