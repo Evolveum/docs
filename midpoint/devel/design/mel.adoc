@@ -197,6 +197,61 @@ This may not be a bad thing, given the functional character of CEL.
 As a workaround, _macros_ may be used to provide illusion of vararg functions (not prototyped yet).
 This can be added later (post 4.11).
 
+== Implementation Notes
+
+=== Nulls vs Optionals
+
+CEL has two ways to express no value: `null` and _empty optional_.
+This is _very_ non-intuitive, as `foo == null` does not work for optionals.
+Any attempts to fix this (operator overload, wrapping all values into Java Optionals, making all variables DYN, etc.) failed miserably, making it all even worse.
+
+Introduction of `isNull()` and `isPresent()` methods was a best solution.
+These are checking for `null` as well as empty optionals.
+
+Overall, CEL is not really built to work well with optional/null values.
+E.g. the provided "Optional extension" to CEL does not work as expected.
+Following code might look nice, but it does not work:
+
+[source,mel]
+----
+optional.of(fullName).orValue('John Doe')
+----
+
+Therefore, `default()` function was created instead.
+
+It would be also nice to have a coalesce operator:
+
+[source,mel]
+----
+fullName ?? 'John Doe'
+----
+
+However, this is not supported neither in CEL spec nor in cel-java, and there is no easy way to add new operator in cel-java.
+
+=== Overload of Conditional
+
+CEL conditional operator (`?:`) needs to have the same data type in both branches.
+This is usually fine, but it is somehow inconvenient when strings and polystrings are mixed in the two branches.
+The `?:` operator can be overloaded to support combination of string/polystring in branches.
+However, this turned out to be a very bad idea.
+Overloading the operator caused _short circuit_ function of the operator to stop.
+The `?:` operator always executed both branches, which was _very_ inconvenient, especially due to handling of null values.
+
+=== Functions `string()` vs `str()`
+
+CEL has built-in `string()` function which is supposed to convert data to string.
+This would be nice for explicit conversion of polystrings to strings.
+However, it fails, as the stock `string()` function is not built to work with `null` values.
+
+Hence the `str()` function.
+
+=== Mysteries
+
+* The _optional select_ operator is `.?` but in source code it is `OPTIONAL_SELECT("_?._")`.
+
+* Strange `%%` operator is sometimes mentioned in error messages.
+It is just a typo, or is there some UFO?
+
 == See Also
 
 * https://github.com/google/cel-spec/blob/master/doc/langdef.md[CEL Language Definition]
