@@ -1,0 +1,104 @@
+= SCIM create operation customization
+:page-nav-title: Create operations
+:page-upkeep-status: orange
+:page-toc: top
+
+This document is part of the SCIM 2.0 connector tutorial. See xref:index#[Index] for other topics.
+
+SCIM 2.0 create operations use HTTP POST to create new resources.
+
+== Basic Create
+
+To support create operation you do not need to specify anything for well-behaved SCIM 2.0 servers.
+
+For the servers which are not well-behaved or have implementation limitations, you may need to customize create operation.
+
+[source,groovy]
+----
+objectClass("User") {
+    create {
+        scim {
+            supportedAttributes "externalId", "displayName", "nickName"
+        }
+    }
+}
+----
+
+The framework automatically:
+
+* Uses POST to the resource endpoint
+* Serializes creatable attributes to JSON
+* Handles the response to extract the created object
+* Parses the `id` from response as Uid
+
+== Supported attributes
+
+Specify which attributes can be used in create:
+
+[source,groovy]
+----
+scim {
+    supportedAttributes "externalId", "displayName", "nickName"
+}
+----
+
+All `creatable` attributes from schema are supported by default.
+
+== Attribute-specific configuration
+
+Configure specific attributes with `supportedAttribute`:
+
+[source,groovy]
+----
+scim {
+    supportedAttribute("userName") {
+        // userName can only be set during create (immutable after)
+    }
+
+    supportedAttribute("active") {
+        // active attribute is not creatable
+        // Will be set after create via update
+    }
+}
+----
+
+== Complete create example (AWS style)
+
+[source,groovy,highlight=3,5,6,7]
+----
+objectClass("User") {
+    create {
+        scim {
+            supportedAttributes "externalId", "displayName", "nickName",
+                "profileUrl", "title", "userType", "preferredLanguage",
+                "locale", "timezone", "name", "emails", "addresses", "phoneNumbers"
+        }
+    }
+}
+----
+
+== Post-create updates
+
+If an attribute is `updateable` but not `creatable`, the framework issues a follow-up update after create:
+
+[source,groovy]
+----
+objectClass("User") {
+    create {
+        scim {
+            supportedAttributes "userName"
+        }
+    }
+
+    update {
+        scim {
+            put {
+                supportedAttributes "active"
+            }
+        }
+    }
+}
+----
+
+The `active` attribute will be set after creation.
+

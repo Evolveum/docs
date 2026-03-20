@@ -1,0 +1,163 @@
+= SCIM filter specification
+:page-upkeep-status: orange
+:page-toc: top
+
+This document is part of the SCIM 2.0 connector tutorial. See xref:index#[Index] for other topics.
+
+SCIM 2.0 supports complex filter expressions. The framework provides a fluent API to specify supported filters.
+
+== Filter specification API
+
+The `FilterSpecification` API provides methods to define supported filters:
+
+[source,groovy]
+----
+limitations {
+    supportedFilter attribute("userName").eq().anySingleValue()
+}
+----
+
+Components:
+
+* `attribute(name)` - Specify the attribute name
+* `.eq()` - Equals filter (also `.contains()`)
+* `.anySingleValue()` - Must have exactly one value
+
+== Filter types
+
+=== Equals filter
+
+[source,groovy]
+----
+supportedFilter attribute("userName").eq().anySingleValue()
+supportedFilter attribute("externalId").eq().anySingleValue()
+supportedFilter attribute("displayName").eq().anySingleValue()
+----
+
+=== Contains filter
+
+[source,groovy]
+----
+supportedFilter attribute("displayName").contains().anySingleValue()
+----
+
+=== Multi-valued attributes
+
+For attributes like `groups` with nested fields:
+
+[source,groovy]
+----
+// Filter by groups.value
+supportedFilter attribute("groups").child("value").eq().anySingleValue()
+
+// Filter by emails.primary
+supportedFilter attribute("emails").valueFilter("primary", true).child("value").eq().anySingleValue()
+----
+
+=== Extension attributes
+
+For SCIM schema extensions:
+
+[source,groovy]
+----
+// Using extension name
+supportedFilter attribute("employeeNumber")
+    .path(extension("enterprise").child("employeeNumber"))
+    .eq().anySingleValue()
+
+// Using full URN
+supportedFilter attribute("urn:ietf:params:scim:schemas:extension:enterprise:2.0:User:employeeNumber")
+    .eq().anySingleValue()
+----
+
+== Complex filter combinations
+
+Combine multiple filters with `and` logic:
+
+[source,groovy]
+----
+limitations {
+    supportedFilter attribute("userName").eq().anySingleValue()
+    supportedFilter attribute("externalId").eq().anySingleValue()
+    supportedFilter attribute("groups").child("value").eq().anySingleValue()
+    supportedFilter attribute("active").eq().anySingleValue()
+}
+----
+
+The connector will use any of these filters when the client requests them.
+
+== Empty filter support
+
+Support searching all objects (no filter):
+
+[source,groovy]
+----
+limitations {
+    emptyFilterSupported true
+}
+----
+
+When `emptyFilterSupported` is true, filters are optional.
+
+== Any filter support
+
+Support any filter (framework filters client-side):
+
+[source,groovy]
+----
+limitations {
+    anyFilterSupported true
+}
+----
+
+Setting `anyFilterSupported true` disables server-side filtering.
+
+== Complete example
+
+[source,groovy,highlight=2,3,4,5,6,7,8]
+----
+objectClass("User") {
+    search {
+        scim {
+            limitations {
+                emptyFilterSupported false
+                supportedFilter attribute("userName").eq().anySingleValue()
+                supportedFilter attribute("externalId").eq().anySingleValue()
+                supportedFilter attribute("displayName").contains().anySingleValue()
+                supportedFilter attribute("groups").child("value").eq().anySingleValue()
+                supportedFilter attribute("active").eq().anySingleValue()
+            }
+        }
+    }
+}
+----
+
+== Filter specification methods
+
+|===
+|Method |Description |Example
+|`attribute(name)` |Specify attribute |`attribute("userName")`
+|`.eq()` |Equals filter |`.eq()`
+|`.contains()` |Contains filter |`.contains()`
+|`.anySingleValue()` |Single value |`.anySingleValue()`
+|`.child(name)` |Nested path |`.child("givenName")`
+|`path(path)` |Explicit path |`path extension("e").child("attr")`
+|===
+
+== Debugging filters
+
+To debug filter support:
+
+1. Enable development mode (xref:20-schema-discovery#[Schema discovery])
+2. Verify attribute names match the SCIM server
+3. Test each filter individually
+4. Check SCIM server logs for filter format
+
+== SCIM filter syntax
+
+Filters are translated to SCIM filter syntax:
+
+|ConnId Filter |SCIM Filter |Example
+|`userName eq "john"` |`userName eq "john"` |`attribute("userName").eq().anySingleValue()`
+|`displayName co "john"` |`displayName co "john"` |`attribute("displayName").contains().anySingleValue()`
+|`groups.value eq "admin"` |`groups.value eq "admin"` |`attribute("groups").child("value").eq().anySingleValue()`

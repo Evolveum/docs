@@ -1,0 +1,143 @@
+= SCIM Update operation customization
+:page-nav-title: Update operations
+:page-upkeep-status: orange
+:page-toc: top
+
+This document is part of the SCIM 2.0 connector tutorial. See xref:index#[Index] for other topics.
+
+SCIM 2.0 update operations use either PUT (full replacement) or PATCH (partial update)HTTP methods.
+
+To support create operation you do not need to specify anything for well-behaved SCIM 2.0 servers.
+
+For the servers which are not well-behaved or have implementation limitations, you may need to customize PUT / PATCH operation or disable unsupported ones.
+
+
+
+== PUT vs PATCH
+
+|===
+|Operation |HTTP Method |SCIM Mode |When to use
+|PUT |PUT |Absolute |Replace entire resource
+|PATCH |PATCH |Relative |Modify specific attributes
+|===
+
+== PUT (Absolute mode)
+
+Full resource replacement - sends all updateable attributes:
+
+[source,groovy]
+----
+objectClass("User") {
+    update {
+        scim {
+            put {
+                supportedAttributes "displayName", "nickName", "title"
+            }
+        }
+    }
+}
+----
+
+The framework sends all `updateable` attributes in the request body.
+
+== PATCH (Relative mode)
+
+Partial update - sends only changed attributes. SCIM PATCH uses operation-based format:
+
+[source,groovy]
+----
+objectClass("User") {
+    update {
+        scim {
+            patch {
+                supportedAttributes "externalId", "displayName", "nickName", "profileUrl"
+
+                supportedAttribute("userName") {
+                    limitations {
+                        operations ADD, REPLACE
+                        maxPerRequest 1
+                    }
+                }
+
+                supportedAttribute("active") {
+                    limitations {
+                        operations ADD, REPLACE
+                        maxPerRequest 1
+                    }
+                }
+            }
+        }
+    }
+}
+----
+
+== Patch operations
+
+SCIM PATCH supports operations:
+
+* `ADD` - Add value(s) to multi-valued attribute
+* `REPLACE` - Replace attribute value(s)
+* `REMOVE` - Remove value(s) from multi-valued attribute
+
+== Attribute limitations
+
+Configure SCIM-specific limitations:
+
+[source,groovy]
+----
+patch {
+    supportedAttribute("userName") {
+        limitations {
+            operations ADD, REPLACE
+            maxPerRequest 1
+        }
+    }
+}
+----
+
+Limitations:
+
+* `operations` - Which PATCH operations are allowed (ADD, REPLACE, REMOVE)
+* `maxPerRequest` - Maximum operations of this attribute per request
+
+== Complete PATCH example (AWS style)
+
+[source,groovy]
+----
+objectClass("User") {
+    update {
+        scim {
+            patch {
+                supportedAttributes "externalId", "displayName", "nickName", "profileUrl",
+                    "title", "userType", "preferredLanguage", "locale", "timezone", "name",
+                    "enterprise", "emails", "addresses", "phoneNumbers"
+
+                supportedAttribute("userName") {
+                    limitations {
+                        operations ADD, REPLACE
+                        maxPerRequest 1
+                    }
+                }
+
+                supportedAttribute("active") {
+                    limitations {
+                        operations ADD, REPLACE
+                        maxPerRequest 1
+                    }
+                }
+
+                supportedAttribute("groups") {
+                    limitations {
+                        operations ADD, REMOVE, REPLACE
+                        maxPerRequest 100
+                    }
+                }
+            }
+
+            put {
+                // PUT endpoint for full replacement
+            }
+        }
+    }
+}
+----

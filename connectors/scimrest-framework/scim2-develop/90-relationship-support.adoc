@@ -1,0 +1,198 @@
+= SCIM Relationship support
+:page-nav-title: Relationships
+:page-display-order: 1290
+:page-upkeep-status: orange
+:page-toc: top
+
+This document is part of the SCIM 2.0 connector tutorial. See xref:index#[Index] for other topics.
+
+SCIM 2.0 supports relationships through multi-valued reference attributes like `groups` (User) and `members` (Group).
+
+== SCIM relationship types
+
+|===
+|Relationship |User attribute |Group attribute
+|User in groups |`groups` |`members`
+|User membership |Multi-valued references |Multi-valued references
+|===
+
+== Automatic relationship support
+
+The framework automatically detects SCIM relationships:
+
+* User `groups` attribute → relationship to Group objects
+* Group `members` attribute → relationship to User objects
+
+== Custom relationships
+
+Define custom relationships using the `relationship` builder:
+
+[source,groovy]
+----
+relationship("OfficeEmployment") {
+    subject("User") {
+        attribute("office") {
+            multiValued true
+            resolver {
+                resolutionType PER_OBJECT
+                search {
+                    attributeFilter("employees").eq(value)
+                }
+            }
+        }
+    }
+
+    object("Office") {
+        attribute("employees") {
+            multiValued true
+            resolver {
+                resolutionType PER_OBJECT
+                search {
+                    attributeFilter("office").eq(value)
+                }
+            }
+        }
+    }
+}
+----
+
+=== Relationship components
+
+* `subject` - The primary object (User)
+* `object` - The related object (Office)
+* `attribute` - The virtual reference attribute
+* `resolver` - How to resolve the relationship
+* `resolutionType` - `PER_OBJECT` or `PER_SEARCH`
+
+== SCIM relationship attributes
+
+For SCIM schemas, relationship attributes are detected automatically:
+
+[source,groovy,highlight=6]
+----
+objectClass("User") {
+    scim {
+        // groups attribute is automatically recognized as relationship
+    }
+
+    attribute("groups") {
+        connId().type(ConnectorObjectReference.class)
+        role(AttributeInfo.RoleInReference.SUBJECT)
+    }
+}
+----
+
+== Customization of SCIM relationships
+
+Override default relationship behavior:
+
+[source,groovy]
+----
+objectClass("User") {
+    attribute("groups") {
+        multiValued true
+        // Override default group relationship
+        scim {
+            implementation {
+                deserialize {
+                    // Custom deserialization
+                    var groupObj = it; // SCIM group resource
+                    // Return ConnectorObjectReference
+                    new ConnectorObjectReference(...)
+                }
+                serialize {
+                    // Custom serialization
+                }
+            }
+        }
+    }
+}
+----
+
+== Relationship resolver
+
+Use `resolver` to specify how related objects are fetched:
+
+[source,groovy]
+----
+resolver {
+    resolutionType PER_OBJECT
+
+    search {
+        // Filter for search
+        attributeFilter("members").eq(value)
+    }
+
+    // Optional: endpoint override
+    endpoint("/users/{id}/groups")
+}
+----
+
+== Search support for relationships
+
+Implement search for relationship attributes:
+
+[source,groovy]
+----
+objectClass("User") {
+    search {
+        scim {
+            supportedFilter attribute("groups").child("value").eq().anySingleValue()
+        }
+    }
+}
+
+objectClass("Group") {
+    search {
+        scim {
+            supportedFilter attribute("members").child("value").eq().anySingleValue()
+        }
+    }
+}
+----
+
+== Complete SCIM relationship example
+
+[source,groovy]
+----
+relationship("UserGroupMembership") {
+    subject("User") {
+        attribute("groups") {
+            multiValued true
+            resolver {
+                resolutionType PER_OBJECT
+                search {
+                    attributeFilter("members").eq(value)
+                }
+            }
+        }
+    }
+
+    object("Group") {
+        attribute("members") {
+            multiValued true
+            resolver {
+                resolutionType PER_OBJECT
+                search {
+                    attributeFilter("groups").child("value").eq(value)
+                }
+            }
+        }
+    }
+}
+----
+
+== Testing relationships
+
+1. Create a relationship definition
+2. Search objects with relationship attributes
+3. Verify referenced objects are resolved
+4. Test `PER_OBJECT` vs `PER_SEARCH` resolution
+5. Check SCIM server logs for relationship queries
+
+== Performance considerations
+
+* Use `PER_OBJECT` for single-value relationships
+* Use `PER_SEARCH` for multi-value relationships when possible
+* Implement search support to enable server-side filtering
+* Consider pagination for large relationship sets

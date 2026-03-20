@@ -1,0 +1,148 @@
+= SCIM search operation customization
+:page-nav-title: Search operations
+:page-upkeep-status: orange
+:page-toc: top
+
+This document is part of the SCIM 2.0 connector tutorial. See xref:index#[Index] for other topics.
+
+The SCIM 2.0 framework provides automatic search support with SCIM filter translation.
+
+== Basic search
+
+The framework automatically implements search based on discovered schema. Define a search handler:
+
+[source,groovy]
+----
+objectClass("User") {
+    search {
+        scim {
+            limitations {
+                supportedFilter attribute("userName").eq().anySingleValue()
+                supportedFilter attribute("externalId").eq().anySingleValue()
+                supportedFilter attribute("groups").child("value").eq().anySingleValue()
+            }
+        }
+    }
+}
+----
+
+== SCIM filter specifications
+
+Use the `supportedFilter` method to declare supported filters:
+
+[source,groovy]
+----
+scim {
+    limitations {
+        supportedFilter attribute("userName").eq().anySingleValue()
+        supportedFilter attribute("externalId").eq().anySingleValue()
+    }
+}
+----
+
+The filter specification API:
+
+* `attribute(name)` - Specify the attribute
+* `.eq()` - Equals filter
+* `.contains()` - Contains filter
+* `.anySingleValue()` - Single value filter
+
+== Filter specification examples
+
+[source,groovy]
+----
+// Equals filter on userName
+supportedFilter attribute("userName").eq().anySingleValue()
+
+// Equals filter on externalId
+supportedFilter attribute("externalId").eq().anySingleValue()
+
+// Equals filter on nested attribute (groups.value)
+supportedFilter attribute("groups").child("value").eq().anySingleValue()
+
+// Equals filter on extension attribute
+supportedFilter attribute("urn:ietf:params:scim:schemas:extension:enterprise:2.0:User:employeeNumber").eq().anySingleValue()
+----
+
+== Empty filter support
+
+Support searching all objects (no filter):
+
+[source,groovy]
+----
+scim {
+    search {
+        limitations {
+            emptyFilterSupported true
+        }
+    }
+}
+----
+
+== Any filter support
+
+Support any filter (framework performs client-side filtering):
+
+[source,groovy]
+----
+scim {
+    search {
+        limitations {
+            anyFilterSupported true
+        }
+    }
+}
+----
+
+== Complete search example
+
+[source,groovy,highlight=5,6,7]
+----
+objectClass("User") {
+    search {
+        scim {
+            limitations {
+                emptyFilterSupported true
+                supportedFilter attribute("userName").eq().anySingleValue()
+                supportedFilter attribute("externalId").eq().anySingleValue()
+                supportedFilter attribute("groups").child("value").eq().anySingleValue()
+            }
+        }
+    }
+}
+----
+
+== Custom search implementation
+
+If automatic search is not viable (e.g., no search endpoint), implement custom search:
+
+[source,groovy]
+----
+search {
+    custom {
+        emptyFilterSupported true
+        implementation {
+            // Custom search logic
+        }
+    }
+}
+----
+
+See xref:../../develop/implement-custom-search/[Implement custom search] for details.
+
+== SCIM search protocol
+
+The framework translates ConnId filters to SCIM filters:
+
+* ConnId `EqualsFilter` → SCIM `eq` operator
+* SCIM filters sent via `filter` query parameter
+* Automatic pagination support
+
+== Testing filters
+
+Use development mode to test filter support:
+
+. Enable schema development mode
+. Search `conndev_ScimSchema` to verify attribute names
+. Test filters in your client application
+. Verify SCIM filter format in server logs
