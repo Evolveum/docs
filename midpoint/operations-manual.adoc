@@ -2814,3 +2814,104 @@ Once we have available list of valid question identifiers, the list can be compa
 If the answer for the question with unknown identifier is found, we have object to process the cleaning.
 +
 The complete example of the task definition can be found as link:https://raw.githubusercontent.com/Evolveum/midpoint-samples/refs/heads/master/samples/tasks/bulk-actions/securityQuestion-answers.xml[securityQuestion-answers.xml] file on gitHub.
+
+=== Clean up assignment comes from the obsolete mapping
+
+The name of the mapping should not change in the time.
+In case there is objective need to change it there are some xref:/midpoint/reference/expressions/mappings/#_mapping_maintenance_tasks[steps] which should be followed to midPoint understand the change.
+
+This item of the operation manual try to address the situation when you had a mapping target the assignments which produced some assignment already.
+In case the mapping simply disappear (e.g deleted or renamed out of proper process) the assignment is not disappearing automatically even there is another mapping covering logically the same mapping.
+The reason is that the source for the information is not available so there is no authoritative order to remove the assignment.
+
+There are three options to address it:
+
+. if the mapping exists under different name (renamed) you can add the *mappingAlias* - see xref:/midpoint/reference/expressions/mappings/#renaming-a-mapping[]
+. the assignment could be removed manually and in case there is some valid inbout mapping the assignment will be re-created with the proper metadata.
+This approach could be effective in case of few objects affected.
+. Create other mapping which will clean it up
+
+Let's focus on the last item.
+Once you identify the obsolete assignment you expect to disappear you can check the metadata why midPoint take it as valid.
+You can check in
+
+* gui +
+Assignments - All / <reference>.
+On the edit page there is "label" next to the name under *Basic* tab with the tooltip "Metadata".
+We are now interested in the *Provenance*.
+
+* raw +
+In the raw there we should look for the relevant assignment.
+There will be available *_metadata* information.
++
+.reduced sample of the metadata with the relevant content to the topic
+[%collapsible]
+====
+[source,xml]
+----
+        <_metadata id="138">
+            <provenance>
+                <mappingSpecification>
+                    <definitionObjectRef oid="4a86b950-575f-4923-90c6-bf04e6b7f9c4" relation="org:default" type="c:ResourceType" />
+                    <objectType>
+                        <kind>account</kind>
+                        <intent>user</intent>
+                    </objectType>
+                    <mappingName>group-import#1</mappingName>
+                </mappingSpecification>
+            </provenance>
+        </_metadata>
+----
+====
++
+There will be found all the "reasons" why the midPoint still keep the assignment.
+In case it is "obsolete" one there would be no valid one and everything here could be "recycled" in the context of these manual item.
+
+In case we will identify the mapping which is not available we can create "dummy" mapping which will say that these assignments should be removed.
+Technically we will create the mapping returning nothing (null) pretending to be successor to the "problematic mapping".
+
+It can be placed as mapping in resource or object template, focus mapping in role or archetype.
+For these purpose the focus mapping in role object will be prepared as a sample.
+
+[NOTE]
+Depends on where you place it may require "two rounds" of the processing.
+After it is processed two times it can be removed (e.g. mapping) / unassigned (e.g role).
+
+.role definition (available also on link:https://raw.githubusercontent.com/Evolveum/midpoint-samples/refs/heads/master/samples/roles/role-cleanup-assignment.xml[gitHub])
+[%collapsible]
+====
+[source,xml]
+----
+<role xmlns="http://midpoint.evolveum.com/xml/ns/public/common/common-3"
+      xmlns:c="http://midpoint.evolveum.com/xml/ns/public/common/common-3"
+      xmlns:org="http://midpoint.evolveum.com/xml/ns/public/common/org-3"
+      oid="101d50da-af83-452d-83e1-bd28088c9ba9">
+    <name>MAINTENANCE : clean up assignment from obsolete mapping</name>
+    <inducement>
+        <focusMappings>
+            <mapping>
+                <expression>
+                    <script>
+                        <code>return null</code>
+                    </script>
+                </expression>
+                <target>
+                    <path>assignment</path>
+                    <set>
+                        <additionalMappingSpecification>
+                            <!-- place here the content of the mappingSpecification you want to address -->
+                            <definitionObjectRef oid="4a86b950-575f-4923-90c6-bf04e6b7f9c4"  relation="org:default" type="c:ResourceType" />
+                            <objectType>
+                                <kind>account</kind>
+                                <intent>user</intent>
+                            </objectType>
+                            <mappingName>group-import#1</mappingName>
+                        </additionalMappingSpecification>
+                    </set>
+                </target>
+            </mapping>
+        </focusMappings>
+    </inducement>
+</role>
+----
+====
