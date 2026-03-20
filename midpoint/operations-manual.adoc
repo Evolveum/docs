@@ -2815,37 +2815,42 @@ If the answer for the question with unknown identifier is found, we have object 
 +
 The complete example of the task definition can be found as link:https://raw.githubusercontent.com/Evolveum/midpoint-samples/refs/heads/master/samples/tasks/bulk-actions/securityQuestion-answers.xml[securityQuestion-answers.xml] file on gitHub.
 
-=== Clean up assignment comes from the obsolete mapping
+=== Clean up assignments originating from missing mappings
 
-The name of the mapping should not change in the time.
-In case there is objective need to change it there are some xref:/midpoint/reference/expressions/mappings/#_mapping_maintenance_tasks[steps] which should be followed to midPoint understand the change.
+This addresses situations when you need to clean up assignments created by mappings that are no longer present, and therefore cannot be automatically removed. +
+If a mapping disappears (e.g., it is deleted or renamed by a process), the assignments created by it do not automatically disappear, even if there is another mapping logically covering the same mapping.
+The reason is that the source for the information is not available so there is no authoritative order to remove the assignments.
 
-This item of the operation manual try to address the situation when you had a mapping target the assignments which produced some assignment already.
-In case the mapping simply disappear (e.g deleted or renamed out of proper process) the assignment is not disappearing automatically even there is another mapping covering logically the same mapping.
-The reason is that the source for the information is not available so there is no authoritative order to remove the assignment.
+[NOTE]
+====
+The names of mappings should not change in time.
+In case you need to change them, see xref:/midpoint/reference/expressions/mappings/#_mapping_maintenance_tasks[Renaming a mapping].
+====
 
-There are three options to address it:
+There are three options to address the situation:
 
-. if the mapping exists under different name (renamed) you can add the *mappingAlias* - see xref:/midpoint/reference/expressions/mappings/#renaming-a-mapping[]
-. the assignment could be removed manually and in case there is some valid inbout mapping the assignment will be re-created with the proper metadata.
-This approach could be effective in case of few objects affected.
-. Create other mapping which will clean it up
+* If the mapping exists under a different name (i.e., it has been renamed), you can add a xref:/midpoint/reference/expressions/mappings/#renaming-a-mapping[mappingAlias].
 
-Let's focus on the last item.
-Once you identify the obsolete assignment you expect to disappear you can check the metadata why midPoint take it as valid.
-You can check in
+* If the assignment can be removed manually, and if there is another valid inbout mapping, you can remove the original assignment and re-create it with the proper metadata under the other inbound mapping.
+This approach can be effective if only a few objects are affected.
 
-* gui +
-Assignments - All / <reference>.
-On the edit page there is "label" next to the name under *Basic* tab with the tooltip "Metadata".
-We are now interested in the *Provenance*.
+* Create another mapping that will remove the orphaned assignment:
 
-* raw +
-In the raw there we should look for the relevant assignment.
-There will be available *_metadata* information.
+Below is a solution that applies to the last case, i.e., creating another mapping that will remove the orphaned assignment:
+
+. Identify the orphaned assignment and analyze why midPoint still keeps it as valid.
+You can do this in two ways:
+
+** In GUI:
+
+... In an account detail, click [.nowrap]#+++<i class="fe fe-assignment"></i>+++ *Assignments*# > [.nowrap]#+++<i class="fe fe-assignment"></i>+++ *All*#.
+... On the *Basic* tab, click the [.nowrap]#icon:tag[] btn:[Metadata]# tag next to the name just under the tab name (i.e., under *Basic*).
+... Click [.nowrap]#icon:tag[] btn:[Provenance]#.
+
+** In raw XML, find the assignment and look for `_metadata` information:
+
 +
-.reduced sample of the metadata with the relevant content to the topic
-[%collapsible]
+.reduced sample of the metadata
 ====
 [source,xml]
 ----
@@ -2863,21 +2868,15 @@ There will be available *_metadata* information.
         </_metadata>
 ----
 ====
+
 +
-There will be found all the "reasons" why the midPoint still keep the assignment.
-In case it is "obsolete" one there would be no valid one and everything here could be "recycled" in the context of these manual item.
 
-In case we will identify the mapping which is not available we can create "dummy" mapping which will say that these assignments should be removed.
-Technically we will create the mapping returning nothing (null) pretending to be successor to the "problematic mapping".
+. Create a "dummy" mapping that will tell midPoint to remove the assignment.
+This is done by creating a mapping that returns nothing (`null`) and pretends to be a successor to the original mapping that had been removed (i.e., the mapping that produced the assignment in the first place). +
+You can create the mapping in a resource or object template, or alternatively, as a focus mapping in a role or archetype.
 
-It can be placed as mapping in resource or object template, focus mapping in role or archetype.
-For these purpose the focus mapping in role object will be prepared as a sample.
-
-[NOTE]
-Depends on where you place it may require "two rounds" of the processing.
-After it is processed two times it can be removed (e.g. mapping) / unassigned (e.g role).
-
-.role definition (available also on link:https://raw.githubusercontent.com/Evolveum/midpoint-samples/refs/heads/master/samples/roles/role-cleanup-assignment.xml[gitHub])
++
+.See an example in a role definition (available also on link:https://raw.githubusercontent.com/Evolveum/midpoint-samples/refs/heads/master/samples/roles/role-cleanup-assignment.xml[GitHub])
 [%collapsible]
 ====
 [source,xml]
@@ -2915,3 +2914,8 @@ After it is processed two times it can be removed (e.g. mapping) / unassigned (e
 </role>
 ----
 ====
+
+. Process the mapping to remove the assignment. +
+Depending on where you placed the mapping, two rounds of processing may be required.
+
+. After processing the mapping, you can remove it (if you created it as a mapping in a resource or object template) or unassign it (if you created it as a focus mapping in a role or archetype).
