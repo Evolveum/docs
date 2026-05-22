@@ -1,0 +1,151 @@
+= Joiner–mover–leaver process
+:page-nav-title: JML process
+:page-toc: top
+:page-keywords: jml, jml process, joiner, mover, leaver, joiner-mover-leaver, identity lifecycle
+:page-description: Understand the business‑level considerations of a robust JML workflow and how midPoint can help you in each stage.
+:page-upkeep-status: green
+
+Modern enterprises rely on digital identities to grant access to systems, data, and services.
+The joiner–mover–leaver (JML) process governs the entire lifecycle of an employee's (or any user's) identity—from onboarding through position changes to eventual departure.
+While the concept sounds straightforward, real‑world implementations must contend with a variety of edge cases, regulatory requirements, and security controls.
+This article outlines the business‑level considerations of a robust JML workflow and highlights how midPoint can help you in each stage.
+
+== Core phases of the JML process
+
+Each phase of the JML process has "technical" requirements which are the typical activities performed in the particular stage.
+The other aspect of the stages are the business and security concerns regarding the typical activities.
+The goal of your IAM solution setup is to harmonize the two aspects so that requirements are fulfilled while adhering to the business and security needs.
+
+.Core phases of the JML process
+[cols="1h,4,4", options="header"]
+|===
+| Phase | Typical Activities | Business Concerns
+
+| Joiner
+a| * Create a master identity in the authoritative system (typically HRIS).
+    * Populate attributes such as organizational unit, position, manager, employment type, and start date.
+    * Import the identity into the IAM platform (midPoint) and xref:/iam/iga/identity-provisioning/[provision] baseline access (roles, groups, entitlements).
+a| * Ensure "right‑first‑time" provisioning so that the new hire can be productive on day one.
+    * Align accesses with the link:https://en.wikipedia.org/wiki/Principle_of_least_privilege[least‑privilege principle].
+    * Capture audit‑ready metadata (who requested, who approved).
+
+| Mover
+a| * Detect changes in the HR data (new department, title, manager, temporary assignments).
+    * Re‑evaluate role xref:/midpoint/architecture/concepts/inducement-assignment-entitlement/[assignments and entitlements].
+    * Remove obsolete privileges and add new ones as required.
+a| * Prevent "privilege creep" where legacy rights linger after a move.
+    * Enforce xref:/midpoint/reference/roles-policies/policies/segregation-of-duties/[segregation of duties] (SoD) to avoid conflicting permissions.
+    * Support temporary or concurrent positions (e.g., deputies, employee + student).
+
+| Leaver
+a| * Label the identity as leaving in the HRIS (termination, resignation, retirement, long‑term leave).
+    * Deprovision (deactivate or delete) accounts across the connected systems.
+    * Keep only the necessary records (be it for industry or location‑specific regulations, such as GDPR, or because the person will return).
+a| * Reduce attack surface by promptly revoking access.
+    * Balance legal retention requirements against the need to purge personal data.
+    * Provide evidence of timely de‑provisioning for auditors.
+|===
+
+== Business‑level nuances
+
+However uncomplicated the JML process may seem at the first glance, there is much more to it once it meets the reality of deployments in various environments.
+Employees do not just join the company, switch a department or position couple of times, and then leave the company.
+There are temporary leaves, seasonal occupations, the peculiarities of the academia where one person may be a teacher, server administrator, as well as an alumnus of the school and its student, all at the same time.
+And the list of "irregularities" goes on…
+
+=== Multiple simultaneous positions
+
+It is typical for employees in academia or research institutions to hold multiple roles (e.g., staff + student).
+The JML model must accommodate to overlapping attribute sets and generate composite entitlement "packages" without violating policy constraints.
+
+=== Long-term leaves
+
+Maternity, sabbatical, or medical leaves often require temporary suspension rather than account deletion.
+The identity remains in the system, preserving historic relationships (e.g., past projects, certifications) while blocking active access.
+Once the person returns from the leave, the IAM solution needs to prompty reinstate them to the position they were in before the leave, save for accesses conditioned by certifications that expired in the mean time, for example.
+
+=== Re‑hiring & seasonal workers
+
+When a former employee returns, the system should recognize the prior record, restore appropriate entitlements, and avoid duplicate identities.
+Seasonal staff may have short, recurring contracts that demand rapid provisioning and de‑provisioning cycles.
+
+=== Regulatory & archival requirements
+
+Certain jurisdictions mandate record retention for former employees, partners, etc. (e.g., tax documents, access logs, …).
+Organizations must therefore differentiate between deactivation (no active access) and deletion (complete removal of personal data), applying the correct approach per legal guidance, even if all other circumstances would allow complete identity removal.
+
+=== Segregation of duties (SoD)
+
+Privilege accumulation across moves can create SoD violations (e.g., a user gaining both "create‑payment" and "approve‑payment" rights).
+Continuous SoD validation—especially during mover transitions—is essential to prevent risks connected with accumulation of privileges.
+Ongoing validation is much more effective than random checks when someone remembers to check.
+
+== How midPoint supports the JML workflow
+
+All the measures we have implied as necessary are available in midPoint.
+It depends on your circumstances and needs how you set your midPoint deployment up to help you stay safe and compliant with as little manual work as possible.
+
+.MidPoint features supporting the JML process aspects
+[cols="2h,5,5", options="header"]
+|===
+| JML Aspect | midPoint Feature | Business Benefit
+
+| Authoritative source integration
+| MidPoint connects to the authoritative system (e.g., a HRIS) using a xref:/connectors/[connector] to import identities with rich attribute sets.
+| Guarantees a single source of truth and reduces manual data entry errors.
+
+| Automated role assignment
+| Role mapping based on org unit, position, manager, or custom expressions.
+| Enables "right‑first‑time" provisioning; aligns access with business hierarchy.
+
+| Mover re‑evaluation
+| xref:/midpoint/reference/tasks/synchronization-tasks/[Reconciliation task] compares the live HR data with existing assignments;
+    xref:/midpoint/reference/roles-policies/policies/policy-rules/[policy rules] trigger role adjustments.
+| Eliminates privilege creep; enforces consistent access after role changes.
+
+| SoD enforcement
+| xref:/midpoint/reference/roles-policies/policies/policy-rules/#policy_constraints[Policy constraints] define mutually exclusive roles (which entail permissions); violations raise xref:/midpoint/reference/misc/notifications/[actionable alerts].
+| Provides continuous compliance monitoring; prevents risky permission combinations.
+
+| Leave & suspension handling
+| xref:/midpoint/reference/concepts/object-lifecycle/[Lifecycle states] of xref:/midpoint/reference/schema/focus-and-projections/[focal objects] reflect the state in which the identity is and cause automatic account deactivation and reinstatement.
+| Supports leave scenarios without losing historical data; simplifies re‑activation.
+
+| Re‑hire detection
+| Focal objects of leaving personnel are suspended, preserving the relations to managers, org units, entitlements, etc., enabling quick reinstatement instead of using the same process as new hires and having their records duplicated.
+| Reduces onboarding time for former employees; avoids duplicate records.
+
+| Reporting & auditing
+| Built‑in xref:/midpoint/reference/security/audit/[audit trails], compliance reports, and exportable logs.
+| Supplies evidence for internal reviews and external audits.
+|===
+
+== Conclusion
+
+A well‑designed JML process is the backbone of secure, efficient identity governance.
+By automating the joiner–mover–leaver flow, you can reduce manual effort, eliminate privilege creep, and satisfy regulatory demands.
+
+At all times, you should treat your authoritative system (e.g., HRIS) as the single source of truth (SSoT), let the IAM solution (e.g., midPoint) react to changes automatically, and synchronize the accounts across your systems regularly to rectify any drift early.
+Model the identity lifecycle states in such a way so that they reflect the reality, the actual state in which your organization's relationship with the identity is (e.g., _active_, _suspended_, _terminated_).
+
+Maintain process transparency by logging all provisioning and deprovisioning actions with the record of what, to whom, and why.
+Implement continuous SoD validation instead of performing just one-off checks at the onboarding (joiner) phase.
+
+MidPoint offers all the tools you need to set up and maintain a robust JML process, from dynamic role mapping, through lifecycle management, to SoD enforcement and auditing.
+Leveraging these capabilities enables you to deliver "right‑first‑time" access, maintain strict security posture, and achieve compliance with low overhead.
+
+== See also
+
+* xref:/connectors/[]
+* xref:/iam/iga/identity-provisioning/[]
+* xref:/iam/myths/iga-means-accounts/[]
+* xref:/midpoint/architecture/concepts/inducement-assignment-entitlement/[]
+* xref:/midpoint/reference/concepts/object-lifecycle/[]
+* xref:/midpoint/reference/misc/notifications/[]
+* xref:/midpoint/reference/misc/notifications/use-cases/use-case-threshold-based-governance/[]
+* xref:/midpoint/reference/roles-policies/policies/gradual-policy-enforcement/[]
+* xref:/midpoint/reference/roles-policies/policies/policy-rules/[]
+* xref:/midpoint/reference/roles-policies/policies/segregation-of-duties/[]
+* xref:/midpoint/reference/schema/focus-and-projections/[]
+* xref:/midpoint/reference/security/audit/[]
+* xref:/midpoint/reference/tasks/synchronization-tasks/[]

@@ -6,10 +6,11 @@ source "https://rubygems.org"
 #     bundle exec jekyll serve
 #
 # This will help ensure the proper Jekyll version is running.
-gem "jekyll", "~> 4.1.0"
-
+gem "jekyll", "~> 4.4.0"
 gem "webrick", "~> 1.7"
-
+gem "csv"
+gem "base64"
+gem "bigdecimal"
 # Theme
 gem "evolveum-jekyll-theme", "~> 0.1.0"
 

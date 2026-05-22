@@ -1,0 +1,169 @@
+= SCIM Relationship support
+:page-nav-title: Relationships
+:page-display-order: 1470
+:page-upkeep-status: orange
+:page-toc: top
+:page-description: SCIM 2.0 relationship support in the SCIMREST framework: automatic group/user relationships, custom relationship definitions, and resolver configuration.
+:page-keywords: SCIM relationships, group membership, relationship resolver, custom relationship, ConnId reference
+
+SCIM 2.0 supports relationships through multi-valued reference attributes like `groups` (User) and `members` (Group).
+
+This document is part of the SCIM 2.0 connector tutorial. See xref:/connectors/scimrest-framework/[] for other topics.
+
+== SCIM relationship types
+
+|===
+|Relationship |User attribute |Group attribute
+|User in groups |`groups` |`members`
+|User membership |Multi-valued references |Multi-valued references
+|===
+
+== Automatic relationship support
+
+The framework automatically detects standardized SCIM relationships:
+
+* User `groups` attribute → relationship to Group objects
+* Group `members` attribute → relationship to User objects
+
+== Custom relationships
+
+Define custom relationships using the `relationship` builder:
+
+[source,groovy]
+----
+relationship("OfficeEmployment") {
+    subject("User") {
+        attribute("office") {
+            multiValued true
+            resolver {
+                resolutionType PER_OBJECT
+                search {
+                    attributeFilter("employees").eq(value)
+                }
+            }
+        }
+    }
+
+    object("Office") {
+        attribute("employees") {
+            multiValued true
+            resolver {
+                resolutionType PER_OBJECT
+                search {
+                    attributeFilter("office").eq(value)
+                }
+            }
+        }
+    }
+}
+----
+
+=== Relationship components
+
+* `subject` - The primary object (User)
+* `object` - The related object (Office)
+* `attribute` - The virtual reference attribute
+* `resolver` - How to resolve the relationship
+* `resolutionType` - `PER_OBJECT` or `PER_SEARCH`
+
+
+
+== Customization of SCIM relationships
+
+Override default relationship behavior:
+
+[source,groovy]
+----
+objectClass("User") {
+    attribute("groups") {
+        multiValued true
+        // Override default group relationship
+        scim {
+            implementation {
+                deserialize {
+                    // Custom deserialization
+                    var groupObj = it; // SCIM group resource
+                    // Return ConnectorObjectReference
+                    new ConnectorObjectReference(...)
+                }
+                serialize {
+                    // Custom serialization
+                }
+            }
+        }
+    }
+}
+----
+
+== Relationship resolver
+
+Use `resolver` to specify how related objects are fetched:
+
+[source,groovy]
+----
+resolver {
+    resolutionType PER_OBJECT
+
+    search {
+        // Filter for search
+        attributeFilter("members").eq(value)
+    }
+
+    // Optional: endpoint override
+    endpoint("/users/{id}/groups")
+}
+----
+
+== Search support for relationships
+
+Implement search for relationship attributes:
+
+[source,groovy]
+----
+objectClass("User") {
+    search {
+        scim {
+            supportedFilter attribute("groups").child("value").eq().anySingleValue()
+        }
+    }
+}
+
+objectClass("Group") {
+    search {
+        scim {
+            supportedFilter attribute("members").child("value").eq().anySingleValue()
+        }
+    }
+}
+----
+
+== Complete SCIM relationship example
+
+[source,groovy]
+----
+relationship("UserGroupMembership") {
+    subject("User") {
+        attribute("groups") {
+            multiValued true
+            resolver {
+                resolutionType PER_OBJECT
+                search {
+                    attributeFilter("members").eq(value)
+                }
+            }
+        }
+    }
+
+    object("Group") {
+        attribute("members") {
+            multiValued true
+            resolver {
+                resolutionType PER_OBJECT
+                search {
+                    attributeFilter("groups").child("value").eq(value)
+                }
+            }
+        }
+    }
+}
+----

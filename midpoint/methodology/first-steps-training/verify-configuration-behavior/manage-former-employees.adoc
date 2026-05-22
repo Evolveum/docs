@@ -1,0 +1,207 @@
+= Handle long-term leaves and former employees safely
+:page-nav-title: Inactivate employee accounts
+:page-display-order: 530
+:page-toc: top
+:experimental:
+:icons: font
+:page-description: Test behavior of your midPoint configuration regarding leavers—be it people on long-term leave or former employees.
+
+Test behavior of your midPoint configuration regarding leavers—be it people on long-term leave or former employees.
+
+== What awaits you in this module
+
+In this guide, long-term leave stands for cases like parental leave.
+Such users and their accounts should be disabled.
+It is important, though, to avoid deleting their accounts, because the employees are expected to return and use continue using their accounts thereafter.
+
+You will confirm that focal objects (users) and their Active Directory projections (accounts) are disabled as required when the HRIS user status changes to _Long-term leave_.
+Subsequently, you will check that the users have their accounts reactivated when they return from the long-term leave.
+
+In the second part of the module, you will test your midPoint configuration for former employee handling (i.e., true _leavers_).
+Accounts of former employees need to be disabled and then deleted after a defined period of time automatically.
+For this delayed delete, midPoint uses the _disabled instead of delete_ and _delayed delete_ xref:/midpoint/methodology/first-steps-training/enable-target-system-provisioning/#delete-ad-accounts-with-a-grace-period[activation rules you have set up earlier].
+
+:sectnums:
+
+== Employee goes on long-term leave
+
+The first case we are to cover is when employees leave on long-term leave.
+You will update the leaving employee in the HR information system and observe how midPoint handles the case.
+
+=== Update the user in HRIS
+
+As always, all changes are initiated in the HRIS.
+To update a user in the HRIS, use the same steps as in xref:/midpoint/methodology/first-steps-training/verify-configuration-behavior/handle-source-system-data-updates/[].
+
+. Pick a user to update, e.g., _Martin Knight_ (employee number: 1006).
+. Update their *Status* to _Long-term leave_.
+. Export HRIS users to CSV.
+
+=== Let automation handle the updates
+
+Wait for the xref:/midpoint/methodology/first-steps-training/automate-target-system-integration/generate-usernames-in-midpoint/#automate-importing-users-to-midpoint[recurring HRIS reconciliation task] you have already up and running to pick up the changes.
+
+=== Check the results
+
+Verify how the change was handled using the same steps as in xref:/midpoint/methodology/first-steps-training/verify-configuration-behavior/handle-source-system-data-updates/#inspect-the-results[].
+
+These should be the results:
+
+* The *Lifecycle state* of the user Martin Knight is set to _Suspended_.
+* The user's *Effective status* is _Disabled_ (displayed in the top-right corner of the screen).
+* In the user's profile, go to [.nowrap]#icon:male[] *Projections*#, select the AD projection, and check that the *Administrative status* is set to _Disabled_.
+* You can also check the user directly on the AD server.
+    The disabled status is mapped there to the `roomNumber` user attribute because AD does not support user activation natively.
+
+.User Martin Knight has been suspended due to going on long-term leave
+image::midpoint-knight-user-suspended-long-term-leave.webp["User Martin Knight is suspended due to his long-term leave"]
+
+Users who are on the long-term leave in the HRIS are suspended in midPoint.
+Users inactive in midPoint, in turn, have their AD accounts disabled.
+That is because they should not have access to the accounts, but you cannot delete them because the users are expected to return back to work at a later time.
+
+=== After the employee returns
+
+When their long-term leave ends, employees are about to return to work.
+They need their accounts back as they were before they left.
+
+. Update the returning user in HRIS—set their *Status* back to _In_.
+. Export HRIS users to CSV.
+. Wait for the recurring reconciliation task to run.
+. Check the particular user's *Lifecycle state* and *Effective status*, and the *Administrative status* of their AD projection.
+    They should be _Active_ and _Enabled_.
+
+== Employee leaves for good
+
+The second exercise in this module is similar to the first but with some added points.
+Pick a user on which to simulate leaving the employment.
+In examples herein, we use _Martin Knight_ (employee number: 1006) again.
+
+=== Update the user status in HRIS
+
+. In the HRIS user interface, modify the user's *Status* to _Former employee_.
+. Export HRIS users to CSV.
+. Wait for the recurring HRIS reconciliation task to pick up the change.
+
+=== Verify the user is deactivated and waiting for deletion in AD
+
+Once the reconciliation task picks up the changed employment status of the user, you have configured midPoint to:
+
+* Set the user's *Lifecycle state* to _Archived_.
+* Set the user's *Effective status* to _Disabled_ (displayed in the top-right corner of the screen).
+* Disable the account on the AD resource (mapped to the `roomNumber` user attribute).
+* Set up the trigger for delayed deletion of the AD resource account.
+
+[NOTE]
+====
+When you are on the user profile screen, it is not enough to refresh the page to see the updates made by the reconciliation task to the user (such as changed lifecycle state).
+You need to go [.nowrap]#icon:arrow-left[] btn:[Back]# to the user list, and open the user profile again.
+====
+
+=== Check the delayed delete trigger
+
+The delayed delete activation rule places a trigger on accounts that are to be deleted instead of having them deleted right away.
+In laymen terms, the trigger says, for instance, "delete this AD account on 2026-04-23 07:57:19".
+
+To act on triggers, there is a trigger scanner task which periodically scans objects with triggers.
+Once it discovers an object with a trigger the time of which is in the past, it performs the action specified in the trigger.
+
+[NOTE]
+====
+For a trigger to be fired, its time stamp must be in the past.
+That means triggers are never fired earlier than at the time specified by their time stamp.
+On the other side, the action may be delayed depending on the schedule of the trigger scanner task.
+====
+
+By default, the trigger scanner task is scheduled to run every 5 minutes.
+In the Docker image prepared for this guide, it is set to 1 minute.
+You can check and change the schedule in [.nowrap]#icon:tasks[] *Server tasks*# > [.nowrap]#icon:save[] *System tasks*# > Trigger scanner > [.nowrap]#icon:calendar[] *Schedule*#.
+You can also use the [.nowrap]#icon:play[] btn:[Run now]# button there if you do not want to wait for the next scheduled run.
+// TODO: We're missing an article on triggers and trigger scanners @dakle 2025-11-23
+
+.Trigger scanner schedule configuration screen
+image::trigger-scaner-task-edit-schedule.webp["Trigger scanner schedule configuration screen"]
+
+[TIP]
+====
+The trigger is stored in the midPoint xref:/midpoint/architecture/concepts/shadow/[shadow object] corresponding to the resource account.
+It is not stored in the user's focal object nor in the actual account on the remote resource.
+====
+
+Once the trigger is in place:
+
+. Go to the user's profile in midPoint.
+. Click [.nowrap]#icon:male[] *Projections*#.
+. Select the AD resource.
+. Hover your mouse over the account icon to see the timer.
+
+.The AD account for user Martin Knight pending delete
+image::midpoint-knight-ldap-projection-pending-delete.webp["The AD account for user Martin Knight is pending deletion"]
+
+If you are on the Docker images prepared for this guide, you can check accounts with triggers using the *AD account notices dashboard*:
+
+. Under [.nowrap]#icon:tachometer-alt[] *Dashboards*#, select *AD account notices*.
+. Click [.nowrap]#*More info* icon:arrow-circle-right[]# on the *Users with accounts with triggers* tile to list *users* with triggers on any of their accounts.
+. Click [.nowrap]#*More info* icon:arrow-circle-right[]# on the *Accounts with triggers* tile to list *accounts* with triggers.
+. Click [.nowrap]#*More info* icon:arrow-circle-right[]# on the *Users without AD accounts* to list users without an AD account.
+    ** This number will grow by one once the grace period for Martin Knight's AD account expires.
+
+.AD notices dashboard showing one account is pending delete
+image::midpoint-dashboard-ad-notices-one-pending-delete.webp["AD notices dashboard showing one account is pending delete"]
+
+.If you have renamed your AD resource…
+[NOTE]
+====
+The dashboard widget for showing the number of accounts without an AD account depends on the resource name.
+If you have renamed the AD resource to anything other than `AD`, the dashboard would wrongly show that all users in midPoint are without an AD account.
+
+Should that be your case, either rename your AD resource to `AD`, or adjust the object collection used in the dashboard as follows:
+
+. In [.nowrap]#icon:filter[] *Object collections*#, find and open for editing the collection _Users without AD accounts_.
+. Click [.nowrap]#icon:edit[] btn:[Edit raw]#.
+. Edit the filter part of the collection:
++
+[source,XML]
+----
+<filter>
+    <q:text>
+        linkRef/@ not matches (
+        . type ShadowType
+        and resourceRef/@/name = "AD" <!--1-->
+        and kind = "account" )
+    </q:text>
+</filter>
+----
+<1> Rewrite the quoted string so that it matches exactly the name of your target (AD/LDAP) resource.
++
+. Click btn:[Save] and go back to dashboards.
+    The dashboard should show accurate data now.
+
+Refer to xref:/midpoint/reference/admin-gui/dashboards/[] to learn more about dashboards.
+====
+
+=== Confirm the AD account has been deleted
+
+After the grace period elapses, the trigger scanner task catches the trigger and midPoint deletes the AD account projection for Martin Knight who is no longer entitled to have one because he left the company.
+For the account to be _actually_ deleted on the resource, the recurring HRIS reconciliation task must run as well.
+
+To verify the AD account has been deleted, check [.nowrap]#icon:male[] *Projections*# for user _knight_ in midPoint.
+He should have only the one for the HRIS; the AD projection should be deleted.
+
+.User Martin Knight's projections contain only the HRIS now
+image::midpoint-knight-ldap-projections-only-hris.webp["User Martin Knight's projections contain only the HRIS now"]
+
+You can also use the *AD account notices* dashboard—the *Users without AD accounts* tile should now show one more account than before.
+
+Finally, you can also link:http://localhost/phpldapadmin[access the AD/LDAP server directly] to verify the account is not there anymore.
+
+The user _knight_ remains in midPoint because in the setup we use in this guide, we keep track of all users who have ever been part of the company,
+similarly to how a university keeps track of all students who have ever enrolled at the university.
+
+:sectnums!:
+
+== Next steps
+
+In the next module, you will test how the existing configuration copes with adding a new outbound mapping to the target resource.
+
+[.nowrap]#icon:arrow-right[] *xref:/midpoint/methodology/first-steps-training/verify-configuration-behavior/provision-new-attributes-to-target-resource/[]*#

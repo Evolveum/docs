@@ -2814,3 +2814,108 @@ Once we have available list of valid question identifiers, the list can be compa
 If the answer for the question with unknown identifier is found, we have object to process the cleaning.
 +
 The complete example of the task definition can be found as link:https://raw.githubusercontent.com/Evolveum/midpoint-samples/refs/heads/master/samples/tasks/bulk-actions/securityQuestion-answers.xml[securityQuestion-answers.xml] file on gitHub.
+
+=== Clean up assignments originating from missing mappings
+
+This addresses situations when you need to clean up assignments created by mappings that are no longer present, and therefore cannot be automatically removed. +
+If a mapping disappears (e.g., it is deleted or renamed by a process), the assignments created by it do not automatically disappear, even if there is another mapping logically covering the same mapping.
+The reason is that the source for the information is not available so there is no authoritative order to remove the assignments.
+
+[NOTE]
+====
+The names of mappings should not change in time.
+In case you need to change them, see xref:/midpoint/reference/expressions/mappings/#_mapping_maintenance_tasks[Renaming a mapping].
+====
+
+There are three options to address the situation:
+
+* If the mapping exists under a different name (i.e., it has been renamed), you can add a xref:/midpoint/reference/expressions/mappings/#renaming-a-mapping[mappingAlias].
+
+* If the assignment can be removed manually, and if there is another valid inbound mapping, you can remove the original assignment and re-create it with the proper metadata under the other inbound mapping.
+This approach can be effective if only a few objects are affected.
+
+* Create another mapping that will remove the orphaned assignment:
+
+Below is a solution that applies to the last case, i.e., creating another mapping that will remove the orphaned assignment:
+
+. Identify the orphaned assignment and analyze why midPoint still keeps it as valid.
+You can do this in two ways:
+
+** In GUI:
+
+... In an account detail, click [.nowrap]#+++<i class="fe fe-assignment"></i>+++ *Assignments*# > [.nowrap]#+++<i class="fe fe-assignment"></i>+++ *All*#.
+... On the *Basic* tab, click the [.nowrap]#icon:tag[] btn:[Metadata]# tag next to the name just under the tab name (i.e., under *Basic*).
+... Click [.nowrap]#icon:tag[] btn:[Provenance]#.
+
+** In raw XML, find the assignment and look for `_metadata` information:
+
++
+.reduced sample of the metadata
+====
+[source,xml]
+----
+        <_metadata id="138">
+            <provenance>
+                <mappingSpecification>
+                    <definitionObjectRef oid="4a86b950-575f-4923-90c6-bf04e6b7f9c4" relation="org:default" type="c:ResourceType" />
+                    <objectType>
+                        <kind>account</kind>
+                        <intent>user</intent>
+                    </objectType>
+                    <mappingName>group-import#1</mappingName>
+                </mappingSpecification>
+            </provenance>
+        </_metadata>
+----
+====
+
++
+
+. Create a "dummy" mapping that will tell midPoint to remove the assignment.
+This is done by creating a mapping that returns nothing (`null`) and pretends to be a successor to the original mapping that had been removed (i.e., the mapping that produced the assignment in the first place). +
+You can create the mapping in a resource or object template, or alternatively, as a focus mapping in a role or archetype.
+
++
+.See an example in a role definition (available also on link:https://raw.githubusercontent.com/Evolveum/midpoint-samples/refs/heads/master/samples/roles/role-cleanup-assignment.xml[GitHub])
+[%collapsible]
+====
+[source,xml]
+----
+<role xmlns="http://midpoint.evolveum.com/xml/ns/public/common/common-3"
+      xmlns:c="http://midpoint.evolveum.com/xml/ns/public/common/common-3"
+      xmlns:org="http://midpoint.evolveum.com/xml/ns/public/common/org-3"
+      oid="101d50da-af83-452d-83e1-bd28088c9ba9">
+    <name>MAINTENANCE : clean up assignment from obsolete mapping</name>
+    <inducement>
+        <focusMappings>
+            <mapping>
+                <expression>
+                    <script>
+                        <code>return null</code>
+                    </script>
+                </expression>
+                <target>
+                    <path>assignment</path>
+                    <set>
+                        <additionalMappingSpecification>
+                            <!-- place here the content of the mappingSpecification you want to address -->
+                            <definitionObjectRef oid="4a86b950-575f-4923-90c6-bf04e6b7f9c4"  relation="org:default" type="c:ResourceType" />
+                            <objectType>
+                                <kind>account</kind>
+                                <intent>user</intent>
+                            </objectType>
+                            <mappingName>group-import#1</mappingName>
+                        </additionalMappingSpecification>
+                    </set>
+                </target>
+            </mapping>
+        </focusMappings>
+    </inducement>
+</role>
+----
+====
+
+. Process the mapping to remove the assignment. +
+Depending on where you placed the mapping, two rounds of processing may be required.
+
+. After processing the mapping, you can remove it (if you created it as a mapping in a resource or object template) or unassign it (if you created it as a focus mapping in a role or archetype).
