@@ -11,17 +11,18 @@ Check xref:container-image-2026-change.adoc[Container Image Tagging Changes 2026
 
 == Introduction
 
-A complete container image reference consists of the image name and the tag separated by a colon:
+A complete container image reference consists of an image name and a tag separated by a colon:
 
 ----
 <image-name>:<tag>
 ----
 
-Our images are hosted either on https://hub.docker.com/r/evolveum/midpoint/[Docker Hub] or on our Registry (coming soon) - which affects the name itself.
+Our images are hosted on https://hub.docker.com/r/evolveum/midpoint/[Docker Hub] and in Registry (coming soon).
+The image location affects its name:
 // TODO^^ update when Registry is available
 
-* Docker Hub image name is `evolveum/midpoint`.
-* Image name from our Registry is `registry.evolveum.com/public/midpoint`.
+* Docker Hub image names contain `evolveum/midpoint`.
+* Registry image names contain `registry.evolveum.com/public/midpoint`.
 
 With the image registry names established, the remainder of this document focuses solely on the *tag* structure.
 
@@ -29,10 +30,10 @@ We start with immediate recommendations based on common use cases.
 The document then provides detailed reference sections covering tag syntax, image content, and internal layers,
 before concluding with a summary of what changes, and when, for each stability channel.
 
-But first, let's establish important concepts:
+But first, let's establish several important concepts:
 
 * *All tags are floating:*
-Since June 2026, midPoint container images use floating tags exclusively.
+Since June 2026, midPoint container images use _floating tags_ exclusively.
 Even tags matching a single specific midPoint version (e.g., `4.11.3`) will change over time to receive underlying OS-level and Java security patches.
 
 * *Support model:*
@@ -46,25 +47,25 @@ The default `IfNotPresent` policy will cause nodes to skip pulling critical secu
 
 == Which Image Should I Use?
 
-Depending on how much control you require over version transitions and security updates,
-there are several ways to specify what midPoint image will be used.
+Depending on how much control you require over version transitions and security updates, there are several ways to specify what midPoint image will be used.
 
 * *Version-Specific Tags* (e.g., `4.11.0`, `4.10.2`)
 ** *Behavior:* These lock your environment to a specific midPoint release.
 ** *Best for:* Production environments where application stability is the highest priority, but you still want to receive OS security updates when you re-pull the tag.
 
 * *Image Digest Pinning* (e.g., `midpoint@sha256:abcd123...`)
-** *Behavior:* Bypasses tags completely to lock your environment to a cryptographic hash of the exact image contents.
+** *Behavior:* Bypasses tags completely to lock your environment to a cryptographic hash of exact image contents.
 Neither midPoint nor the underlying OS layers can ever change.
 ** *Best for:* High-security or highly regulated production environments requiring absolute immutability and total change control.
 
 +
 [IMPORTANT]
 ====
-When pinning to a digest, mirror the image to a local repository; older, unpatched image layers may eventually be removed from public registries during routine security cleanups.
+When pinning to a digest, mirror the image to a local repository.
+Older, unpatched image layers may eventually be removed from public registries during routine security cleanups.
 
 We do not encourage digest pinning.
-The recommended alternative is to use a version-specific tag, where we guarantee that midPoint itself remains binary-identical across all image updates for that tag.
+The recommended alternative is to use a version-specific tag, where we guarantee that midPoint remains binary-identical across all image updates for that tag.
 ====
 
 * *Branch-Level Floating Tags* (e.g., `4.10-latest` or `4.11` - *but not `4.10` or earlier*, see the details in the following sections)
@@ -80,54 +81,52 @@ Not recommended for production or other high-risk environments as the xref:#_upg
 * *Development Tags* (`nightly` or `4.10-nightly`)
 ** *Behavior:* Bleeding-edge builds from the current development HEAD on the main branch or any of the active support branches.
 ** *Best for:* Testing upcoming features or verifying specific bug fixes before they reach a stable release.
-*Do not use this tag for production* (see exception below).
+*Do not use this tag for production* unless the following applies: +
+In some cases, e.g., when a specific blocker bug is implemented in a `support` branch, it is reasonable to run a development build in production. You can use a nightly build, but pin it to its image digest to avoid any uncontrolled changes of midPoint code. +
+In such situations, the image is not updated on the OS layer.
+If the OS layer updates of a nightly build are necessary, you need to prepare the image independently, using a specific midPoint build and the actual OS version.
 
-All images are provided as multi-architecture, supporting `linux/amd64` (64-bit x86) and `linux/arm64` (64-bit Arm chips, including Apple Silicon) platforms.
++
+All images are provided as multi-architecture, supporting the `linux/amd64` (64-bit x86) and `linux/arm64` (64-bit Arm chips, including Apple Silicon) platforms.
 
 [NOTE]
-There are no dedicated LTS tags.
+There are no dedicated long-term support (LTS) tags.
 To use an LTS release, simply specify the version number.
-You can target a concrete version (e.g., `4.8.11`) for maximum predictability, or use a floating tag to automatically track the most recent patches within that LTS branch, e.g., `4.8-latest` or even shorthand `4.12` for the future LTS release.
-
-.Nightly build in production
-
-In some cases, e.g. when specific blocker bug is implemented in the `support` branch, there is reason to run development build in production. The nightly build may be used, but it must be pinned to its image digest to avoid any uncontrolled changes of midPoint code.
-
-For such situation, the image is not updated on OS layer.
-If the OS layer updates of nightly build are necessary, then the image must be prepared independently by customer using specific midPoint build and actual OS version.
+You can target a specific version (e.g., `4.8.11`) for maximum predictability, or use a floating tag to automatically track the most recent patches within that LTS branch, e.g., `4.8-latest` or even shorthand `4.12` for the future LTS release.
 
 === Quick Summary (TL;DR)
 
 For production:
 
 * Use a *version-specific tag* (such as `4.10.2` or `4.11.0`) combined with an image pull policy of `Always` to receive security updates.
-With this approach, the midPoint itself remains identical on both a functional and binary level.
-We strongly recommend you to update this tag to the newest patch version after testing.
+With this approach, midPoint remains identical on both the functional and binary levels.
+We strongly recommend that you update this tag to the newest patch version after testing.
 
 For evaluation and testing:
 
 * Use `latest` to evaluate the newest stable midPoint release.
 * Use `<major>.<minor>-latest` to evaluate the newest maintenance release within a specific branch before updating your production tags.
 * Use `nightly` or `<major>.<minor>-nightly` to test recent bug fixes or development builds.
-Note that nightly builds are entirely unsupported.
+Note that nightly builds are NOT supported.
 
 [#_upgrade_process]
 === Upgrade Process
 
-We try hard for a *hassle-free upgrade path* between maintenance releases.
-When only the third digit of the version changes (the patch level, e.g., `4.11.1` to `4.11.2`),
-the upgrade should require no manual changes or configuration updates,
-but we can't guarantee this for all environments at this moment.
+We try hard to secure a *hassle-free upgrade path* between maintenance releases. +
+When only the third digit of the version changes (the patch level, e.g., from `4.11.1` to `4.11.2`), the upgrade should require no manual changes or configuration updates.
+However, we cannot guarantee this for all environments at this moment.
 
-Note, however, that there is *no automatic procedure for upgrading midPoint between minor versions*, e.g. from 4.11.x to 4.12.x.
-These transitions may involve database schema changes that require manual intervention.
-Check the particular release notes for the necessary upgrade steps.
+Note that there is *no automatic procedure for upgrading midPoint between minor versions*, e.g., from 4.11.x to 4.12.x.
+These transitions may involve database schema changes that require a manual intervention.
+Check the particular xref:/midpoint/release/[release notes] for the necessary upgrade steps.
 
-Using the `latest` tag without version for production environments will lead to startup failures after a release of a new minor version of midPoint.
+Using the `latest` tag without version for production environments will lead to startup failures after a new minor version release of midPoint.
 The reason is that the `latest` tag always tracks the newest minor release (and its latest maintenance release).
-New minor versions are released on a regular annual cycle.
+New minor versions are released in a regular annual cycle.
 
-In the case that you will start midPoint over older minor version without correct upgrade,  midPoint simply refuses to start when an incompatible database schema version is identified.
+In case you start midPoint over an older minor version without the correct upgrade, midPoint will simply refuse to start when an incompatible database schema version is identified.
+
+See xref:/midpoint/reference/upgrade/upgrade-guide/[Upgrade Guide] for more details on the upgrade process.
 
 == Tag Structure and Syntax
 
@@ -137,69 +136,69 @@ MidPoint container image tags have the following structure:
 <version>-<base-os>-<channel>
 ----
 
-All components are optional; when multiple components are present, they are separated by a dash (`-`).
+All components are optional.
+When multiple components are present, they are separated by a dash (`-`).
 
 . *Version* +
-This component defines the midPoint software version.
+This component defines the midPoint software version:
 
-** Specifies the *immutable* version string for a specific midPoint release.
+** It specifies the *immutable* version string for a specific midPoint release.
 
-** From 4.11 onwards, `<major>.<minor>` tags (e.g., `4.11`) are "floating" aliases that always track the most recent patch release in that family, thus equivalent to `<major.minor>-latest` tag (e.g., `4.11-latest`).
+** From 4.11 onwards, `<major>.<minor>` tags (e.g., `4.11`) are _floating_ aliases that always track the most recent patch release in that family, thus are equivalent to `<major.minor>-latest` tags (e.g., `4.11-latest`).
 +
-See the description of *channel* component below for more on usage of `latest` in the tag.
+See the description of the *Stability channel* component below for more details on the usage of `latest` in the tag.
 +
 [NOTE]
-In `4.11` version family, the first release is `4.11.0`.
-This is an important change from previous versions up to `4.10` where the first version was without the patch component, e.g.`4.10`.
-This does not allow using the "branch" version unambiguously and explicit `-latest` suffix must be used for a floating tag.
+In the `4.11` version family, the first release is `4.11.0`.
+This is an important change from previous versions up to `4.10` where the first version was without the patch component, e.g.,`4.10`.
+This does not allow using the "branch" version unambiguously; the explicit `-latest` suffix must be used for a floating tag.
 
 +
-If the version is omitted, the used midPoint version will depend on the *channel* component.
+If the version is omitted, the used midPoint version will depend on the *Stability channel* component.
 
 . *Base OS* +
 Selects the underlying operating system distribution.
-Options include `alpine`, `ubuntu`, and `rockylinux`.
+Available options include `alpine`, `ubuntu`, and `rockylinux`.
 
 ** Default: If omitted, `alpine` is used for all releases from 4.11.0 onwards.
-For compatibility, all previous supported branches (4.8.x, 4.9.x, 4.10.x) use `ubuntu` as a default OS.
+For compatibility, all preceding supported branches (4.8.x, 4.9.x, and 4.10.x) use `ubuntu` as the default OS.
 ** We recommend *omitting the OS selector* to ensure your configuration remains forward-compatible.
 By omitting the selector, your environment will automatically inherit the current recommended distribution (currently Alpine),
 allowing for seamless security patches and base-image optimizations without requiring manual updates to your tags.
 
 . *Stability Channel* +
 Defines the release lifecycle for floating tags.
-This component is not to be used when using a concrete version image.
+Do not use this component with version-specific images.
 
-** `latest`: Points to the stable release with the highest version number (not necessarily the most recent by date).
-This always points to an official stable release - never to a development version, SNAPSHOT, or head of a branch.
+** `latest`: Points to a stable release with the highest version number (not necessarily the most recent by date).
+This always points to an official stable release - never to a development version, SNAPSHOT, or the HEAD of a branch.
 
-*** Standalone: `midpoint:latest` tracks the absolute newest stable release.
+*** Standalone: `midpoint:latest` Tracks the most recent stable release.
 *Not recommended for production* - use only for evaluation purposes.
 
-*** With version, e.g. `midpoint:4.10-latest`, tracks the newest patch within the specified branch (4.10 in this example), providing stability without breaking changes.
+*** With version: Tracks the most recent patch within a specified branch, providing stability without breaking changes. For example, `midpoint:4.10-latest` tracks the newest patch within the 4.10 branch.
 +
-As mentioned in the Version component explanation, from 4.11 onwards, you can use `midpoint:4.11` with the same effect as `midpoint:4.11-latest`.
-This is not possible for branches 4.10 and prior; you must use `-latest` suffix (e.g. `midpoint:4.10-latest`) if you want to point to the latest release in those branches.
+As mentioned for the *Version* component, from 4.11 onwards, you can use `midpoint:4.11` with the same effect as `midpoint:4.11-latest`.
+This is not possible for 4.10 and earlier branches; in those, you must use the `-latest` suffix (e.g., `midpoint:4.10-latest`) to point to the latest release.
 
 ** `nightly`: The development territory.
 +
-Provides builds from the HEAD of the main development line (trunk) or a specific support branch if combined with `<major>.<minor>` version.
+Provides builds from the HEAD of the main development line (trunk) or a specific support branch if combined with a `<major>.<minor>` version.
 +
-Image builds are created typically once a day (hence "nightly") and don't necessarily contain the interim pushes for the main/support branches.
+Image builds are typically created once a day (hence "nightly") and they do not necessarily contain the interim pushes for the main/support branches.
 
 [NOTE]
-There are no dedicated LTS tags; you have to specify the LTS version number yourself.
+There are no dedicated long-term support (LTS) tags; you have to specify the LTS version number yourself.
 
 === Image Tags and Stability
 
-The tags can be categorized by:
+Tags can be categorized along the following dimensions:
 
-* Whether the tag points to a stable release or an unstable development version.
-Generally, anything that does not contain `nightly` is considered a stable release.
+* Whether they point to a stable release, or an unstable development version.
+Generally, any release that does not contain `nightly` is considered stable.
 
-* Whether the tag points to a single midPoint version or it is a floating tag.
-In case of floating tags, these can track the latest release within a branch (version family
-with the same `<major>.<minor>` designation) or can jump to another minor (or even major) version.
+* Whether they point to a single midPoint version, or they are floating.
+Floating tags can track the latest release within a branch (version family with the same `<major>.<minor>` designation), or can jump to another minor (or even major) version.
 
 The following table summarizes various image tag variants using the release stability as the primary criteria.
 
@@ -218,8 +217,8 @@ Optionally with OS: +
 
 `4.11.3-alpine`
 | Release tag. +
-This is the tag of the released version. +
-The content of the tag may change during vulnerability patching on OS layer.
+This is a released version tag. +
+The content of the tag may change during vulnerability patching on the OS layer.
 
 | `<major>.<minor>-latest`
 
@@ -230,7 +229,7 @@ Optionally with OS: +
 `4.11-alpine-latest`
 | Floating tag. Minor version tag. +
 Points to the latest maintenance release of 4.11. +
-Target updated to newer version of midPoint during each release.
+Target updated to a newer version of midPoint during each release.
 
 | `latest`
 
@@ -240,7 +239,7 @@ Optionally with OS: +
 
 `alpine-latest`
 | Floating tag. The latest release of midPoint. +
-Points to the latest maintenance release of the newest minor version. +
+Points to the latest maintenance release of the most recent minor version. +
 DO NOT use for production.
 
 3+| *Unstable releases*
@@ -252,7 +251,7 @@ Optionally with OS: +
 
 `alpine-nightly`
 | Floating tag. MidPoint development `master` branch. +
-Nightly builds are updated every 24 hours if there was a new commit in the main branch.
+Nightly builds are updated every 24 hours if there is a new commit in the main branch.
 
 | `<major>.<minor>-nightly`
 
@@ -262,34 +261,34 @@ Optionally with OS: +
 
 `4.11-alpine-nightly`
 | Floating tag. Support development branch of the minor version. +
-New nightly version tag is introduced after the first release of the particular minor version. +
-Nightly builds are updated every 24 hours if there was a new commit in the branch.
+A new nightly version tag is introduced after the first release of the particular minor version. +
+Nightly builds are updated every 24 hours if there is a new commit in the branch.
 |===
 
 == Container Image Content
 
-MidPoint containers contain the following main components:
+MidPoint containers are composed of the following main components:
 
 * Operating system (Base OS)
 * Java platform (JDK)
 * Additional system dependencies and OS configuration required to run midPoint
 * The midPoint application distribution
 
-These components are placed into three main layers (ignoring layers without any actual content, e.g. various metadata layers):
+These components are organized into the following main layers (ignoring layers without any actual content, e.g., various metadata layers):
 
 * *Base OS Layer:*
 Built using reputable, officially supported third-party distributions (such as Alpine, Ubuntu, or Rocky Linux).
 * *Java and System Layer*:
-Contains the specific Java JDK recommended for that particular midPoint version, installed directly on top of the Base OS.
-This layer also handles OS-level setup (such as creating a non-root user) and installs any necessary system dependencies.
+Contains the specific Java JDK recommended for a particular midPoint version, installed directly on top of the Base OS.
+This layer also handles the OS-level setup (such as creating a non-root user) and installs any necessary system dependencies.
 The result is stored as an internal base image.
 * *midPoint Application Layer:*
-Contains the midPoint binaries compiled independently as a single, concrete artifact from Nexus.
+Contains the midPoint binaries compiled independently as a single, specific artifact from Nexus.
 For one midPoint version, the same layer is reused for all image variants.
 
 === Base OS Versions
 
-We currently support the following operating systems:
+We currently support the following Base operating systems (OS):
 
 [%autowidth]
 |===
@@ -300,49 +299,48 @@ We currently support the following operating systems:
 | `rockylinux` | Rocky Linux | `rocky-10`
 |===
 
-The OS version is not included in the tag.
-Ideally, you should not rely on the content of the OS layer when consuming the container image.
-It is meant only as a basis for the Java runtime and midPoint distribution on top of it.
+The Base OS version is not included in the tag.
+Ideally, you should not rely on the content of the Base OS layer when consuming the container image.
+It is meant only as a basis for the Java runtime and the midPoint distribution on top of it.
 
-* OS version may be upgraded to a newer one at any time, which will apply to all future midPoint releases.
-* Base OS image for a particular OS version can be updated to apply security patches.
+Base OS version may be upgraded (and used in future midPoint releases) to a newer one at any time.
+
+Base OS image for a particular OS version can be updated to apply security patches.
 After such update, midPoint images for all versions using the updated OS are regenerated.
 
 *Rule for OS upgrades:*
-The OS version is upgraded with new midPoint release only.
+The Base OS version is upgraded only with a new midPoint release.
 
 === Java
 
 Java version is not explicitly included in the image tag.
 MidPoint images always bundle the recommended Java version.
 Evolveum does not provide midPoint images with alternative Java versions.
-For example, if midPoint release states that supported Java platforms are Java 21 and Java 25,
-the official container images will be built and distributed using Java 25 only.
+For example, if a midPoint release states that the supported Java platforms are Java 21 and Java 25, the official container images will be built and distributed using Java 25 only.
 
-Java version may be upgraded to a newer version (e.g. from 21 to 25) when Java reaches EOL
-during the support life of midPoint minor version.
+Java may be upgraded to a newer version (e.g., from 21 to 25) if a particular Java version reaches End Of Life (EOL) during the support life of a midPoint minor version.
 
 *Rule for Java upgrades:*
-Java version is upgraded with new midPoint release only.
+Java version is upgraded only with new midPoint releases.
 
 === Image Architecture
 
-All images are provided as multi-architecture builds, natively supporting both `linux/amd64` and `linux/arm64` platforms.
+All images are provided as multi-architecture builds, natively supporting both the `linux/amd64` and `linux/arm64` platforms.
 
-This mechanism is completely transparent to the user.
-You use the exact same image tag across all environments; the container runtime automatically detects your host platform's architecture and pulls the corresponding layers.
+This mechanism is completely transparent.
+You use the same image tag across all environments; the container runtime automatically detects your host platform's architecture and pulls the corresponding layers.
 
 == Stability Channel Impact on Layers
 
-This document repeatedly mentions that even non-floating tags, e.g., concrete midPoint version, do *not* ensure immutable image.
-If you absolutely require an immutable image, you have to pin it using its unique cryptographic digest.
+This document repeatedly mentions that even non-floating tags, e.g., specific midPoint versions, do *not* ensure immutability of images.
+If you require an immutable image, you have to pin it using its unique cryptographic digest.
 
 Evolveum actively updates images to address security vulnerabilities in a timely manner.
 For the midPoint application layer, vulnerabilities are addressed via official maintenance releases.
 However, when a security flaw is discovered within an underlying OS dependency, it is counterproductive to release a new midPoint version if no application code has changed.
 Instead, Evolveum rebuilds the container images for active maintenance releases to swap out the underlying layers with patched dependencies.
 
-The following table summarizes what image layer changes how, depending on your selected stability channel:
+The following table summarizes image layer changes, depending on your selected stability channel:
 
 [cols="2,2,2,2,3"]
 |===
@@ -358,8 +356,8 @@ Examples: +
 No incompatible OS upgrades.
 | As indicated in the release notes for the version.
 Can be patched, but the major version never changes.
-| Never changes
-| PRODUCTION ready with automatic updates only for OS layer depending on pull policy setting.
+| Never changes.
+| PRODUCTION ready with automatic updates only for the Base OS layer depending on the pull policy setting.
 
 | Latest with version +
 Example: +
@@ -367,7 +365,7 @@ Example: +
 `4.9-latest` +
 `4.11` (but not `4.10` or earlier!)
 
-Starting with `4.11` branch, `<major>.<minor>` tag has the same meaning as `<major.minor>-latest`.
+Starting with the `4.11` branch, the `<major>.<minor>` tag has the same meaning as `<major.minor>-latest`.
 | May be updated for security reasons or upgraded on midPoint version changes.
 | As indicated in the release notes for the actually used latest version in the branch.
 Can change between patch versions, upgrading to the next Java LTS version to avoid EOL/unsupported status.
