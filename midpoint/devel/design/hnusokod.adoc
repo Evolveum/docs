@@ -1,0 +1,135 @@
+= Hnusokod Design Notes
+:page-nav-title: Hnusokod
+
+This page contemplates the "hnusokód" (scrappy code), and the ways to reduce/improve ugly, difficult and inefficient scripting code in midPoint.
+
+== Global Constants
+
+Defined in system configuration? Or expression profile?
+
+* `LOOKUP_LIFECYCLE_STATES`
+* `LOOKUP.LIFECYCLE_STATES`
+* `Lookup.LIFECYCLE_STATES`
+* `lookup.LIFECYCLE_STATES`
+* `lookup.lifecycle_states`
+* `CONST.LOOKUP_LIFECYCLE_STATES`
+* `const.LOOKUP_LIFECYCLE_STATES`
+
+Should contain a single value (e.g. OID string), or should be structured (more like a reference to an object)?
+
+Constants for important initial objects should be present by default.
+Q: how to deal with conflicts with custom constants?
+
+== Assignments
+
+TODO
+
+`assignment.targetType() -> qname`
+
+`assignment.targetRelation() -> qname`
+
+[source,mel]
+----
+assignment.targetType() == 'RoleType'
+assignment.targetRelation() == 'owner'
+----
+
+
+[source,mel]
+----
+assignment.isTargetRole()
+assignment.isTargetRole(ARCHETYPE_BUSINESS_ROLE)
+assignment.isTarget(oid)
+assignment.isTargetDefaultRelation()
+assignment.isTargetRelation('owner')
+----
+
+[source,mel]
+----
+assignment.targetsRole()
+assignment.targetRoleWithArchetype(ARCHETYPE_BUSINESS_ROLE)
+assignment.targets(oid)
+assignment.hasDefaultRelation()
+assignment.hasOwnerRelation()
+assignment.hasRelation('owner')
+----
+
+
+`assignment.target() -> object`
+
+This could imply hidden resolution (getObject). Do we want it?
+
+TODO: "business" methods, e.g. `assignment.isTargetStudent()` ?
+
+== Object Deltas
+
+TODO
+
+`delta.newValuesFor(path) -> list` +
+`delta.addedValuesFor(path) -> list` +
+`delta.modifiedValuesFor(path) -> list` +
+`delta.deltedValuesFor(path) -> list` +
+`delta.isValueChanged(path) -> bool` +
+`delta.hasDeltaFor(path) -> bool` +
+
+`delta.newObject() -> object` - only for _add_ deltas, otherwise `null`
+
+
+This should work both for `ObjectDelta` and `ObjectDeltaOperation` (used in audit log).
+
+== Lookup Tables
+
+`lookup(oid, key) -> row` +
+`lookup(oid, keys) -> rows` +
+
+.Lookup for single-valued data
+[source,mel]
+----
+lookup(CONST.LOOKUP_LIFECYCLE_STATES, 'active').?label
+----
+
+.Lookup dealing with multi-valued properties
+[source,mel]
+----
+lookup(CONST.LOOKUP_ORGNAMES, list(focus.organization))
+    .map(r, r.label)
+----
+
+
+We should include default transliteration table in initial objects.
+E.g. ä -> ae, ö -> oe, ß -> ss, đ -> dj, ... +
+This table should be used by default normalizer.
+
+We should have option to cache entire lookup table in memory.
+Some tables are going to be used very often (e.g. transliteration table).
+
+== Date/Time
+
+`timestamp.farAhead()`
+
+or
+
+`timestamp.distantFuture()` +
+(Then we should rename `longAgo` to `distantPast`)
+
+XML durations in MEL?
+Native CEL (protocol buffer) durations are meant to be short term (seconds, at most hours).
+They are stored as _seconds_ plus _nanoseconds_.
+E.g. they can express 24 hours, but not a day, week or month.
+Which may be a problem with unusual calendar events (e.g. leap year, summer time changes).
+
+== Misc
+
+* Global functions for common string operations, e.g. `substring()`, `contains()`, `trim()`: to avoid problems with `null`. E.g. `str.trim()` fails if `str` is `null`, but `trim(str)` can easily return `null` if `str` is `null`.
+
+* Localization functions (in MEL)
+
+* Expression profiles: permission profile granularity at function level, not just packages and classes.
+May be especially useful in MEL, which does not have classes.
+
+== To Design / Think
+
+* Delta formatting (as well as formatting of prism objects, assignments, etc.): use some kind of templating?
+
+* Accessing metadata (especially in MEL)
+
