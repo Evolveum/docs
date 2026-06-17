@@ -58,13 +58,11 @@ focus.assignment.filter(a, has(a.targetRef)).map(a, a.targetRef.oid)
 
 == CEL or MEL
 
-Should we call the language "MidPoint Expression Language" (MEL)?
+Decided to call the language "MidPoint Expression Language" (MEL)
 
 We are going to extend standard CEL with a lot of functions, for ease of use, convenience,
 but also to provide essential functionality (e.g. prism objects).
 The code will not be backwards compatible with CEL.
-
-To consider: marketing, LLMs
 
 == MEL and Groovy
 
@@ -86,16 +84,14 @@ CEL-Java allows definition of custom types and functions (although it is quite c
 which we are going to use heavily.
 
 We will not use support for proto (protocol buffer) types, at lease not now, as Prism schema
-does not have easy mapping to protocol buffers schema (e.g. missing presistent item identifiers).
+does not have easy mapping to protocol buffers schema (e.g. missing persistent item identifiers).
 This can be done later.
 For now the prism types will be dynamic (`dyn`), which means that their interpretation will be
 postponed to runtime.
 CEL compiler will not deal with Prism schema, will not be able to check the types in scripts.
 We can live with that, at least for now.
 
-PolyString, ItemPath, QName, deltas and similar "hardcoded" Prism types will be most likely
-implemented as CEL types as well.
-This is already prototyped on PolyString.
+PolyString, ItemPath, QName, deltas and similar "hardcoded" Prism types are implemented as CEL types as well.
 
 === Built-in MidPoint Libraries
 
@@ -144,13 +140,9 @@ However, we have decided to not map our Java libraries to CEL directly anyway.
 Seems to be even less mature and has lower code change intensity (single maintainer?).
 Most commits are made by a bot (`renovate`).
 
-Google cel-java implementation seems to be a better fit for us.
+Google cel-java implementation seems to be a better fit for us, although it still leaves much to be desired.
 
 == What Needs to be Done?
-
-* Put all the prototyped pieces together.
-
-* Implementation of CelScriptEvaluator, with all the details and extensions: exposing structured Prism objects, native Prism and Java objects (polystring, qname, itempath, delta, guradedstring, etc.)
 
 * Good handling of deltas may be particularly hard nut to crack (e.g. for audit reports).
 
@@ -159,7 +151,7 @@ Switch some (many?) integration tests from Groovy to CEL/MEL.
 
 * Figure out the caching (see below), check performance.
 
-* Documentation
+* Finish documentation
 
 ** Reference documentation for CEL/MEL, documenting at least our extensions (material for LLMs).
 
@@ -185,6 +177,8 @@ We want them to work on international chars as well, which may not be possible a
 
 * Would LLMs be able to create good code, even including custom midPoint extensions to CEL?
 
+* Consider use of _macros_, especially for vararg cases and lambdas.
+
 == Limitations
 
 * CEL-Java implementation seems to be somehow incomplete and less mature, at least when compared to Rust implementation.
@@ -205,7 +199,7 @@ CEL has two ways to express no value: `null` and _empty optional_.
 This is _very_ non-intuitive, as `foo == null` does not work for optionals.
 Any attempts to fix this (operator overload, wrapping all values into Java Optionals, making all variables DYN, etc.) failed miserably, making it all even worse.
 
-Introduction of `isNull()` and `isPresent()` methods was a best solution.
+Introduction of `isNil()` and `isPresent()` methods as well as `nil` variable was a best solution.
 These are checking for `null` as well as empty optionals.
 
 Overall, CEL is not really built to work well with optional/null values.
@@ -227,6 +221,11 @@ fullName ?? 'John Doe'
 ----
 
 However, this is not supported neither in CEL spec nor in cel-java, and there is no easy way to add new operator in cel-java.
+
+Due to unpleasant nature of `null` handling in CEL, we are introducing common string functions (e.g. `substring()`, `trim()`) as global functions.
+Global functions are much better at handling `null` values.
+
+See xrefv:/midpoint/reference/master/expressions/expressions/script/mel/null/[].
 
 === Overload of Conditional
 
@@ -252,7 +251,32 @@ Hence the `str()` function.
 * Strange `%%` operator is sometimes mentioned in error messages.
 It is just a typo, or is there some UFO?
 
+== Unsolved Problems
+
+What to do with these?
+They do not have easy solution.
+Could we live with these?
+Or do we contribute/fork cel-java?
+Any other way?
+
+=== null type
+
+`null` has its own type in CEL, which is a major pain.
+The `nil` mechanism was implemented as a workaround, but it is not a nice solution.
+See xrefv:/midpoint/reference/master/expressions/expressions/script/mel/null/[].
+
+=== qname == qname
+
+Comparing qnames according to midPoint conventions (e.g. considering null namespace) does not work due to CEL limitation.
+There is no easy way to set up custom equality function for objects.
+Setting up custom == overload for (qname,qname) clashes with default equals overload.
+Good chance would be to set up custom RuntimeEquality in CEL Runtime.
+However, CelRuntimeImpl hardcodes the RuntimeEquality to ProtoMessageRuntimeEquality
+(see CelRuntimeImpl.build() line 490).
+
 == See Also
+
+* xrefv:/midpoint/reference/master/expressions/expressions/script/mel/[]
 
 * https://github.com/google/cel-spec/blob/master/doc/langdef.md[CEL Language Definition]
 
