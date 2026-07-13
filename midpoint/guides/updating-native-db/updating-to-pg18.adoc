@@ -1,0 +1,134 @@
+= Upgrading PostgreSQL Database with Native PostgreSQL Repository to PostgreSQL 18
+:since: 4.11
+
+This guide will walk you through migrating your midPoint 4.11 PostgreSQL database to newer version of PostgreSQL for use with midPoint Native repository.
+It assumes you were using Native PostgreSQL repository with older PostgreSQL database and you just want to upgrade to PostgreSQL 18.
+
+IMPORTANT: If you were using Generic Repository with PostgreSQL this guide is not for you, please consult xref:/midpoint/reference/repository/native-postgresql/migration/[Migration to Native PostgreSQL Repository].
+
+
+
+Unfortunatelly it is not possible to easily migrate midPoint PostgreSQL database using `pg_dump` and `pg_restore` with their basic options. This guide assumes basic knowledge of `pg_dump` and `pg_restore` tools.
+
+This guide does not deal with performance optimizing migration process, but to rather show simplest form and principles neccessary to perform it.
+
+== Process Overview
+
+. Export only data from PostgreSQL 17 using `pg_dump`.
+. Create a new PostgreSQL 18 database and initialize the database schema.
+. Import data into the new PostgreSQL 18 database using `pg_restore`.
+. Change midPoint `config.xml` to use the new database.
+. Start midPoint and verify the restored data.
+
+== PostgreSQL 18 Upgrade Notes and Migration Approach
+
+PostgreSQL supports multiple major-version upgrade methods, including dump/restore, `pg_upgrade`, and logical replication. This guide uses a dump/restore approach adapted for midPoint Native PostgreSQL repository.
+
+MidPoint Native Repository uses advanced PostgreSQL features, such as `GENERATED` columns, table inheritance and insert triggers. These features make a basic `pg_dump` / `pg_restore` flow unsuitable for this migration scenario.
+
+This guide uses the following approach:
+
+. Data-only export from PostgreSQL 17.
+. Fresh midPoint Native PostgreSQL repository schema on PostgreSQL 18.
+. Data import into the new PostgreSQL 18 database.
+
+The target PostgreSQL 18 database should be initialized with a fresh midPoint Native PostgreSQL repository schema. The old schema should not be restored directly. This keeps the target database schema consistent with the midPoint version being used on PostgreSQL 18.
+
+Because of `GENERATED` columns, data should be restored using `INSERT` statements instead of `COPY` statements. This requires the `--column-inserts` option in `pg_dump`.
+
+Since the data is restored using `INSERT` statements, insert triggers would normally be executed during import. Triggers need to be disabled during reimport to prevent duplicate inserts into technical tables such as `m_object_oid`. Disabling triggers requires access to a PostgreSQL `SUPERUSER` role.
+
+NOTE: PostgreSQL 18 enables data checksums by default for newly initialized database clusters. This is mainly relevant when using `pg_upgrade`, because `pg_upgrade` requires compatible checksum settings between the old and new clusters. The dump/restore flow described in this guide is not affected by this requirement in the same way, because the target PostgreSQL 18 database is initialized as a new database and data is imported logically.
+
+== Data Export from PostgreSQL 17
+
+First step is to export data from PostgreSQL 17 database.
+Based on discussed complications, you need to perform export using `pg_dump` with following options:
+
+`-ab`::
+Export data only, export large objects.
+`--column-inserts`::
+Use `INSERT` SQL statements instead of `COPY` statements
+`-Fc`::
+Use `pg_dump` custom file format for dump
+
+You also need to specify connections options.
+Assuming your database is running at `localhost` port `5432`, you have database user `midpoint` and database used is `midpoint_prod` . The dump will be stored into `database.dump` file.
+
+
+The command is:
+[source, sh]
+----
+pg_dump -h localhost -p 5432 -U midpoint -ab --column-inserts -Fc midpoint_prod > database.dump
+----
+
+After command successfully finishes, you will have dump of old database.
+
+== Creating PostgreSQL 18 Database
+
+As mentioned before, you need to create a new PostgreSQL 18 database and initialize it with the midPoint Native PostgreSQL repository schema.
+
+Do not import the schema from the old PostgreSQL 17 database. The new database should contain a fresh schema created for the midPoint version you are running.
+This steps are similar as to creating database for the first time.
+
+This could be done using `psql`.
+See xref:/midpoint/reference/repository/native-postgresql/usage/#database-preparation[Native PostgreSQL Repository: Database Preparation] for how to prepare blank database.
+
+IMPORTANT: Do not start any midPoint instance which will connect to new database.
+
+== Data Import into PostgreSQL 18 Database
+
+Based on the complications described above, you need to perform the import using `pg_restore` with the following options:
+
+`-S superuser`::
+PostgreSQL superuser account name, which should be used to disable triggers.
+`--disable-triggers`::
+Disables triggers during import. Prevents double inserts into `m_object_oid`.
+`-a`::
+Data only import.
+
+Now you can import data into new database. Assuming your new database is running at `localhost` port `5431`, and you have database user `midpoint` and the database used is `midpoint_prod`. Lets assume `midpoint` user is also superuser. The dump is  stored in `database.dump` file.
+
+[source, sh]
+----
+pg_restore -h localhost -p 5431 -S midpoint -U midpoint --disable-triggers -a -d midpoint_prod < database.dump
+----
+
+If the `midpoint` user is not a superuser, use a PostgreSQL superuser account instead, for example:
+
+[source, sh]
+----
+pg_restore -h localhost -p 5431 -S postgres -U postgres --disable-triggers -a -d midpoint_prod < database.dump
+----
+
+Once the command completes successfully, all data should be present in the new PostgreSQL 18 database.
+
+You can verify the import with basic count checks, for example:
+
+[source, sql]
+----
+select count(*) from m_object;
+select count(*) from m_user;
+select count(*) from m_role;
+select count(*) from m_org;
+select count(*) from m_task;
+select count(*) from ma_audit_event;
+----
+
+The counts should match the source PostgreSQL 17 database.
+
+== Updating midPoint `config.xml`
+
+Now that the data is imported into the new PostgreSQL 18 database, update `config.xml` to point to the new database.
+
+After updating the configuration, start midPoint and verify that the repository works correctly.
+
+== Appendix: Upgrade / migration using Ninja
+
+IMPORTANT: This step is not neccessary if you performed upgrade using `pg_dump` and `pg_restore`. IT documents only alternative way.
+
+You could treat upgrading PostgreSQL database also as a migration to native Repository, even if you were using Native Repository before. This can be achieved using built-in midPoint tool *Ninja* (`bin/ninja.sh`) to perform database migration.
+
+IMPORTANT: Simulated Objects in Simulatations are not migrated using Ninja. These objects will be lost during upgrade / migration.
+
+The details how to perform migration using Ninja could be found at xref:/midpoint/reference/repository/native-postgresql/migration/[Migration to Native PostgreSQL Repository].
