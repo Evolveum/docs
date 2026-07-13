@@ -77,18 +77,18 @@ There is no plan to remove Groovy support in foreseeable future.
 
 == Implementation
 
-Implementation is based on https://github.com/google/cel-java/tree/main[cel-java] by Google.
-The implementation is not well documented, but we can work with the code.
+Implementation in midPoint 4.11 is based on https://github.com/google/cel-java/tree/main[cel-java] by Google.
+The cel-java project is not well documented, but we can work with the code.
 
 CEL-Java allows definition of custom types and functions (although it is quite cumbersome),
 which we are going to use heavily.
 
-We will not use support for proto (protocol buffer) types, at lease not now, as Prism schema
-does not have easy mapping to protocol buffers schema (e.g. missing persistent item identifiers).
+Proto (protocol buffer) types are not supported in midPoint, at lease not now.
+Prism schema does not have easy mapping to protocol buffers schema (e.g. missing persistent item identifiers).
 This can be done later.
-For now the prism types will be dynamic (`dyn`), which means that their interpretation will be
+For now the prism types are dynamic (`dyn`), which means that their interpretation will be
 postponed to runtime.
-CEL compiler will not deal with Prism schema, will not be able to check the types in scripts.
+CEL compiler does not deal with Prism schema, it is not be able to check the types in scripts.
 We can live with that, at least for now.
 
 PolyString, ItemPath, QName, deltas and similar "hardcoded" Prism types are implemented as CEL types as well.
@@ -118,8 +118,8 @@ We want the expressions to look natural.
 
 Therefore, a better approach seems to be to re-work existing libraries in a CEL-compatible ways,
 to provide the functionality in a manner that is compatible with CEL spirit.
-This will require manual maintenance of the extensions when the "Groovy-like" libraries change.
-However, as this will naturally provide a barrier against exposing any random and possible insecure
+This requires manual maintenance of the extensions when the "Groovy-like" libraries change.
+However, as this naturally provides a barrier against exposing any random and possible insecure
 method to CEL environment, this may be in a fact a good thing.
 
 We need to think 10 years ahead, not 10 years back.
@@ -133,6 +133,9 @@ Original implementation from Google.
 It is somehow incomplete and immature, yet it seems to be a reasonably good fit.
 The project seems to be active.
 However, it seems to be mostly work of one person, with several minor contributors.
++
+Problems with this project were discovered later (perhaps too late) during implmentation.
+See below for details.
 
 * https://github.com/projectnessie/cel-java[Project Nessie cel-java]:
 It has some features that would make mapping of Java objects and types to CEL easier.
@@ -140,7 +143,54 @@ However, we have decided to not map our Java libraries to CEL directly anyway.
 Seems to be even less mature and has lower code change intensity (single maintainer?).
 Most commits are made by a bot (`renovate`).
 
-Google cel-java implementation seems to be a better fit for us, although it still leaves much to be desired.
+When implementinf in midPoint 4.11, Google cel-java implementation seemed to be a better fit for us, although it still leaves much to be desired.
+
+=== Problems with Google cel-java Project
+
+While Google cel-java project seemed to be usable at first (also confirmed by prototypes), serious problems started to appear during implementation:
+
+. CEL engine cannot handle `null`.
+Even worse, it is not designed to handle `null` (see https://github.com/cel-expr/cel-java/issues/713#issuecomment-2937110172[comment], https://github.com/cel-expr/cel-java/issues/939[issue], and several topics in https://groups.google.com/g/cel-java-discuss[cel-java-discuss mailing list]).
+The recommended way to handle non-present values in cel-java is to use optionals, which are non-intuitive and difficult to use for non-expert users.
++
+Given the discussions linked above, it is very unlikely that cel-java project would change direction, even if we make significant contribution.
+
+. Design of cel-java engine seems to heavily rely on static data typing.
+While this may be a benefit for simple expressions, it is a major problem when working with dynamic data structures (which are omnipresent in midPoint).
+
+. `null` has its own data type (!!!).
+
+. Conditional operator (`?:`) is statically typed too, requiring the same data types in both branches.
+Which is a problem for expressions such as `cond ? string : polystring` or even `cond ? string : null` (as `null` has its own data type).
+
+. The project is using bazel build system, which seems to rely on Google infrastructure.
+It does not have good integration into Maven ecosystem.
+The project cannot be built out-of-the-box.
+Significant modification of the build configuration was necessary to even build it.
+There is absolutely no documentation regarding the build, not even simple instructions how to build the project.
+
+. The build system seems to be vastly over-complicated.
+There are micro-dependencies at the class (!!!) level.
+This makes the code is very rigid, resisting modifications.
+
+. The project is stuck at Java 8 level (!!!).
+
+. Android (and possible other) dependencies are complicating matters, making the project difficult to maintain.
+
+. Contribution to the project requires signing of Google CLA (copyright assignment, no guarantee of attribution, patent grant including retaliation, legal indemnification, potentially some form of exclusivity or limitation of contributor's rights, unilateral changes by Google, etc.), which may be unacceptable risk.
+Although not completely analyzed yet, there are too many red flags.
+
+Therefore, it is extremely unlikely that we can move forward by contributing to the Google cel-java project.
+
+The interim solution is to maintain a https://github.com/Evolveum/cel-java[fork].
+The fork has modified bazel configuration to be able to build the project and publish Maven artifacts.
+There are necessary modifications in the fork to support nullability, at least at the level that we need.
+However, some modifications are ugly, more-or-less workarounds, as cel-java was not designed to handle `null` values.
+This approach seems to be a dead end.
+
+We need to decide how to move forward.
+Perhaps switching to Nessie implementation and contributing to that project would be a good path.
+This needs to be further investigated.
 
 == What Needs to be Done?
 
@@ -163,6 +213,8 @@ Switch some (many?) integration tests from Groovy to CEL/MEL.
 
 * How much do we need to expose midPoint schema to CEL?
 It looks like the DYN CEL type can be sufficient.
++
+ANSWER: We are good with DYN for now, at least until we figure out how to proceed in the future.
 
 * Script caching.
 CEL-Java compilation relies on knowledge of types of variables.
@@ -172,8 +224,10 @@ Current script cache in midPoint considers only script source code as cache key,
 
 * String functions `lc` and `uc` are supposed to work on ASCII chars only.
 We want them to work on international chars as well, which may not be possible and/or break the CEL lang spec.
++
+ANSWER: Yes, by all means. CEL language spec seems to be more what you call "guidelines" than actual rules, anyway.
 
-* JSON support? Do we want/need it?
+* JSON support? Do we want/need it? Probably not.
 
 * Would LLMs be able to create good code, even including custom midPoint extensions to CEL?
 
