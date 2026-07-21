@@ -1,0 +1,283 @@
+= 3-way OIDC authentication
+:page-wiki-metadata-create-user: jkadera
+:page-toc: top
+
+== Motivation
+
+This guide describes OIDC authentication setup between Midpoint, Keycloak, and a third-party application.
+
+What this allows you to do, among other things, is:
+
+* Log in to Midpoint using Keycloak
+* Secure your Midpoint login using Keycloak features, such as MFA
+* Use a custom application to interact with Midpoint using OIDC authentication, to:
+** reset passwords
+** request privileges
+** list users
+** _etc._
+
+== Keywords
+
+This guide use and refer to a lot of keywords.
+
+Some may be easy to mistake for each other, such as _Keycloak username_ and _Midpoint username_.
+
+You can tell you encountered a {*keyword*}, because it is bold and enclosed in curly brackets.
+
+To determine where and how was this {*keyword*} obtained or set up, search for the *keyword* without brackets in this guide and find it's definition, that looks like this:
+
+You will need to use a *keyword* {This guide will use *the value you are looking for*}.
+
+== Get Midpoint
+
+You need to have administrator access to an instance of Midpoint.
+
+If you already have one, you can use it, but note that using a production environment for testing purposes, such as this guide, is not recommended.
+
+You can get a fresh instance of Midpoint using link:https://docs.evolveum.com/midpoint/install/containers/docker/[Docker Compose].
+
+Note your *Midpoint Base URL*. {This guide uses `http://localhost:8080/midpoint`}
+
+== Get Keycloak
+
+You need to have administrator access to an instance of Keycloak.
+
+If you already have one, you can use it, but note that using a production environment for testing purposes, such as this guide, is not recommended.
+
+You can get a fresh instance of Keycloak using link:https://www.keycloak.org/getting-started/getting-started-docker[Docker Compose].
+
+NOTE: The default port for Midpoint is likely to be the same as for Keycloak. In such a case, you need to update one of the ports. It is recommended to keep track of the used ports.
+
+Note your *Keycloak Base URL*. {This guide uses `http://localhost:8081/`}.
+
+== Set up OIDC between Midpoint and Keycloak
+
+=== Set up Keycloak
+
+==== Create a realm
+
+* Enter a *Realm name*. {This guide uses *midpointRealm*}.
+* Keep _Enabled_ on.
+* Click _Create_.
+
+==== Create a Client
+
+* Make sure your current realm is {*Realm name*}
+* Enter a *Client ID*. {This guide uses *midpointClient*}
+* Click _Next_
+* Check _Client authentication_
+* Check _Direct access grants_
+* Click _Next_
+* In _Root URL_, enter: {*Midpoint Base URL*}
+* In _Home URL_, enter: {*Midpoint Base URL*}
+* In _Valid redirect URIs_, enter: {*Midpoint Base URL*}/*
+* In _Valid post logout redirect URIs_, enter: {plus}
+* In _Web origins_, enter: {plus}
+* Save
+* Switch to the _Credentials_ tab.
+* Note your *Client Secret*. {This guide uses *4SlyxAsMut3ym…*}
+
+==== Create a User
+
+* Make sure your current realm is {*Realm name*}
+* Leave _Required user actions_ empty.
+** After you finish this guide, you might want to try setting up OTP here.
+* Check _Email verified_.
+* In _Username_, enter the *Keycloak username*. {This guide uses *oidcUser*}
+* Optionally fill in _First name_, _Last name_, and _email_.
+** If left blank, you will be prompted for some values later.
+* Click _Create_.
+* Switch to the _Credentials_ tab.
+* Click _Set password_.
+* Enter a *Keycloak password* and password confirmation {This guide uses *aStrongPassword*}.
+* Uncheck _Temporary_.
+* Confirm.
+
+NOTE: If you try and fail to log in to Keycloak with this user, please note that this is expected behavior.
+
+=== Set up Midpoint
+
+==== Create a new user
+
+* In _Name_, enter the {*Keycloak username*}.
+* Optionally give the user an email address. This may help with ambiguities in the future.
+* Give user credentials in the _Password_ section.
+** It is recommended to use a different password than in Keycloak for demonstration purposes.
+* Assign this user a role.
+** To keep things simple, you can give the user _Superuser_ role. However, it is recommended for testing purposes only.
+* Save.
+* The Midpoint user should be able to log into Midpoint now.
+** It is recommended to test it.
+
+==== Security policy prerequisites
+
+In the Security policy, you will need to set up `issuerUri`.
+
+`issuerUri` is a URL that points at Keycloak.
+Depending on your setup, `issuerUri` may be your *Keycloak Base URL*.
+
+Unlike *Keycloak Base URL*, `issuerUri` must be reachable from:
+
+* your Midpoint environment
+* your browser environment
+
+You can make sure it is reachable by using a command such as `curl`.
+
+This may not be an issue in your environment.
+
+This guide utilizes Docker andKeycloak is not visible from Midpoint Docker container by default.
+
+We'll enable this by using `host.docker.internal` hostname:
+* Introduce `host.docker.internal:host-gateway` into Midpoint's Docker Compose file.
+** Then run `docker compose up` for Midpoint again.
+* Add `host.docker.internal` to the local computer's hosts file.
+* Make sure Keycloak listens on all interfaces, not just localhost.
+
+`issuerUri` is constructed like this: `{URL reachable from Midpoint and host}/realms/{Realm name}`.
+
+For *issuerUri*, this guide uses {`http://host.docker.internal:8081/realms/midpointRealm`}.
+
+==== Set up Security policy
+
+NOTE: This guide works with the default instance of Midpoint. If you use an instance with some custom security configuration already in place, be mindful of these configurations, as they might clash with the settings we will introduce in this section.
+
+* Go to *Repository objects* -> *All objects*.
+* From the *Type* combobox, choose *Security policy*.
+* Click *Default Security Policy*.
+
+NOTE: It is recommended to consult the link:https://docs.evolveum.com/midpoint/reference/support-4.10/security/authentication/flexible-authentication/modules/oidc/[Module OIDC documentation article].
+
+* Locate the `securityPolicy` / `authentication` / `modules` section.
+* At the end of this section (_directly above `</modules>`), add the following.
+** Substitute the `{...}` sequences with your custom values.
+
++
+[source,xml]
+----
+<oidc>
+    <identifier>gui-oidc</identifier>
+    <client>
+        <registrationId>oidc-registration</registrationId>
+        <clientId>{Client ID}</clientId>
+        <clientSecret>
+            <t:clearValue>{Client Secret}</t:clearValue>
+        </clientSecret>
+        <clientAuthenticationMethod>clientSecretBasic</clientAuthenticationMethod>
+        <nameOfUsernameAttribute>preferred_username</nameOfUsernameAttribute>
+        <openIdProvider>
+            <issuerUri>{issuerUri}</issuerUri>
+        </openIdProvider>
+    </client>
+</oidc>
+----
+
+* In the `securityPolicy` / `authentication` section, notice the `sequence` elements.
+** Locate the `sequence` containing the `identifier` _admin-gui-default_.
+** Inside, change the value of `channel` / `default` element to `false`.
+
+NOTE: It is important to keep this `sequence` element present, because later it will serve as the backup or admin login, circumventing Keycloak.
+
+* Insert the following as a new last `sequence` element.
+
++
+[source,xml]
+----
+<sequence>
+    <identifier>gui-oidc</identifier>
+    <channel>
+        <channelId>http://midpoint.evolveum.com/xml/ns/public/common/channels-3#user</channelId>
+        <default>true</default>
+        <urlSuffix>gui-oidc</urlSuffix>
+    </channel>
+    <module>
+        <identifier>gui-oidc</identifier>
+    </module>
+</sequence>
+----
+
+* Click *Save*.
+
+== Potential issues
+
+At this point, when you:
+
+* log out of Midpoint
+* visit the Midpoint Base URL
+
+you should see:
+
+* the Keycloak login screen, displayed on the Midpoint URL
+* the Midpoint login screen after authenticating with Keycloak credentials
+
+However, issues can happen. If you encounter any, you should:
+
+. Make sure you satisfy the *Security policy prerequisites*.
+. Check your *Security policy*.
+. Check all other configurations in this guide.
+
+In case of issues, it is likely that you will be unable to visit the Midpoint Base URL.
+In such a case, visit `http://<midpoint-base-url>/auth/gui-default`.
+That is the backup login screen that we kept in the Security policy and should let you log in with your Midpoint credentials.
+
+== Build a custom app (won't be covered here)
+
+== Set up Midpoint to talk to your custom app
+=== Set up Security policy
+* At the end of the `modules` section (_directly above `</modules>`), add the following.
+** Substitute the `{...}` sequences with your custom values.
+
++
+[source,xml]
+----
+<oidc>
+    <identifier>oidcResourceServer</identifier>
+    <resourceServer>
+        <jwt>
+            <issuerUri>{issuerUri}</issuerUri>
+            <nameOfUsernameClaim>preferred_username</nameOfUsernameClaim>
+        </jwt>
+    </resourceServer>
+</oidc>
+----
+
+* Locate the `sequence` containing the `identifier` _rest-default_.
+* In this sequence, update element `module` / `identifier` to _oidcResourceServer_.
+* Click _Save_.
+
+=== Use your custom app to talk to Midpoint
+This functionality will depend on your custom app. This example here will break it down into an example consisting of two steps:
+
+==== Obtain an access token from Keycloak
+Do not forget to substitute the `{...}` sequences with your custom values.
+
+[source,bash]
+----
+curl -s -X POST \
+	{issuerUri}/protocol/openid-connect/token \
+	-H "Content-Type: application/x-www-form-urlencoded" \
+	-d "grant_type=password" \
+	-d "client_id={Client ID}" \
+	-d "client_secret={Client Secret}" \
+	-d "username={Keycloak username}" \
+	-d "password={Keycloak password}" \
+	| jq -r .access_token
+----
+This will return an access token, which you will use in the next step.
+
+==== Use the access token to talk to Midpoint
+This step assumes the access token from previous step is stored in a variable called `TOKEN`.
+
+Do not forget to substitute the `{...}` sequences with your custom values.
+
+[source,bash]
+----
+response=$(curl {Midpoint Base URL}/ws/rest/self -s\
+    -H "Authorization: Bearer $TOKEN"\
+    -H "Accept: application/json")
+
+username=$(echo "$response" | jq -r '.user.name')
+oid=$(echo "$response" | jq -r '.user.oid')
+
+echo "username: $username"
+echo "OID: $oid"
+----
