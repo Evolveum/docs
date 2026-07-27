@@ -1,0 +1,111 @@
+= OIDC client authentication (version 2 - less verbose)
+:page-wiki-metadata-create-user: jkadera
+:page-toc: top
+
+== Step 1: Authorize Midpoint user against OIDC provider
+
+For demonstration purposes this guide will assume using Keycloak as OIDC provider. You can use any other OIDC provider, but the steps may vary.
+
+* Create a user with the *username* both in Midpoint and Keycloak.
+
+[#keycloak-configuration]
+=== Keycloak configuration
+
+* Create a realm *realmName*
+* In *realmName*, create a client *clientID*
+* Root, Home and Admin URL should be set to the Midpoint URL, e.g. `http://localhost:8080/midpoint`
+* Valid Redirect URIs should map your midpoint URL structure, e.g. `http://localhost:8080/midpoint/*`
+* Valid Post Logout Redirect URIs should map your midpoint URL structure, e.g. `http://localhost:8080/midpoint/*` or `+`
+* Web origins should only allow CORS you consider safe, e.g. `http://localhost:8080/midpoint` or `+`
+* Make sure to enable _Client authentication_
+* Make sure to enable Direct access grants
+* Note the *Client Secret*
+
+=== Midpoint configuration
+==== Determine your issuerUri
+
+*issuerUri* is a URL that points to the OIDC provider's metadata endpoint, such as `http://{Keycloak host}realms/{realmName}`
+
+NOTE: *issuerUri* needs to be reachable both from your Midpoint server and from your browser.
+
+==== Altering Midpoint security configuration
+
+* Locate your security configuration xml file.
+
+NOTE: It is recommended to consult the link:https://docs.evolveum.com/midpoint/reference/support-4.10/security/authentication/flexible-authentication/modules/oidc/[Module OIDC documentation article].
+
+* Locate the `securityPolicy` / `authentication` / `modules` section.
+* Add a the following child element to the `modules` section:
+
++
+[source,xml]
+----
+<oidc>
+    <identifier>gui-oidc</identifier>
+    <client>
+        <registrationId>oidc-registration</registrationId>
+        <clientId>{Client ID}</clientId>
+        <clientSecret>
+            <t:clearValue>{Client Secret}</t:clearValue>
+        </clientSecret>
+        <clientAuthenticationMethod>clientSecretBasic</clientAuthenticationMethod>
+        <nameOfUsernameAttribute>preferred_username</nameOfUsernameAttribute>
+        <openIdProvider>
+            <issuerUri>{issuerUri}</issuerUri>
+        </openIdProvider>
+    </client>
+</oidc>
+----
+
+* Locate the `sequence` element containing this `identifier`: _admin-gui-default_.
+** In it, change the value of `channel` / `default` element to `false`.
+
+* Insert the following `sequence` element as a child of `authentication`.
+
++
+[source,xml]
+----
+<sequence>
+    <identifier>gui-oidc</identifier>
+    <channel>
+        <channelId>http://midpoint.evolveum.com/xml/ns/public/common/channels-3#user</channelId>
+        <default>true</default>
+        <urlSuffix>gui-oidc</urlSuffix>
+    </channel>
+    <module>
+        <identifier>gui-oidc</identifier>
+    </module>
+</sequence>
+----
+
+== Step 2: Authorize a custom application using OIDC provider
+
+=== Keycloak configuration
+* You should reuse the realm from previous xref:#keycloak-configuration[Keycloak configuration]
+** But you should setup up a fresh client for your custom application.
+* Use a OIDC client library of your choosing to implement the OIDC flow in your application.
+** Provide the library with the *Client ID*, *Client Secret* and *issuerUri* from previous steps.
+
+=== Midpoint REST configuration
+* Locate your security configuration xml file.
+* Locate the `securityPolicy` / `authentication` / `modules` section.
+* Add a the following child element to the `modules` section:
+
++
+[source,xml]
+----
+<oidc>
+    <identifier>oidcResourceServer</identifier>
+    <resourceServer>
+        <jwt>
+            <issuerUri>{issuerUri}</issuerUri>
+            <nameOfUsernameClaim>preferred_username</nameOfUsernameClaim>
+        </jwt>
+    </resourceServer>
+</oidc>
+----
+
+* Locate the `sequence` element containing this `identifier`: _rest-default_.
+* In this sequence, update value of  `module` / `identifier` to _oidcResourceServer_.
+
+This will allow your applications REST calls to land successfully on Midpoint REST endpoints, provided the calls are authenticated with a valid OIDC token and the user has sufficient privileges to perform the requested operation.
