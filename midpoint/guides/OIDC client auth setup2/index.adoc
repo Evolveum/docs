@@ -4,92 +4,52 @@
 
 This article describes Midpoint configuration, necessary to accept REST API requests (e.g. from a custom application) that are authenticated using OIDC client authentication.
 
-== Introduction
-
-This article will focus on using *JWT tokens* for authentication. However it is possible to use *opaque tokens* equally.
-
-This article will demonstrate JWT verification using *issuerUri*, but it is also possible using *JWKSetUri*, *singleSymmetricKey* or a *public key*, paired with a certificate or a key store.
-
 NOTE: It is recommended visiting link:https://docs.evolveum.com/midpoint/reference/master/security/authentication/flexible-authentication/modules/oidc/[Module oidc documentation article] for detailed information about Midpoint OIDC configuration options and parameter specifics.
 
 == Prerequisites
 
-* Midpoint is running and accessible
-* OIDC authentication server is:
-** Running and accessible
-** Configured to authenticate users securely
-** Configured to publish the information required by MidPoint to validate JWT access tokens.
+* Running instance of Midpoint
+* Running instance of OIDC authentication server
 
-== Determine issuerUri
+== REST communication with Midpoint
+REST requests has to contain WWW-Authentication header with syntax `Authorization: Bearer {token}`
 
-*issuerUri* must meet all of the follwing:
+Where `{token}` is obtained from OIDC authentication server and can be either a JWT token or an opaque token.
 
-* Lead to a working OIDC discovery endpoint (`{issuerUri}/.well-known/openid-configuration`)
-* Must be accessible both from Midpoint and the client (browser, Postman, etc.)
-* issuerUri's host must match the issuer (iss) in the JWT token
+== Validating JWT in Midpoint
+The following methods can be used:
 
-== Determine nameOfUsernameClaim
+* issuerUri
+* JWKSetUri
+* singleSymmetricKey
+* public key with trustingAsymmetricCertificate
+* public key with keyStoreTrustingAsymmetricKey
 
-* This is the name of the claim in the JWT token (e.g. `preferred_username`).
-* It will contain the username, that is being authanticated.
-** This username must be known to Midpoint (e.g. it is the username of a Midpoint user or a username that can be mapped to a Midpoint user).
+NOTE: The method of your choice has implications on how you configure both Midpoint and OIDC authentication server.
 
-== Configure Midpoint Security settings
+== Configure OIDC authentication server
 
-In Midpoint, navigate to *Repository objects* / *All objects*.
+Based on your choices regarding token type and validation method, you need to configure your OIDC authentication server accordingly.
 
-Locate and edit your *secutiry policy* xml file.
+=== Configure Midpoint Security settings
 
-=== Set up OIDC module
-Locate the `modules` element and insert the following as its child:
-
-[source,xml]
-----
-<oidc>
-    <identifier>oidcResourceServer</identifier>
-    <resourceServer>
-        <jwt>
-            <issuerUri>{issuerUri}</issuerUri>
-            <nameOfUsernameClaim>{nameOfUsernameClaim}</nameOfUsernameClaim>
-        </jwt>
-    </resourceServer>
-</oidc>
-----
+* In Midpoint, navigate to *Repository objects* / *All objects*.
+* Locate and edit your *secutiry policy* xml file.
+* Locate the `modules` element and as its child, insert a new module.
+** Populate this new module with relevant values, desribed in link:https://docs.evolveum.com/midpoint/reference/master/security/authentication/flexible-authentication/modules/oidc/[Module oidc documentation article] 
+** Note the identifier you used.
 
 === Point Midpoint REST API to the OIDC module
 
 * Locate the `sequence` element containing child element `identifier` with the value `rest-default`.
-
-* In this `sequence`, update the value of the `module` / `identifier` element to `oidcResourceServer`, referencing the identifier from previous step.
-
-+
-[source,xml]
-----
-<sequence id="4">
-    <identifier>rest-default</identifier>
-    <channel>
-        <channelId>http://midpoint.evolveum.com/xml/ns/public/common/channels-3#rest</channelId>
-        <default>true</default>
-        <urlSuffix>rest-default</urlSuffix>
-    </channel>
-    <module id="7">
-
-        <!-- This need to point at the OIDC module configured in previous step -->
-        <identifier>oidcResourceServer</identifier>
-
-        <order>1</order>
-        <necessity>sufficient</necessity>
-    </module>
-</sequence>
-----
-
-Save your security policy.
+* In this `sequence`, update the value of the `module` / `identifier` element to the identifier of the OIDC module you created in the previous step.
+* Save your security policy
 
 == Send a REST request to Midpoint
 
 The following example assumes that:
 
-* JWT token is:
+* A token is:
 ** Obtained from OIDC authentication server (e.g. using OIDC library, curl, Postman, etc.)
 ** Stored in a variable called `TOKEN`.
 * Midpoint is running on `http://localhost:8080/midpoint`.
