@@ -1,11 +1,89 @@
 = Schema Context
 
-Schema context defines semantics information about annotated element. The primary aim was to create annotation for provide itemDefinition in initial state of schema.
+== Motivation
 
-Currently annotation for handling itemDefinition in schema provides following ways listed below.
+Schema context defines semantics information about annotated element.
+The primary aim was to provide definition of objects (or items in general) that are to be matched by a specific filter.
 
-*Type* +
-Name object type. Schema context annotation for type parameter need just title of object type ** with namespace **.
+Consider e.g. the following object selector (`ObjectSelectorType`):
+
+[source,xml]
+----
+<selector>
+    <type>X</type>
+    <filter>
+        <q:text>url startsWith "http://evolveum.com/"</q:text>
+    </filter>
+</selector>
+----
+
+Is the given filter valid when parsed?
+Or, when editing the filter as text or via visual editing in GUI, what properties to suggest during auto-completion?
+
+Obviously, it depends on what `X` is.
+If it's `UserType`, the filter is invalid, and `url` should not be offered as a valid property to filter on.
+However, if it's `ServiceType`, the filter is valid, and `url` is a relevant suggestion.
+
+This functionality can be specified by providing _schema context_ for `ObjectSelectorType`.
+It looks like this:
+
+[source,xml]
+----
+<xsd:complexType name="ObjectSelectorType">
+    <xsd:annotation>
+        <xsd:appinfo>
+            <!-- ... -->
+            <a:schemaContext>
+                <a:typePath>type</a:typePath>
+            </a:schemaContext>
+        </xsd:appinfo>
+    </xsd:annotation>
+    <!-- ... -->
+</xsd:complexType>
+----
+
+What is says is: look at `type` property, and take it as an object that the filter looks for.
+Hence, in our particular case, if we have
+
+[source,xml]
+----
+<selector>
+    <type>ServiceType</type>
+    <filter>
+        <q:text>url startsWith "http://evolveum.com/"</q:text>
+    </filter>
+</selector>
+----
+
+then the filter is considered valid.
+If we'd have:
+
+[source,xml]
+----
+<selector>
+    <type>UserType</type>
+    <filter>
+        <q:text>url startsWith "http://evolveum.com/"</q:text>
+    </filter>
+</selector>
+----
+
+the filter would be invalid.
+
+== Scope
+
+Current implementation supports defining an object (e.g., `ServiceType`) or a smaller item (e.g., `assignment`) for filters to match.
+
+== How to Define
+
+There are the following ways how to define the target item:
+
+=== Type
+
+Name of the object type.
+Schema context annotation for type parameter need the *qualified name* (i.e., with a namespace) of the object type.
+
+For example, the following says that filter targets users:
 
 [source,xml]
 ----
@@ -14,8 +92,13 @@ Name object type. Schema context annotation for type parameter need just title o
 </a:schemaContext>
 ----
 
-*Path* +
-Name path to object type. Schema context annotation for type parameter need just title of object type ** with namespace **.
+=== Path
+
+A sub-object item (i.e. something smaller than object) that is a target for the filter.
+The `path` points to an item within a type defined by `type` property.
+(So the `type` property is obligatory in this case.)
+
+For example, the following says that filter targets assignments:
 
 [source,xml]
 ----
@@ -25,8 +108,13 @@ Name path to object type. Schema context annotation for type parameter need just
 </a:schemaContext>
 ----
 
-*TypePath* +
-Name of element which have path to object type.
+=== TypePath
+
+This is a kind of dynamic determination of a target filter object type.
+We look at a property given by `typePath` (within the current value) and read the type name from there.
+Note that sub-object items (smaller than an object) are not supported in this case, only the objects are.
+
+For example, the following says that the type is to be read from the `type` property: just like in the object selector example above.
 
 [source,xml]
 ----
@@ -35,8 +123,11 @@ Name of element which have path to object type.
 </a:schemaContext>
 ----
 
-*Algorithm* +
-Algorithm for handling schema context definition.
+=== Algorithm
+
+This covers the most complex cases where the filter target cannot be determined in one of the above ways.
+The name of the algorithm defines the specific Java code used to do the determination.
+See `SchemaContextResolverRegistry` and `ValueBasedDefinitionLookupsImpl#init`.
 
 [source,xml]
 ----
@@ -45,7 +136,10 @@ Algorithm for handling schema context definition.
 </a:schemaContext>
 ----
 
-== How create resolver?
+== How to Create a Resolver?
+
+#TODO write this in a more understandable way#
+
 Resolver is used to capture itemDefinition at very specific places in the schema.
 For every specific case you must to make implementation of algorithm.
 The implementation must be done in the *ValueBasedDefinitionLookupsImpl* class as an Inner class.
