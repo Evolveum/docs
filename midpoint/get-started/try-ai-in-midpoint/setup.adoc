@@ -1,0 +1,139 @@
+= MidPilot demo setup
+:page-display-order: 420
+:page-experimental: true
+:page-toc: top
+:page-description: This guide describes how to set up your environment to deploy midPilot AI-assisted connector generation demo
+:page-keywords: connector generator, generator, identity connectors, connectors, ai, midpilot, llm
+
+To work with the midPilot AI-assisted connector generator demo, you need set up your environment.
+This article lists the prerequisites and describes the steps to take in order to use midPilot to generate a connector for OpenProject.
+
+== Prerequisites
+
+Before deploying the demo environment with midPilot code generator, make sure you have prepared the following:
+
+* *Docker* - You need to have Docker installed on your computer.
+Check the documentation on link:https://docs.docker.com/engine/install/[Docker Engine] for guides on setting up Docker.
+
++
+[TIP]
+====
+To check if you have Docker already installed on your computer, run `docker --version` in your terminal.
+This should return the Docker version, such as `Docker version 27.5.1, build 9f9e405`.
+If it does not, Docker is not in link:https://en.wikipedia.org/wiki/PATH_(variable)[PATH] and likely not installed at all.
+====
+
+* *Bash* - A widely used shell on Linux-based systems.
+    If you are on Linux or macOS, you probably have it installed already.
+    On Windows, you can use the link:https://learn.microsoft.com/en-us/windows/wsl/about[WSL2] layer which has the Bash shell.
+
+* *Internet connection* - Docker compose pulls the required Docker images during bootstrap of the compose stack.
+    When using online documentation to generate connector code, Internet connectivity is needed.
+
+* *LLM backend* - Evolveum currently does not provide an LLM infrastructure you could use to run midPilot, meaning you need to supply your own.
+    See also xref:/midpoint/get-started/install/midpilot-setup/[].
+
+== Demo environment
+
+In the link:https://github.com/Evolveum/midpoint-samples/tree/master/samples/demo/codegen-openproject[midPilot connector generator demo environment on GitHub], you can find a ready‑to‑use Docker Compose environment that you can use as a sample to try out the midPilot connector generator.
+Bear in mind that, while prepared for a reasonably easy deployment, you still need to connect the environment to your own LLM infrastructure.
+
+The sample environment includes:
+
+* The midPilot connector generator microservice.
+* A midPoint instance.
+* Containers holding PostgreSQL databases for both of the above services.
+* An OpenProject container as an example target application.
+* A container with an nginx reverse proxy in front of the OpenProject service (self-signed certificate, some warnings might appear).
+
+The environment does not contain any sample data other than the initial configuration present in midPoint.
+Sample objects in the example target system have to be set up after initialization by accessing the OpenProject service.
+For more details on how to access it, see the <<_access_services,Access to environment services>> section.
+
+[[_environment_properties]]
+=== Environment properties
+
+The repository also contains an example `.env` file that you can use as a starting point for your local configuration.
+
+The following are the properties related to the midPilot code generator:
+
+`LLM__OPENAI_API_KEY` :: API key used to authenticate requests to an OpenAI-compatible LLM provider or proxy.
+`LLM__OPENAI_API_BASE` :: OpenAI-compatible endpoint (e.g., `+++https://openrouter.ai/api/v1+++`)
+`LLM__MODEL_NAME` :: Model identifier to be used (e.g., `openai/gpt-oss-120b`)
+`SEARCH__METHOD_NAME` ::
+    ** Search engine API used to locate and fetch the documentation used to generate the connector code.
+    ** Either `ddgs` (DuckDuckGo search) or `brave` (Brave search)
+    ** Using the Brave search API is recommended for better results but additional configuration is needed, see below.
+`BRAVE__API_KEY` :: API key for the Brave search engine API.
+`BRAVE__ENDPOINT` :: Brave search engine API endpoint.
+
+[[_environment_startup]]
+=== Environment startup
+
+To initialize the environment, you need to download the content of the link:https://github.com/Evolveum/midpoint-samples/tree/master/samples/demo/codegen-openproject[sample directory] to your host system.
+
+Inside the directory, use the example environment properties file to create an ".env" file containing your local configuration.
+
+====
+[source, bash]
+----
+mv .env.example .env
+----
+====
+
+* Update the environment properties based on the <<_environment_properties,Environment properties>> section of this guide.
+* In the directory containing the "docker-compose.yml" file, execute the following command:
+
+====
+[source, bash]
+----
+docker compose up -d
+----
+====
+
+Docker will pull the images in the compose stack and execute services specified in the containers.
+
+After the process is complete, you can validate that the services are running.
+In the same directory, execute:
+
+====
+[source, bash]
+----
+docker compose ps
+----
+====
+
+There should be a total of 6 services "Up" and running with "midpilot-connector-gen" in their name.
+
+[[_access_services]]
+=== Access to environment services
+
+Use the following to access the services in the environment:
+
+* The midPoint service:
+** The web interface: link:http://localhost:8080/midpoint/[localhost:8080].
+*** Username: `administrator`
+*** Password: `op3nS*sam#`
+* The midPilot service:
+** A documentation endpoint with swagger UI on link:http://localhost:8090/docs[localhost:8090/docs],
+** a REST API endpoint on "http://midpilot-connector-gen:8090/api/v1".
+* An OpenProject instance:
+** a web API on, link:https://localhost:8443/[localhost:8443],
+*** Username: `admin`
+*** Password: `admin`
+** REST API endpoint on "https://openproject/api/v3/" (Basic Auth),
+*** Credentials have to be set up in the web UI of OpenProject, consult the link:https://www.openproject.org/docs/api/example/#basic-auth[official OpenProject documentation].
+
+== Initial environment configuration
+
+The access to the midPilot connector generator microservice has to be specified in the "System Configuration" object of the midPoint instance.
+The current environment already contains this configuration out of the box.
+It is loaded via a xref:/midpoint/reference/deployment/post-initial-import/[special hook] during startup,
+
+Refer to xref:/midpoint/get-started/install/midpilot-setup/#midpoint-configuration[] for details.
+
+== Next steps
+
+Once you are done with the preliminary configuration, you can proceed to connector generation.
+
+* xref:midpilot-connector-generator-wizard.adoc[]
