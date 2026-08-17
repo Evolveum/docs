@@ -1,0 +1,159 @@
+= Auditing of AI Service Communication (SIMS) - design notes
+:toc: left
+:sectnums:
+
+_Issue https://support.evolveum.com/work_packages/11325[#11325], target 4.11._
+
+== Goal
+
+Record midPoint SIMS communication in the audit trail:
+
+* the *event* (who, when, method, resource, duration, outcome) -> main audit table;
+* the *JSON payloads* (request, response) -> new dedicated audit table;
+* both independently switchable off;
+* payloads full-text searchable via the standard query language.
+
+== Analysis
+
+* All direct SIMS calls go through one interface - `ServiceClient` (`smart-api`), impl `DefaultServiceClientImpl` (`smart-impl`).
+5 call places, 2 async.
+Correlator suggestions make no direct SIMS call today.
+* `invoke()` has no `Task`/`OperationResult` -> contract must change, audit needs both.
+* Query language already has `FullTextFilter`.
+Sqale implements it for objects only (normalized words + trigram GIN on `fullTextInfo`).
+Audit queries share `SqaleQueryContext`, so only a new processor branch is needed.
+* Conndev uses a *different* client class - out of scope (<<Q2>>)??
+
+== Design decisions
+
+=== Hook: `AuditingServiceClient` decorator
+
+Wraps any `ServiceClient`, installed by `ConfigBasedServiceClientFactory`.
+Factory creates a fresh client per operation -> config changes apply automatically.
+`ServiceClient.invoke/invokeAsync` gain a `ClientCallContext` (task, result, resource).
+Decorator re-serializes the request via a helper shared with the transport.
+
+Rejected:
+
+* recording inside `DefaultServiceClientImpl` - mixes transport with auditing, mocks bypass it;
+* per-operation recording - 5+ sites, easy to miss new ones;
+
+=== New event type `SMART_SERVICE_CALL`, two records per call
+
+Two records per call, correlated by `requestIdentifier` (indexed, searchable audit column):
+
+* *REQUEST* stage - written **before** sending.
+Contains target = resource, method, request payload (if `recordData`).
+Guarantees the disclosure is recorded even if midPoint dies while waiting for the response (calls take seconds, receive timeout 120 s).
+Essential for a disclosure-auditing feature.
+Also enables "can't audit => don't send" - see failure semantics.
+* *EXECUTION* stage - written after response/failure.
+Contains outcome, duration, sizes, response payload (if `recordData`).
+
+This matches the established stage semantics: REQUEST = intent (what is about to be done), EXECUTION = what actually happened.
+Here the "actual result" is the outcome plus the response.
+The stage also carries the payload direction - REQUEST record holds the request payload, EXECUTION record the response payload.
+No separate direction attribute needed.
+
+Rejected:
+
+* single post-response record - simpler queries, half the rows.
+But there is a crash/timeout window in which data was sent yet nothing was audited.
+Row volume is low.
+* new `RESPONSE` stage value for the second record - would fork stage semantics.
+Stage means "processing phase" everywhere else, not message direction.
+* reusing `INFORMATION_DISCLOSURE` event type - keep it for identity recovery.
+A dedicated type makes filtering/reporting/retention straightforward.
+
+=== Payloads: new partitioned audit table (`ma_audit_payload`)
+
+Generic payload support in `audit-api`: `AuditEventRecord` + prism `payload` container on `AuditEventRecordType`.
+Sqale stores rows (`recordId`, `timestamp`, `ordinal`, `name`, `contentType`, `content JSONB`, `searchableText` + trigram GIN).
+Same partitioning/FK/cleanup pattern as `ma_audit_delta`.
+No direction column: request/response is implied by the owning record's stage.
+Logger audit ignores payloads.
+
+`content` - contains full payload.
+`searchableText` is similar to `fullText`/`fullTextInfo`, used for full text search.
+
+Payload table must be partitioned by default with one partition.
+Similar to `ma_audit_delta` table.
+Bear in mind that data cleanup will later on be implemented by dropping partitions instead of deleting rows.
+
+Rejected:
+
+* payloads as delta, would be just plain hack.
+
+=== Config: `smartIntegration/audit`, defaults `true`
+
+`recordEvents` + `recordData` in a new `audit` container of `SmartIntegrationConfigurationType`.
+Feature-specific -> not under system `audit/eventRecording`.
+`recordData=true` by default is deliberate: accountability of AI usage outweighs storage; the data was already sent out.
+Rule: payload rows need an owning event row, so `recordData=true` forces event emission even if `recordEvents=false`.
+
+Placement is not settled - see <<Q7>>.
+
+=== Full-text: extend `FullTextFilter` to audit
+
+New branch in `FullTextFilterProcessor` for the audit mapping.
+Translates to an `EXISTS` subquery over `ma_audit_payload.searchableText`.
+Same normalization, AND-of-words, LIKE + trigram index as objects.
+Semantics: `fullText` on audit matches payload text only.
+
+== Notes
+
+* Privacy: payloads contain identity data samples + schemas.
+Protected by audit authorizations and retention.
+No extra encryption.
+* Performance: call volume is low (wizard/activity driven).
+Large payloads are TOASTed and live off the hot event table.
+Trigram index ≈ text size - main storage overhead.
+Re-serialization cost negligible vs. seconds-long AI calls.
+* GUI (payload panel, search box), conndev, logger-audit payload support: out of scope.
+
+== Open questions
+
+[[Q1]]*Q1 - Response recording granularity.*
+Single `recordData` toggle covers request + response; issue requires only data *sent*.
+Separate toggle / `NONE|REQUEST|ALL` enum?
+
+#ANSWER:# Audit request, for response only metadata (provider, model, size, etc.) is enough.
+No need to record response payload.
+"Metadata" will be added to responses in smart service.
+
+[[Q2]]*Q2 - Conndev client.*
+Out of scope or not?
+Payload concept and decorator are reusable, wiring is separate work.
+
+#ANSWER:# out of scope
+
+[[Q3]]*Q3 - Payload-specific retention.*
+Delete payloads earlier than events (privacy)?
+
+#TODO# Recheck with Martin Spanik.
+During last compliance call Martin mentioned that this shouldn't be deleted at all, or admins should delete it manually directly in DB.
+Confirm/deny. What about concept of cleanup policies?
+
+[[Q4]]*Q4 - Payload size limit.*
+Unbounded now.
+Add `maxPayloadSize` (truncate + flag)?
+
+#ANSWER:# `SHOULD` feature, if there's time to implement, not necessary.
+
+[[Q5]]*Q5 - Response fidelity.*
+Response recorded by re-serializing the typed object, not raw wire bytes.
+If byte-exact is required -> transport listener SPI.
+Sufficient?
+
+#ANSWER:# yes, sufficient (re-serialization is enough)
+
+[[Q6]]*Q6 - AI provider/model in the record.*
+Available from SIMS health endpoint; per-call query wasteful, cache may be stale.
+Include (cached, best-effort) or omit?
+
+#ANSWER:# Caching healthcheck info could be used. Maybe returning such metadata in response from service and use that to populate the record.
+
+[[Q7]]*Q7 - Config placement.*
+`smartIntegration/audit` (feature-specific, evaluated in smart-impl) vs. the `audit` section of system configuration (all audit knobs in one place)?
+
+#ANSWER:# config goes to `systemConfiguration/audit`
