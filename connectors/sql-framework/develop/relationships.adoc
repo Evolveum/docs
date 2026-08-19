@@ -1,0 +1,85 @@
+= Multitable support: child tables and junction tables
+:page-nav-title: Relationships
+:page-display-order: 1300
+:page-upkeep-status: orange
+:page-toc: top
+:page-description: How the SQL Framework detects child-table and junction-table relationships from foreign keys and naming conventions, and how detected relationships are exposed as multi-valued attributes resolved at search time.
+:page-keywords: multitable, child table, junction table, embedded attribute, reference attribute, foreign key detection
+
+The SQL Framework detects relationships between tables automatically and exposes them as attributes on the ConnId object class.
+
+This document is part of the SQL connector tutorial. See xref:../index/[] for other topics.
+
+IMPORTANT: Relationship detection is convention- and metadata-driven; there is no script API to define custom join paths today. The `relationship {}` function in schema scripts is a stub, and `joinOn` / `foreignKey` blocks (as seen in some example scripts) are illustrative only — do not depend on them.
+
+== How relationships are detected
+
+Before tables are translated to object classes, the framework looks for foreign-key relationships from each table (the "child") to other tables (the "parent"/"target"):
+
+* *constraint-based* — columns that have an actual FK constraint to a discovered table, and
+* *convention-based* — a column named `<name>_id` where a table (or object class) named `<name>` exists; the referenced column is assumed to be `id`.
+
+Depending on what the FK columns contribute to the child table's primary key, the relationship is classified:
+
+[cols="1,2,2", options="header"]
+|===
+|Relationship |Condition |Exposed as
+
+|Single-valued embedded
+|FK columns are the only primary key columns of the child table (child has at most one row per parent)
+|A single-valued complex attribute (embedded object class value) on the parent, named after the child table
+
+|Multi-valued embedded
+|FK columns are part of the child PK, but the child also has its own data columns
+|A multi-valued complex attribute on the parent, named after the child table
+
+|Multi-valued simple attribute
+|FK columns plus exactly one additional non-FK column in the child PK
+|A multi-valued scalar attribute (of the value column's type) on the parent
+
+|Junction table (many-to-many)
+|FK columns reference *two or more* distinct target tables, and the FK columns exactly match the child PK (a junction has no data of its own)
+|A multi-valued reference attribute on the parent pointing at the target object class
+
+|===
+
+A child table whose PK contains a surrogate key of its own (e.g. `id`, `user_id`) — i.e. the FKs are not the PK — is treated as a standalone table, not a relationship.
+Detected child/embedded object classes are folded into the parent and are not exposed as separately manageable object classes (no create/update/delete handlers; data is managed through the parent or via the database).
+
+== Example
+
+Consider this schema:
+
+[source,sql]
+----
+CREATE TABLE users (id INT PRIMARY KEY, user_name VARCHAR(255), ...);
+CREATE TABLE user_emails (user_id INT, email VARCHAR(255),
+                          PRIMARY KEY (user_id, email));
+CREATE TABLE user_phones (user_id INT, phone_number VARCHAR(50), phone_type VARCHAR(20),
+                          PRIMARY KEY (user_id, phone_number));
+CREATE TABLE groups (id INT PRIMARY KEY, group_name VARCHAR(255), ...);
+CREATE TABLE user_group_membership (user_id INT, group_id INT,
+                                    PRIMARY KEY (user_id, group_id));
+----
+
+The discovery produces:
+
+* `users` with a multi-valued attribute `user_emails` (simple attribute: value of the `email` column) and a multi-valued complex attribute `user_phones` (embedded rows with `phone_number` and `phone_type`)
+* `users` with a multi-valued reference to `groups` resolved through the `user_group_membership` junction table
+* `user_group_membership` itself is not a standalone object class
+
+The relationship values are resolved at search time in a batch: after the parent rows are selected, the framework issues one query per relationship over the parent UIDs (`WHERE <join_column> IN (...)`) and attaches the results.
+
+== Read-side behavior
+
+* Multi-valued attributes and references are populated during search; they are not part of the parent row's columns.
+* Filtering *through* a relationship is not part of the built-in filter translation — filter on the parent object class attributes (see xref:search/[] and xref:custom-search/[] for custom needs).
+* Embedded object classes are read-only from the ConnId side; writes to child data are a development goal (see xref:sync/[] for status notes).
+
+== Guidelines for your database schema
+
+To get relationships detected reliably:
+
+. Use real FK constraints where possible.
+. For convention-based detection, name the FK column exactly `<table>_id` and use an `id` column in the referenced table.
+. Junction tables must consist *only* of the two FK columns (which form the PK) — any extra column or a surrogate PK turns the table into a standalone table.

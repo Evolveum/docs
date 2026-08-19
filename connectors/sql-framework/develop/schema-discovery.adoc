@@ -1,0 +1,126 @@
+= SQL schema discovery
+:page-nav-title: Schema discovery
+:page-display-order: 1220
+:page-upkeep-status: orange
+:page-toc: top
+:page-description: How the SQL Framework automatically discovers database tables and columns via JDBC metadata, maps them to ConnId object classes and attributes, and applies built-in mapping rules.
+:page-keywords: SQL schema discovery, automatic schema, JDBC metadata, object class mapping, UID detection, mapping rules
+
+The SQL Framework automatically discovers schemas from the connected database using standard JDBC metadata.
+
+This document is part of the SQL connector tutorial. See xref:../index/[] for other topics.
+
+== Automatic schema discovery
+
+When the connector is initialized, the framework:
+
+. Connects to the database using the configured JDBC connection
+. Retrieves the list of tables (and/or views) via `DatabaseMetaData`, depending on the `scanTables` / `scanViews` configuration
+. Applies the `scanTableFilter` / `scanViewFilter` / `scanExcludeTables` / `scanExcludeViews` regular expression filters
+. Retrieves column metadata (type, size, nullability, primary key, unique, auto-increment) and foreign key constraints for each discovered table
+. Maps discovered tables to ConnId object classes and columns to ConnId attributes
+. Applies built-in mapping rules that adjust mutability flags and the UID (see below)
+. Detects multitable relationships (child tables and junction tables)
+
+System schemas `information_schema`, `sys`, `system` and `xdb` are skipped automatically.
+
+If both `scanTables` and `scanViews` are `false`, no bulk discovery happens — only the tables explicitly referenced by your schema scripts are looked up (targeted discovery).
+
+== SQL to ConnId object class mapping
+
+Each discovered table becomes a ConnId object class; the object class name defaults to the table name.
+Each column becomes a ConnId attribute; the attribute name defaults to the column name.
+Table and attribute correlation is case-insensitive, so `app_user` matches `App_User` in your scripts.
+
+The SQL-to-ConnId type mapping of a column is resolved from its JDBC type:
+
+[cols="1,1,2", options="header"]
+|===
+|SQL type family |ConnId Java type |Notes
+
+|VARCHAR, CHAR, NVARCHAR, CLOB
+|`String`
+|text columns, including the default fallback for unknown types
+
+|TINYINT, INTEGER
+|`Integer`
+|`SMALLINT` maps `Integer` ⇄ `Short`
+
+|BIGINT
+|`BigInteger`
+|
+
+|DECIMAL, NUMERIC
+|`BigDecimal`
+|
+
+|FLOAT, DOUBLE
+|`Double`
+|`FLOAT` maps `Double` ⇄ `Float`
+
+|BOOLEAN, BIT
+|`Boolean`
+|
+
+|DATE
+|`ZonedDateTime`
+|midnight of the column date in the system time zone
+
+|TIME
+|`String`
+|formatted `LocalTime`
+
+|TIMESTAMP (incl. with time zone)
+|`ZonedDateTime`
+|
+
+|BLOB, BINARY, VARBINARY
+|`byte[]`
+|
+
+|===
+
+Types used for *filter comparison* in search are listed in xref:search/[].
+
+== UID detection
+
+The framework determines which column (or columns) form the object `__UID__`:
+
+. *Single primary key* — the single PK column becomes `__UID__`.
+. *Composite primary key* — the first PK column becomes `__UID__` and the remaining PK columns are attached as additional UID columns; the composite UID value is the column values joined with a `.` separator (e.g. `tenant-1.account-42`).
+. *No primary key* — falls back to the first unique column of the table as `__UID__`.
+. *No primary key and no unique column* — the object class has no usable UID; such objects are effectively unusable for provisioning and should be restricted with `scanExcludeTables`.
+
+You can override the detected UID mapping in your schema script (see xref:schema-customization/[]).
+
+== Built-in mapping rules
+
+After discovery, a fixed set of rules refines the schema:
+
+[cols="1,3", options="header"]
+|===
+|Rule |Effect
+
+|Nullable columns are not required
+|A nullable column produces an attribute with `required = false`; non-nullable columns become required attributes.
+
+|Primary key columns are not updatable
+|Attributes mapped to primary key columns get `updatable = false`.
+
+|Auto-increment columns are not creatable
+|Attributes mapped to auto-increment/identity columns get `creatable = false` and `updatable = false`; the generated value is read back after create.
+
+|Large types are not returned by default
+|BLOB/CLOB/binary columns produce attributes with `returnedByDefault = false`, so they do not bloat search results unless explicitly requested.
+
+|Views are read-only
+|Object classes mapped to SQL views get `creatable/updatable/removable = false` and no write handlers are registered for them; search (and sync) remain available.
+|===
+
+These rules can be overridden where the DSL exposes the corresponding attribute flags.
+
+== Verify discovered schema
+
+Set `developmentMode` to `true` while developing. The connector then registers an additional object class that lists every discovered SQL object class (with its `table` and `schema` protocol data), so you can inspect the discovered schema directly from the management system or the ConnId schema API before finalizing your scripts.
+
+See xref:schema-customization/[] for customizing the discovered schema.

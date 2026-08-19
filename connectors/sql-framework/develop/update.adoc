@@ -1,0 +1,64 @@
+= SQL update operation
+:page-nav-title: Update operations
+:page-display-order: 1280
+:page-upkeep-status: orange
+:page-toc: top
+:page-description: How the built-in SQL update operation applies ConnId deltas to a database row transactionally, which attributes are not updatable, and how to enable or disable update per object class.
+:page-keywords: SQL update operation, UPDATE, AttributeDelta, NotUpdatable attribute, UnknownUid exception
+
+Update operations apply ConnId deltas to the existing row with a single transactional SQL `UPDATE`.
+
+This document is part of the SQL connector tutorial. See xref:../index/[] for other topics.
+
+== Basic update
+
+For a writable table, update works out of the box — no operation script is required.
+
+The framework:
+
+. Loads the current row using the full UID mapping
+. Applies each `AttributeDelta` (replace, add and remove forms) on top of the current values
+. Writes the resulting column values in one `UPDATE` statement, using the UID mapping as the exact predicate
+. Verifies that exactly one row was affected
+
+If the delta contains no attributes that map to writable SQL columns, the update is a no-op.
+
+== Not-updatable attributes
+
+The following attribute kinds cannot appear in an update delta and fail with `InvalidAttributeValueException` if they do:
+
+* UID columns (primary key mapping)
+* auto-increment / identity columns
+* attributes marked read-only by the built-in mapping rules
+
+Attributes whose columns are not writable by the database (for example view-backed columns) are not part of any object class update in the first place.
+
+== Errors
+
+[cols="1,3", options="header"]
+|===
+|Condition |Exception
+
+|No row matches the UID
+|`UnknownUidException`
+
+|Invalid value or constraint violation (not-null, foreign key, check)
+|`InvalidAttributeValueException`
+
+|Connection failure
+|`ConnectionFailedException`
+|===
+
+Updates run in a transaction that is rolled back before the exception is returned.
+Unlike some REST/SCIM connectors, the SQL framework has a single update mode (partial delta) — there is no separate PUT/patch mode to configure.
+
+== Enabling / disabling update
+
+[source,groovy]
+----
+objectClass("Employee") {
+    disableUpdate()
+}
+----
+
+Object classes marked `readOnly true`, and views, never get an update handler.

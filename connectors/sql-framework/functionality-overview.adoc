@@ -1,0 +1,77 @@
+= SQL Framework design and functionality overview
+:page-nav-title: Functionality and design
+:page-display-order: 1100
+:page-upkeep-status: green
+:page-description: Architecture and functionality overview of the SQL Framework, covering JDBC connection management, automatic schema discovery, schema mapping rules, multitable support, operation support, and the Groovy Builder API.
+:page-keywords: SQL architecture, schema discovery, Groovy DSL, ConnId strategy pattern, JDBC, dialect abstraction
+
+An overview of the SQL Framework architecture aimed to help you understand how to create SQL connectors for midPoint that operate via the ConnID layer.
+
+== SQL Framework functionality overview
+
+Connection & Pooling::
+** HikariCP-based JDBC connection pool with lazy initialization, per-connector configuration (pool size, timeouts).
+** JDBC driver class is resolved automatically from the `jdbcUrl` scheme (PostgreSQL, MySQL, MariaDB, SQL Server, SQLite, H2, Oracle).
+** `SqlConnection` wrapper with auto-close semantics and explicit transaction support (`commit`, `rollback`, `setAutoCommit`).
+
+Automatic Schema Discovery::
+** Discovers tables, views, columns, primary keys, unique constraints, auto-increment flags, nullability and foreign keys via standard JDBC metadata.
+** Includes/excludes tables and views by regular expression patterns, and toggles scanning of tables vs. views separately.
+** System schemas (`information_schema`, `sys`, `system`, `xdb`) are skipped automatically.
+
+Schema Mapping & Type Mapping::
+** Translates discovered (or declared) SQL tables into ConnId object classes and columns into ConnId attributes.
+** Built-in mapping *rules* adjust the discovered schema: nullable columns are not required, primary keys and auto-increment columns are not updatable/creatable, large types (BLOB/CLOB) are not returned by default, views are read-only.
+** UID detection strategies: single primary key, composite primary key (first column + joined extras), unique column fallback.
+** SQL-to-ConnId value/type mapping for each column type, including datetime and binary handling.
+
+Multitable Support::
+** Automatic detection of child-table relationships from foreign key constraints and naming conventions (`<table>_id` columns).
+** Detects single-valued embedded, multi-valued embedded and multi-valued simple-attribute child tables, plus many-to-many junction tables.
+** Detected relationships are exposed as (multi-valued) attributes on the parent object class and resolved at search time.
+
+ConnId Support & Operations::
+** Built-in handlers for search, create, update, delete per object class, selected based on the object class properties (writable table vs. view).
+** Search: ConnId filters translated to SQL predicates, paginated execution, built-in `where {}` refinement and fully custom SQL query support.
+** Write: transactional create/update/delete with ConnId exception mapping (duplicate key → `AlreadyExistsException`, constraint/data errors → `InvalidAttributeValueException`, connection problems → `ConnectionFailedException`).
+** Incremental sync operation based on a sync column with soft-delete (tombstone) support.
+
+Scripting Support::
+** Custom Groovy DSLs for schema customization (object classes, tables, attributes) and operation handlers (search, sync, write enablement/disablement).
+** Scripting is intended to configure connectors with minimal boilerplate; all built-in behavior remains available without any script.
+
+Declarative YAML Support::
+** Connector manifest and schema definitions can be expressed in declarative YAML (`connector.manifest.yaml`, `*.native.schema.yaml`) in addition to Groovy.
+** YAML-declared schema binds directly into the same live schema builder as Groovy declarations.
+
+Dialect Abstraction::
+** SQL generation is based on QueryDSL SQL templates auto-detected from the connected database; dialect-specific constructs (pagination, identity keys) are handled by the template layer.
+
+Development Support::
+** Development mode exposes the discovered SQL object classes as an additional object class for schema introspection in management tools.
+** Script validation support — a candidate script is compiled and evaluated against all sibling scripts before deployment.
+
+IMPORTANT: SQL Framework is still under development. Incremental *sync registration* and the declarative `relationship` script API are not fully wired yet — see the status notes in the individual pages.
+
+== SQL connector design
+
+* providing out-of-the-box support for common relational database layouts
+* flexible enough to handle most of the quirks of real-world database schemas
+* not strongly tied to `Groovy` with potential to replace with a more declarative approach (YAML front-end)
+* strong leaning on _declarative_ (auto-discovery + small customization) approach instead of _scripting_
+
+The base connector framework is based heavily on the `Strategy` and `Delegation` patterns:
+
+* *schema mapping rules* — a chain of rules (attribute-level and table-level) transforms raw JDBC metadata into a ConnId schema. Rules are added in a fixed order and each may contribute *detected actions* that also affect operation handlers (for example: views become read-only, child tables become attributes on the parent).
+* *operation handlers* — each object class gets a handler per ConnId operation. Built-in QueryDSL-based handlers are registered by default; handlers configured by scripts take precedence; per-attribute value resolvers are attached for detected relationships.
+
+=== Groovy Builder API
+
+Most of the Groovy scripts are not full-blown scripts, but small declarative blocks evaluated against builder objects:
+
+* schema scripts delegate to a per-object-class *schema builder* (`objectClass { ... }`), which in turn delegates to attribute builders for `attribute { ... }` blocks;
+* operation handler scripts delegate to a per-object-class *operation support builder* with `search { ... }`, `create { ... }`, `update { ... }`, `delete { ... }` blocks.
+
+Because the scripts run in a shared Groovy shell, helper functions defined in one script can be reused by later scripts of the same kind (schema or handler).
+
+See xref:develop/index/[] for the development guides.

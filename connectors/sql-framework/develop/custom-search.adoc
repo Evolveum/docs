@@ -1,0 +1,107 @@
+= Custom search implementation
+:page-nav-title: Custom search
+:page-display-order: 1260
+:page-upkeep-status: orange
+:page-toc: top
+:page-description: How to implement a custom SQL search query in a SQL Framework connector with the full query DSL: table, select, from, where, orderBy, and filter value access.
+:page-keywords: custom search, custom SQL query, query builder context, ORDER BY, search handler
+
+If the built-in search is not suitable — for example you need ORDER BY, computed columns, or a query that spans a different table — you can implement a fully custom SQL query per object class.
+
+This document is part of the SQL connector tutorial. See xref:../index/[] for other topics.
+
+== Declaring a custom query
+
+[source,groovy]
+----
+objectClass("User") {
+    search {
+        sql {
+            custom {
+                emptyFilterSupported true
+
+                query { q ->
+                    def a = q.table("app_user", "a")
+                    q.select(a.column("id"),
+                            a.column("user_name"),
+                            a.column("user_email"))
+                     .from(a)
+                     .where(a.column("status").eq("active"))
+                     .orderBy(a.column("user_name").asc())
+                }
+            }
+        }
+    }
+}
+----
+
+* `emptyFilterSupported true` — the handler handles the empty filter (i.e. "search all"). When `false`, the handler only runs for non-empty filters.
+* `query { q -> ... }` — the closure defines SELECT, FROM, WHERE and ORDER BY.
+* Declaring a `custom {}` query takes over search for the object class: the built-in handler is automatically disabled so that exactly one handler serves each search.
+
+== Query builder context
+
+The closure receives a `SqlCustomQueryBuilderContext` (`q`):
+
+[cols="1,3", options="header"]
+|===
+|Method |Description
+
+|`q.table(name, alias)`
+|Typed reference to a SQL table; column types are resolved from the discovered schema metadata. Returns a table path (`def a = q.table("app_user", "a")`).
+
+|`a.column(name)`
+|Typed column reference on the table path. `.eq(v)`, `.ne(v)`, `.asc()`, `.desc()` are available; `eq(null)` produces `IS NULL`.
+
+|`q.select(...)`
+|Columns for the SELECT clause (path or column ref, single or from a list).
+
+|`q.from(tablePath)`
+|Sets the FROM table.
+
+|`q.where(predicate)`
+|Adds a WHERE predicate (any QueryDSL `BooleanExpression`).
+
+|`q.orderBy(spec)`
+|Adds ORDER BY specifiers (`asc()` / `desc()` on a column ref).
+
+|`q.value()`
+|The single value of the ConnId filter (first value of an `AttributeFilter`), or `null`. Use it to turn the filter into a WHERE predicate: `.where(a.column("user_name").eq(q.value()))`.
+
+|`q.sqlValue(v)`
+|Converts a ConnId value to a SQL wire value (e.g. `ZonedDateTime` → `Timestamp`).
+
+|`q.filter`
+|The full ConnId `Filter` object (rarely needed).
+|===
+
+Selected columns are matched back to the object class attributes by column name (case-insensitive suffix match), so `select` the physical column names of the mapped attributes (UID and NAME included) for the result to be usable.
+
+== Examples
+
+=== Filter by attribute value, ordered by name
+
+[source,groovy]
+----
+query { q ->
+    def a = q.table("app_user", "a")
+    q.select(a.column("id"), a.column("user_name"), a.column("user_email"))
+     .from(a)
+    if (q.value() != null) {
+        // narrow the list using the requested attribute filter value
+        q.where(a.column("user_name").eq(q.sqlValue(q.value())))
+    }
+    q.orderBy(a.column("user_name").asc())
+}
+----
+
+=== Built-in refinement instead
+
+If you only need to *add* a fixed predicate (without changing SELECT, FROM or ORDER BY), keep the built-in search and use its `where {}` block instead (see xref:search/[]) — the built-in handler stays enabled and handles all filters.
+A `custom {}` query, on the other hand, fully replaces the built-in search for the object class.
+
+== Limitations
+
+* The custom query result rows are mapped attribute-by-attribute from the SELECT column names; there is no join-based result shaping for child-table attributes in this mode (see xref:relationships/[] for the built-in resolvers).
+* Pagination (200 rows per page) is applied by the framework on top of your query.
+* ORDER BY is supported only in custom queries; the built-in search returns rows in table order.

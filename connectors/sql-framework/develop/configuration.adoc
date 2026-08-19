@@ -1,0 +1,168 @@
+= Connector configuration
+:page-nav-title: Configuration
+:page-display-order: 1210
+:page-upkeep-status: orange
+:page-toc: top
+:page-description: Reference for SQL Framework connector configuration properties: JDBC connection, connection pool, scan filters, and development mode.
+:page-keywords: SQL connector configuration, JDBC URL, connection pool, scan filter, development mode
+
+The SQL Framework connector configuration is provided by `SqlConnectorConfiguration`.
+
+This document is part of the SQL connector tutorial. See xref:../index/[] for other topics.
+
+== Configuration properties
+
+Set via the ConnId connector configuration (for example the midPoint connector form), not via the manifest.
+
+[cols="1,1,1,2", options="header"]
+|===
+|Property |Type |Default |Description
+
+|`jdbcUrl`
+|String
+|*required*
+|JDBC connection URL (e.g. `jdbc:postgresql://localhost:5432/mydb`)
+
+|`username`
+|String
+|*required*
+|Database username
+
+|`password`
+|String (guarded)
+|*required*
+|Database password. Never echoed back in `toString()` output.
+
+|`poolSize`
+|Integer
+|`10`
+|Maximum HikariCP connections in the pool
+
+|`connectionTimeout`
+|Integer
+|`30000` ms
+|How long to wait for a connection from the pool
+
+|`idleTimeout`
+|Integer
+|`600000` ms
+|Idle connection eviction timeout
+
+|`validateConnectionOnBorrow`
+|Boolean
+|`true`
+|Declared for API compatibility. NOTE: this property does not currently affect pool behavior; use `testConnectionQuery` for an explicit test query.
+
+|`testConnectionQuery`
+|String
+|`null`
+|Optional SQL statement passed to HikariCP as the connection test query. If not specified built-in JDBC 4 connection validation is used.
+
+|`scanTables`
+|Boolean
+|`true`
+|Discover regular tables during schema detection and expose them via connector if possible.
+
+|`scanViews`
+|Boolean
+|`true`
+|Discover SQL views during schema detection and expose them via connector if possible.
+
+|`scanTableFilter`
+|String (regex)
+|`null` (match all)
+|Include filter — only tables whose name matches this pattern are discovered
+
+|`scanViewFilter`
+|String (regex)
+|`null` (match all)
+|Include filter — only views whose name matches this pattern are discovered
+
+|`scanExcludeTables`
+|String (regex)
+|`null`
+|Exclude filter — tables matching this pattern are not discovered. Takes precedence over `scanTableFilter`.
+
+|`scanExcludeViews`
+|String (regex)
+|`null`
+|Exclude filter — views matching this pattern are not discovered. Takes precedence over `scanViewFilter`.
+
+|`developmentMode`
+|Boolean
+|`false`
+|Exposes the discovered SQL object classes as an additional object class for schema introspection during development (see xref:schema-discovery/[]), detailed login capabilities, scripts reloaded on each operation.
+
+|===
+
+Schema auto-discovery is enabled when `scanTables` or `scanViews` is set to `true`.
+If both are `false`, only the tables explicitly referenced by your schema scripts are detected (targeted discovery).
+
+NOTE: `getAutoDiscoverSchema()` (used by older API surfaces) is derived as `scanTables || scanViews`.
+
+== Driver resolution
+
+The JDBC driver class is resolved automatically from the `jdbcUrl` scheme:
+
+[cols="1,1,2", options="header"]
+|===
+|URL prefix |Driver class |Example
+
+|`jdbc:postgresql:`
+|`org.postgresql.Driver`
+|`jdbc:postgresql://host:5432/dbname`
+
+|`jdbc:mysql:`
+|`com.mysql.cj.jdbc.Driver`
+|`jdbc:mysql://host:3306/dbname`
+
+|`jdbc:mariadb:`
+|`org.mariadb.jdbc.Driver`
+|`jdbc:mariadb://host:3306/dbname`
+
+|`jdbc:sqlserver:`
+|`com.microsoft.sqlserver.jdbc.SQLServerDriver`
+|`jdbc:sqlserver://host:1433;databaseName=dbname`
+
+|`jdbc:sqlite:`
+|`org.sqlite.JDBC`
+|`jdbc:sqlite:/path/to/file.db`
+
+|`jdbc:h2:`
+|`org.h2.Driver`
+|`jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1`
+
+|`jdbc:oracle:`
+|`oracle.jdbc.OracleDriver`
+|`jdbc:oracle:thin:@host:1521:service`
+
+|===
+
+For an unrecognized prefix the driver class is left to HikariCP, which derives it from the JDBC URL.
+The driver JAR must be part of the connector bundle (see xref:custom-connector/[]).
+
+== Example
+
+A minimal midPoint connector fragment:
+
+[source,xml]
+----
+<resource ...>
+    ...
+    <connectorRef>
+        <filter>
+           connectorBundle = "com.evolveum.polygon.sql.connector-sql-generic"
+        </filter>
+    </connectorRef>
+    <connectorConfiguration>
+       <configurationProperties>
+            <jdbcUrl>jdbc:postgresql://localhost:5432/mydb</jdbcUrl>
+            <username>admin</username>
+            <password>secret</password>
+            <scanTableFilter>^(app_.*|user|group)$</scanTableFilter>
+            <scanExcludeTables>^tmp_</scanExcludeTables>
+        </configurationProperties>
+    </connectorConfiguration>
+    ...
+</resource>
+----

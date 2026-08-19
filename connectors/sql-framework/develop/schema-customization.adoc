@@ -1,0 +1,203 @@
+= SQL schema customization
+:page-nav-title: Schema customization
+:page-display-order: 1230
+:page-upkeep-status: orange
+:page-toc: top
+:page-description: Reference for the SQL schema script Groovy DSL: objectClass and sql blocks, attribute and connId blocks, SQL type specification, onlyExplicitlyListed and readOnly, with complete examples.
+:page-keywords: SQL schema script, Groovy DSL, objectClass, attribute mapping, connId name, onlyExplicitlyListed, readOnly
+
+After discovery, you can customize the schema with Groovy schema scripts (or declarative YAML — see xref:declarative-yaml/[]).
+This is the reference for the schema script DSL.
+
+This document is part of the SQL connector tutorial. See xref:../index/[] for other topics.
+
+== The objectClass block
+
+Schema scripts are evaluated with a bound `objectClass` function. Inside its closure you can map the object class to a SQL table and define attributes:
+
+[source,groovy]
+----
+objectClass("User") {
+    sql {
+        table "app_user"
+        schema "hr"
+    }
+    // ... attributes below
+}
+----
+
+[cols="1,2", options="header"]
+|===
+|Method |Description
+
+|`sql { ... }`
+|SQL mapping block: `table(String)` sets the SQL table name, `schema(String)` sets the SQL schema qualifier. Default table name is the object class name.
+
+|`table("...")`
+|Convenience shortcut for `sql { table "..." }`.
+
+|`schema("...")` / `locator("...")` / `namespace("...")`
+|Convenience shortcuts to set the SQL schema / table name.
+
+|`onlyExplicitlyListed(true)`
+|When `true`, only columns with an explicit `attribute {}` definition become ConnId attributes; all other discovered columns of the table are excluded. Default is `false` (all discovered columns are included).
+
+|`readOnly(true)`
+|Marks the object class read-only (`creatable/updatable/removable = false`) and disables write handlers. Used for views and tables you want to expose without write operations.
+|===
+
+== The attribute block
+
+Each `attribute(name)` call defines (or refines) an attribute. The attribute name is the SQL column name by default and also the ConnId name by default.
+
+[source,groovy]
+----
+objectClass("User") {
+    sql { table "app_user" }
+
+    attribute("user_id") {
+        connId { name "__UID__" }
+        sql {
+            type INT
+            primaryKey
+            autoIncrement
+        }
+    }
+
+    attribute("user_name") {
+        connId { name "__NAME__" }
+        sql { type VARCHAR(255); notNull true }
+    }
+}
+----
+
+=== connId block
+
+Refines the ConnId side of the attribute:
+
+[cols="1,2", options="header"]
+|===
+|Method |Description
+
+|`name(String)`
+|ConnId attribute name. Supports system names: `__UID__` / `Uid`, `__NAME__` / `Name`. Any other name creates a plain attribute.
+
+|`type(Class)`
+|Force a ConnId Java type. Auto-detected from JDBC metadata when not set.
+
+|`returnedByDefault(Boolean)`
+|Whether the attribute is included in results by default. Default is `true`.
+|===
+
+=== sql block
+
+Refines the SQL side of the attribute:
+
+[cols="1,2", options="header"]
+|===
+|Method |Description
+
+|`name(String)` / `column(String)`
+|SQL column name. Default is the attribute name. Use to map an attribute to a differently named column.
+
+|`type(...)`
+|SQL type specification (see below). Mostly relevant for targeted discovery and for value-mapping overrides.
+
+|`primaryKey`
+|Mark the column as primary key.
+
+|`autoIncrement`
+|Mark the column as auto-generated (identity/auto-increment).
+
+|`notNull` / `nullable`
+|Column nullability (mirrors the `required` flag).
+
+|`unique`
+|Mark the column as unique.
+
+|`additionalColumns() { column("other_col") }`
+|SPI hook to attach additional physical columns (used for composite UIDs declared in scripts).
+|===
+
+=== SQL type specification
+
+Convenience constants exposed in the script: `INT`, `INTEGER`, `BIGINT`, `SMALLINT`, `TINYINT`, `BOOLEAN`, `DATE`, and parameterized `VARCHAR(n)`, `VARCHAR2(n)`, `NUMBER(p)`, `NUMBER(p, s)`, `TIMESTAMP(p)`.
+
+[source,groovy]
+----
+attribute("email")     { sql { type VARCHAR(255) } }
+attribute("salary")    { sql { type NUMBER(10, 2) } }
+attribute("created")   { sql { type TIMESTAMP(6) } }
+----
+
+When `type` uses a precision/size-aware constant, the size is accepted but the mapping is determined by the base type.
+
+== Renaming and mapping system attributes
+
+The typical mapping renames a discovered table and its ID/name columns to ConnId names:
+
+[source,groovy]
+----
+// Maps table "app_user" -> ConnId object class "Person"
+objectClass("Person") {
+    sql { table "app_user" }
+
+    attribute("user_id") {
+        connId { name "__UID__" }
+    }
+    attribute("user_name") {
+        connId { name "__NAME__" }
+    }
+    attribute("user_email") {
+        connId { name "emailAddress" }
+    }
+    // Custom attribute with no backing SQL column
+    attribute("loginCount") { }
+}
+----
+
+Notes:
+
+* an attribute *without* a `sql {}` block and without a matching discovered column is a pure ConnId attribute (available in the schema, no SQL backing)
+* if `__NAME__` is not explicitly mapped, it is emulated from the `__UID__` mapping (the same underlying columns)
+* `onlyExplicitlyListed true` restricts the attribute set to exactly the listed attributes
+
+== Complete example
+
+Two object classes over a typical application database:
+
+[source,groovy]
+----
+// src/main/resources/schema/customize.groovy
+
+// Maps table "app_user" -> ConnId object class "Person"
+objectClass("Person") {
+    sql { table "app_user" }
+
+    attribute("user_id") {
+        connId { name "__UID__" }
+    }
+    attribute("user_name") {
+        connId { name "__NAME__" }
+    }
+    attribute("user_email") {
+        connId { name "emailAddress" }
+    }
+    // Custom attribute (not on the SQL table)
+    attribute("loginCount") { }
+}
+
+// Maps table "app_group" -> ConnId object class "Team"
+objectClass("Team") {
+    sql { table "app_group" }
+
+    attribute("group_id") {
+        connId { name "__UID__" }
+    }
+    attribute("group_name") {
+        connId { name "__NAME__" }
+    }
+}
+----
+
+See xref:schema-discovery/[] for what discovery detects, and xref:relationships/[] for multitable attributes.

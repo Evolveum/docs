@@ -1,0 +1,42 @@
+= SQL delete operation
+:page-nav-title: Delete operations
+:page-display-order: 1290
+:page-upkeep-status: orange
+:page-toc: top
+:page-description: How the built-in SQL delete operation removes a row by exact UID transactionally, error handling, and enable/disable configuration per object class.
+:page-keywords: SQL delete operation, DELETE, UnknownUid exception, read-only object class
+
+Delete operations remove the row matching the exact UID with a transactional SQL `DELETE`.
+
+This document is part of the SQL connector tutorial. See xref:../index/[] for other topics.
+
+== Basic delete
+
+For a writable table, delete works out of the box — no operation script is required.
+
+The framework:
+
+. Builds a `DELETE` statement with the full UID mapping as an exact predicate (for composite UIDs, all key columns are matched)
+. Executes it inside a JDBC transaction
+. Verifies that exactly one row was affected
+
+If no row matches the UID, the operation fails with `UnknownUidException`.
+Connection failures are wrapped into `ConnectionFailedException`; failed transactions are rolled back.
+
+== Embedded child tables
+
+Rows of detected child/embedded tables are managed by the parent object class (see xref:relationships/[]) — embedded object classes themselves do not expose create, update or delete.
+When the parent row is deleted, the connector only deletes the parent row; cleanup of child rows is delegated to the database schema (for example foreign keys with `ON DELETE CASCADE`).
+
+== Enabling / disabling delete
+
+[source,groovy]
+----
+objectClass("Employee") {
+    delete {
+        enabled false
+    }
+}
+----
+
+Object classes marked `readOnly true`, and views, never get a delete handler.

@@ -1,0 +1,144 @@
+= Custom connector classes and bundles
+:page-nav-title: Custom connectors
+:page-display-order: 1320
+:page-upkeep-status: orange
+:page-toc: top
+:page-description: How to build a custom SQL Framework connector: manifest-based connectors, subclassing AbstractGroovySqlConnector, script loading, and packaging the connector bundle.
+:page-keywords: custom connector, ManifestBasedConnector, AbstractGroovySqlConnector, connector bundle, assembly, manifest
+
+Most connectors can be built without any Java code, just a manifest and scripts. This page covers both the manifest-based route and the Java subclass route.
+
+This document is part of the SQL connector tutorial. See xref:../index/[] for other topics.
+
+== Option 1: manifest-based connector (no Java)
+
+`ManifestBasedConnector` reads `connector.manifest.json` / `.yaml` / `.yml` from the classpath and loads the declared schema and operation scripts (see xref:declarative-yaml/[]).
+
+Bundle layout:
+
+[source,text]
+----
+my-sql-connector/
+└── src/main/resources/
+    ├── connector.manifest.json
+    ├── Messages.properties
+    ├── schema/
+    │   └── users.groovy
+    └── handlers/
+        └── user_ops.groovy
+----
+
+[source,json]
+----
+{
+  "connector": {
+    "schema": [
+      { "script": "/schema/users.groovy" }
+    ],
+    "operation": [
+      { "script": "/handlers/user_ops.groovy" }
+    ]
+  }
+}
+----
+
+The connector class is `com.evolveum.polygon.sql.base.groovy.impl.ManifestBasedConnector`.
+The generic SQL bundle in the repository ships with an *empty* manifest — add your scripts and rebuild, or reference the base bundle from your own assembly.
+
+== Option 2: custom connector class (Java)
+
+For programmatic control, subclass `AbstractGroovySqlConnector`:
+
+[source,java]
+----
+package com.example;
+
+import com.evolveum.polygon.sql.base.AbstractGroovySqlConnector;
+import com.evolveum.polygon.sql.base.SqlConnectorConfiguration;
+import com.evolveum.polygon.sql.base.groovy.SqlHandlerLoader;
+import com.evolveum.polygon.sql.base.groovy.SqlSchemaDefinitionLoader;
+
+public class ExampleSqlConnector extends AbstractGroovySqlConnector<SqlConnectorConfiguration> {
+
+    public ExampleSqlConnector() {
+        super(false);  // production: initialize once per instance
+    }
+
+    @Override
+    protected void initializeSchema(SqlSchemaDefinitionLoader loader) {
+        loader.loadFromResource("/schema/users.groovy");
+        // loadFromResource resolves .yaml/.yml when the .groovy file is missing
+    }
+
+    @Override
+    protected void initializeObjectClassHandler(SqlHandlerLoader loader) {
+        loader.loadFromResource("/handlers/user_ops.groovy");
+        // loader.loadFromString(...) and loader.register(objectClass, operationType, operation)
+        // are available for fully programmatic handler registration
+    }
+}
+----
+
+Notes:
+
+* constructor argument `reinitializeOnEachCall` — use `true` in development (re-runs discovery and script loading on every call so script edits are picked up), and `false` in production (pool and handlers are initialized once).
+* operation scripts share a single Groovy shell, so helper functions defined in one script are available to later scripts:
++
+[source,groovy]
+----
+// /handlers/shared.groovy -- loaded first
+def activeUsers(int status) {
+    return { e -> e.col("status").eq(status) }
+}
+----
+
+== Packaging the bundle
+
+The connector is packaged as a Java archive with all runtime dependencies in `lib/`:
+
+[source,bash]
+----
+mvn clean package
+----
+
+[source,text]
+----
+target/my-sql--connector*.jar
+├── connector.manifest.json
+├── Messages.properties
+├── schema/...
+├── handlers/...
+└── lib/
+    ├── (sql framework base jar)
+    ├── hikariCP
+    ├── groovy
+    ├── querydsl-sql
+    └── your JDBC driver (e.g. postgresql-*.jar)
+----
+
+Make sure the JDBC driver for your database is in the dependency set (the SQL framework itself does not bundle drivers). The `Messages.properties` file provides the display labels for the configuration form.
+
+== Troubleshooting
+
+[cols="1,3", options="header"]
+|===
+|Issue |Solution
+
+|Schema is empty
+|Check `scanTables`/`scanViews` are `true`, that the connection user can read `DatabaseMetaData`, and that `onlyExplicitlyListed` is not hiding columns. For H2 use `jdbc:h2:mem:dbname;DB_CLOSE_DELAY=-1` to keep the in-memory database alive.
+
+|`Connection test failed`
+|Verify `jdbcUrl`, `username`, `password`. Check that the driver JAR is in the bundle.
+
+|No object class for a table
+|Check the `scanExcludeTables` / `scanExcludeViews` patterns and the system-schema skips (see xref:schema-discovery/[]).
+
+|Scripts not loading
+|The script path in the manifest must match the classpath resource exactly (`/` = classpath root). A missing `.groovy` silently falls back to `.yaml`/`.yml`.
+
+|`Operation ... is not supported for ...`
+|The object class is read-only (view or `readOnly true`) or the operation was disabled — see xref:create/[], xref:update/[], xref:delete/[].
+
+|Groovy script fails at runtime
+|Script errors are wrapped with the resource name; review connector logs. Use the development environment, which reinitializes on each call so you can iterate on scripts.
+|===

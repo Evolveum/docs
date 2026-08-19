@@ -1,0 +1,86 @@
+= Declarative YAML
+:page-nav-title: Declarative YAML
+:page-display-order: 1240
+:page-upkeep-status: orange
+:page-toc: top
+:page-description: Declarative YAML support in the SQL Framework: YAML connector manifest and native YAML schema documents as an alternative to Groovy scripts.
+:page-keywords: YAML manifest, declarative YAML, native schema, connector.manifest.yaml, no-code connector
+
+The SQL Framework supports a declarative YAML form for the connector manifest and for schema definitions, in addition to Groovy scripts.
+
+This document is part of the SQL connector tutorial. See xref:../index/[] for other topics.
+
+IMPORTANT: YAML support covers a subset of the Groovy DSL. Use Groovy scripts for anything beyond simple table/attribute mapping (e.g. operation handlers, custom search).
+
+== YAML connector manifest
+
+The connector manifest may be named `connector.manifest.json`, `connector.manifest.yaml` or `connector.manifest.yml` — exactly one of the three may be present on the classpath.
+
+[source,yaml]
+----
+connector:
+  schema:
+    - script: /schema/customize.groovy
+    - script: /schema/persons.native.schema.yaml
+  operation:
+    - script: /handlers/user_ops.groovy
+----
+
+* `schema` — list of schema script resources, loaded during initialization. Groovy and YAML schema documents can be mixed.
+* `operation` — list of operation handler script resources (Groovy only at present).
+
+Paths starting with `/` are resolved as classpath resources from the root of the classpath.
+
+== Native YAML schema documents
+
+A schema document named `*.native.schema.yaml` (or `*.connid.schema.yaml`) is a flat YAML description of object classes:
+
+[source,yaml]
+----
+# /schema/person.native.schema.yaml
+objectClass: Person
+sql:
+  table: app_user
+attributes:
+  user_id:
+    connId:
+      name: __UID__
+  user_name:
+    connId:
+      name: __NAME__
+  user_email:
+    connId:
+      name: emailAddress
+  loginCount: {}
+----
+
+Structure:
+
+[cols="1,3", options="header"]
+|===
+|Key |Description
+
+|`objectClass`
+|ConnId object class name.
+
+|`sql`
+|Mapping block with `table` (SQL table name) and optional `schema` (SQL schema qualifier).
+
+|`attributes`
+|Map of `column name → attribute definition`. The only supported sub-block is `connId` with `name` (the ConnId attribute name, including `__UID__` / `__NAME__`). An empty value (`{}`) declares the attribute without renaming.
+|===
+
+YAML schema documents bind directly into the same live schema builder as Groovy scripts, so they merge with auto-discovered columns exactly like Groovy customizations do — including correlation with discovery and the built-in mapping rules.
+
+== Groovy to YAML fallback
+
+If a manifest entry references a `.groovy` resource that is not bundled, the loader transparently falls back to a `.yaml`/`.yml` resource with the same base name:
+
+[source,yaml]
+----
+connector:
+  schema:
+    - script: /schema/users.groovy   # resolves to /schema/users.yaml when only the YAML file is bundled
+----
+
+This makes it possible to migrate a script to YAML incrementally without changing the manifest.
