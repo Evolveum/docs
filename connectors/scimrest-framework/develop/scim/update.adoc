@@ -1,0 +1,150 @@
+= SCIM Update operation customization
+:page-nav-title: Update operations
+:page-display-order: 1450
+:page-upkeep-status: orange
+:page-toc: top
+:page-description: How to configure SCIM 2.0 PUT and PATCH update operations in a SCIMREST connector, including attribute limitations and per-request operation constraints.
+:page-keywords: SCIM update operation, PATCH operation, PUT operation, attribute limitations, SCIM connector
+
+SCIM 2.0 update operations use either PUT (full replacement) or PATCH (partial update)HTTP methods.
+
+To support create operation you do not need to specify anything for well-behaved SCIM 2.0 servers.
+For the servers which are not well-behaved or have implementation limitations, you may need to customize PUT / PATCH operation or disable unsupported ones.
+
+This document is part of the SCIM 2.0 connector tutorial. See xref:/connectors/scimrest-framework/[] for other topics.
+
+
+
+== PUT vs PATCH
+
+|===
+|Framework Keyword |HTTP Method |SCIM Mode |When to use
+
+|**put** |PUT |Absolute |Replace entire resource
+|**patch** |PATCH |Relative |Modify specific attributes
+|===
+
+== PUT (Absolute mode)
+
+Full resource replacement - sends all updateable attributes:
+
+[source,groovy]
+----
+objectClass("User") {
+    update {
+        scim {
+            put {
+                supportedAttributes "displayName", "nickName", "title"
+            }
+        }
+    }
+}
+----
+
+Since ConnId receives only deltas, the framework first read original state from SCIM server, applies delta and then sends all `updateable` attributes in the request body.
+== PATCH (Relative mode)
+
+Partial update - sends only changed attributes. SCIM PATCH uses operation-based format:
+
+[source,groovy]
+----
+objectClass("User") {
+    update {
+        scim {
+            patch {
+                supportedAttributes "externalId", "displayName", "nickName", "profileUrl"
+
+                supportedAttribute("userName") {
+                    limitations {
+                        operations ADD, REPLACE
+                        maxPerRequest 1
+                    }
+                }
+
+                supportedAttribute("active") {
+                    limitations {
+                        operations ADD, REPLACE
+                        maxPerRequest 1
+                    }
+                }
+            }
+        }
+    }
+}
+----
+
+=== Patch operations
+
+SCIM PATCH supports operations:
+
+* `ADD` - Add value(s) to multi-valued attribute
+* `REPLACE` - Replace attribute value(s)
+* `REMOVE` - Remove value(s) from multi-valued attribute
+
+=== Attribute limitations
+
+Configure SCIM-specific limitations:
+
+[source,groovy]
+----
+patch {
+    supportedAttribute("userName") {
+        limitations {
+            operations ADD, REPLACE
+            maxPerRequest 1
+        }
+    }
+}
+----
+
+Limitations:
+
+`operations`::
+    Which PATCH operations are allowed (ADD, REPLACE, REMOVE)
+`maxPerRequest`::
+    Maximum operations of this attribute per request. Some servers can not handle larger numbers of updates to multivalue attributes in one request. If limit is achieved, multiple PATCH requests will be issued by the framework.
+
+== Complete PATCH example (AWS style)
+
+
+Complete example for server, which supports PATCH and PUT, but patch support is limited only to subset of attributes and limited numbers of group changes per request.
+
+[source,groovy]
+----
+objectClass("User") {
+    update {
+        scim {
+            patch {
+                supportedAttributes "externalId", "displayName", "nickName", "profileUrl",
+                    "title", "userType", "preferredLanguage", "locale", "timezone", "name",
+                    "enterprise", "emails", "addresses", "phoneNumbers"
+
+                supportedAttribute("userName") {
+                    limitations {
+                        operations ADD, REPLACE
+                        maxPerRequest 1
+                    }
+                }
+
+                supportedAttribute("active") {
+                    limitations {
+                        operations ADD, REPLACE
+                        maxPerRequest 1
+                    }
+                }
+
+                supportedAttribute("groups") {
+                    limitations {
+                        operations ADD, REMOVE, REPLACE
+                        maxPerRequest 100
+                    }
+                }
+            }
+
+            put {
+                // PUT endpoint for full replacement
+            }
+        }
+    }
+}
+----
