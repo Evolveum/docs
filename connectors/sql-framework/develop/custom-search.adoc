@@ -3,12 +3,13 @@
 :page-display-order: 1260
 :page-upkeep-status: orange
 :page-toc: top
-:page-description: How to implement a custom SQL search query in a SQL Framework connector with the full query DSL: table, select, from, where, orderBy, and filter value access.
+:page-since: 4.11
+:page-description: How to implement a custom SQL search query in a SQL framework connector with the full query DSL: table, select, from, where, orderBy, and filter value access.
 :page-keywords: custom search, custom SQL query, query builder context, ORDER BY, search handler
 
-If the built-in search is not suitable — for example you need ORDER BY, computed columns, or a query that spans a different table — you can implement a fully custom SQL query per object class.
+If the built-in search is not suitable — for example, you need ORDER BY, computed columns, or a query that spans a multiple tables — you can implement a fully custom SQL query per object class.
 
-This document is part of the SQL connector tutorial. See xref:../index/[] for other topics.
+include::link-to-intro-preamble.adoc[]
 
 == Declaring a custom query
 
@@ -17,10 +18,10 @@ This document is part of the SQL connector tutorial. See xref:../index/[] for ot
 objectClass("User") {
     search {
         sql {
-            custom {
-                emptyFilterSupported true
+            custom { <1>
+                emptyFilterSupported true <2>
 
-                query { q ->
+                query { q -> <3>
                     def a = q.table("app_user", "a")
                     q.select(a.column("id"),
                             a.column("user_name"),
@@ -34,10 +35,11 @@ objectClass("User") {
     }
 }
 ----
+<1> Declaring a `custom {}` query takes over search for the object class: the built-in handler is automatically disabled so that exactly one handler serves each search.
+<2> The handler handles the empty filter (i.e., "search all").
+    When `false`, the handler only runs for non-empty filters.
+<3> Defines SELECT, FROM, WHERE and ORDER BY.
 
-* `emptyFilterSupported true` — the handler handles the empty filter (i.e. "search all"). When `false`, the handler only runs for non-empty filters.
-* `query { q -> ... }` — the closure defines SELECT, FROM, WHERE and ORDER BY.
-* Declaring a `custom {}` query takes over search for the object class: the built-in handler is automatically disabled so that exactly one handler serves each search.
 
 == Query builder context
 
@@ -75,7 +77,7 @@ The closure receives a `SqlCustomQueryBuilderContext` (`q`):
 |The full ConnId `Filter` object (rarely needed).
 |===
 
-Selected columns are matched back to the object class attributes by column name (case-insensitive suffix match), so `select` the physical column names of the mapped attributes (UID and NAME included) for the result to be usable.
+Selected columns are matched back to the object class attributes by column name (case-insensitive suffix match), so `select` the physical column names of the mapped attributes (`+++__UID__+++` and `+++__NAME__+++` included) for the result to be usable.
 
 == Examples
 
@@ -97,11 +99,11 @@ query { q ->
 
 === Built-in refinement instead
 
-If you only need to *add* a fixed predicate (without changing SELECT, FROM or ORDER BY), keep the built-in search and use its `where {}` block instead (see xref:search/[]) — the built-in handler stays enabled and handles all filters.
+If you only need to *add* a fixed predicate (without changing SELECT, FROM or ORDER BY), keep the built-in search and use its `where {}` block instead (see xref:/connectors/sql-framework/develop/search/#refining-the-built-in-where-clause[]) — the built-in handler stays enabled and handles all filters.
 A `custom {}` query, on the other hand, fully replaces the built-in search for the object class.
 
 == Limitations
 
-* The custom query result rows are mapped attribute-by-attribute from the SELECT column names; there is no join-based result shaping for child-table attributes in this mode (see xref:relationships/[] for the built-in resolvers).
+* The custom query result rows are mapped attribute-by-attribute from the SELECT column names; there is no join-based result shaping for child-table attributes in this mode (see xref:/connectors/sql-framework/develop/relationships/[] for the built-in resolvers).
 * Pagination (200 rows per page) is applied by the framework on top of your query.
 * ORDER BY is supported only in custom queries; the built-in search returns rows in table order.
