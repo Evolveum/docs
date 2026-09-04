@@ -1,0 +1,356 @@
+= midPoint developer starter
+:toc: left
+:toclevels: 3
+:sectnums:
+:source-highlighter: highlight.js
+:icons: font
+
+This document describes how to prepare a computer for midPoint development.
+Everything lives in one directory called `midpoint-workspace`.
+
+== Prerequisites
+
+Install the following tools:
+
+* Git
+* Docker (Docker Desktop or any engine with `docker compose`)
+* IntelliJ IDEA (Community is acceptable)
+* Apache Maven 3.9.x
+* Java JDK 21, Eclipse Temurin distribution: https://adoptium.net/
+** Java 17 is needed for older versions of midpoint
+* Google Chrome (optional, needed later for Schrodinger UI tests)
+
+Verify:
+
+[source,bash]
+----
+java -version    # must report Temurin 21
+mvn -version     # must use the Temurin 21 JDK
+docker compose version
+git --version
+----
+
+=== IntelliJ IDEA plugins
+
+Install these plugins (`Settings > Plugins > Marketplace`):
+
+* Multi-Project Workspace (JetBrains)
+* midPoint Studio
+* AsciiDoc
+
+== Workspace directory
+
+Create the workspace directory and clone the four projects into it:
+
+[source,bash]
+----
+mkdir midpoint-workspace
+cd midpoint-workspace
+
+git clone https://github.com/Evolveum/midpoint.git
+git clone https://github.com/Evolveum/prism.git
+git clone https://github.com/Evolveum/midpoint-localization.git
+git clone https://github.com/Evolveum/midpoint-samples.git
+----
+
+Resulting layout:
+
+----
+midpoint-workspace/
+  midpoint/                 main application
+  prism/                    core data structure library
+  midpoint-localization/    GUI localization files
+  midpoint-samples/         sample configuration objects
+  midpoint-home/            runtime home for local midPoint (created later)
+  docker-compose.yml        PostgreSQL database (created later)
+----
+
+All projects use branch `master`.
+
+== Database
+
+midPoint uses PostgreSQL.
+Run it in Docker.
+
+=== docker-compose.yml
+
+Create `midpoint-workspace/docker-compose.yml`:
+
+[source,yaml]
+----
+services:
+  postgres:
+    image: postgres:18
+    container_name: postgres18
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+----
+
+NOTE: PostgreSQL 18 image mounts data at `/var/lib/postgresql` (not `/var/lib/postgresql/data` as older images did).
+
+Start the database:
+
+[source,bash]
+----
+cd midpoint-workspace
+docker compose up -d
+----
+
+=== Create user and database
+
+Connect as superuser:
+
+[source,bash]
+----
+docker exec -it postgres18 psql -U postgres
+----
+
+Run:
+
+[source,sql]
+----
+CREATE USER midpoint WITH PASSWORD 'password' LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE;
+
+CREATE DATABASE midpoint WITH OWNER = midpoint ENCODING = 'UTF8'
+    TABLESPACE = pg_default LC_COLLATE = 'en_US.UTF-8' LC_CTYPE = 'en_US.UTF-8'
+    CONNECTION LIMIT = -1;
+----
+
+=== Initialize schema
+
+Schema scripts are in `midpoint/config/sql/native`.
+Run them as user `midpoint` against the `midpoint` database, in this order:
+
+[source,bash]
+----
+cd midpoint-workspace
+for f in postgres.sql postgres-audit.sql postgres-quartz.sql; do
+  docker exec -i postgres18 psql -U midpoint -d midpoint < midpoint/config/sql/native/$f
+done
+----
+
+// TODO: mention upgrade scripts (postgres-upgrade.sql, postgres-audit-upgrade.sql) and when to run them after pulling master.
+
+== Build
+
+Build order matters: localization, then prism, then midpoint.
+midPoint depends on artifacts of the other two.
+
+[source,bash]
+----
+cd midpoint-workspace
+
+cd midpoint-localization && mvn clean install -DskipTests && cd ..
+cd prism && mvn clean install -DskipTests && cd ..
+cd midpoint && mvn clean install -DskipTests && cd ..
+----
+
+When building midpoint repository you can use maven profile optio n`-P -dist,-docs`.
+This will skip building distribution and documentation.
+
+The first build downloads a lot of dependencies and takes a while.
+Build (without fetching dependencies) takes 2-3 minutes.
+
+Do not run the full midpoint test suite locally (`mvn clean install` without `-DskipTests`), it takes about 1.5 hours.
+Run specific test classes instead, see <<running-tests>>.
+
+== IntelliJ IDEA setup
+
+. Open IDEA, `File > New > Project`, choose *Workspace* (provided by the Multi-Project Workspace plugin), name it `Workspace`, location `midpoint-workspace`.
+. Add the four checked out projects to the workspace (`midpoint`, `prism`, `midpoint-localization`, `midpoint-samples`).
+.. Can be done via right click on project parent `pom.xml` and then in menu "Add as Maven project"
+. Wait for Maven import to finish.
+. `File > Project Structure > SDKs`, make sure Temurin 21 is registered and set as project SDK.
+
+== Running midPoint from IntelliJ IDEA
+
+=== midpoint.home
+
+Create `midpoint-workspace/midpoint-home/config.xml`:
+
+[source,xml]
+----
+<?xml version="1.0"?>
+<configuration>
+    <midpoint>
+        <webApplication>
+            <importFolder>${midpoint.home}/import</importFolder>
+        </webApplication>
+        <repository>
+            <type>native</type>
+            <jdbcUrl>jdbc:postgresql://localhost:5432/midpoint</jdbcUrl>
+            <jdbcUsername>midpoint</jdbcUsername>
+            <jdbcPassword>password</jdbcPassword>
+        </repository>
+        <audit>
+            <auditService>
+                <auditServiceFactoryClass>com.evolveum.midpoint.audit.impl.LoggerAuditServiceFactory</auditServiceFactoryClass>
+            </auditService>
+            <auditService>
+                <auditServiceFactoryClass>com.evolveum.midpoint.repo.sqale.audit.SqaleAuditServiceFactory</auditServiceFactoryClass>
+            </auditService>
+        </audit>
+        <icf>
+            <scanClasspath>true</scanClasspath>
+            <scanDirectory>${midpoint.home}/icf-connectors</scanDirectory>
+        </icf>
+        <keystore>
+            <keyStorePath>${midpoint.home}/keystore.jceks</keyStorePath>
+            <keyStorePassword>changeit</keyStorePassword>
+            <encryptionKeyAlias>default</encryptionKeyAlias>
+        </keystore>
+    </midpoint>
+</configuration>
+----
+
+Other files and directories (keystore, log, import, ...) are created on first start.
+
+=== Run configuration
+
+Create a *Spring Boot* run configuration:
+
+[cols="1,3"]
+|===
+| Name | `midpoint`
+| Module | `admin-gui`
+| JRE | Temurin 21
+| Main class | `com.evolveum.midpoint.web.boot.MidPointSpringApplication`
+| VM options | see below
+|===
+
+VM options (single line in IDEA, `$PROJECT_DIR$` is the workspace directory):
+
+[source]
+----
+-Dserver.port=8080
+-Xms1g
+-Xmx4g
+-Djava.net.preferIPv4Stack=true
+-Dmidpoint.home=$PROJECT_DIR$/midpoint-home
+-Dmidpoint.nodeId=node1
+-Dspring.profiles.active=default
+-Dmidpoint.administrator.initialPassword=qwer1234X!
+-Dspring.web.resources.chain.cache=false
+-Dspring.web.resources.chain.strategy.content.enabled=false
+--add-opens java.base/java.io=ALL-UNNAMED
+-XX:ReservedCodeCacheSize=250m
+----
+
+Options `-Dspring.web.resources.chain.cache=false -Dspring.web.resources.chain.strategy.content.enabled=false` are optional, used to disable caching of web resources on server side.
+
+Optionally add `Logs > midpoint.log` pointing to `$PROJECT_DIR$/midpoint-home/log/midpoint.log` to see the log in the run window.
+
+Start the configuration.
+midPoint is available at http://localhost:8080/midpoint, login `administrator` / `qwer1234X!`.
+
+[[running-tests]]
+== Running tests
+
+Tests use TestNG and need their own database.
+Create it the same way as in <<Database>>, but with a different name, e.g. `midpoint_tests`, and initialize the schema in it.
+
+Run a single test class from IDEA (TestNG run configuration) or from Maven:
+
+[source,bash]
+----
+cd midpoint-workspace/midpoint/model/model-intest
+mvn test -P -dist,-docs -Dtest=TestUserTemplate -DfailIfNoTests=false
+----
+
+VM options for tests (IDEA TestNG template or `-DargLine` for Maven):
+
+[source]
+----
+-ea
+-Xmx4g
+--add-exports java.management/sun.management=ALL-UNNAMED
+-Duser.language=en
+-Djava.net.preferIPv4Stack=true
+-Dmidpoint.repository.jdbcUrl=jdbc:postgresql://localhost:5432/midpoint_tests
+-Dmidpoint.repository.jdbcUsername=midpoint
+-Dmidpoint.repository.jdbcPassword=password
+-P sqale
+----
+
+Unless really needed, never run the whole suite locally.
+Run one test class, or Maven module per Maven invocation, batching several classes in one `-Dtest=` gives bogus failures.
+
+== Schrodinger UI tests
+
+Schrodinger is a Selenide based framework for testing the midPoint GUI.
+It runs against a separately started midPoint instance.
+
+=== Checkout and build
+
+Clone into the workspace and build:
+
+[source,bash]
+----
+cd midpoint-workspace
+git clone https://github.com/Evolveum/schrodinger.git
+cd schrodinger
+mvn clean install -DskipTests
+----
+
+Schrodinger uses branch `main` (not `master`).
+Its `midpoint.version` in `pom.xml` must match the midPoint version built locally (currently `4.11-SNAPSHOT`), so build midpoint first.
+
+Add the `schrodinger` project to the IDEA workspace the same way as the other projects.
+
+=== Chromedriver
+
+Download chromedriver matching your installed Chrome version from https://googlechromelabs.github.io/chrome-for-testing/ and unpack it somewhere, e.g. `<midpoint-workspace>/chromedriver`.
+
+=== midPoint instance for Schrodinger
+
+Schrodinger tests need midPoint started with `-Dmidpoint.schrodinger=true`.
+This flag adds `data-s-*` attributes to the HTML, which the tests use to locate components.
+Use a separate midpoint home directory and database so tests do not pollute the development instance.
+
+. Create database `midpoint_schrodinger` and initialize its schema (same steps as in <<Database>>).
+. Create `midpoint-workspace/midpoint-home-schrodinger/config.xml`, copy of the development one with `jdbcUrl` pointing to `midpoint_schrodinger`.
+. Create a second Spring Boot run configuration `midpoint schrodinger`, same as `midpoint` but with these VM options changed:
+
+[source]
+----
+-Dmidpoint.home=$PROJECT_DIR$/midpoint-home-schrodinger
+-Dmidpoint.schrodinger=true
+----
+
+=== Running a test
+
+. Start the `midpoint schrodinger` run configuration and wait until it is up.
+. In IDEA create a *TestNG* run configuration in module `schrodinger-tests` for a single test class, e.g. `com.evolveum.midpoint.schrodinger.scenarios.LoginPageTest`.
+. Set VM options:
+
+[source]
+----
+-ea
+-Djava.net.preferIPv4Stack=true
+-Dusername=administrator
+-Dpassword=qwer1234X!
+-Dbase_url_mp_already_started=http://localhost:8080/midpoint
+-Dwebdriver=CHROME
+-DwebdriverLocation=/path/to/chromedriver
+-DremoteWebdriverUrl=
+-DuseRemoteWebdriver=false
+-DstartMidpoint=false
+-Dlocale=us
+-DheadlessStart=false
+----
+
+Always run a specific test class, never the whole suite.
