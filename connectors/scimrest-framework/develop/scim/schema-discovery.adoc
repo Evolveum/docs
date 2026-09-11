@@ -1,7 +1,7 @@
 = SCIM schema discovery
 :page-nav-title: Schema discovery
 :page-display-order: 1410
-:page-upkeep-status: orange
+:page-upkeep-status: green
 :page-toc: top
 :page-description: How the SCIMREST framework automatically discovers SCIM 2.0 schemas, maps resource types to ConnId object classes, and supports post-discovery customization.
 :page-keywords: SCIM schema discovery, automatic schema, resource types, ConnId object class, schema mapping
@@ -12,32 +12,42 @@ This document is part of the SCIM 2.0 connector tutorial. See xref:/connectors/s
 
 == Automatic schema discovery
 
-When a SCIM connector is configured, the framework:
+When a SCIM connector is configured (SCIM is enabled when a `scimBaseUrl` and SCIM credentials are present — see xref:../authentication/[]), the framework:
 
-1. Connects to the SCIM server
-2. Retrieves available resource types via the `/ResourceType` endpoint
-3. Fetches schema definitions via the `/Schema` endpoint
-4. Maps SCIM resources to ConnId object classes
+1. Fetches the schema definitions via the `/Schemas` endpoint
+2. Retrieves the resource types via the `/ResourceTypes` endpoint (each resource type is keyed by its *name*; the SCIM `id` is optional and not every server provides it)
+3. Maps each SCIM resource type to a ConnId object class
 
 The discovered schema includes:
 
 * All SCIM resources (e.g., User, Group)
-* All attributes with their types, mutability, and returned ByDefault status
-* Schema extensions
+* All attributes with their types, mutability, and `returned` status
+* Schema extensions declared on the resource types
+
+In development mode the raw `/ServiceProviderConfig` document is additionally fetched and exposed for inspection.
 
 == SCIM to ConnId object class mapping
 
-The mapping is based on the SCIM resource name. You can override this in the schema.
+The object class name is based on the SCIM resource name; you can override it in a schema script.
 
-The ConnID attributes `UID` and `NAME` are mapped to id for custom resources, unless otherwise customized by scripts.
+Built-in attribute mappings (applied by the mapping rules, overridable in scripts):
+
+* `UID` ← SCIM `id` (always `String`)
+* `NAME` ← SCIM `userName` on the User schema, `displayName` on the Group schema
+* `User.groups` → multi-valued reference to the Group object class; `Group.members` → multi-valued reference to the User object class
+* SCIM `mutability` → write flags: `IMMUTABLE` → creatable (not updatable), `READ_ONLY` → readable only, `READ_WRITE` → creatable + updatable, `WRITE_ONLY` → creatable + updatable (not readable)
+* SCIM complex attributes → embedded object classes named `Parent__Attribute` (e.g. `User__emails`) — see xref:complex-attributes/[]
+* SCIM `binary` attributes → `byte[]` (base64 on the wire) — see xref:complex-attributes/[]
+
+No other ConnId built-in attributes (`ENABLE`, `PASSWORD`, …) are mapped automatically.
 
 == Schema customization
 
 After discovery, you can customize the schema:
 
 * Rename object classes
-* Add ConnId attribute mappings (`UID`, `NAME`)
-* Define SCIM path mappings for complex attributes
+* Add or override ConnId attribute mappings (`UID`, `NAME`)
+* Define SCIM path mappings for attributes and complex attributes
 * Add schema extensions
 
 See xref:schema-customization/[] for details.

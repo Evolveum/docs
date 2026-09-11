@@ -1,7 +1,7 @@
 = SQL schema discovery
 :page-nav-title: Schema discovery
 :page-display-order: 1220
-:page-upkeep-status: orange
+:page-upkeep-status: green
 :page-toc: top
 :page-since: 4.11
 :page-description: How the SQL framework automatically discovers database tables and columns via JDBC metadata, maps them to ConnId object classes and attributes, and applies built-in mapping rules.
@@ -45,8 +45,7 @@ The SQL-to-ConnId type mapping of a column is resolved from its JDBC type:
 
 |TINYINT, INTEGER
 |`Integer`
-|`SMALLINT` maps `Integer` ⇄ `Short`
-// TODO: I am not sure about the meaning of the `⇄` sign here, but that might be my topic-related ignorance.
+|`SMALLINT` columns are exposed as `Integer` attributes; values are converted between `Integer` (ConnId side) and `Short` (SQL side) on both reads and writes
 
 |BIGINT
 |`BigInteger`
@@ -88,14 +87,14 @@ Types used for *filter comparison* in search are listed in xref:/connectors/sql-
 
 The framework determines which column (or columns) form the object `+++__UID__+++`:
 
-. *Single primary key* — the single primary key column becomes `+++__UID__+++`.
-. *Composite primary key* — the first primary key column becomes `+++__UID__+++` and the remaining primary key columns are attached as additional UID columns;
-    the composite UID value is the column values joined with a `.` separator (e.g., `tenant-1.account-42`).
-. *No primary key* — falls back to the first unique column of the table as `+++__UID__+++`.
-. *No primary key and no unique column* — the object class has no usable UID; such objects are effectively unusable for provisioning and should be restricted with `scanExcludeTables`.
-// TODO: OK, they may be effectively unusable, but it may be worth specifying what the framework does should such a situation occur
+. *Single primary key* — the single PK column becomes `__UID__`.
+. *Composite primary key* — the first PK column becomes `__UID__` and the remaining PK columns are attached as additional UID columns; the composite UID value is the column values joined with a `.` separator (e.g. `tenant-1.account-42`).
+. *No primary key* — falls back to the first unique column of the table as `__UID__`.
+. *No primary key and no unique column* — the object class is still created, but without a `__UID__` mapping; no create/update/delete handler can be built for it. Exclude such tables with `scanExcludeTables` unless they are only needed read-only.
 
 You can override the detected UID mapping in your schema script (see xref:/connectors/sql-framework/develop/schema-customization/[]).
+
+NOTE: `__UID__` and `__NAME__` are always exposed as `String` attributes, regardless of the underlying column type — numeric key columns are coerced transparently, and composite UID values are the key column values joined with a `.` separator (e.g. `tenant-1.account-42`).
 
 == Built-in mapping rules
 
@@ -118,18 +117,13 @@ After discovery, a fixed set of rules refines the schema:
 |BLOB/CLOB/binary columns produce attributes with `returnedByDefault = false`, so they do not bloat search results unless explicitly requested.
 
 |Views are read-only
-|Object classes mapped to SQL views get `creatable/updatable/removable = false` and no write handlers are registered for them; search (and sync) remain available.
-// TODO: I understand search remains available, but what is sync in regards to a read-only attribute?
-//       It may be obvious but not to me.
+|Object classes mapped to SQL views get `creatable/updatable/removable = false` and no write handlers are registered for them; search and incremental sync (which is itself a read-only operation) remain available.
 |===
 
-These rules can be overridden where the DSL exposes the corresponding attribute flags.
-// TODO: I am not sure it is clear from this sentence where user is supposed to override the rules;
-//       is it in the develop/schema-customization/ somehow?
-//       Again, could be just me, but maybe a small pointer would be nice.
+These rules can be overridden in a xref:schema-customization/[schema customization] script wherever the DSL exposes the corresponding flags — for example per-attribute `creatable(false)`, `updatable(false)`, `removable(false)` or `returnedByDefault(false)`, or object-class-level `readOnly(true)`.
 
 == Verify discovered schema
 
 Set `developmentMode` to `true` while developing. The connector then registers an additional object class that lists every discovered SQL object class (with its `table` and `schema` protocol data), so you can inspect the discovered schema directly from the management system or the ConnId schema API before finalizing your scripts.
 
-See xref:/connectors/sql-framework/develop/schema-customization/[] for customizing the discovered schema.
+See xref:schema-customization/[] for customizing the discovered schema.

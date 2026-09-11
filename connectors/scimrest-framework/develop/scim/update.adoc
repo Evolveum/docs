@@ -1,32 +1,34 @@
 = SCIM Update operation customization
 :page-nav-title: Update operations
 :page-display-order: 1450
-:page-upkeep-status: orange
+:page-upkeep-status: green
 :page-toc: top
-:page-description: How to configure SCIM 2.0 PUT and PATCH update operations in a SCIMREST connector, including attribute limitations and per-request operation constraints.
-:page-keywords: SCIM update operation, PATCH operation, PUT operation, attribute limitations, SCIM connector
+:page-description: How the built-in SCIM 2.0 update operation works (default SCIM PATCH; optional full PUT), and the put/patch customization DSL for supported attribute subsets and per-attribute limitations.
+:page-keywords: SCIM update operation, PUT, PATCH, partial update, full replacement, delta, supported attributes, limitations, maxPerRequest, SCIM connector
 
-SCIM 2.0 update operations use either PUT (full replacement) or PATCH (partial update)HTTP methods.
-
-To support create operation you do not need to specify anything for well-behaved SCIM 2.0 servers.
-For the servers which are not well-behaved or have implementation limitations, you may need to customize PUT / PATCH operation or disable unsupported ones.
+SCIM 2.0 update operations change the state of a resource.
+For a well-behaved SCIM 2.0 server, update works out of the box — no operation script is required.
 
 This document is part of the SCIM 2.0 connector tutorial. See xref:/connectors/scimrest-framework/[] for other topics.
 
+The built-in SCIM update uses the *SCIM `PATCH`* operation (RFC 7644 section 3.5.2) by default: the changed attributes are sent as partial-update operations, and the original resource state is *not* read first.
+Use the `scim { put { ... } }` block to opt into a *full `PUT`* (full replacement) instead.
 
+== Built-in update (SCIM PATCH)
 
-== PUT vs PATCH
+The framework translates each ConnId attribute delta into one or more SCIM `PATCH` operations and sends them to `{resource endpoint}/{id}`:
 
-|===
-|Framework Keyword |HTTP Method |SCIM Mode |When to use
+. A *replace* delta becomes a `replace` operation (an empty replace clears the attribute — a `remove` without a value)
+. An *add* delta becomes an `add` operation
+. A *remove* delta becomes a `remove` operation (carrying the value(s) to remove, or clearing the attribute when none are given)
+. The operations are grouped into one or more `PATCH` requests (see `maxPerRequest` below)
+. Fails with `ConnectorException` ("Failed to update SCIM resource") on transport or SCIM errors
 
-|**put** |PUT |Absolute |Replace entire resource
-|**patch** |PATCH |Relative |Modify specific attributes
-|===
+Because only the changed attributes are sent, no original-state read is needed for the default PATCH strategy.
 
-== PUT (Absolute mode)
+== Full replacement (SCIM PUT)
 
-Full resource replacement - sends all updateable attributes:
+To have the framework issue a *full `PUT`* instead — reading the original state and replacing the whole resource — declare the `put` block:
 
 [source,groovy]
 ----
@@ -34,17 +36,44 @@ objectClass("User") {
     update {
         scim {
             put {
-                supportedAttributes "displayName", "nickName", "title"
+                // restrict the full PUT to a supported subset of attributes (optional)
+                supportedAttributes "externalId", "displayName", "nickName"
             }
         }
     }
 }
 ----
 
-Since ConnId receives only deltas, the framework first read original state from SCIM server, applies delta and then sends all `updateable` attributes in the request body.
-== PATCH (Relative mode)
+With the `put` strategy the framework:
 
-Partial update - sends only changed attributes. SCIM PATCH uses operation-based format:
+. Reads the original state of the object
+. Applies each ConnId attribute delta on top of the original values
+. Serializes the resulting attributes that the SCIM resource supports into the request body
+. Issues a `PUT` to `{resource endpoint}/{id}` with the replacement
+
+NOTE: The `put` and `patch` strategies are mutually exclusive — declaring a `put` block selects full replacement; otherwise the default `PATCH` strategy applies.
+
+== Restricting to a supported subset of attributes
+
+By default all `updateable` attributes from the schema are supported. When a server accepts only part of them, `supportedAttributes` narrows the set the operation handles (for both `put` and `patch`):
+
+[source,groovy]
+----
+objectClass("User") {
+    update {
+        scim {
+            // the server accepts only these attributes
+            patch {
+                supportedAttributes "externalId", "displayName", "nickName"
+            }
+        }
+    }
+}
+----
+
+== Per-attribute limitations (PATCH)
+
+`supportedAttribute(name) { limitations { ... } }` attaches per-attribute limits to the `PATCH` strategy:
 
 [source,groovy]
 ----
@@ -52,46 +81,16 @@ objectClass("User") {
     update {
         scim {
             patch {
-                supportedAttributes "externalId", "displayName", "nickName", "profileUrl"
+                supportedAttributes "externalId", "displayName", "nickName"
 
+                // only ADD and REPLACE are allowed, at most one value per request
                 supportedAttribute("userName") {
                     limitations {
                         operations ADD, REPLACE
                         maxPerRequest 1
                     }
                 }
-
-                supportedAttribute("active") {
-                    limitations {
-                        operations ADD, REPLACE
-                        maxPerRequest 1
-                    }
-                }
             }
-        }
-    }
-}
-----
-
-=== Patch operations
-
-SCIM PATCH supports operations:
-
-* `ADD` - Add value(s) to multi-valued attribute
-* `REPLACE` - Replace attribute value(s)
-* `REMOVE` - Remove value(s) from multi-valued attribute
-
-=== Attribute limitations
-
-Configure SCIM-specific limitations:
-
-[source,groovy]
-----
-patch {
-    supportedAttribute("userName") {
-        limitations {
-            operations ADD, REPLACE
-            maxPerRequest 1
         }
     }
 }
@@ -99,52 +98,22 @@ patch {
 
 Limitations:
 
-`operations`::
-    Which PATCH operations are allowed (ADD, REPLACE, REMOVE)
-`maxPerRequest`::
-    Maximum operations of this attribute per request. Some servers can not handle larger numbers of updates to multivalue attributes in one request. If limit is achieved, multiple PATCH requests will be issued by the framework.
+[cols="1,3", options="header"]
+|===
+|Key |Description
 
-== Complete PATCH example (AWS style)
+|`operations ADD, REPLACE, REMOVE`
+|The SCIM PATCH operations the attribute supports; a delta requiring an unsupported operation fails with a `ConnectorException`
 
+|`maxPerRequest N`
+|The maximum number of values of the attribute the server accepts in a single request; when exceeded, the framework splits the update into multiple `PATCH` requests (an over-limit `replace` is sent as a clear followed by chunked `add` operations)
 
-Complete example for server, which supports PATCH and PUT, but patch support is limited only to subset of attributes and limited numbers of group changes per request.
+|`value(...)`
+|Pins a fixed value for the attribute; the attribute is always sent as a `replace` with this value, ignoring the delta
+|===
 
-[source,groovy]
-----
-objectClass("User") {
-    update {
-        scim {
-            patch {
-                supportedAttributes "externalId", "displayName", "nickName", "profileUrl",
-                    "title", "userType", "preferredLanguage", "locale", "timezone", "name",
-                    "enterprise", "emails", "addresses", "phoneNumbers"
+SCIM PATCH operations: `ADD` (add value(s) to a multi-valued attribute), `REPLACE` (replace value(s)), `REMOVE` (remove value(s) from a multi-valued attribute).
 
-                supportedAttribute("userName") {
-                    limitations {
-                        operations ADD, REPLACE
-                        maxPerRequest 1
-                    }
-                }
+== Disabling update
 
-                supportedAttribute("active") {
-                    limitations {
-                        operations ADD, REPLACE
-                        maxPerRequest 1
-                    }
-                }
-
-                supportedAttribute("groups") {
-                    limitations {
-                        operations ADD, REMOVE, REPLACE
-                        maxPerRequest 100
-                    }
-                }
-            }
-
-            put {
-                // PUT endpoint for full replacement
-            }
-        }
-    }
-}
-----
+Use the generic operation enablement (see xref:../rest/update/[] for the REST-side DSL) when a resource type does not support updates at all.

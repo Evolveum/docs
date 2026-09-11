@@ -1,0 +1,149 @@
+= SCIM complex and binary attributes
+:page-nav-title: Complex & binary attributes
+:page-display-order: 1425
+:page-upkeep-status: green
+:page-toc: top
+:page-description: How SCIM complex (embedded) and binary attributes are mapped and read in the SCIMREST framework, and the SCIM attribute path format (ScimPath) reference.
+:page-keywords: complex attribute, embedded object, binary attribute, base64, SCIM path, ScimPath, value filter, schema extension
+
+This document is part of the SCIM 2.0 connector tutorial. See xref:/connectors/scimrest-framework/[] for other topics.
+
+== Complex attributes
+
+SCIM complex attributes (for example `name`, `emails`, `addresses`, `phoneNumbers`) are exposed as *embedded object classes* named `Parent__Attribute` — for example `User__emails` for the `User` schema's `emails` attribute.
+Nested complex sub-attributes are flattened one level.
+
+* *Reading* is supported out of the box: the embedded value is deserialized from the SCIM JSON through the sub-attribute mappings (a SCIM object without `subAttributes` is handled safely).
+* *Writing* complex attribute values is not supported yet — complex attributes are read-only from the ConnId side (`Write not supported yet`).
+
+To map a flat ConnId attribute into a complex SCIM structure, use a SCIM path (below):
+
+[source,groovy]
+----
+attribute("givenName") {
+    scim {
+        path attribute("name").child("givenName")
+    }
+}
+
+attribute("primaryEmail") {
+    scim {
+        path attribute("emails").valueFilter("primary", true).child("value")
+    }
+}
+----
+
+== Binary attributes
+
+SCIM `binary` attributes are mapped to `byte[]` in ConnId and represented as base64 strings on the wire.
+
+== SCIM attribute paths (ScimPath)
+
+The `scim { path ... }` DSL builds a SCIM *attribute path* — the wire format defined in RFC 7644 §3.1. The path grammar (parsed and serialized by the framework's `ScimPathFormat`):
+
+[cols="1,3", options="header"]
+|===
+|Segment |Meaning
+
+|`attrName`
+|An attribute name: `[A-Za-z][A-Za-z0-9_\-]*`, chained with `.` (e.g. `name.givenName`)
+
+|`uri:attr.attr`
+|A schema-extension prefix — the URI (identified by the last `:`) followed by attribute names (e.g. `urn:ietf:params:scim:schemas:extension:enterprise:2.0:User:employeeNumber`)
+
+|`[index]`
+|Select the value at a positive-integer index of a multi-valued attribute
+
+|`[attr = value, ...]`
+|A value filter on a multi-valued attribute (only the `=` operator is accepted)
+|===
+
+The Groovy DSL that builds these paths:
+
+[cols="1,3", options="header"]
+|===
+|DSL |Path segment
+
+|`attribute("name")`
+|attribute name
+
+|`.child("givenName")`
+|child attribute / extension attribute (appends to the path)
+
+|`.valueFilter("primary", true)`
+|value filter `[primary = true]` (multiple key/value pairs allowed)
+
+|`.firstValue()`
+|index filter `[0]`
+
+|`extension("enterprise")` / `extension("enterprise", "urn:...")`
+|schema extension (with or without explicit URI)
+
+|`withoutFilters()`
+|drops all filter segments
+|===
+
+Examples:
+
+[source,groovy]
+----
+path attribute("emails").valueFilter("primary", true).child("value")
+// emails[primary = true].value
+
+path extension("enterprise").child("employeeNumber")
+// <enterprise extension URI>:employeeNumber
+
+path attribute("addresses").firstValue()
+// addresses[0]
+----
+
+The same in declarative YAML — the `scim.path` value is the literal SCIM path, not the Groovy path DSL:
+
+[source,yaml]
+----
+objectClasses:
+  User:
+    scim:
+      extensions:
+        enterprise: "urn:ietf:params:scim:schemas:extension:enterprise:2.0:User"
+    attributes:
+      givenName:
+        scim:
+          path: name.givenName
+      primaryEmail:
+        scim:
+          path: emails[primary eq true].value
+      firstAddress:
+        scim:
+          path: addresses[0]
+      employeeNumber:
+        scim:
+          path: urn:ietf:params:scim:schemas:extension:enterprise:2.0:User:employeeNumber
+----
+
+See xref:../declarative-yaml/[declarative YAML] for the full schema YAML reference.
+
+The same path model is used internally when the framework resolves attribute values from SCIM resources, so scripts and the built-in handlers agree on where values live.
+
+== Custom value mapping
+
+For attributes whose SCIM representation does not fit the standard mapping (for example reference values), provide a custom `deserialize` / `serialize` implementation:
+
+[source,groovy]
+----
+attribute("employees") {
+    scim {
+        implementation {
+            deserialize {
+                // 'it' is the raw JSON value; return a ConnId value,
+                // e.g. a ConnectorObjectReference for reference attributes
+            }
+            serialize {
+                // reverse direction
+            }
+        }
+    }
+}
+----
+
+See xref:relationship-support/[relationship support] for a complete example.

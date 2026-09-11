@@ -1,7 +1,7 @@
 = Multitable support: child tables and junction tables
 :page-nav-title: Relationships
 :page-display-order: 1300
-:page-upkeep-status: orange
+:page-upkeep-status: green
 :page-toc: top
 :page-since: 4.11
 :page-experimental: true
@@ -12,10 +12,7 @@ The SQL framework detects relationships between tables automatically and exposes
 
 include::link-to-intro-preamble.adoc[]
 
-IMPORTANT: Relationship detection is convention- and metadata-driven; there is no script API to define custom join paths today. The `relationship {}` function in schema scripts is a stub, and `joinOn` / `foreignKey` blocks (as seen in some example scripts) are illustrative only — do not depend on them.
-// TODO: Will this be valid after release of 4.11? Or 4.12?
-//       We have to be careful with these warnings because they easily become obsolete and there is no automatic way to check them.
-//       Also, I think this warrants :page-experimental: flag - to be removed when this warning is removed.
+IMPORTANT: Relationship detection is convention- and metadata-driven; there is no script API to define custom join paths today. The `relationship {}` function in currently unsupported scripts is a stub, and `joinOn` / `foreignKey` blocks (as seen in some example scripts) are illustrative only — do not depend on them.
 
 == Relationship detection methods
 
@@ -49,7 +46,7 @@ Depending on what the foreign key columns contribute to the child table's primar
 |===
 
 A child table whose primary key contains a surrogate key of its own (e.g., `id`, `user_id`) — i.e., the foreign keys are not the primary key — is treated as a standalone table, not a relationship.
-Detected child/embedded object classes are folded into the parent and are not exposed as separately manageable object classes (no create/update/delete handlers; data is managed through the parent or via the database).
+Detected child/embedded object classes are folded into the parent and are not exposed as separately manageable object classes (no create/update/delete handlers; the data is managed through the parent object class, see xref:related-table-writes/[]).
 
 == Example
 
@@ -75,13 +72,13 @@ The discovery produces:
 
 The relationship values are resolved at search time in a batch: after the parent rows are selected, the framework issues one query per relationship over the parent UIDs (`WHERE <join_column> IN (...)`) and attaches the results.
 
-== Read-side behavior
+== Behavior
 
 * Multi-valued attributes and references are populated during search; they are not part of the parent row's columns.
-* Filtering *through* a relationship is not part of the built-in filter translation — filter on the parent object class attributes (see xref:/connectors/sql-framework/develop/search/[] and xref:/connectors/sql-framework/develop/custom-search/[] for custom needs).
-* Embedded object classes are read-only from the ConnId side;
-    writes to child data are a development goal (see xref:sync/[] for status notes).
-// TODO: I cannot identify where this link is supposed to lead - there is no file '.*sync.*' in the sql-framework section, no such section, …
+* Filtering *through* a relationship is not part of the built-in filter translation — filter on the parent object class attributes (see xref:search/[] and xref:custom-search/[] for custom needs).
+* Child-table data is readable and writable through the parent object class — create, update and delete handle the related rows in the same transaction (see xref:related-table-writes/[]).
+* Read-only flat projections of additional tables (LEFT JOINs) are not relationships — configure them with the `join` block (see xref:schema-customization/[joined attributes (read-only)]).
+* Incremental sync of related data is not wired yet.
 
 == Guidelines for your database schema
 

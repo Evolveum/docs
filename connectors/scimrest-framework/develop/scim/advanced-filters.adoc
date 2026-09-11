@@ -1,5 +1,6 @@
 = SCIM filter specification
-:page-upkeep-status: orange
+:page-nav-title: Filter specification
+:page-upkeep-status: green
 :page-display-order: 1460
 :page-toc: top
 :page-description: Reference for the SCIMREST filter specification API: declaring supported SCIM 2.0 search filters for simple, nested, and schema extension attributes.
@@ -24,9 +25,11 @@ limitations {
 
 Components:
 
-* `attribute(name)` - Specify the attribute name
-* `.eq()` - Equals filter (also `.contains()`)
-* `.anySingleValue()` - Must have exactly one value
+* `attribute(name)` - Specify the attribute name. The protocol (SCIM) name is translated to the ConnId attribute name, and the specification is then matched against the ConnId filter.
+* `.eq()` - Equals filter
+* `.contains()` - Contains filter
+* `.chain(spec)` - Combine two attribute specifications (AND)
+* `.anySingleValue()` - Must have exactly one value (alias: `.anyValue()`)
 
 == Filter types
 
@@ -46,34 +49,22 @@ supportedFilter attribute("displayName").eq().anySingleValue()
 supportedFilter attribute("displayName").contains().anySingleValue()
 ----
 
-=== Multi-valued attributes
+=== Multi-valued and extension attributes
 
-For attributes like `groups` with nested fields:
+A specification always names a *single* attribute — there is no path form (`.child(...)`, `valueFilter(...)`, extension URIs) in the filter-specification API. Path-based addressing (e.g. `name.givenName`, `emails[primary eq true].value`) exists only in the SCIM *schema* path DSL (see xref:schema-customization/[SCIM schema customization]).
 
-[source,groovy]
-----
-// Filter by groups.value
-supportedFilter attribute("groups").child("value").eq().anySingleValue()
-
-// Filter by emails.primary
-supportedFilter attribute("emails").valueFilter("primary", true).child("value").eq().anySingleValue()
-----
-
-=== Extension attributes
-
-For SCIM schema extensions:
+For multi-valued or extension attributes, use the attribute's name as the server exposes it on the ConnId side (the SCIM name is translated to the ConnId name automatically):
 
 [source,groovy]
 ----
-// Using extension name
-supportedFilter attribute("employeeNumber")
-    .path(extension("enterprise").child("employeeNumber"))
-    .eq().anySingleValue()
+// The multi-valued `groups` attribute
+supportedFilter attribute("groups").eq().anySingleValue()
 
-// Using full URN
-supportedFilter attribute("urn:ietf:params:scim:schemas:extension:enterprise:2.0:User:employeeNumber")
-    .eq().anySingleValue()
+// An extension attribute, by its SCIM name
+supportedFilter attribute("employeeNumber").eq().anySingleValue()
 ----
+
+NOTE: Nested *value* filters (for example "the `value` of the `groups` entry where `display` matches") cannot be expressed in the specification API today — such searches need a custom search implementation (see xref:search/[custom search]).
 
 == Complex filter combinations
 
@@ -89,15 +80,19 @@ limitations {
 }
 ----
 
-The connector will use any of these filters when the client requests them.
+The connector accepts any of these filters when the client requests them.
 
-== Empty filter support
+== Empty filter and any-filter support
 
-Framework assumes support for empty filters out of the box for SCIM servers. If server does not support empty filters, it must be specified in `limitations` section:
+* By default the handler accepts *any* translatable filter (the `anyFilterSupported` default) — including the empty filter, which triggers the list-all search (see xref:search/[built-in search]).
+* Declaring any `supportedFilter(...)` disables the accept-any default; from then on only the declared specifications are accepted, and the empty (list-all) filter as well, unless `emptyFilterSupported true` is set.
+* To disable list-all, declare at least one `supportedFilter` and leave `emptyFilterSupported` off:
+
 [source,groovy]
 ----
 limitations {
-    emptyFilterSupported false
+    // no emptyFilterSupported true
+    supportedFilter attribute("userName").eq().anySingleValue()
 }
 ----
 
@@ -121,14 +116,33 @@ objectClass("User") {
 }
 ----
 
+NOTE: Declarations narrow which filters the handler *accepts*; accepted filters are translated to the SCIM `filter` query parameter and sent to the server (see xref:search/[built-in search]).
+
 == Filter specification methods
 
+[cols="1,2,2", options="header"]
 |===
 |Method |Description |Example
-|`attribute(name)` |Specify attribute |`attribute("userName")`
-|`.eq()` |Equals filter |`.eq()`
-|`.contains()` |Contains filter |`.contains()`
-|`.anySingleValue()` |Single value |`.anySingleValue()`
-|`.child(name)` |Nested path |`.child("givenName")`
-|`path(path)` |Explicit path |`path extension("e").child("attr")`
+
+|`attribute(name)`
+|Specify attribute
+|`attribute("userName")`
+
+|`.eq()`
+|Equals filter
+|`.eq()`
+
+|`.contains()`
+|Contains filter
+|`.contains()`
+
+|`.chain(spec)`
+|Combine two attribute specifications (AND)
+|`.chain(attribute("active").eq())`
+
+|`.anySingleValue()` / `.anyValue()`
+|Single value
+|`.anySingleValue()`
 |===
+
+NOTE: The path methods `.child(name)`, `valueFilter(key, value)`, and `extension(name, uri)` belong to the SCIM *schema path* DSL (xref:schema-customization/[]) and are **not** available on filter specifications.

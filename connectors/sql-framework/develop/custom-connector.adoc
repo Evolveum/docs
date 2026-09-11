@@ -1,7 +1,7 @@
 = Custom connector classes and bundles
 :page-nav-title: Custom connectors
 :page-display-order: 1320
-:page-upkeep-status: orange
+:page-upkeep-status: green
 :page-toc: top
 :page-since: 4.11
 :page-description: How to build a custom SQL framework connector: manifest-based connectors, subclassing AbstractGroovySqlConnector, script loading, and packaging the connector bundle.
@@ -13,8 +13,7 @@ include::link-to-intro-preamble.adoc[]
 
 == Option 1: manifest-based connector (no Java)
 
-`ManifestBasedConnector` reads `connector.manifest.json` / `.yaml` / `.yml` from the classpath and loads the declared schema and operation scripts (see xref:/connectors/sql-framework/develop/declarative-yaml/[]).
-// TODO: classpath -- link to explanatory details if you decide to add it to declarative-yaml as per my suggestion there.
+`ManifestBasedConnector` reads `connector.manifest.json` / `.yaml` / `.yml` from the classpath of the connector bundle (the bundle JAR together with the JARs in its `lib/` directory) and loads the declared schema and operation scripts (see xref:/connectors/sql-framework/develop/declarative-yaml/[]).
 
 Bundle layout:
 
@@ -46,6 +45,12 @@ my-sql-connector/
 
 The connector class is `com.evolveum.polygon.sql.base.groovy.impl.ManifestBasedConnector`.
 The generic SQL bundle in the repository ships with an *empty* manifest — add your scripts and rebuild, or reference the base bundle from your own assembly.
+
+Notes:
+
+* Exactly one manifest may be bundled (`connector.manifest.json`, `.yaml` or `.yml`) — bundling more than one is a packaging error.
+* A script entry may carry `"disabled": true` — the script is skipped in both real loading and script validation, as if it were not bundled at all. Useful to toggle a script without repackaging.
+* Script paths are classpath resources; a leading `/` means the classpath root.
 
 == Option 2: custom connector class (Java)
 
@@ -83,7 +88,8 @@ public class ExampleSqlConnector extends AbstractGroovySqlConnector<SqlConnector
 
 Notes:
 
-* constructor argument `reinitializeOnEachCall` — use `true` in development (re-runs discovery and script loading on every call so script edits are picked up), and `false` in production (pool and handlers are initialized once).
+* constructor argument `reinitializeOnEachCall` — use `true` in development (re-runs discovery and script loading on every call so script edits are picked up), and `false` in production (pool and handlers are initialized once). The manifest-based `ManifestBasedConnector` always uses `false`.
+* When the configuration is incomplete (no `jdbcUrl`/`username` or no `password`), `schema()` builds the schema from the bundled scripts alone — no connection pool is created and no discovery runs. This is useful for wizards and tooling that introspect a connector before a connection is configured.
 * operation scripts share a single Groovy shell, so helper functions defined in one script are available to later scripts:
 +
 [source,groovy]
@@ -93,6 +99,21 @@ def activeUsers(int status) {
     return { e -> e.col("status").eq(status) }
 }
 ----
+
+== Java extension points
+
+For behavior that goes beyond the DSL, the framework exposes programmatic hooks:
+
+* *Custom mapping rules* — `SqlSchemaTranslator.addResourceRule(...)` and `addAttributeRule(...)` register additional schema-mapping rules into the rule chain that runs after the built-in rules (see xref:schema-discovery/[built-in mapping rules]).
+* *Fully custom operations* — the per-object-class operation support builder accepts `register(Class<T> operationType, T operation)` to register a custom operation implementation; `SqlHandlerLoader` also provides `loadFromString(...)` and `register(objectClass, operationType, operation)` for programmatic handler registration.
+* *Script loading* — `SqlSchemaDefinitionLoader.loadFromResource(...)` resolves a `.yaml`/`.yml` document when the referenced `.groovy` file is missing from the bundle.
+
+== Script validation from the management system
+
+In development mode (`developmentMode true`), the connector supports the ConnId `runScriptOnResource` SPI hook: the management system can submit a candidate Groovy script with the operation `build` or `compile`, and the connector validates it by evaluating the script against all sibling deployed scripts (the candidate replaces its own previous content; cross-references between scripts resolve). The validation result — compile errors or the built schema — is returned to the caller.
+
+* The hook is only enabled with `developmentMode true`; outside development mode it fails with `UnsupportedOperationException`.
+* Only `groovy` scripts and the `build` / `compile` operations are supported.
 
 == Packaging the bundle
 
@@ -119,8 +140,7 @@ target/my-sql--connector*.jar
 ----
 
 Make sure the JDBC driver for your database is in the dependency set (the SQL framework itself does not bundle drivers).
-The `Messages.properties` file provides the display labels for the configuration form.
-// TODO: Wouldn't the 2nd sentence deserve a bit more explanation?
+The `Messages.properties` file (at the root of the bundle, next to the manifest) provides the display labels for the configuration form: each entry maps a configuration property name (for example `jdbcUrl`) to the label shown on the midPoint connector form, so the form displays human-readable names instead of raw property keys.
 
 == Troubleshooting
 
@@ -147,5 +167,5 @@ The `Messages.properties` file provides the display labels for the configuration
 |The object class is read-only (view or `readOnly true`) or the operation was disabled — see xref:/connectors/sql-framework/develop/create/[], xref:/connectors/sql-framework/develop/update/[], xref:/connectors/sql-framework/develop/delete/[].
 
 |Groovy script fails at runtime
-|Script errors are wrapped with the resource name; review connector logs. Use the development environment, which reinitializes on each call so you can iterate on scripts.
+|Script errors are wrapped with the resource name; review connector logs. In development mode you can validate a script from the management system before deployment (see above).
 |===

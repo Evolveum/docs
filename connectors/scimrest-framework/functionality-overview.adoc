@@ -1,12 +1,14 @@
-= SCIMREST framework design an functionality overview
+= SCIMREST framework design and functionality overview
 :page-nav-title: Functionality and design
 :page-display-order: 1100
-:page-upkeep-status: green
+:page-upkeep-status: orange
 :page-moved-from: /connectors/scimrest-framework/design/
 :page-description: Architecture and functionality overview of the SCIMREST framework, covering schema mapping, authentication, REST and SCIM support, and the Groovy Builder API.
 :page-keywords: SCIMREST architecture, schema mapping, Groovy DSL, ConnId strategy pattern, authentication support
 
-An overview of the SCIMREST framework architecture aimed to help you understand how to create SCIM connectors for midPoint that operate via the ConnID layer.
+An overview of the SCIMREST framework architecture aimed to help you understand how to create SCIM and REST connectors for midPoint that operate via the ConnID layer.
+
+NOTE: The framework supports *SCIM 2.0 only* — SCIM 1.0 is not supported.
 
 == SCIMREST framework functionality overview
 
@@ -14,13 +16,15 @@ Base Connector Framework Support::
 ** Set of base classes necessary to integrate with ConnId framework.
 
 Schema Mapping & Schema Builder APIs::
-** Provides a way to define and manage schema, and  mappings between protocol representation (SCIM, REST) and ConnId schema.
-** Allows for easy customization of attribute names and types regardless of protocol used.
-** Allows for specifying object classes, attributes, relationships in declarative way.
+** Provides a way to define and manage the schema and the mappings between the protocol representation (SCIM, REST/JSON) and the ConnId schema.
+** Mapping is rule-based: a chain of protocol rules (for SCIM: type, metadata, mutability, name/UID detection, membership references) plus structural rules (default `NAME` from `UID`, ConnId type coercion) transforms the protocol metadata into a ConnId schema; the chain can be extended with custom rules.
+** Allows for easy customization of attribute names and types regardless of the protocol used.
+** Allows for specifying object classes, attributes, and relationships in a declarative way.
 
 Authentication & Authorization::
-** Common configuration model for authentication and authorization mechanisms, such as OAuth 2.0, API keys.
-** Providing initialized REST client with authentication and authorization headers, tokens, and other required parameters to REST and SCIM Support classes.
+** Common configuration model for authentication mechanisms per protocol namespace (`rest*` / `scim*` properties): HTTP basic, bearer token, self-signed JWT, API key, four OAuth 2.0 grant types (client credentials, password, JWT bearer, SAML), and AWS Signature Version 4; Digest, Hawk, and NTLM are configurable but not implemented yet.
+** Custom implementations per method (Groovy `implementation` blocks, OAuth 2.0 hooks such as `onResponse`), and a per-protocol method `preference`.
+** The initialized client adds the authentication headers/tokens to every REST and SCIM request — see xref:develop/authentication/[authentication & authorization].
 
 ConnId Support & Operation Builders::
 ** Support for ConnId operations using strategy design pattern, where based on ConnId request, the appropriate strategies are selected to handle the request.
@@ -32,47 +36,44 @@ REST Support::
 ** Support for custom strategies for handling non-standard cases such as complex updates, splitting operations into multiple sub-operations, indirect searches.
 
 SCIM Support::
-** Supports automatic schema discovery using SCIM 2.0 protocol.
-** Contributes to schema mappings and provides strategies based on discovered SCIM 2.0 schema, so there is no need to manually define schema mappings for SCIM 2.0 compliant applications.
-** Built-in strategies for handling ConnId search, update, create, and delete operations based on SCIM 2.0 protocol.
-*** Multiple strategies for update operations, delete operations.
-*** Support for custom strategies to be defined for handling non-standard cases such as complex updates, splitting operations into multiple sub-operations, indirect searches.
+** Supports automatic schema discovery using the SCIM 2.0 protocol (`/Schemas`, `/ResourceTypes`; `/ServiceProviderConfig` in development mode).
+** Contributes to schema mappings and provides strategies based on the discovered SCIM 2.0 schema, so there is no need to manually define schema mappings for SCIM 2.0 compliant applications.
+** Built-in strategies for handling ConnId search (UID retrieval, list-all, and server-side filtering via the SCIM `filter` parameter), create, update (default SCIM `PATCH` for partial updates; optional full `PUT` for full replacement), and delete operations based on the SCIM 2.0 protocol.
+*** Support for custom strategies to be defined for handling non-standard cases such as complex updates, splitting operations into multiple sub-operations, and indirect searches.
 
 Scripting Support::
 ** Custom Groovy DSL for configuring & defining custom schema mappings, logic, strategies, and operations.
-** Scripting support is intended to implement custom connectors using Groovy with intent to minimize boilerplate code.
+** Scripting support is intended to implement custom connectors using Groovy with the intent to minimize boilerplate code.
+** A declarative YAML front-end for schema, operations, and authentication is available (WIP) — see xref:develop/declarative-yaml/[declarative YAML].
 
-// * **SQL Support**:
-// ** Supports automatic schema discovery using SQL database metadata.
-// ** Contributes to schema mappings and provide strategies based on discovered SQL schema, so there is no need to manually define schema mappings for database tables.
-// ** Support for customization of naming, attribute mappings and table relationships.
-// ** Built-in strategies for handling ConnId search, update, create, and delete operations.
-// ** Support for custom strategies for handling non-standard cases such as complex updates, splitting operations into multiple sub-operations, indirect searches.
+== SCIM 2.0 & REST connector design
 
-== SCIM2 & REST connector design
+* providing out-of-the-box support for the most used & well-known API designs
+* flexible enough to handle most of the REST APIs & their quirks
+* not strongly tied to `Groovy`, with the potential to replace it with a more declarative approach (YAML front-end)
+* strong leaning on the _declarative_ approach instead of _scripting_
 
-* Providing out-of-the-box support for most used & well-known API
-desings
-* flexible enough to handle most of REST APIs & their quirks
-* not strongly tied to `Groovy` with potential to replace with more
-declarative approach
-* strong leaning on _declarative_ approach instead of _scripting_ ##
-Design
-
-The base connector framework is based heavily on `Strategy` &
-`Delegation` pattern. The framework out-of-the-box provides multiple
-configurable strategy implementations to handle common scenarios such
-as:
+The base connector framework is based heavily on the `Strategy` & `Delegation` patterns. The framework out of the box provides multiple configurable strategy implementations to handle common scenarios such as:
 
 * search
-** selecting correct search strategy based on filter
-** searching & retrieving object list strategy
-*** using REST endpoint
+** selecting the correct search strategy based on the filter
+** searching & retrieving the object list strategy
+*** using a REST endpoint
 *** using SCIM
 *** custom implementation
 * retrieving additional attributes
-** multivalue attributes (references) using other search strategy
+** multi-valued attributes (references) using another search strategy
+
+The operation handlers are context-aware: every handler receives the operation context (`ContextLookup`), and multi-step operations can run inside an `OperationTransaction`. Java connector authors can register custom handlers for any operation — see the SPI handler interfaces (`CreateOperationHandler`, `UpdateOperationHandler`, `DeleteOperationHandler`, `ObjectSearchOperation`) for the signatures.
+There is no separate "read" operation in the SPI — retrieving an object by UID is implemented as a search with a UID equality filter.
 
 === Groovy Builder API
 
-Most of the groovy scripts are not full-blown scripts, but
+Most of the Groovy scripts are not full-blown scripts, but small declarative blocks evaluated against builder objects:
+
+* schema scripts delegate to a per-object-class *schema builder* (`objectClass { ... }`), which in turn delegates to attribute builders for `attribute { ... }` blocks;
+* operation handler scripts delegate to a per-object-class *operation support builder* with `search { ... }`, `create { ... }`, `update { ... }`, and `delete { ... }` blocks.
+
+Because the scripts run in a shared Groovy shell, helper functions defined in one script can be reused by later scripts of the same kind (schema or handler).
+
+See xref:develop/index/[] for the development guides.

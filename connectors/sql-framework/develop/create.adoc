@@ -1,7 +1,7 @@
 = SQL create operation
 :page-nav-title: Create operations
 :page-display-order: 1270
-:page-upkeep-status: orange
+:page-upkeep-status: green
 :page-toc: top
 :page-since: 4.11
 :page-description: How the built-in SQL create operation works: UID handling, generated keys, emulated NAME, composite UIDs, transactional read-back, and enable/disable configuration.
@@ -18,11 +18,12 @@ Keep the manifest's `operation` list empty and define an SQL-backed `+++__UID__+
 
 The framework:
 
-. Translates each creatable attribute value through its SQL value mapping.
-. Omits absent columns so database defaults apply.
-. Executes the `INSERT` inside a JDBC transaction.
-. Obtains the generated key for identity/auto-increment primary keys.
-. Reads the created row back within the same transaction and returns it as the created object.
+. Translates each creatable attribute value through its SQL value mapping
+. Omits absent columns so database defaults apply
+. Executes the `INSERT` inside a JDBC transaction
+ . Obtains the generated key for identity/auto-increment primary keys
+ . Reads the created row back within the same transaction and returns it as the created object
+ . If the object class has related-table attributes (see xref:relationships/[]), the framework inserts the child-table rows for each embedded or multi-valued value, still within the same transaction (see xref:related-table-writes/[])
 
 == UID handling
 
@@ -68,6 +69,9 @@ All create operations run in a transaction that is rolled back on failure; SQL e
 
 |Inserted row could not be read back
 |`ConnectorException`
+
+|Exactly-one-row check failed (an explicit UID value was supplied)
+|`ConnectorException`
 |===
 
 == Enabling / disabling create
@@ -81,6 +85,16 @@ objectClass("Employee") {
        enabled false
     }
 }
+----
+
+The same in YAML:
+
+[source,yaml]
+----
+objectClasses:
+  Employee:
+    create:
+      enabled: false
 ----
 
 Object classes marked `readOnly true`, and views, never get a create handler.

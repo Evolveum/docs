@@ -1,0 +1,94 @@
+= Shipped and sample connectors
+:page-nav-title: Generic connectors
+:page-display-order: 1270
+:page-upkeep-status: green
+:page-toc: top
+:page-description: The generic SCIMREST connectors (generic REST and pure SCIM 2.0), their manifests, configuration hiding, and how to package a connector bundle.
+:page-keywords: generic connector, scim-generic, connector manifest, configurationOverride, Messages.properties, packaging, bundle
+
+Besides building connectors from scratch (see xref:rest/index/[REST guide] and xref:scim/index/[SCIM 2.0 guide]), the repository ships generic, low-code connectors you can use as-is or as a starting point.
+
+This document is part of the SCIMREST connector tutorial. See xref:../index/[] for other topics.
+
+== connector/scim-generic — SCIM2 Generic Connector
+
+The same `ManifestBasedConnector`, but `configurationOverride.properties` hides all 47 `rest*` authentication properties (each line is `<property> = ignore`), leaving only the SCIM-facing configuration: `scimBaseUrl`, the `scim*` authentication properties, `baseAddress`, `trustAllCertificates`, `timeoutSeconds`, and `developmentMode`.
+The shipped manifest is *empty*; a SCIM 2.0 compliant server is enough to work with the built-in discovery and operations.
+
+== Sample connectors
+
+[cols="1,3", options="header"]
+|===
+|Module |Purpose
+
+|`connector/sample-scimdev`
+|SCIM Playground (scimdev.io) — a SCIM 2.0 playground server; the implementation is a single schema script (`ScimDev.schema.groovy`) plus a bearer-token configuration class
+
+|`connector/forgejo`
+|Forgejo (self-hosted git forge) — REST connector with User/Organization/Team schemas, associations, bearer-token configuration
+
+|`connector/open-project`
+|OpenProject — REST connector with User/Group/Project/Role/Membership schemas, read-write operations, and live integration tests (skipped by default)
+|===
+
+`connector/sample-scimdev-noclass` (manifest-only variant) exists on disk but is not part of the build.
+
+== connector.manifest.json
+
+Connectors bundle a `connector.manifest.json` (or `.yaml` / `.yml` — exactly one) describing the scripts:
+
+[source,json]
+----
+{
+  "application": {
+    "name": "SCIM.dev",
+    "description": "SCIM Playground is a SCIM test server and playground environment."
+  },
+  "connector": {
+    "schema": [
+      { "script": "/ScimDev.schema.groovy" }
+    ],
+    "authorization": [],
+    "operation": []
+  }
+}
+----
+
+* `schema` — schema script resources (Groovy or YAML documents)
+* `authorization` — authentication script resources
+* `operation` — operation handler script resources
+* an entry may carry `"disabled": true` — the script is then skipped in both loading and validation, as if it were not bundled
+* a missing section means an empty list
+
+The `application` block is informational (display name/description for tooling).
+
+== configurationOverride.properties
+
+To hide configuration properties that a connector does not need, bundle a `configurationOverride.properties` with one line per property:
+
+[source,properties]
+----
+restUsername=ignore
+restPassword=ignore
+----
+
+A property whose value is exactly `ignore` is excluded from the connector's configuration definition (it no longer appears in the connector form). Keys are the Java property names (e.g. `restUsername`, not the display key). Empty values do nothing — the value must literally be `ignore`.
+
+== Messages.properties
+
+`Messages.properties` is the message catalog for the connector form: display names and help texts for the connector and every configuration property (e.g. `rest.basic.username=Username`, `restAddressBase.help=Base URL of the REST API endpoint (e.g. https://api.example.com/v1)`).
+A connector without it falls back to the default names.
+
+== Building a connector bundle
+
+A connector module is packaged as a JAR with its runtime dependencies in `lib/`:
+
+[source,bash]
+----
+mvn clean package
+----
+
+The resulting bundle contains the manifest, scripts, `Messages.properties` / `configurationOverride.properties`, and `lib/` (framework jars, Groovy, HTTP client, the UnboundID SCIM 2 client).
+Add your module to `connector/pom.xml` to include it in the build.
+
+For the pattern of a full custom module (connector class, configuration subclass, tests), see the sample connectors.

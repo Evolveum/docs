@@ -1,17 +1,17 @@
 = Update script
 :page-nav-title: Update objects
 :page-display-order: 1360
-:page-upkeep-status: orange
+:page-upkeep-status: green
 :page-toc: top
 :page-moved-from: /connectors/scimrest-framework/develop/60-update/
-:page-description: How to implement update operations in a SCIMREST connector using PATCH or PUT, including multi-endpoint scenarios and attribute-specific endpoint routing.
-:page-keywords: update operation, PATCH endpoint, PUT endpoint, Groovy script, connector update
+:page-description: How to implement update operations in a SCIMREST connector using PATCH or PUT, including supported-attribute subsets, value filters, and multi-endpoint scenarios.
+:page-keywords: update operation, PATCH endpoint, PUT endpoint, Groovy script, connector update, supported attributes, value filter
 
 How to implement update operations in a SCIMREST connector using PATCH or PUT, including multi-endpoint scenarios and attribute-specific endpoint routing.
 
 == Basic update script using PATCH
 
-The simplest update script (heavilly using defaults) for `User` object class where REST API provides PATCH operation could look like this:
+The simplest update script (heavily using defaults) for the `User` object class, where the REST API provides a PATCH operation, could look like this:
 
 [source,groovy]
 ----
@@ -38,6 +38,22 @@ Where:
    we specify that the content type of the request is JSON.
 ** If no body `implementation` is specified, the default implementation
     will be used which will serialize only changed `updateable` attributes from the `objectClass` into JSON body.
+
+The same update in YAML:
+
+[source,yaml]
+----
+objectClasses:
+  User:
+    update:
+      endpoints:
+        - method: PATCH
+          path: /users/{id}
+          request:
+            contentType: APPLICATION_JSON
+----
+
+See xref:../declarative-yaml/[declarative YAML] for the full reference.
 
 == Basic update script using PUT
 
@@ -68,6 +84,48 @@ Where:
     will be used which will serialize all `updateable` attributes
     from the `objectClass` into JSON body.
 ** The framework will retrieve original state if necessary to build a full representation of the object for replacement.
+
+== Limiting update to a supported subset of attributes
+
+By default, an endpoint handles all `updateable` attributes of the object class. When the server accepts only part of them in the update request, `supportedAttributes` narrows the set the endpoint handles — deltas for attributes covered by no endpoint make the update fail with `ConnectorException` ("Unsupported attributes"):
+
+[source,groovy]
+----
+objectClass("User") {
+    update {
+        endpoint(PATCH, "/users/{id}") {
+            // only these attributes are accepted in the PATCH body
+            supportedAttributes "externalId", "displayName", "nickName", "email"
+            request {
+                contentType APPLICATION_JSON
+            }
+        }
+    }
+}
+----
+
+The same in YAML:
+
+[source,yaml]
+----
+objectClasses:
+  User:
+    update:
+      endpoints:
+        - method: PATCH
+          path: /users/{id}
+          request:
+            contentType: APPLICATION_JSON
+          supportedAttributes:
+            - externalId
+            - displayName
+            - nickName
+            - email
+----
+
+A `supportedAttribute(name)` block with `value(...)` further restricts an attribute to specific values — the endpoint is selected only when the delta values match (see the activation / locking example below).
+
+NOTE: `supportedAttribute(name) { transition(from, to) }` is accepted by the DSL, but value-transition filtering is *not enforced yet* — a transition-only endpoint does not handle the attribute.
 
 == Complex update script examples
 
@@ -111,6 +169,9 @@ Where:
 ** Each endpoint can have its own `request` customization as needed.
 ** This approach allows for flexible handling of complex update scenarios involving multiple API calls.
 ** The default behavior of the connector framework is still leveraged for serialization and request handling.
+* The `supportedAttribute(name) { value(...) }` block restricts the attribute to the listed value(s) — the endpoint is selected only when the delta values match.
+
+NOTE: The `updateable` spelling is accepted as an alias of `updatable` in scripts.
 
 === Activation / locking attribute with separate endpoints
 
@@ -152,3 +213,20 @@ Where:
 * Each `endpoint` specifies the API endpoint and HTTP operation to be used.
 * The `supportedAttribute` block is used to define which attribute and value triggers the use of each endpoint.
 ** The framework will automatically determine which endpoint to call based on the value of the `active` attribute in the update request.
+
+The same activation endpoint in YAML:
+
+[source,yaml]
+----
+objectClasses:
+  User:
+    update:
+      endpoints:
+        - method: POST
+          path: /user/{name}/activate
+          request:
+            body: EMPTY
+          supportedAttributes:
+            - name: active
+              value: true
+----

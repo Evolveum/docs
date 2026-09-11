@@ -1,24 +1,67 @@
 = SCIM search operation customization
 :page-nav-title: Search operations
 :page-display-order: 1430
-:page-upkeep-status: orange
+:page-upkeep-status: green
 :page-toc: top
-:page-description: How to configure SCIM 2.0 search in a SCIMREST connector, covering supported filter declarations, limitations for non-compliant servers, and custom search.
-:page-keywords: SCIM search, search filter, filter limitations, SCIM connector, search handler
+:page-description: How the built-in SCIM 2.0 search works — UID retrieval, list-all, and server-side filter translation — plus the filter declaration DSL and custom search.
+:page-keywords: SCIM search, search filter, filter translation, list-all, retrieve, custom search
 
-The SCIM 2.0 framework provides automatic search support with SCIM filter translation.
+The SCIM 2.0 framework provides automatic search for discovered object classes.
 
 This document is part of the SCIM 2.0 connector tutorial. See xref:/connectors/scimrest-framework/[] for other topics.
 
-== Basic search
+== Built-in search
 
-The framework automatically implements search based on discovered schema and assumes that SCIM server fully supports SCIM standard standard.
+For a discovered object class, search works out of the box — no operation script is required. The built-in handler supports:
 
-Hovewer most real world SCIM 2.0 does not support specification fully or allow to search using any attribute, so you can specify limitations
-for search handler.
+* *retrieve by UID* — a single-value `Equals` filter on `__UID__` issues a `GET {resource endpoint}/{id}` and returns the single object
+* *list all* — the empty filter issues offset-paginated `GET {resource endpoint}` requests (page size 25) until all results are processed
+* *server-side filtering* — any other filter is translated to the SCIM `filter` query parameter (RFC 7644 §3.4.2.2) and sent with the list request
 
+=== Filter translation
 
-.Search Handler with Limitations
+The ConnId filter tree is rendered into a canonical SCIM filter expression (including value escaping):
+
+[cols="1,2", options="header"]
+|===
+|ConnId filter |SCIM operator
+
+|`EqualsFilter`
+|`eq`
+
+|`ContainsFilter` (string values only)
+|`co`
+
+|`StartsWithFilter`
+|`sw`
+
+|`EndsWithFilter`
+|`ew`
+
+|`GreaterThanFilter`
+|`gt`
+
+|`GreaterThanOrEqualFilter`
+|`ge`
+
+|`LessThanFilter`
+|`lt`
+
+|`LessThanOrEqualFilter`
+|`le`
+
+|`AndFilter` / `OrFilter` / `NotFilter`
+|`and` / `or` / `not`
+|===
+
+* Values may be strings (including guarded values), booleans (for `eq` only), or numbers (for the comparison operators).
+* Attribute names are resolved through the object class's SCIM attribute path mapping — a filter on `userName` is sent as `userName eq "..."`, or as `name.givenName eq "..."` when the attribute is mapped to a nested SCIM path. A UID equality filter inside a compound expression is mapped to the SCIM `id` attribute.
+* A filter cannot be translated when it filters a value path with a sub-filter (for example `emails[type eq "work"].value`), uses a filter without a SCIM equivalent (`ContainsAllValues`, `EqualsIgnoreCase`), or targets an attribute without a SCIM path mapping. Such a search fails with a connector error — no request is sent to the server.
+
+== Declaring supported filters
+
+You can declare which filters a SCIM server supports; declarations narrow what the handler accepts (by default the handler accepts any translatable filter):
+
 [source,groovy]
 ----
 objectClass("User") {
@@ -27,71 +70,23 @@ objectClass("User") {
             limitations {
                 supportedFilter attribute("userName").eq().anySingleValue()
                 supportedFilter attribute("externalId").eq().anySingleValue()
-                supportedFilter attribute("groups").child("value").eq().anySingleValue()
+                supportedFilter attribute("groups").eq().anySingleValue()
             }
         }
     }
 }
 ----
 
-== SCIM filter specifications
+* Declaring any `supportedFilter` disables the accept-any default — from then on only the declared specifications are accepted, and the empty (list-all) filter as well, unless `emptyFilterSupported true` is set.
+* To disable list-all, declare at least one `supportedFilter` and leave `emptyFilterSupported` off.
+* The `attribute(name)` names are the protocol (SCIM) attribute names; the specification is matched against the ConnId filter.
+* Filters are translated to the SCIM `filter` expression automatically — there is no per-filter request-mapping hook. The closure form `supportedFilter(spec) { ... }` is accepted, but the closure carries no mapping behavior.
 
-Use the `supportedFilter` method to declare supported filters:
-
-[source,groovy]
-----
-scim {
-    limitations {
-        supportedFilter attribute("userName").eq().anySingleValue()
-        supportedFilter attribute("externalId").eq().anySingleValue()
-    }
-}
-----
-
-The filter specification API:
-
-* `attribute(name)` - Specify the attribute
-* `.eq()` - Equals filter
-* `.contains()` - Contains filter
-* `.anySingleValue()` - Single value filter
-
-== Filter specification examples
-
-[source,groovy]
-----
-// Equals filter on userName
-supportedFilter attribute("userName").eq().anySingleValue()
-
-// Equals filter on externalId
-supportedFilter attribute("externalId").eq().anySingleValue()
-
-// Equals filter on nested attribute (groups.value)
-supportedFilter attribute("groups").child("value").eq().anySingleValue()
-
-// Equals filter on extension attribute
-supportedFilter attribute("urn:ietf:params:scim:schemas:extension:enterprise:2.0:User:employeeNumber").eq().anySingleValue()
-----
-
-== Complete search example
-
-[source,groovy,highlight=5,6,7]
-----
-objectClass("User") {
-    search {
-        scim {
-            limitations {
-                supportedFilter attribute("userName").eq().anySingleValue()
-                supportedFilter attribute("externalId").eq().anySingleValue()
-                supportedFilter attribute("groups").child("value").eq().anySingleValue()
-            }
-        }
-    }
-}
-----
+The filter specification API reference is in xref:advanced-filters/[].
 
 == Custom search implementation
 
-If automatic search is not viable (e.g., no search endpoint), implement custom search:
+If the built-in search is not viable (e.g. the server requires parameters the list endpoint does not support), implement custom search:
 
 [source,groovy]
 ----
@@ -99,10 +94,10 @@ search {
     custom {
         emptyFilterSupported true
         implementation {
-            // Custom search logic
+            // Custom search logic — see the custom search guide
         }
     }
 }
 ----
 
-See xref:../implement-custom-search/[] for details.
+See xref:../implement-custom-search/[] for the script context and details.

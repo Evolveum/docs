@@ -1,0 +1,95 @@
+= Database-specific notes
+:page-nav-title: Database specifics
+:page-display-order: 1325
+:page-upkeep-status: green
+:page-toc: top
+:page-description: Per-database differences and gotchas for the SQL Framework: dialect behavior, capabilities matrix, driver bundling, and connection URL tips.
+:page-keywords: PostgreSQL, Oracle, MySQL, MariaDB, SQLite, H2, SQL Server, dialect, driver, capabilities
+
+The SQL Framework abstracts dialect differences behind QueryDSL SQL templates, but a few per-database specifics are worth knowing.
+
+This document is part of the SQL connector tutorial. See xref:../index/[] for other topics.
+
+== Dialect behavior
+
+[cols="1,2,2", options="header"]
+|===
+|Database |Dialect-specific behavior |Notes
+
+|PostgreSQL
+|Identity/auto-increment keys are read back with the `RETURNING` clause
+|Native DDL requires the `pg_dump` executable
+
+|Oracle
+|Pagination uses `FETCH FIRST ... ROWS ONLY`
+|Native DDL via `DBMS_METADATA.GET_DDL`; connection URLs use the service format `jdbc:oracle:thin:@//host:1521/service`
+
+|MySQL, MariaDB
+|Standard generated-key handling
+|Native DDL via `SHOW CREATE TABLE` / `SHOW CREATE VIEW`; no schema (namespace) support in metadata
+
+|SQLite
+|File-based database; pagination and identity handled by the SQLite dialect
+|Enable foreign keys per connection (`?foreign_keys=on`) if you rely on FK metadata; no catalog/schema support
+
+|H2
+|In-memory and file modes; emulated modes (`MODE=PostgreSQL`, `MODE=Oracle`, …) for tests
+|Keep an in-memory DB alive with `DB_CLOSE_DELAY=-1`; H2 2.x uses the MVStore engine
+
+|SQL Server
+|Standard generated-key handling
+|Driver bundled separately (see below)
+|===
+
+== Capabilities matrix
+
+The contract test suite records the JDBC metadata capabilities the framework relies on:
+
+[options="header"]
+|===
+|Database |Schemas |Remarks |Native DDL |JDBC defaults |Non-primary FK metadata
+
+|H2
+|yes
+|yes
+|yes
+|yes
+|yes
+
+|PostgreSQL
+|yes
+|yes
+|yes (via `pg_dump`)
+|yes
+|yes
+
+|SQLite
+|no
+|no
+|yes
+|yes
+|yes
+
+|Oracle
+|yes
+|no
+|yes
+|no
+|no
+
+|MySQL, MariaDB
+|no
+|yes
+|yes
+|yes
+|yes
+|===
+
+Where a capability is missing, the affected feature degrades gracefully (for example no `remarks` attribute, no `definition` content).
+
+== Drivers
+
+The SQL Framework does not bundle JDBC drivers — the driver for your database must be part of the connector bundle (see xref:custom-connector/[packaging]).
+The driver class is resolved automatically from the `jdbcUrl` scheme (see xref:configuration/[driver resolution]).
+
+// The SQL Generic connector bundles all drivers

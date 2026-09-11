@@ -1,11 +1,11 @@
 = SQL schema customization
 :page-nav-title: Schema customization
 :page-display-order: 1230
-:page-upkeep-status: orange
+:page-upkeep-status: green
 :page-toc: top
 :page-since: 4.11
-:page-description: Reference for the SQL schema script Groovy DSL: objectClass and sql blocks, attribute and connId blocks, SQL type specification, onlyExplicitlyListed and readOnly, with complete examples.
-:page-keywords: SQL schema script, Groovy DSL, objectClass, attribute mapping, connId name, onlyExplicitlyListed, readOnly
+:page-description: Reference for the SQL schema script Groovy DSL: objectClass and sql blocks, attribute and connId blocks, SQL type specification, onlyExplicitlyListed and readOnly, read-only joined attributes, with complete examples.
+:page-keywords: SQL schema script, Groovy DSL, objectClass, attribute mapping, connId name, onlyExplicitlyListed, readOnly, joined attributes, read-only join, LEFT JOIN
 
 After discovery, you can customize the schema with Groovy schema scripts (or declarative YAML — see xref:/connectors/sql-framework/develop/declarative-yaml/[]).
 This is the reference for the schema script DSL.
@@ -14,11 +14,8 @@ include::link-to-intro-preamble.adoc[]
 
 == The objectClass block
 
-Schema scripts are evaluated with a bound `objectClass` function.
-Inside its closure you can map the object class to an SQL table and define attributes:
-// TODO: I am unsure about the technical terminology here:
-//       - "with a bound objectClass -- it sounds like the objectClass is bound to something, is that the intended meaning?
-//       - "closure (of a function)" -- used multiple times in this section, is "inside closure (of a function)" really the terminus technicus for saying "within the (bounds of the) function"?
+A schema script declares object classes by calling the `objectClass` function once per object class.
+Inside the function's block you map the object class to an SQL table and define its attributes:
 
 [source,groovy]
 ----
@@ -31,9 +28,20 @@ objectClass("User") {
 }
 ----
 
+The same in declarative YAML:
+
+[source,yaml]
+----
+objectClasses:
+  User:
+    sql:
+      table: app_user
+      schema: hr
+----
+
 [cols="1,2", options="header"]
 |===
-|Method |Description
+|Keyword |Description
 
 |`sql { ... }`
 |SQL mapping block: `table(String)` sets the SQL table name, `schema(String)` sets the SQL schema qualifier. Default table name is the object class name.
@@ -49,11 +57,167 @@ objectClass("User") {
 
 |`readOnly(true)`
 |Marks the object class read-only (`creatable/updatable/removable = false`) and disables write handlers. Used for views and tables you want to expose without write operations.
+
+|`description(String)`
+|Description of the object class (shown in schema tools).
+
+|`embedded(true)`
+|Marks the object class as embedded (its data lives inside the parent object; no standalone operations).
+
+|`connIdAttribute(connIdName, attributeName)`
+|Maps a built-in ConnId attribute to a named attribute of this object class. Only `UID` and `NAME` are supported; equivalent to the attribute-level `connId { name UID }` mapping.
 |===
+
+=== Reference attributes
+
+A `reference(name) { ... }` block declares a reference (linking) attribute pointing at another object class. Declaring `objectClass("...")` inside it forces the attribute type to `ConnectorObjectReference` and attaches the reference metadata:
+
+[source,groovy]
+----
+objectClass("User") {
+    sql { table "app_user" }
+
+    reference("teams") {
+        objectClass("Team")
+        multiValued true
+    }
+}
+----
+
+[cols="1,2", options="header"]
+|===
+|Method |Description
+
+|`objectClass(String)`
+|The referenced object class name.
+
+|`subtype(String)`
+|The reference subtype (grouping of related references).
+
+|`role(String)` / `role(SUBJECT)` / `role(OBJECT)`
+|The role of this object class in the reference (`subject` or `object`).
+
+|===
+
+All regular attribute keys (below) are available inside a `reference` block as well.
+
+== Joined attributes (read-only)
+
+A `join` block inside `sql { ... }` LEFT JOINs another detected table or view into the object class and exposes its columns as flat, prefixed attributes. Joined object classes are read-only projections — the object class and all its attributes are non-creatable and non-updatable:
+
+[source,groovy]
+----
+objectClass("FlatUser") {
+    sql {
+        table "app_user"
+
+        join {
+            table "user_phone"
+            prefixAttributes "work_"
+            skipAttributes "user_id"
+            where { q -> q.column("phone_type").eq("work") }
+        }
+        join {
+            table "user_phone"
+            prefixAttributes "home_"
+            skipAttributes "user_id"
+            where { q -> q.column("phone_type").eq("home") }
+        }
+    }
+}
+----
+
+Without an `on` block the join condition is inferred from the detected foreign key metadata (a single unambiguous foreign key, in either direction, composite keys included). Declare it explicitly when inference is impossible or ambiguous (missing or multiple foreign keys, self-joins, cross-schema/catalog joins):
+
+[source,groovy]
+----
+objectClass("FlatView") {
+    sql {
+        table "app_user"
+
+        join {
+            table "user_view"
+            prefixAttributes "view_"
+            skipAttributes "id"
+            on { j -> j.left().column("id").eq(j.right().column("id")) }
+            where { q -> q.column("username").eq("alice") }
+        }
+    }
+
+    // joined attributes can be renamed/typed like any other attribute
+    attribute("view_username") {
+        connId { name "viewLogin" }
+    }
+}
+----
+
+[cols="1,2", options="header"]
+|===
+|Method |Description
+
+|`table(String)`
+|The table/view to join (required); must resolve to exactly one detected table/view.
+
+|`schema(String)`
+|The SQL schema qualifier of the joined table (defaults to the root table's schema). Cross-schema joins require an explicit `on`.
+
+|`prefixAttributes(String)`
+|Prefix for the exposed attribute names: joined column `phone_number` becomes `work_phone_number` (default: no prefix).
+
+|`skipAttributes(String...)`
+|Joined columns that are not exposed as attributes (validated against the detected columns).
+
+|`on { ... }`
+|Explicit join condition: `left().column("a").eq(right().column("b"))`; multiple equalities are combined with AND and must compare a left (root) and a right (joined) column.
+
+|`where { ... }`
+|Restriction on the joined table (the same `eq`/`ne` calls as the search xref:search/[`where` block]). It is appended to the ON clause, so root rows without a matching joined row are kept (with `null` joined values).
+
+|===
+
+Behavior:
+
+* All non-skipped columns of the joined table are exposed automatically as `prefix + column` attributes, with types inferred from the column metadata. Because the join is a LEFT JOIN, joined attributes are never `required` — a root row without a matching joined row reads them as `null`.
+* Each join must match at most one row per root UID. The framework validates this before delivering any result; a multi-row match fails the search with `ConnectorException` ("Joined object <name> has multiple matching rows for one UID; joins must be single-valued").
+* Filtering on joined attributes is part of the built-in filter translation (see xref:search/[]).
+* Paging is stable: when joins are present, results are ordered by the root UID.
+* The root table must be detected and must have a mapped UID; duplicate or reserved joined attribute names (for example `UID`/`NAME` or a collision with a root column) are rejected when the schema is built.
+* A joined object may be rooted at a table that would otherwise be detected as a child or junction table — the explicit object class wins.
 
 == The attribute block
 
 Each `attribute(name)` call defines (or refines) an attribute. The attribute name is the SQL column name by default and also the ConnId name by default.
+
+The following ConnId-side flags can be set directly on the attribute (they override the built-in mapping rules):
+
+[cols="1,2", options="header"]
+|===
+|Method |Description
+
+|`readable(Boolean)`
+|Whether the attribute is readable (returned on read/search).
+
+|`required(Boolean)`
+|Whether the attribute is required (from column nullability by default).
+
+|`creatable(Boolean)`
+|Whether the attribute can appear in create requests (auto-increment/PK columns default to `false`).
+
+|`updatable(Boolean)` / `updateable(Boolean)`
+|Whether the attribute can appear in update deltas (the `updateable` spelling is accepted as an alias).
+
+|`multiValued(Boolean)`
+|Whether the attribute holds multiple values.
+
+|`emulated(Boolean)`
+|Marks the attribute as emulated (its value is computed/derived, e.g. `__NAME__` derived from `__UID__`).
+
+|`description(String)`
+|Description of the attribute (shown in schema tools).
+
+|`complexType(String)`
+|Declares the attribute as a complex (embedded) attribute of the given type; complex attributes imply embedded/reference semantics.
+|===
 
 [source,groovy]
 ----
@@ -61,7 +225,7 @@ objectClass("User") {
     sql { table "app_user" }
 
     attribute("user_id") {
-        connId { name "__UID__" }
+        connId { name UID }
         sql {
             type INT
             primaryKey
@@ -70,7 +234,7 @@ objectClass("User") {
     }
 
     attribute("user_name") {
-        connId { name "__NAME__" }
+        connId { name NAME }
         sql { type VARCHAR(255); notNull true }
     }
 }
@@ -85,15 +249,16 @@ Refines the ConnId side of the attribute:
 |Method |Description
 
 |`name(String)`
-|ConnId attribute name. Supports system names: `+++__UID__+++` / `Uid`, `+++__NAME__+++` / `Name`. Any other name creates a plain attribute.
-// TODO: Is "plain attribute" really the terminus technicus here?
-//       Because if not, it sounds a bit too vague for reference material.
+|ConnId attribute name. Supports system names: `+++__UID__+++` / `Uid`, `+++__NAME__+++` / `Name`. Any other name creates a regular (non-system) ConnId attribute.
 
 |`type(Class)`
 |Force a ConnId Java type. Auto-detected from JDBC metadata when not set.
 
 |`returnedByDefault(Boolean)`
 |Whether the attribute is included in results by default. Default is `true`.
+
+|`required(Boolean)` / `multiValued(Boolean)` / `description(String)`
+|The corresponding ConnId attribute flags (also settable directly on the attribute block).
 |===
 
 === sql block
@@ -114,10 +279,7 @@ Refines the SQL side of the attribute:
 |Mark the column as primary key.
 
 |`autoIncrement`
-|Mark the column as auto-generated (identity/auto-increment).
-// TODO: What does the bracket say?
-//       In particular, the "identity" part, I do not understand what "identity" has to do with auto-incrementing or auto-generating a value in a DB column.
-//       Appears also in /connectors/sql-framework/develop/create/
+|Mark the column as auto-generated by the database — an auto-increment / identity column, i.e., a column whose value the database assigns automatically when a row is inserted.
 
 |`notNull` / `nullable`
 |Column nullability (mirrors the `required` flag).
@@ -131,8 +293,9 @@ Refines the SQL side of the attribute:
 
 === SQL type specification
 
-Convenience constants exposed in the script: `INT`, `INTEGER`, `BIGINT`, `SMALLINT`, `TINYINT`, `BOOLEAN`, `DATE`, and parameterized `VARCHAR(n)`, `VARCHAR2(n)`, `NUMBER(p)`, `NUMBER(p, s)`, `TIMESTAMP(p)`.
-// TODO: I would welcome some definition of the types (e.g., to understand VARCHAR vs. VARCHAR2 without having to lookup Java(?) docs)
+Convenience constants exposed in the script: `INT`, `INTEGER`, `BIGINT`, `SMALLINT`, `TINYINT`, `BOOLEAN`, `DATE`, and parameterized `VARCHAR(n)`, `VARCHAR2(n)`, `NUMBER(p)`, `NUMBER(p, s)`, `TIMESTAMP(p)`, `DATE(n)`.
+
+The names are the database SQL types: `VARCHAR(n)` is a variable-length string of up to `n` characters (`VARCHAR2(n)` is the Oracle spelling of the same type), `NUMBER(p)` / `NUMBER(p, s)` a numeric of precision `p` (and optional scale `s`), `TIMESTAMP(p)` a timestamp with `p` fractional-second digits.
 
 [source,groovy]
 ----
@@ -154,10 +317,10 @@ objectClass("Person") {
     sql { table "app_user" }
 
     attribute("user_id") {
-        connId { name "__UID__" }
+        connId { name UID }
     }
     attribute("user_name") {
-        connId { name "__NAME__" }
+        connId { name NAME }
     }
     attribute("user_email") {
         connId { name "emailAddress" }
@@ -166,12 +329,13 @@ objectClass("Person") {
     attribute("loginCount") { }
 }
 ----
-// TODO: I may be missing something, but what purpose has an attribute without a counterpart on the remote system, or rather, why define it in the connector?
+
+Such a no-backing attribute exists in the object class schema (so midPoint can display and maintain it on the object form), but the connector never reads or writes it — search results carry no value for it. Define it when the schema needs to expose an attribute that is not managed by the connector, for example a column another application maintains directly in the database, or a name reserved for a future version of the schema.
 
 Notes:
 
 * an attribute *without* a `sql {}` block and without a matching discovered column is a pure ConnId attribute (available in the schema, no SQL backing)
-* if `+++__NAME__+++` is not explicitly mapped, it is derived from the `+++__UID__+++` mapping (the same underlying columns)
+* if `__NAME__` is not explicitly mapped, it is emulated from the `__UID__` mapping (the same underlying columns)
 * `onlyExplicitlyListed true` restricts the attribute set to exactly the listed attributes
 
 == Complete example
@@ -187,10 +351,10 @@ objectClass("Person") {
     sql { table "app_user" }
 
     attribute("user_id") {
-        connId { name "__UID__" }
+        connId { name UID }
     }
     attribute("user_name") {
-        connId { name "__NAME__" }
+        connId { name NAME }
     }
     attribute("user_email") {
         connId { name "emailAddress" }
@@ -204,12 +368,48 @@ objectClass("Team") {
     sql { table "app_group" }
 
     attribute("group_id") {
-        connId { name "__UID__" }
+        connId { name UID }
     }
     attribute("group_name") {
-        connId { name "__NAME__" }
+        connId { name NAME }
     }
 }
 ----
 
-See xref:/connectors/sql-framework/develop/schema-discovery/[] for what discovery detects, and xref:/connectors/sql-framework/develop/relationships/[] for multitable attributes.
+The same schema in YAML (one document may describe several object classes):
+
+[source,yaml]
+----
+# src/main/resources/schema/customize.yaml
+
+objectClasses:
+  # Maps table "app_user" -> ConnId object class "Person"
+  Person:
+    sql:
+      table: app_user
+    attributes:
+      user_id:
+        connId:
+          name: __UID__
+      user_name:
+        connId:
+          name: __NAME__
+      user_email:
+        connId:
+          name: emailAddress
+      # Custom attribute (not on the SQL table)
+      loginCount: {}
+  # Maps table "app_group" -> ConnId object class "Team"
+  Team:
+    sql:
+      table: app_group
+    attributes:
+      group_id:
+        connId:
+          name: __UID__
+      group_name:
+        connId:
+          name: __NAME__
+----
+
+See xref:schema-discovery/[] for what discovery detects, and xref:relationships/[] for multitable attributes.

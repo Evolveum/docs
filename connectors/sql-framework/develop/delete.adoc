@@ -1,7 +1,7 @@
 = SQL delete operation
 :page-nav-title: Delete operations
 :page-display-order: 1290
-:page-upkeep-status: orange
+:page-upkeep-status: green
 :page-toc: top
 :page-since: 4.11
 :page-description: How the built-in SQL delete operation removes a row by exact UID transactionally, error handling, and enable/disable configuration per object class.
@@ -19,18 +19,15 @@ The framework:
 
 . Builds a `DELETE` statement with the full UID mapping as an exact predicate (for xref:/connectors/sql-framework/develop/schema-discovery/#uid-detection[composite UIDs], all key columns are matched).
 . Executes the statement inside a JDBC transaction.
-. Verifies that exactly one row was affected.
-// TODO: Similarly to comment in update.adoc - can this fail?
-//       Also, what exceptions should one expect?
+. Verifies that exactly one row was affected. The predicate is the full UID (primary key), so at most one row can match — the zero-row case fails with `UnknownUidException`, and a defensive check raises `ConnectorException` if the affected count is anything other than zero or one.
 
-If no row matches the UID, the operation fails with `UnknownUidException`.
 Connection failures are wrapped into `ConnectionFailedException`; failed transactions are rolled back.
 
 == Embedded child tables
 
-Rows of detected child/embedded tables are managed by the parent object class (see xref:/connectors/sql-framework/develop/relationships/[]) — embedded object classes themselves do not expose create, update, or delete.
-When the parent row is deleted, the connector only deletes the parent row;
-cleanup of child rows is delegated to the database schema (for example, foreign keys with `ON DELETE CASCADE`).
+Rows of detected child/embedded tables are managed by the parent object class (see xref:relationships/[]) — embedded object classes themselves do not expose create, update or delete.
+When the parent row is deleted, the connector first deletes the owned child-table rows and the junction-table rows, and only then deletes the parent row — all in the same transaction (see xref:related-table-writes/[]).
+No cleanup is delegated to the database schema (for example foreign keys with `ON DELETE CASCADE`) — child rows are removed explicitly by the connector.
 
 == Enabling / disabling delete
 
@@ -43,5 +40,15 @@ objectClass("Employee") {
 }
 ----
 
-Views and object classes marked `readOnly true` never get an delete handler.
-See also xref:/connectors/sql-framework/develop/schema-discovery/#built-in-mapping-rules[built-in mapping rules].
+The same in YAML:
+
+[source,yaml]
+----
+objectClasses:
+  Employee:
+    delete:
+      enabled: false
+----
+
+Object classes marked `readOnly true`, and views, never get a delete handler.
+See also xref:schema-discovery/#built-in-mapping-rules[built-in mapping rules].

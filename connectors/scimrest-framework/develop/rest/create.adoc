@@ -1,10 +1,11 @@
 = Determine how to create objects on the target system
 :page-nav-title: Create objects
 :page-display-order: 1350
-:page-upkeep-status: orange
+:page-upkeep-status: green
+:page-toc: top
 :page-moved-from: /connectors/scimrest-framework/develop/50-create/
-:page-description: How to implement a create operation in a SCIMREST connector using a Groovy script with a POST endpoint, including default serialization behavior.
-:page-keywords: create operation, POST endpoint, Groovy script, connector create, object creation
+:page-description: How to implement a create operation in a SCIMREST connector using a Groovy script with a POST endpoint, including default serialization, supported-attribute subsets, and per-attribute value filters.
+:page-keywords: create operation, POST endpoint, Groovy script, connector create, object creation, supported attributes, value filter
 
 How to implement a create operation in a SCIMREST connector using a Groovy script with a POST endpoint, including default serialization behavior.
 
@@ -31,17 +32,87 @@ objectClass("User") {
 
 Where:
 
-* this simplest script heavilly relies on default behavior of connector framework.
-* The `endpoint` method specifies the endpoint to be used for
-   create operation.
-* The `httpOperation` method specifies the HTTP method to be used.
-* The `request` method allows to customize the request. In this case
-   we specify that the content type of the request is JSON.
-** If no body `implementation` is specified, the default implementation
-   will be used which will serialize all `creatable` attributes
-   from the `objectClass` into JSON body.
-** If  no `response` is specified, the response will be handled by
-   default implementation which expects that the created object is
-   returned in the response body in JSON format.
-** Attributes which are `updateable` but not `creatable` will be automatically handled
-    by the framework after the object is created, by issuing an `update` operation (if implemented) immediately after the `create` operation.
+* this simplest script heavily relies on the default behavior of the connector framework.
+* The `endpoint` method specifies the endpoint to be used for the create operation. The HTTP method is given as the first argument (`endpoint(POST, "/users")`) or set with the `httpOperation` method inside the closure (constants `GET`, `POST`, `PUT`, `DELETE`, `PATCH`).
+* The `request` block customizes the request: `accept(...)`, `contentType(...)`, and `body { ... }` (a closure producing the request body as bytes).
+** If no body is specified, the default implementation serializes all `creatable` attributes of the object class into a JSON body.
+** If no `response { ... }` is specified, the response is handled by the default implementation, which expects the created object to be returned in the response body in JSON format.
+** Attributes that are `updatable` but not `creatable` are handled automatically by the framework after the object is created — it issues an `update` operation (if implemented) immediately after the `create` operation.
+* If no `supportedAttributes` is declared, the endpoint handles all `creatable` attributes of the object class. See below for limiting to a supported subset and per-attribute value filters.
+
+== Limiting create to a supported subset of attributes
+
+By default the endpoint accepts all `creatable` attributes of the object class and serializes them into the request body. When the server accepts only part of them, `supportedAttributes` narrows the set the endpoint handles — create requests for attributes covered by no endpoint fail with `ConnectorException` ("Unsupported attributes"):
+
+[source,groovy]
+----
+objectClass("User") {
+    create {
+        endpoint(POST, "/users") {
+            // only these attributes are accepted/sent on create
+            supportedAttributes "externalId", "displayName", "nickName"
+            request {
+                contentType APPLICATION_JSON
+            }
+        }
+    }
+}
+----
+
+The same in YAML:
+
+[source,yaml]
+----
+objectClasses:
+  User:
+    create:
+      endpoints:
+        - method: POST
+          path: /users
+          request:
+            contentType: APPLICATION_JSON
+          supportedAttributes:
+            - externalId
+            - displayName
+            - nickName
+----
+
+== Attribute-specific configuration
+
+`supportedAttribute(name)` configures a single attribute. The `value(...)` filter accepts the attribute only for the listed values (repeatable — the values accumulate):
+
+[source,groovy]
+----
+objectClass("User") {
+    create {
+        endpoint(POST, "/users") {
+            // this endpoint is selected only when userName has the value "generated"
+            supportedAttribute("userName") {
+                value "generated"
+            }
+            supportedAttributes "externalId", "displayName"
+            request {
+                contentType APPLICATION_JSON
+            }
+        }
+    }
+}
+----
+
+NOTE: `supportedAttribute(name) { transition(from, to) }` is accepted by the DSL, but value-transition filtering is *not enforced yet* — a transition-only endpoint does not handle the attribute.
+
+== The same create in YAML
+
+[source,yaml]
+----
+objectClasses:
+  User:
+    create:
+      endpoints:
+        - method: POST
+          path: /users
+          request:
+            contentType: APPLICATION_JSON
+----
+
+See xref:../declarative-yaml/[declarative YAML] for the full reference.

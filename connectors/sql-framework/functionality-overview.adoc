@@ -12,8 +12,7 @@ An overview of the SQL framework architecture aimed to help you understand how t
 == SQL framework functionality overview
 
 Connection & pooling::
-** HikariCP-based JDBC connection pool with lazy initialization, per-connector configuration (pool size, timeouts).
-// TODO: lazy initialization -- link to explanatory details?
+** HikariCP-based JDBC connection pool with lazy initialization (the pool is created on the first connection request, not at connector startup), per-connector configuration (pool size, timeouts).
 ** JDBC driver class is resolved automatically from the `jdbcUrl` scheme (PostgreSQL, MySQL, MariaDB, SQL Server, SQLite, H2, Oracle).
 ** `SqlConnection` wrapper with auto-close semantics and explicit transaction support (`commit`, `rollback`, `setAutoCommit`).
 
@@ -32,16 +31,16 @@ Multitable support::
 ** Automatic detection of child-table relationships from foreign key constraints and naming conventions (`<table>_id` columns).
 ** Detects single-valued embedded, multi-valued embedded and multi-valued simple-attribute child tables, plus many-to-many junction tables.
 ** Detected relationships are exposed as (multi-valued) attributes on the parent object class and resolved at search time.
+** Related rows are writable through the parent object class: create, update and delete manage the child-table and junction-table rows in the same transaction.
 
 ConnId support & operations::
 ** Built-in handlers for search, create, update, delete per object class, selected based on the object class properties (writable table vs. view).
-** Search: ConnId filters translated to SQL predicates, paginated execution, built-in `where {}` refinement and fully custom SQL query support.
+** Search: ConnId filters translated to SQL predicates, paginated execution, built-in `where {}` refinement and fully custom SQL query support; read-only joined object classes (flat LEFT JOIN projections, see xref:develop/schema-customization/[joined attributes (read-only)]) are filterable and paginated the same way.
 ** Write: transactional create/update/delete with ConnId exception mapping (duplicate key → `AlreadyExistsException`, constraint/data errors → `InvalidAttributeValueException`, connection problems → `ConnectionFailedException`).
 ** Incremental sync operation based on a sync column with soft-delete (tombstone) support.
-// TODO: tombstone -- link to explanatory details?
 
 Scripting support::
-** Custom Groovy DSLs for schema customization (object classes, tables, attributes) and operation handlers (search, sync, write enablement/disablement).
+** Custom Groovy DSLs for schema customization (object classes, tables, attributes) and operation handlers (search, write enablement/disablement).
 ** Scripting is intended to configure connectors with minimal boilerplate; all built-in behavior remains available without any script.
 
 Declarative YAML support::
@@ -49,14 +48,10 @@ Declarative YAML support::
 ** YAML-declared schema binds directly into the same live schema builder as Groovy declarations.
 
 Dialect abstraction::
-** SQL generation is based on QueryDSL SQL templates auto-detected from the connected database; dialect-specific constructs (pagination, identity keys) are handled by the template layer.
-// TODO: template layer -- link to explanatory details?
+** SQL generation is based on QueryDSL SQL templates auto-detected from the connected database; dialect-specific constructs (pagination, identity keys) are handled by QueryDSL's dialect-specific SQL template layer (see the https://www.querydsl.com/[QueryDSL documentation]).
 
 Development support::
 ** Development mode exposes the discovered SQL object classes as an additional object class for schema introspection in management tools.
-// TODO: I am missing more details about what development mode actually is.
-//       It is in description and KWs of the develop/configuration article but not mentioned in the article body.
-//       Also mentioned in develop/index but no details there either.
 ** Script validation support — a candidate script is compiled and evaluated against all sibling scripts before deployment.
 
 IMPORTANT: SQL framework is still under development. Incremental *sync registration* and the declarative `relationship` script API are not fully wired yet — see the status notes in the individual pages.

@@ -1,0 +1,266 @@
+= Authentication & authorization
+:page-nav-title: Authentication
+:page-display-order: 1260
+:page-upkeep-status: green
+:page-toc: top
+:page-description: Reference for SCIMREST connector authentication: supported methods for the REST and SCIM namespaces, configuration properties, OAuth 2.0 hooks, AWS signing, and custom implementations.
+:page-keywords: authentication, authorization, OAuth 2.0, bearer token, JWT, API key, AWS Signature, Hawk, Digest, NTLM, SCIMREST configuration
+
+The SCIMREST framework authenticates against the target system per *protocol namespace*:
+
+* `rest` — the REST API (properties `rest*`, scripts `authorization { rest { ... } }`)
+* `scim` — the SCIM API (properties `scim*`, scripts `authorization { scim { ... } }`)
+
+The two namespaces are independent: you can authenticate the SCIM API with one method and the REST API with another.
+
+This document is part of the SCIMREST connector tutorial. See xref:../index/[] for other topics.
+
+IMPORTANT: SCIM support is enabled only when a `scimBaseUrl` is configured *and* SCIM credentials are present; otherwise the SCIM context is not initialized and the connector works REST-only (with a log entry noting this).
+
+== Supported methods
+
+Nine authentication methods are implemented per protocol namespace:
+
+[cols="1,1,2", options="header"]
+|===
+|Method |DSL keyword |Mechanism
+
+|Basic
+|`basic { ... }`
+|`Authorization: Basic base64(user:pass)`
+
+|Bearer token
+|`bearer { ... }`
+|`Authorization: <tokenName> <tokenValue>` (token name defaults to `Bearer`)
+
+|JWT bearer
+|`jwtBearer { ... }`
+|Self-signed JWT (HS/RS/PS/ES families); placed in the `Authorization` header by default or as a query parameter
+
+|API key
+|`apiKey { ... }`
+|Header `<name>: <key>` by default, or a query parameter
+
+|OAuth 2.0 client credentials
+|`oauth2ClientCredentials { ... }`
+|Client credentials grant (RFC 6749 §4.4)
+
+|OAuth 2.0 password
+|`oauth2Password { ... }`
+|Resource owner password grant (RFC 6749 §4.3)
+
+|OAuth 2.0 JWT bearer
+|`oauth2JwtBearer { ... }`
+|Client JWT assertion (RFC 7523)
+
+|OAuth 2.0 SAML
+|`oauth2Saml { ... }`
+|SAML assertion to the token endpoint
+
+|AWS Signature
+|`awsSignature { ... }`
+|AWS Signature Version 4
+
+|===
+
+NOTE: `digest`, `hawk`, and `ntlm` have configuration properties (below) but are **not implemented yet** — configuring them has no effect on requests.
+
+== Configuration properties
+
+The generic connectors expose the full property set (see xref:generic-connectors/[shipped connectors] for how a connector hides the parts it does not need). All properties have a `scim*` twin with identical semantics.
+
+=== Endpoints and transport
+
+[cols="1,1,2", options="header"]
+|===
+|Property |Type |Description
+
+|`baseAddress`
+|String
+|Base URL of the REST API endpoint (e.g. `https://api.example.com/v1`)
+
+|`scimBaseUrl`
+|String
+|Base URL of the SCIM endpoint (e.g. `https://api.example.com/scim/v2`)
+
+|`restTestEndpoint`
+|String
+|Relative path used to verify connectivity on `test()` (e.g. `/health`); not required
+
+|`trustAllCertificates`
+|Boolean
+|Trust all TLS certificates
+
+|`timeoutSeconds`
+|Integer
+|HTTP request timeout in seconds; default `30`
+
+|===
+
+=== Basic
+
+`restUsername` (String), `restPassword` (GuardedString).
+
+=== Bearer token
+
+`restTokenValue` (GuardedString) — static bearer token; `restTokenName` (String) — prefix placed before the token value in the `Authorization` header (e.g. `Bearer`).
+
+=== JWT bearer
+
+`restJwtTokenName` (String) — the `Authorization` scheme prefix or query-parameter name; `restJwtAlgorithm` (String) — signing algorithm (`HS256/384/512` HMAC, `RS256/384/512` / `PS256/384/512` RSA, `ES256/384/512` ECDSA); `restJwtSecret` (GuardedString) — HMAC secret or PEM-encoded PKCS#8 private key; `restJwtSecretBase64Encoded` (Boolean) — Base64-decode the HMAC secret before signing; `restJwtPayload` (String) — JSON object with additional claims; `restJwtLocation` (String) — `header` (default) or `query`.
+
+=== API key
+
+`restApiKey` (GuardedString) — the key value; `restApiKeyName` (String) — header or query-parameter name (e.g. `X-API-Key`); `restApiKeyLocation` (String) — `header` (default) or `query`.
+
+=== OAuth 2.0 (all four grant types)
+
+[cols="1,1,2", options="header"]
+|===
+|Property |Type |Description
+
+|`restOAuth2TokenUrl`
+|String
+|URL of the authorization server token endpoint
+
+|`restOAuth2ClientId`
+|String
+|Client identifier
+
+|`restOAuth2ClientSecret`
+|GuardedString
+|Client secret (required for client credentials)
+
+|`restOAuth2Scope`
+|String
+|Space-separated list of scopes to request
+
+|`restOAuth2ClientAuthenticationScheme`
+|String
+|How client credentials are sent to the token endpoint: `basic` (default) or `post`
+
+|`restOAuth2Username`
+|String
+|Resource owner username (password grant)
+
+|`restOAuth2Password`
+|GuardedString
+|Resource owner password (password grant)
+
+|`restOAuth2PrivateKey`
+|GuardedString
+|PEM-encoded PKCS#8 private key for the JWT bearer grant (RFC 7523)
+
+|`restOAuth2Issuer`
+|String
+|Issuer identifier used as the `iss` claim in JWT assertions and as the SAML issuer
+
+|`restOAuth2KeyId`
+|String
+|Key ID (`kid`) in the JWT header
+
+|`restOAuth2Algorithm`
+|String
+|JWT signing algorithm for the assertion (e.g. `RS256`, `ES256`)
+
+|`restOAuth2Subject`
+|String
+|Subject (`sub` claim); defaults to the client ID if not set
+|===
+
+OAuth 2.0 behavior fixed by the framework: the token field in the token response is always `access_token` (missing field → error), the `aud` claim of the JWT assertion is the token URL, and `iss` / `sub` default to the client ID.
+
+=== AWS Signature
+
+`restAwsAccessKey` (String), `restAwsSecretKey` (GuardedString), `restAwsSessionToken` (GuardedString) — temporary session token; `restAwsRegion` (String), `restAwsService` (String) — service name used in the signature scope (e.g. `execute-api`, `s3`).
+
+=== Digest, Hawk, NTLM (configuration only, not implemented)
+
+`restDigestUsername`, `restDigestPassword`, `restDigestAutoChallenge`, `restDigestMaxRetries`, `restDigestPreemptiveAuth`, `restDigestAlgorithmPreference`, `restDigestStateCacheEnabled`;
+`restHawkId`, `restHawkKey`, `restHawkAlgorithm` (`sha256` default / `sha512`), `restHawkIncludePayloadHash`, `restHawkOffset`, `restHawkExt`;
+`restNtlmUsername`, `restNtlmPassword`, `restNtlmDomain`, `restNtlmWorkstation`, `restNtlmVersion` (`NTLMv2` default).
+
+== Script customization
+
+Authentication can be customized per method in a Groovy script (bundled via the manifest's `authorization` section, or written inline in a connector class):
+
+[source,groovy]
+----
+authorization {
+    rest {
+        // Override the built-in bearer implementation
+        bearer {
+            implementation {
+                request.header("Authorization", "Bearer " + decrypt(configuration.restTokenValue))
+            }
+        }
+        // Prefer bearer over basic when both are configured
+        preference(BearerTokenAuthorization)
+    }
+    scim {
+        basic {
+            implementation { /* ... */ }
+        }
+    }
+}
+----
+
+* `implementation { ... }` — replaces the built-in behavior of the method. The closure delegate exposes: `configuration()` (the connector configuration), `request()` (the `HttpRequestSpecification` being customized), `ctx()` (a key/value context, `set`/`get`), `decrypt(String)` (decrypts guarded values), `newRequest(url)`, `newJwt(...)`, `execute(spec)` (runs an HTTP request), and `parseJson(...)`.
+* `preference(...)` — the preferred method when several are configured.
+
+The same customization in YAML (a top-level `authentication` block, in the same file as the operation documents):
+
+[source,yaml]
+----
+authentication:
+  rest:
+    bearer:
+      implementation: |
+        request.header("Authorization", "Bearer " + decrypt(configuration.restTokenValue))
+    preference:
+      - bearer
+  scim:
+    basic:
+      implementation: |
+        # ...
+----
+
+See xref:declarative-yaml/[declarative YAML] for the full reference.
+
+=== OAuth 2.0 hooks
+
+The OAuth 2.0 methods accept fine-grained hooks:
+
+[cols="1,2,2", options="header"]
+|===
+|Hook |Argument |Purpose
+
+|`buildTokenRequest { ... }`
+|the token-endpoint request
+|customize the token request
+
+|`parseTokenResponse { ... }`
+|the token response as a map
+|parse non-standard responses (the context must then contain `access_token`)
+
+|`validateToken { ... }`
+|—
+|return `true`/`false` for a cached token
+
+|`applyToken { ... }`
+|the request being authorized
+|attach the token to the request
+
+|`onResponse { ... }`
+|the HTTP response
+|fires on *every* response after an authorized request; by default a 401 clears the cached token — providing a hook replaces that default
+
+|===
+
+=== AWS `beforeSign` hook
+
+`awsSignature { beforeSign { ... } }` — the closure receives the request and can set a custom sign header via `signHeader(name)`; `getRequest()` returns the `HttpRequestSpecification`.
+
+== No credentials
+
+If no authentication method is configured for a namespace, requests in that namespace are sent without authentication headers. The SCIM namespace is disabled entirely unless `scimBaseUrl` and at least one SCIM credential are present (see the note above).

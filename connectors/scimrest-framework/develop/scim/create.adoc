@@ -1,69 +1,77 @@
 = SCIM create operation customization
 :page-nav-title: Create operations
 :page-display-order: 1440
-:page-upkeep-status: orange
+:page-upkeep-status: green
 :page-toc: top
-:page-description: How to implement SCIM 2.0 create operations in a SCIMREST connector, including supported attribute configuration and post-create update handling.
-:page-keywords: SCIM create operation, HTTP POST, supported attributes, post-create update, SCIM connector
+:page-description: How the SCIM 2.0 create operation works (built-in POST handler), and the customization DSL for limiting create to a supported subset of attributes — with the current development status.
+:page-keywords: SCIM create operation, HTTP POST, supported attributes, limitations, maxPerRequest, SCIM connector
 
 SCIM 2.0 create operations use HTTP POST to create new resources.
 
 This document is part of the SCIM 2.0 connector tutorial. See xref:/connectors/scimrest-framework/[] for other topics.
 
-== Basic Create
+IMPORTANT: The built-in SCIM create handler and the `create { scim { ... } }` customization block are *in development*.
+The examples on this page describe the intended behavior; until the wiring lands, object classes that need a create operation can use a REST-style create endpoint (`create { endpoint(POST, ...) { ... } }`, see xref:../rest/create/[create objects]) instead.
+
+== Built-in create
 
 To support create operation you do not need to specify anything for well-behaved SCIM 2.0 servers.
 
-For the servers which are not well-behaved or have implementation limitations, you may need to customize create operation.
-
-[source,groovy]
-----
-objectClass("User") {
-    create {
-        scim {
-            supportedAttributes "externalId", "displayName", "nickName"
-        }
-    }
-}
-----
-
-The framework automatically:
+The built-in handler:
 
 * Uses POST to the resource endpoint
 * Serializes creatable attributes to JSON
 * Handles the response to extract the created object
 * Parses the `id` from response as Uid
 
-== Supported attributes
+For the servers which are not well-behaved or have implementation limitations, you may need to customize the create operation (below).
 
-Specify which attributes can be used in create:
+== Limiting create to a supported subset of attributes
+
+Servers often accept only part of the attributes on create. All `creatable` attributes from the schema are supported by default; `supportedAttributes` narrows the set to the supported subset:
 
 [source,groovy]
 ----
-scim {
-    supportedAttributes "externalId", "displayName", "nickName"
+objectClass("User") {
+    create {
+        scim {
+            // only these attributes are accepted/sent on create
+            supportedAttributes "externalId", "displayName", "nickName"
+        }
+    }
 }
 ----
 
-All `creatable` attributes from schema are supported by default.
+== Attribute-specific configuration and limitations
 
-== Attribute-specific configuration
-
-Configure specific attributes with `supportedAttribute`:
+`supportedAttribute(name)` configures a single attribute — pin a fixed value or attach limitations:
 
 [source,groovy]
 ----
 scim {
+    // the server expects a fixed value for userName on create
     supportedAttribute("userName") {
-        // userName can only be set during create (immutable after)
+        value "generated"
     }
 
+    // the server accepts at most one value for active per request
     supportedAttribute("active") {
-        // active attribute is not creatable
-        // Will be set after create via update
+        limitations {
+            maxPerRequest 1
+        }
     }
 }
 ----
+
+Limitations:
+
+[cols="1,3", options="header"]
+|===
+|Key |Description
+
+|`maxPerRequest N`
+|The maximum number of values of the attribute the server accepts in a single request
+|===
 
 == Complete create example (AWS style)
 

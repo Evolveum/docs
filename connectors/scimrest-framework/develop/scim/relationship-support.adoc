@@ -1,169 +1,123 @@
 = SCIM Relationship support
 :page-nav-title: Relationships
 :page-display-order: 1470
-:page-upkeep-status: orange
+:page-upkeep-status: green
 :page-toc: top
-:page-description: SCIM 2.0 relationship support in the SCIMREST framework: automatic group/user relationships, custom relationship definitions, and resolver configuration.
+:page-description: SCIM 2.0 relationship support in the SCIMREST framework: automatic groups/members relationships, the relationship builder DSL, resolvers, and custom reference value mapping.
 :page-keywords: SCIM relationships, group membership, relationship resolver, custom relationship, ConnId reference
 
 SCIM 2.0 supports relationships through multi-valued reference attributes like `groups` (User) and `members` (Group).
 
 This document is part of the SCIM 2.0 connector tutorial. See xref:/connectors/scimrest-framework/[] for other topics.
 
-== SCIM relationship types
-
-|===
-|Relationship |User attribute |Group attribute
-|User in groups |`groups` |`members`
-|User membership |Multi-valued references |Multi-valued references
-|===
-
 == Automatic relationship support
 
-The framework automatically detects standardized SCIM relationships:
+The framework automatically maps the standardized SCIM membership attributes to ConnId reference attributes:
 
-* User `groups` attribute → relationship to Group objects
-* Group `members` attribute → relationship to User objects
+* User `groups` → multi-valued reference to the Group object class
+* Group `members` → multi-valued reference to the User object class
+
+No script is required for these relationships.
 
 == Custom relationships
 
-Define custom relationships using the `relationship` builder:
+For non-standard relationships (for example a SCIM resource that references another resource through a custom attribute), define a relationship with the `relationship` builder:
 
 [source,groovy]
 ----
+import org.identityconnectors.framework.common.objects.ConnectorObjectBuilder
+import org.identityconnectors.framework.common.objects.ConnectorObjectReference
+import org.identityconnectors.framework.common.objects.Name
+import org.identityconnectors.framework.common.objects.ObjectClass
+import org.identityconnectors.framework.common.objects.Uid
+
+/** Custom association between User and Office (custom SCIM type) **/
 relationship("OfficeEmployment") {
     subject("User") {
         attribute("office") {
             multiValued true
+            // Emulated true is implied by presence of resolver
             resolver {
                 resolutionType PER_OBJECT
+                // If not specified, the search is performed on the other side of the relation
                 search {
                     attributeFilter("employees").eq(value)
                 }
             }
         }
     }
-
     object("Office") {
         attribute("employees") {
-            multiValued true
-            resolver {
-                resolutionType PER_OBJECT
-                search {
-                    attributeFilter("office").eq(value)
+            scim {
+                implementation {
+                    deserialize {
+                        var object = new ConnectorObjectBuilder();
+                        object.setObjectClass(new ObjectClass("User"))
+                        object.setUid(new Uid(it.get("id").asText()))
+                        object.setName(new Name(it.get("display").asText()))
+                        new ConnectorObjectReference(object.build())
+                    }
+                    serialize {
+
+                    }
                 }
             }
         }
     }
 }
 ----
+
+This is the pattern used by the SCIM.dev sample connector (`connector/sample-scimdev`, `ScimDev.schema.groovy`).
 
 === Relationship components
 
-* `subject` - The primary object (User)
-* `object` - The related object (Office)
-* `attribute` - The virtual reference attribute
-* `resolver` - How to resolve the relationship
-* `resolutionType` - `PER_OBJECT` or `PER_SEARCH`
+* `relationship(name) { ... }` - Declares the relationship between two object classes
+* `subject(objectClass) { ... }` - The primary side of the relationship
+* `object(objectClass) { ... }` - The other side
+* `attribute(name) { ... }` - The reference attribute on that side (all regular attribute settings apply, e.g. `multiValued true`)
+* `owner()` / `owner(true)` - Marks the side that actually stores the relation
+* `resolver { ... }` - How the reference values are resolved at runtime; the attribute is automatically marked *emulated* (its values come from the resolver, not from the object's own data)
 
+=== Resolver
 
+[cols="1,3", options="header"]
+|===
+|Block |Description
 
-== Customization of SCIM relationships
+|`resolutionType PER_OBJECT` / `resolutionType BATCH`
+|When to resolve: per object, or batched. `PER_OBJECT` is the default.
 
-Override default relationship behavior:
+|`search { ... }`
+|Search-based resolution: the closure builds the filter used to search the target object class (for example `attributeFilter("employees").eq(value)`). The filter API currently supports `eq()` only. If omitted, the search is performed on the other side of the relation.
 
-[source,groovy]
-----
-objectClass("User") {
-    attribute("groups") {
-        multiValued true
-        // Override default group relationship
-        scim {
-            implementation {
-                deserialize {
-                    // Custom deserialization
-                    var groupObj = it; // SCIM group resource
-                    // Return ConnectorObjectReference
-                    new ConnectorObjectReference(...)
-                }
-                serialize {
-                    // Custom serialization
-                }
-            }
-        }
-    }
-}
-----
+|`implementation { ... }`
+|Custom Groovy resolution logic.
+|===
 
-== Relationship resolver
+The `search` / `implementation` closures expose `value()` (the object being resolved), `objectClass(name)`, and `attributeFilter(protocolName)`.
 
-Use `resolver` to specify how related objects are fetched:
+== Customizing reference value mapping
 
-[source,groovy]
-----
-resolver {
-    resolutionType PER_OBJECT
+When the SCIM representation of the reference values does not match the default handling, provide a custom `deserialize` / `serialize` implementation on the attribute (see the `object("Office")` side of the example above):
 
-    search {
-        // Filter for search
-        attributeFilter("members").eq(value)
-    }
-
-    // Optional: endpoint override
-    endpoint("/users/{id}/groups")
-}
-----
+* `deserialize { ... }` — receives the raw JSON value and must return a `ConnectorObjectReference`
+* `serialize { ... }` — the reverse direction (write support for complex values is limited — see xref:complex-attributes/[])
 
 == Search support for relationships
 
-Implement search for relationship attributes:
+Declare which filters on relationship attributes the server supports (single-attribute specifications only — see xref:advanced-filters/[filter specification]):
 
 [source,groovy]
 ----
 objectClass("User") {
     search {
         scim {
-            supportedFilter attribute("groups").child("value").eq().anySingleValue()
-        }
-    }
-}
-
-objectClass("Group") {
-    search {
-        scim {
-            supportedFilter attribute("members").child("value").eq().anySingleValue()
-        }
-    }
-}
-----
-
-== Complete SCIM relationship example
-
-[source,groovy]
-----
-relationship("UserGroupMembership") {
-    subject("User") {
-        attribute("groups") {
-            multiValued true
-            resolver {
-                resolutionType PER_OBJECT
-                search {
-                    attributeFilter("members").eq(value)
-                }
-            }
-        }
-    }
-
-    object("Group") {
-        attribute("members") {
-            multiValued true
-            resolver {
-                resolutionType PER_OBJECT
-                search {
-                    attributeFilter("groups").child("value").eq(value)
-                }
+            limitations {
+                supportedFilter attribute("groups").eq().anySingleValue()
             }
         }
     }
 }
 ----
+
+Accepted filters are translated to the SCIM `filter` query parameter and sent to the server (see xref:search/[built-in search]).

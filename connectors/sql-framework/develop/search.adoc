@@ -1,7 +1,7 @@
 = SQL search and filter support
 :page-nav-title: Search operations
 :page-display-order: 1250
-:page-upkeep-status: orange
+:page-upkeep-status: green
 :page-toc: top
 :page-since: 4.11
 :page-description: How built-in search works in the SQL framework, the ConnId-to-SQL filter translation matrix, searching by UID, and refining the built-in WHERE clause.
@@ -19,15 +19,12 @@ It selects the mapped columns (`+++__UID__+++`, `+++__NAME__+++` and all `return
 ConnId `AndFilter`, `OrFilter` and `NotFilter` are translated to SQL `AND` / `OR` / negation; each `AttributeFilter` is resolved through the attribute's column mapping.
 
 == Filter translation
-// TODO: The table below confuses me—some rows are clearly filters, e.g., `endsWith` ~~ `column LIKE '%?'`, but others don't look like filters at least on one side, e.g., "Numeric columns", "String columns".
-//       As in many places, I understand this confusion is likely due to my lack of domain knowledge but I would like you to check if there really is no need for explanation
-//       and all the info in table (and, by extension, the whole article) is safely sure to be understandable by the target audience.
 
-// TODO: The table contains "EndsWith" but there is no "StartsWith" -- intended?
+The built-in search handler provides automatic ConnId filter translation to SQL.
 
-Which filters are supported depends on the column's SQL type family:
+Each row of the table lists a ConnId filter operation, the SQL predicate the translator generates for it, and the column type families the operation is supported for — the last column refers to the SQL type family of the filtered column (`String columns` means string-typed columns such as VARCHAR; `Numeric columns` means numeric types such as INTEGER or BIGINT).
 
-[cols="1,4", options="header"]
+[cols="1,1,4", options="header"]
 |===
 |ConnId filter |Translated to |Supported by
 
@@ -69,17 +66,13 @@ Which filters are supported depends on the column's SQL type family:
 |— (use xref:/connectors/sql-framework/develop/custom-search/[] or a `where {}` block)
 |===
 
-Notes:
-
-* xref:/connectors/sql-framework/develop/schema-discovery/#uid-detection[Composite (multi-column) UIDs] only support `Equals`; the value must be the column values joined with a `.` separator.
-// TODO: I don't understand one thing here: The UID comprises of values joined from multiple colums, if I search according to this, I search by the composite value which cannot match exactly no single column row…
-//       So the ConnID splits it "smartly" to pass valid queries to the DB, or the DB engine splits it, or how does it work?
-//       I feel I'm missing something here and I'm unsure it was said clearly in this or other articles here.
-// TODO: Another thing here, the sentence "composite (multi-column) UIDs only support Equals" seems to talk about ConnID filters, yet ConnID does not have any "Equals" filter listed in the table above;
-//       for SQL `Equals`, there is filter "Supported by" which incidentally relates also to my comment above the table.
-* Filters on attributes that are not mapped to an SQL column produce a `ConnectorException`.
-* `LIKE` operands are not escaped for the `LIKE` wildcards (`%`, `_`, `\`); avoid using them in filter values.
-// TODO: An example of what exactly I cannot do would be nice: e.g., I have column rows with string "45% of voters" and such but also, e.g., "no voters", and I want to filter only rows containing "% voters" - that I cannot do?
+[NOTE]
+====
+* composite (multi-column) UIDs only support `Equals`; the UID value is split by the `.` separator and each part is compared for equality against its own column (e.g. `tenant-1.account-42` becomes `tenant = '1' AND account = '42'`), so a column value must not contain the separator (a value with the wrong number of parts fails with `IllegalArgumentException`)
+* filters on an attribute that exists on the object class but is not mapped to a SQL column produce a `ConnectorException`; filters on an attribute that does not exist on the object class at all fail with `UnsupportedOperationException`
+* `LIKE` operands are not escaped for the `LIKE` wildcards (`%`, `_`, `\`); avoid using them in filter values — for example, you cannot select only the rows whose value contains the literal text `% voters`
+* filters on joined attributes of xref:schema-customization/[read-only joined object classes] are translated against the joined table like any column filter
+====
 
 == Search by UID
 
@@ -88,9 +81,7 @@ For xref:/connectors/sql-framework/develop/schema-discovery/#uid-detection[compo
 
 == Refining the built-in WHERE clause
 
-// TODO: Although I understand what this does and have a vague understanding of the use case, it would be nice to explicitly state the use case: what this does, what is it good for, what's the purpose, and what's the end result.
-
-Add a fixed predicate on top of the filter-derived WHERE clause (applied to every search, empty filter included):
+Add a fixed predicate on top of the filter-derived WHERE clause (applied to every search, empty filter included). Use it to permanently restrict the rows an object class sees — for example, hiding soft-deleted records (`deleted_at IS NULL`), limiting an object class to the rows of one tenant, or excluding legacy rows the application no longer reads. The end result: every search against the object class (including searches without any filter) returns only the rows that satisfy both the fixed predicate and the caller's filter.
 
 [source,groovy]
 ----
@@ -128,7 +119,9 @@ Inside the `where { e +++->+++ }` closure (delegated to `SqlWherePredicateBuilde
 |Adds a raw QueryDSL `BooleanExpression` directly.
 |===
 
-Always use the explicit `eq`/`ne` method calls — Groovy's `==` operator maps to Java `equals()` and will not produce an SQL predicate.
+NOTE: The builder exposes only `eq` and `ne`. For other comparison operators (`gt`, `lt`, `ge`, `le`, `between`, `like`, ...) build a raw QueryDSL predicate — see the QueryDSL https://www.javadoc.io/doc/com.querydsl/querydsl-core/5.1.0/com/querydsl/core/types/dsl/BooleanExpression.html[`BooleanExpression` documentation] for the full list of predicate methods (the framework uses QueryDSL 5.0.0) — and pass it with `e.add(...)`. For queries with arbitrary predicates, a xref:custom-search/[custom query] is usually the cleaner option: its table reference (`a.tableRef()`) can be used to build typed column paths directly.
+
+IMPORTANT: Always use the explicit `eq`/`ne` method calls — Groovy's `==` operator maps to Java `equals()` and will not produce an SQL predicate.
 
 All predicates are combined with `AND`.
 To disable the built-in search entirely, use `enabled false`; see xref:/connectors/sql-framework/develop/custom-search/[] to replace it with a custom query.

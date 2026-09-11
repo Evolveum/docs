@@ -1,0 +1,52 @@
+= Writing to child and junction tables
+:page-nav-title: Related-table writes
+:page-display-order: 1305
+:page-upkeep-status: green
+:page-toc: top
+:page-description: How the SQL Framework writes child-table and junction-table rows through the parent object class during create, update, and delete — ordering, validations, and transaction semantics.
+:page-keywords: related-table writes, child table CRUD, junction table, embedded attribute write, transactional write
+
+Detected child-table and junction-table relationships (see xref:relationships/[]) are not read-only: the parent object class manages the related rows for you.
+Embedded object classes themselves never expose create, update or delete — all writes go through the parent.
+
+This document is part of the SQL connector tutorial. See xref:../index/[] for other topics.
+
+== Create
+
+After the parent row is inserted, the framework inserts the child-table rows for each related attribute present in the create request:
+
+* *single-valued embedded* — one child row for the single embedded value
+* *multi-valued embedded* — one child row per embedded value
+* *multi-valued simple attribute* — one child row per value
+* *junction table (many-to-many)* — one junction row per reference value
+
+The join columns of each child row are populated from the parent's key (re-read from the database after the insert, so generated keys are covered).
+All inserts run in the same transaction as the parent insert.
+
+== Update
+
+Update deltas for related-table attributes are applied per child table, in the same transaction as the parent-row update:
+
+* *add* — inserts the new child rows
+* *replace* — replaces the existing child rows; physically a delete + insert, preserving columns the connector does not manage (immutable or unmapped columns keep their values)
+* *remove* — deletes the matching child rows
+
+A delta that would change the parent join column of an embedded value is rejected with `ConnectorException` — the join to the parent must stay stable.
+
+== Delete
+
+When the parent row is deleted, the connector first deletes the owned child-table rows and the junction-table rows, and only then deletes the parent row — all in the same transaction.
+No cleanup is delegated to the database schema (for example foreign keys with `ON DELETE CASCADE`); the connector removes the related rows explicitly.
+
+== Validation and errors
+
+* A single-valued related attribute accepts at most one value; embedded values must be embedded objects.
+* Values for non-creatable or non-updatable child columns are rejected.
+* A read-only related object class (view or `readOnly true`) blocks writes to its rows.
+* Object classes without a `__UID__` mapping cannot participate in writes at all (see xref:schema-discovery/[UID detection]).
+* Any failure rolls back the whole transaction — the parent row and the related rows are updated atomically.
+
+== Transactions
+
+Related writes are coordinated by the shared CRUD coordinator: one JDBC transaction and one connection cover the parent operation and all related-row operations (including the read-back of the parent key).
+// The contract test suite verifies related CRUD against a connection pool of size `1`, which would deadlock if more than one connection were used.
