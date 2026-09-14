@@ -1,0 +1,111 @@
+= Account Activation Authentication Sequence
+
+Account activation (setting the password to accounts that were created without it) now runs through
+a dedicated authentication sequence.
+The activation link sent by `accountActivationNotifier` carries a one-time token and leads to that sequence.
+Without the sequence no activation link is created.
+
+== When This Change Is Needed
+
+Update the security policy if your deployment sends account activation notifications, that is if:
+
+* `credentials/password/storageMethod/storageType` is `hashing` in the security policy, and
+* `accountActivationNotifier` is configured in the system configuration.
+
+Deployments that use encrypted password storage (the default) are not affected.
+
+== What Changes for Users
+
+* The link in the notification has the form `<publicHttpUrlPattern>/auth/<urlSuffix>?user=<name>&token=<nonce>`.
+* The user authenticates by the token and by the current midPoint password, then confirms the activation.
+* Each link can be used once and expires after the configured `maxAge`.
+* The old `/activate/accounts?user=<oid>` link no longer works.
+
+== Security Policy Update
+
+Add a mail nonce module, a sequence bound to the `accountActivation` channel and a nonce credential policy.
+The `loginForm` module already present in the default policy is reused.
+
+[source,xml]
+----
+<securityPolicy>
+    <authentication>
+        <modules>
+            <mailNonce>
+                <identifier>accountActivationMailNonce</identifier>
+                <credentialName>accountActivationNonce</credentialName>
+            </mailNonce>
+            <loginForm>
+                <identifier>loginForm</identifier>
+            </loginForm>
+        </modules>
+        <sequence>
+            <identifier>account-activation</identifier>
+            <channel>
+                <channelId>http://midpoint.evolveum.com/xml/ns/public/common/channels-3#accountActivation</channelId>
+                <urlSuffix>accountActivation</urlSuffix>
+            </channel>
+            <module>
+                <identifier>accountActivationMailNonce</identifier>
+                <order>10</order>
+                <necessity>requisite</necessity>
+            </module>
+            <module>
+                <identifier>loginForm</identifier>
+                <order>20</order>
+                <necessity>required</necessity>
+            </module>
+        </sequence>
+    </authentication>
+    <credentials>
+        <nonce>
+            <name>accountActivationNonce</name>
+            <maxAge>PT24H</maxAge>
+        </nonce>
+    </credentials>
+</securityPolicy>
+----
+
+Do not configure lockout on the nonce credential policy.
+Lockout locks the whole user account, and the activation URL and user names are not secret.
+
+== System Configuration
+
+Both settings are required for the link to be created:
+
+* `infrastructure/publicHttpUrlPattern` set to the public URL of midPoint,
+* `confirmationMethod` set to `link` in `accountActivationNotifier`.
+
+[source,xml]
+----
+<accountActivationNotifier>
+    <recipientExpression>
+        <script>
+            <code>requestee.getEmailAddress()</code>
+        </script>
+    </recipientExpression>
+    <transport>mail</transport>
+    <confirmationMethod>link</confirmationMethod>
+</accountActivationNotifier>
+----
+
+== Verification
+
+Assign an account on a resource with password support to a user with a hashed password.
+The notification must contain a link with a `token` parameter.
+Opening the link asks for the password and then lists the accounts to activate.
+
+If the notification says the accounts are not activated and contains no link, check the log for
+`No authentication sequence for channel ... accountActivation`.
+
+== Notes
+
+* `credentials/nonce` of a user holds a single value.
+An activation link and a password reset link issued for the same user replace each other; the last one is valid.
+* Users that have no midPoint password cannot use account activation.
+Use password reset or invitation for them.
+
+== See Also
+
+* xref:/midpoint/reference/security/credentials/password-storage-configuration/[Password Storage Configuration]
+* xref:/midpoint/reference/security/authentication/flexible-authentication/[Flexible Authentication]
