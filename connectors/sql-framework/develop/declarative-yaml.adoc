@@ -7,7 +7,7 @@
 :page-description: Declarative YAML support in the SQL Framework — connector manifest, native YAML schema documents, and operation documents as an alternative to Groovy scripts.
 :page-keywords: YAML manifest, declarative YAML, native schema, connector.manifest.yaml, YAML operations, no-code connector
 
-The SQL Framework supports a declarative YAML form for the connector manifest, schema definitions, and operation handlers, in addition to Groovy scripts.
+The SQL Framework supports a declarative YAML form for the connector manifest, schema definitions, and operation handlers, in addition to xref:schema-customization/[Groovy scripts].
 
 YAML documents and Groovy scripts are two front-ends over the *same* builders — a YAML document drives the same live builders the Groovy DSL does, so both forms can be mixed per connector.
 
@@ -38,7 +38,7 @@ Paths starting with `/` are resolved as classpath resources from the root of the
 
 == Native YAML schema documents
 
-A schema document named `*.native.schema.yaml` (or `*.connid.schema.yaml`) is a flat YAML description of object classes under the `objectClasses` root (one entry per object class; a file may describe several classes). Both file names are accepted and loaded identically.
+A schema document named `{asterisk}.native.schema.yaml` (or `{asterisk}.connid.schema.yaml`) is a flat YAML description of object classes under the `objectClasses` root (one entry per object class; a file may describe several classes). Both file names are accepted and loaded identically.
 
 [source,yaml]
 ----
@@ -72,6 +72,11 @@ objectClasses:
 ----
 
 Structure:
+// TODO: I like the explanatory table but after reading the schema-customization.adoc, I feel I've seen it all in slightly different composition already.
+// The options in YML and Groovy are the same, right? As in, what readers find here, they can find in the Groovy article as well.
+// Could we possibly replace the table with a link to the same explanatory material in the Groovy article?
+// Or, if not appropriate, could we make the explanatory materials (tables) into content chunks that would be included in both articles?
+// I realize the syntax is slightly different but the content duplication will inevitably complicate our lives further down the road so it'd best to avoid it.
 
 [cols="1,3", options="header"]
 |===
@@ -90,13 +95,13 @@ Structure:
 |Only the explicitly listed attributes are considered (all other discovered columns are ignored)
 
 |`connId` (object-class level)
-|Built-in attribute alias map, e.g. `connId: { UID: user_id }` binds `__UID__` to the `user_id` attribute
+|Built-in attribute alias map, e.g. `connId: { UID: user_id }` binds `UID` to the `user_id` attribute
 
 |`sql: { table, schema }`
 |The SQL table name (defaults to the object class name) and optional SQL schema qualifier
 
 |`attributes.<name>`
-|One attribute — the regular attribute settings (`description`, `required`, `multiValued`, `creatable`, `updateable`, `readable`, `returnedByDefault`, `emulated`, `complexType`), the `connId: { name, type }` mapping (including the `__UID__` / `__NAME__` built-ins), the inherited `json: { name, type, openApiFormat, path }` block (the `path` is an attribute-path string such as `$.name.first`, default basic JSONPath — or an explicit `{ type: JSON_POINTER, value: /name/first }` mapping), and the `sql` block below. An empty value (`{}`) declares the attribute without renaming.
+|One attribute — the regular attribute settings (`description`, `required`, `multiValued`, `creatable`, `updateable`, `readable`, `returnedByDefault`, `emulated`, `complexType`), the `connId: { name, type }` mapping (including the `UID` / `NAME` built-ins), the inherited `json: { name, type, openApiFormat, path }` block (the `path` is an attribute-path string such as `$.name.first`, default basic JSONPath — or an explicit `{ type: JSON_POINTER, value: /name/first }` mapping), and the `sql` block below. An empty value (`{}`) declares the attribute without renaming.
 
 |`references.<name>`
 |Map of `attribute name → reference attribute definition`, with `objectClass`, `subtype`, `role` (see xref:schema-customization/[reference attributes])
@@ -132,10 +137,11 @@ YAML schema documents bind directly into the same live schema builder as Groovy 
 Yes — Groovy and YAML customizations can target the same table (object class): both are applied to the same builder and are merged. The only limit is that a property set explicitly in *both* forms (or set twice, in any combination of Groovy and YAML) is a conflict and fails at script evaluation — declare each property in exactly one place.
 
 Parsing is strict: a file must contain exactly one document, and unknown keys fail fast.
+// TODO: Is "fail fast" really the way we want to put it? Maybe rather "fail at script evaluation"?
 
 == Operation documents
 
-An operation document covers one or more of `create`, `update`, or `delete` per object class, under the same `objectClasses` root:
+An operation document covers one or more of `create`, `update`, or `delete` operations per object class, under the same `objectClasses` root:
 
 [source,yaml]
 ----
@@ -151,10 +157,11 @@ objectClasses:
 |Key |Description
 
 |`create: { enabled }` / `update: { enabled }` / `delete: { enabled }`
-|Enables or disables the operation (e.g. `enabled: false` ≙ `disableCreate()`); `readOnly: true` on the schema disables all three automatically
+|Enables or disables the operation (e.g. `enabled: false` ≙ `disableCreate()`); +
+`readOnly: true` on the schema disables all three automatically
 |===
 
-Search works out of the box for discovered tables; Groovy remains the front-end for scripted search behavior (custom query implementations, `where` predicates — see xref:search/[search] and xref:custom-search/[custom search]).
+Search works out of the box for discovered tables; Groovy remains the front-end for scripted search behavior (custom query implementations and `where` predicates — see xref:search/[search] and xref:custom-search/[custom search]).
 
 == Groovy to YAML fallback
 
@@ -169,4 +176,4 @@ connector:
 
 This makes it possible to migrate a script to YAML incrementally without changing the manifest.
 
-The granularity of combining the two forms is per script resource, per object class, per attribute, and per operation — the manifest lists `.groovy` and `.yaml` resources side by side, and each is applied to the same builder. The only limit is the one described above: do not declare the same property explicitly in both (a table and attributes in YAML plus a search customization in Groovy is fine; the same table property in both is not).
+The granularity of combining the two forms is per script resource, per object class, per attribute, and per operation — the manifest lists `.groovy` and `.yaml` resources side by side and each is applied to the same builder. The only limit is the one described above: do not declare the same property explicitly in both (a table and attributes in YAML plus a search customization in Groovy is fine; the same table property in both is not).
