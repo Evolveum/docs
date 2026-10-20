@@ -2,38 +2,78 @@
 :page-nav-title: AI setup
 :page-display-order: 80
 :page-toc: top
-:page-keywords: connector generator, identity connectors, connectors, ai, midpilot, llm
-:page-description: Configuration reference for local deployment of midPilot microservices for midPoint AI-assisted connector generation and smart resource integration
+:page-keywords: connector generator, identity connectors, connectors, ai, midpilot, llm, api key, container images
+:page-description: Setup of midPilot AI services for midPoint: Evolveum-hosted service or self-hosted deployment
 
 MidPilot is a set of AI-assisted features that extend core identity management capabilities of midPoint and enable fast onboarding of applications for which no suitable connector exists.
 
-MidPilot requires an LLM to function.
-This article describes the architecture and requirements of midPilot, as well as configuration options to connect the midPilot microservices to an LLM provider of your choice.
+MidPilot features are provided by microservices that use a large language model (LLM).
+The microservices are available either as a service hosted by Evolveum, including the LLM, or for self-hosted deployment connected to any OpenAI-compatible LLM provider.
+This article describes the architecture and requirements of midPilot and how to set up either option.
 
 == Introduction
 
 MidPilot consists of two independent microservices:
 
-midpilot-smart-resource-integration ::
+midpilot-smart-integration ::
     Generates configuration suggestions for resource object types, inbound/outbound mappings, delineation, synchronization, and correlation rules.
     Uses midPoint schema information as context. +
     link:https://github.com/Evolveum/midpilot-smart-integration[Smart integration microservice repository on GitHub]
 midpilot-connector-gen ::
     Generates connector code for a target application by analyzing API documentation of the application retrieved from the Internet.
-    Requires its own PostgreSQL database, JAR file with generic connector, and access to a search engine. +
+    Requires its own PostgreSQL database and access to a search engine.
+    MidPoint builds the generated connector on top of connector framework template JAR files. +
     link:https://github.com/Evolveum/midpilot-connector-gen[Connector generator microservice repository on GitHub]
 
-Both services use a large language model (LLM) of your choice for certain parts of their operations.
+Both services use a LLM for certain parts of their operations.
 Hence the "AI-assisted" term.
+Both services have been production-ready since their 1.0.0 release in October 2026.
 
 Both services are optional and not essential for midPoint itself to function.
-Either service can be deployed independently of the other.
-At the same time, the services are not ready to use out of the box in a _default_ midPoint installation.
-You need to explicitly add and configure them;
+Either service can be used independently of the other.
+At the same time, the services are not enabled out of the box in a _default_ midPoint installation.
+MidPoint must be explicitly configured to use them, either with the Evolveum-hosted service or with a self-hosted deployment;
 this article is a reference for such configuration.
 
 MidPoint itself does not communicate directly with the LLM.
 Instead, it delegates the communication to the microservices, which call the LLM via an OpenAI-compatible Chat Completions API.
+
+[[deployment-options]]
+== Choose a deployment
+
+MidPilot can be used in two ways:
+
+[cols="1,2,2", options="header"]
+|===
+|
+|Evolveum-hosted service
+|Self-hosted deployment
+
+|Microservices operated by
+|Evolveum
+|Customer
+
+|LLM
+|Evolveum's own self-hosted LLM infrastructure.
+|Any OpenAI-compatible LLM provider
+
+|Requirements
+|An API key from the Integration catalog and HTTPS access from midPoint to `midpilot-api.evolveum.com`
+a|* A container runtime and the link:#container-images[midPilot container images]
+* LLM endpoint
+* For the connector generator: PostgreSQL, a search engine, and Internet access
+
+|Data processed on
+|Evolveum infrastructure
+|Customer infrastructure and the selected LLM provider
+
+|Upgrades
+|Performed by Evolveum
+|Performed by the customer: deployment of a newer release image
+|===
+
+To use the Evolveum-hosted service, see link:#evolveum-hosted[Evolveum-hosted midPilot service] and link:#midpoint-configuration[MidPoint configuration].
+The rest of this article, except the midPoint configuration, applies to self-hosted deployments.
 
 == Prerequisites
 
@@ -44,60 +84,71 @@ This section covers the basic requirements for deployment of midPilot AI service
 MidPilot integration requires *midPoint 4.11 or later*.
 See, for example, the link:https://hub.docker.com/r/evolveum/midpoint/tags?name=4.11[Docker Hub midPoint 4.11 tags].
 
+[[llm-provider]]
 === LLM provider
 
-Evolveum currently does not provide an LLM and the required infrastructure.
-We are preparing our self-hosted LLM infrastructure but until it is ready for you to use,
-you must supply your own self-hosted LLM infrastructure
-with an endpoint that is compatible with the link:https://developers.openai.com/api/reference/chat-completions/overview[OpenAI Chat Completions API].
+The link:#evolveum-hosted[Evolveum-hosted service] requires no separate LLM.
+Evolveum runs the microservices together with its own self-hosted LLM infrastructure (the *gpt-oss-120b* model).
+
+Self-hosted microservices require an LLM endpoint
+that is compatible with the link:https://developers.openai.com/api/reference/chat-completions/overview[OpenAI Chat Completions API].
 OpenAI itself is not required—any OpenAI-compatible provider or proxy works.
 
 .Be wary of public LLM services
 [NOTE]
 ====
-Although you can employ a public LLM to use midPilot,
-you should be aware of the risks.
-External LLMs over which you have no control may store data you send them and use them for training,
-potentially exposing your sensitive information.
+Although a public LLM can be used with midPilot,
+it comes with risks.
+External LLMs outside of the organization's control may store the data sent to them and use them for training,
+potentially exposing sensitive information.
 
-We strongly suggest using self-hosted LLMs which are fully under your control.
+We strongly suggest using self-hosted LLMs which are fully under the organization's control,
+or the Evolveum-hosted service, which uses Evolveum's own self-hosted LLM.
 ====
 
 [[required-config-vars]]
-When configuring either of the microservices, you need the following from your LLM provider:
+Configuration of either microservice requires the following information from the LLM provider:
 
 [cols="1,5", options="header"]
 |===
 |Environment variable |Description
 |`LLM__OPENAI_API_BASE`
-|Base URL of the OpenAI-compatible API endpoint
+|Base URL of the OpenAI-compatible API endpoint. +
+    Defaults to `\https://openrouter.ai/api/v1` (OpenRouter).
 |`LLM__MODEL_NAME`
 |Model identifier. +
-    Value not required.
-    Defaults to `openai/gpt-oss-120b`. +
+    The defaults differ: the connector generator uses `openai/gpt-oss-120b`, the smart resource integration service uses `openai/gpt-oss-20b`.
+    Set the value explicitly for both services. +
     Based on our analysis, *gpt-oss-120b* has proven to be the most effective so far.
-    Pay attention to naming conventions—some providers prefix model names (e.g., open-ai/gpt-oss-120b).
-    Consult your provider's documentation.
+    Pay attention to naming conventions—some providers prefix model names (e.g., `openai/gpt-oss-120b`).
+    Consult the documentation of the LLM provider.
 |`LLM__OPENAI_API_KEY`
-|Bearer JWT token for authentication
+|API key for the LLM endpoint, sent as a Bearer token
 |===
 
 === Internet access
 
 The connector generator microservice requires Internet access in order to:
 
-* Search for and download API documentation of the target application.
-* Download the link:#connector-framework-jar[connector framework JAR artifact].
+* Search for API documentation of the target application (via Brave Search or DuckDuckGo).
+* Download and process the documentation pages.
+    The microservice uses a headless Chromium browser for this.
+
+MidPoint itself downloads the link:#connector-framework-jar[connector framework template JAR files] from the Evolveum Nexus repository when it creates a connector, unless a local `file://` path is configured.
 
 Additionally, both microservices require network connection to call the LLM API.
-If you do not run the LLM within the same network perimeter, then the smart resource integration service requires Internet connection as well.
+If the LLM does not run within the same network perimeter, the smart resource integration service requires Internet connection as well.
 
-If your deployment environment restricts Internet access, see the link:#corporate-proxy-environments[Corporate proxy environments] section below.
+With the Evolveum-hosted service, midPoint needs outbound HTTPS access to `midpilot-api.evolveum.com` and to the Evolveum Nexus repository.
+
+If the deployment environment restricts Internet access, see the link:#corporate-proxy-environments[Corporate proxy environments] section below.
 
 === PostgreSQL
 
-The connector generator microservice requires a *dedicated PostgreSQL database* for storing indexed documentation chunks and LLM query optimization metadata.
-The database must exist and be accessible before the service starts because you have to run Python Alembic database migration before launching the API server.
+_Self-hosted deployments only._
+
+The connector generator microservice requires a *dedicated PostgreSQL database* (PostgreSQL 15 or later) for storing indexed documentation chunks, sessions, jobs, and LLM query optimization metadata.
+The database must exist and be accessible before the service starts because the link:#database-migrations[database migration] has to run before the API server is launched.
 
 [NOTE]
 ====
@@ -108,15 +159,17 @@ While it may be technically possible to share the main midPoint repository datab
 [[langfuse]]
 === Langfuse tracing (optional)
 
+_Self-hosted deployments only._
+
 link:https://github.com/langfuse/langfuse[Langfuse] is an AI engineering platform that helps debug and analyze LLM applications.
 It is used purely for tracking LLM calls made by the microservices and it is not required for midPilot microservices or midPoint to function.
 
-You can enable Langfuse tracing by setting `LANGFUSE__TRACING_ENABLED` to `true`.
+Langfuse tracing is enabled by setting `LANGFUSE__TRACING_ENABLED` to `true`.
 
 *LLM call tracing is disabled by default*.
-If you want to use Langfuse, you need to deploy and configure it yourself according to the official Langfuse documentation.
+Langfuse is not part of midPilot; it has to be deployed and configured separately according to the official https://langfuse.com/docs[Langfuse documentation].
 
-If you enable tracing, you must also configure the remaining Langfuse variables in the `.env` file for each service:
+With tracing enabled, the remaining Langfuse variables must be configured in the `.env` file of each service:
 
 [cols="2,5", options="header"]
 |====
@@ -139,12 +192,6 @@ Purpose ::
     For example, it makes it possible to distinguish production and staging traces from local development runs.
     Without a unique environment label, traces from all application instances are displayed together in the same project.
 
-How it works ::
-    The value is loaded into `LangfuseSettings.environment` in `src/config/langfuse.py` and passed to the Langfuse client constructor in `src/core/observability/langfuse.py`.
-    The Langfuse SDK registers the value as an OpenTelemetry resource attribute.
-    It is therefore automatically attached to every span and trace exported by the application process.
-    No manual propagation is required.
-
 Recommended values ::
     * `production`
     * `development`
@@ -152,9 +199,83 @@ Recommended values ::
         Each developer should use a unique `dev-<name>` value.
         Otherwise, local traces generated by different developers cannot be reliably distinguished.
 
+[[evolveum-hosted]]
+== Evolveum-hosted midPilot service
+
+Evolveum runs both midPilot microservices in production, together with the LLM they use.
+This is the fastest way to start with midPilot: no deployment is needed, midPoint only connects to the service with an API key.
+
+[cols="1,3", options="header"]
+|===
+|Microservice |URL
+|Smart resource integration
+|`\https://midpilot-api.evolveum.com/midpilot-smart-integration/`
+|Connector generator
+|`\https://midpilot-api.evolveum.com/midpilot-connector-gen/api/v1`
+|===
+
+To connect midPoint to the hosted service:
+
+. Create an API key in the Integration catalog.
+    See xref:/connectors/integration-catalog/catalog-settings/#api-keys[Integration catalog API keys]. +
+    API keys expire.
+    Rotate the key before it expires and update it in midPoint.
+    The linked page describes the expiration and rotation rules.
+. In midPoint, go to *System* -> *Smart integration* and fill in the service URLs above and the API key.
+    Use the same API key for both microservices.
+. Verify the connection, see link:#verification-checklist[Verification checklist].
+
+MidPoint sends the API key with every request to the microservices.
+The key also identifies the owner of connector generation sessions:
+sessions created with one key are not accessible with another key.
+This also applies to a rotated key.
+Finish running connector generation sessions before rotating the key, or start them again with the new key.
+
+[[container-images]]
+== Container images
+
+Evolveum publishes container images of both microservices for self-hosted deployments:
+
+[cols="1,3", options="header"]
+|===
+|Microservice |Image
+|Smart resource integration
+|`midpilot-smart-integration`
+|Connector generator
+|`midpilot-connector-gen`
+|===
+
+The images are built for `linux/amd64` and `linux/arm64`.
+The examples on this page use the image name only; prefix it with the address of the registry the images are pulled from.
+
+The following tags are available:
+
+`X.Y.Z` (e.g., `1.0.1`) ::
+    Release.
+    Release tags are immutable: once published, they are never moved or overwritten.
+    *Use release tags in production.*
+`<short-sha>` ::
+    Build of a specific commit of the `main` branch.
+    Immutable.
+`latest` ::
+    Floating tag that points to the newest build of the `main` branch.
+    It may contain changes that are not released yet.
+`nightly`, `nightly-<short-sha>` ::
+    Connector generator only.
+    Nightly builds of the development branch.
+    *Not intended for production.*
+
+The current release of both microservices is *1.0.1*.
+See the link:https://github.com/Evolveum/midpilot-smart-integration/tags[smart resource integration tags], the link:https://github.com/Evolveum/midpilot-connector-gen/tags[connector generator tags] on GitHub.
+
+
+[[smart-resource-integration-microservice]]
 == Smart resource integration microservice
 
-The smart resource integration microservice (`midpilot-smart-resource-integration`) provides AI-assisted suggestions for:
+This section describes the self-hosted deployment of the smart resource integration microservice (`midpilot-smart-integration`).
+It does not apply to the link:#evolveum-hosted[Evolveum-hosted service].
+
+The microservice provides AI-assisted suggestions for:
 
 * Resource object type configuration
 * Inbound and outbound mapping rules
@@ -177,19 +298,65 @@ No additional database is required.
 Deploy the `midpilot-smart-resource-integration` container (e.g., via Kubernetes, Docker Compose, Nomad job, etc.).
 The service listens on *port 8090* by default.
 MidPoint communicates with the microservice using REST API over HTTP.
+`GET /health` is a liveness check without dependencies, suitable for container health probes.
+
+For example, with Docker, put the configuration into an environment file:
+
+.midpilot-smart-integration.env
+[source]
+----
+LLM__OPENAI_API_BASE=https://llm.example.com/v1
+LLM__OPENAI_API_KEY=<LLM API key>
+LLM__MODEL_NAME=gpt-oss-120b
+LLM__PROVIDER_NAME=my-llm
+----
+
+and start the container:
+
+[source,bash]
+----
+docker run -d --name midpilot-smart-integration \
+  --env-file midpilot-smart-integration.env \
+  -p 8090:8090 \
+  midpilot-smart-integration:1.0.1
+----
+
+The microservice has no authentication of its own.
+Make sure that only midPoint can reach it, or put an API gateway in front of it.
+If the gateway requires an API key in the `X-Gravitee-Api-Key` HTTP header, set it in `serviceApiKey` in the link:#midpoint-configuration[midPoint configuration].
 
 A demo Docker Compose file is available at link:https://github.com/Evolveum/midpoint-samples/blob/master/samples/demo/smart-resource-integration/docker/smart-resource-integration/docker-compose.yml[Evolveum midpoint-samples GitHub repository].
+The demo uses the floating `smart-integration-demo` image tag;
+for production, pin a release tag such as `1.0.1`, as in the example above.
 
 === Environment variables
 
-Beside the link:#required-config-vars[required configuration variables] and the link:#langfuse[optional Langfuse service connection setup], you can define the following:
+Beside the link:#required-config-vars[required configuration variables] and the link:#langfuse[optional Langfuse service connection setup], the following variables are available:
 
-[cols="3,1,4", options="header"]
+[cols="3,2,4", options="header"]
 |===
 |Environment variable |Default |Description
 |`LOGGING__LEVEL`
-|info
+|`info`
 |Logging level (e.g., `debug`, `info`, `error`, `warning`, `critical`)
+|`LLM__EXTRA_BODY`
+|OpenRouter provider routing
+|JSON object added to the body of every LLM request.
+    The default contains OpenRouter-specific provider preferences.
+    *Set it to `{}` for any other provider.*
+|`LLM__PROVIDER_NAME`
+|`openrouter`
+|Name of the LLM provider shown in health and status messages.
+    Set it to the name of the LLM provider in use.
+|`LLM__REQUEST_TIMEOUT`
+|`120`
+|Timeout of the whole LLM call, in seconds
+|`LLM__REASONING_EFFORT`
+|`high`
+|Reasoning effort for models that support it: `low`, `medium`, or `high`
+|`LLM__CA_CERT_FILE`
+|none
+|Path to a CA certificate file, if the LLM endpoint uses a certificate signed by an internal certificate authority
 |===
 
 === Recommended pre-deployment checks
@@ -200,137 +367,277 @@ Beside the link:#required-config-vars[required configuration variables] and the 
 
 == Connector generator microservice
 
-The connector generator microservice (`midpilot-connector-gen`) generates connector code for target applications by:
+This section describes the self-hosted deployment of the connector generator microservice (`midpilot-connector-gen`).
+For the link:#evolveum-hosted[Evolveum-hosted service], only the link:#connector-framework-jar[Connector framework JAR] and link:#demo-target-application[Demo target application] sections apply.
+
+The microservice generates connector code for target applications by:
 
 . Searching for and downloading API documentation of the target application
 . Indexing documentation chunks in PostgreSQL
-. Using LLM-assisted analysis to produce connector code based on the SCIMREST connector framework
+. Using LLM-assisted analysis to produce connector code based on a connector framework template (SCIM/REST or SQL)
 
 === Requirements
 
 * Accessible LLM endpoint
-* Dedicated PostgreSQL database (must exist before startup)
-* Access to a connector framework JAR file (retrieved from a URL or local path—see the link:#connector-framework-jar[Connector framework JAR] section)
+* Dedicated PostgreSQL 15 or later database (must exist before startup)
 * Internet access for documentation discovery
-* Optionally: Brave Search API key (recommended for better search quality)
-
-=== Deployment
-
-Deploy the `midpilot-connector-gen` container (e.g., via Kubernetes, Docker Compose, Nomad job, etc.) and run `alembic upgrade head` to perform the initial PostgreSQL database migration.
-
-The service listens on *port 8090* by default.
-MidPoint communicates with the microservice using REST API over HTTP.
-Additionally, ensure the dedicated PostgreSQL database is running and accessible before starting the service (see the <<prerequisites,Prerequisites>> section).
+* Search engine access: Brave Search API key (recommended for better search quality) or DuckDuckGo
+* An API gateway or a network restriction so that only midPoint can reach the service (see link:#authentication[Authentication])
 
 === Components
 
-This microservice consists of two containers:
+The microservice consists of two parts:
 
-* `midpilot-connector-gen`: the API server
-* `midpilot-connector-gen-db`: the PostgreSQL database
+* `midpilot-connector-gen`: the API server, which also runs the background jobs
+* PostgreSQL database
+
+=== Deployment
+
+. Create the PostgreSQL database and a user for the microservice.
+. Run the link:#database-migrations[database migration].
+. Start the `midpilot-connector-gen` container (e.g., via Kubernetes, Docker Compose, Nomad job, etc.).
+
+The service listens on *port 8090* by default.
+MidPoint communicates with the microservice using REST API over HTTP.
+
+For example, with Docker, put the configuration into an environment file:
+
+.midpilot-connector-gen.env
+[source]
+----
+LLM__OPENAI_API_BASE=https://llm.example.com/v1
+LLM__OPENAI_API_KEY=<LLM API key>
+LLM__MODEL_NAME=gpt-oss-120b
+SEARCH__METHOD_NAME=brave
+BRAVE__API_KEY=<Brave Search API key>
+AUTH__MODE=prod
+DATABASE__URL=postgresql+asyncpg://midpilot:<password>@postgres.example.com:5432/midpilot_connector_gen
+----
+
+Docker environment files do not expand variables, so write `DATABASE__URL` in full.
+Then run the database migration and start the container:
+
+[source,bash]
+----
+docker run --rm --env-file midpilot-connector-gen.env \
+  midpilot-connector-gen:1.0.1 \
+  alembic upgrade head
+
+docker run -d --name midpilot-connector-gen \
+  --env-file midpilot-connector-gen.env \
+  -p 8090:8090 \
+  midpilot-connector-gen:1.0.1
+----
+
+The link:https://github.com/Evolveum/midpilot-connector-gen/blob/main/docker-compose.yaml[Docker Compose file in the repository] shows how to run the microservice together with PostgreSQL.
+
+[[database-migrations]]
+=== Database migrations
+
+The container starts only the API server (`python server.py`); it does not migrate the database.
+Run `alembic upgrade head` with the same image and the same configuration:
+
+* before the first start,
+* after every upgrade to a newer image, before the new version starts.
+
+In Kubernetes, the migration can run in an init container of the microservice pod.
+With more than one replica, run the migration once (e.g., as a separate job), not in every replica at the same time.
+
+Back up the database before upgrading to a version that contains new migrations.
+Rolling back to an older image is safe only if the older version supports the current database schema.
+
+[[authentication]]
+=== Authentication
+
+By default, the microservice runs with `AUTH__MODE=prod`:
+
+* Every `/api/v1` request must contain exactly one `X-Gravitee-Api-Key` HTTP header, otherwise the service responds with HTTP 401.
+    MidPoint sends this header when `connectorGeneratorApiKey` is set in the link:#midpoint-configuration[midPoint configuration].
+* The key identifies the owner of sessions and cached results.
+    Different keys cannot access each other's sessions.
+    A rotated key is a different owner, so sessions of the old key are not accessible with the new one.
+
+[IMPORTANT]
+====
+The microservice does not validate the key itself; it trusts the header.
+Therefore, do one of the following:
+
+* Put the microservice behind an API gateway that validates the keys and forwards the validated key in the `X-Gravitee-Api-Key` header.
+    Make sure the microservice cannot be reached other than through the gateway.
+* Restrict network access so that only midPoint can reach the microservice, and set a random, high-entropy key in `connectorGeneratorApiKey`.
+====
+
+`AUTH__MODE=dev` disables authentication and session isolation.
+Use it only for local development, never for a shared deployment.
+
+The `/health`, `/docs`, `/redoc` and `/openapi.json` endpoints are not authenticated.
 
 === Environment variables
 
-Beside the link:#required-config-vars[required configuration variables] and the link:#langfuse[optional Langfuse service connection setup], you can define the following:
+Beside the link:#required-config-vars[required configuration variables] and the link:#langfuse[optional Langfuse service connection setup], the following variables are available:
 
-[cols="3,1,2,4", options="header"]
+[cols="3,2,1,4", options="header"]
 |===
 |Environment variable |Default |Required? |Description
-|`LOGGING__LEVEL`
-|`info`
+|`DATABASE__URL`
+|none
+|yes
+|PostgreSQL connection string in the `postgresql+asyncpg://<user>:<password>@<host>:<port>/<database>` format
+|`AUTH__MODE`
+|`prod`
 |no
-|Logging level (e.g., `debug`, `info`, `error`, `warning`, `critical`)
+|`prod` or `dev`, see link:#authentication[Authentication]
 |`SEARCH__METHOD_NAME`
 |none
 |yes
 a|Search provider:
 
-    * `ddgs` (DuckDuckGo, free but limited)
-    * `brave` (recommended, requires API key)
+* `ddgs` (DuckDuckGo, free but limited)
+* `brave` (recommended, requires API key)
+
+Without a valid value, the documentation search returns no results.
 |`BRAVE__API_KEY`
 |none
 |yes if using Brave
 |API key for Brave Search
 |`BRAVE__ENDPOINT`
-|none
-|yes if using Brave
+|`\https://api.search.brave.com/res/v1/web/search`
+|no
 |API endpoint for Brave Search
+|`LLM__REASONING_EFFORT`
+|none
+|no
+|Reasoning effort for models that support it: `low`, `medium`, or `high`
+|`LLM__PROVIDER_ORDER`
+|`["groq", "wandb/fp4", "clarifai/fp4"]`
+|no
+|Provider preference order sent in LLM requests.
+    Used only by OpenRouter.
+|`LLM__CA_CERT_FILE`
+|none
+|no
+|Path to a CA certificate file, if the LLM endpoint uses a certificate signed by an internal certificate authority
+|`LOGGING__LEVEL`
+|`info`
+|no
+|Logging level (e.g., `debug`, `info`, `error`, `warning`, `critical`)
 |===
+
+For the remaining options, such as the number of worker processes (`APP__WORKERS`), background job settings (`JOBS__*`), and database connection pool settings, see the link:https://github.com/Evolveum/midpilot-connector-gen/blob/main/docs/configuration.adoc[configuration reference in the repository].
+
+=== Health and readiness endpoints
+
+`GET /health` ::
+    Liveness check without dependencies and without authentication.
+    Use it for container health probes.
+`GET /api/v1/ready` ::
+    Readiness check for API clients, such as midPoint.
+    It requires authentication like every other `/api/v1` endpoint.
+    It checks the database and the LLM endpoint and returns HTTP 503 with the result of each check if a dependency is unavailable.
+    The LLM check calls `GET /models` on the LLM endpoint and consumes no tokens, so the LLM endpoint must support it.
 
 [[connector-framework-jar]]
 === Connector framework JAR
 
-The connector generator requires a connector framework JAR file (one layer above ConnId) that serves as a template during connector generation.
-This file is referenced by the `connectorFrameworkUrl` element in link:#midpoint-configuration[midPoint System configuration object].
+When midPoint creates a generated connector, it builds the connector on top of a connector framework template JAR file (one layer above ConnId).
+MidPoint downloads the template from the URL configured in the link:#midpoint-configuration[midPoint System configuration object]:
 
-You have two options to get the connector framework JAR:
+* `connectorFrameworkUrl` for SCIM and REST connectors
+* `connectorSqlFrameworkUrl` for SQL connectors
 
-* Use the universal URL which always points to the newest version: +
-`+++https://nexus.evolveum.com/nexus/service/rest/v1/search/assets/download?repository=snapshots&maven.groupId=com.evolveum.polygon.scimrest&maven.artifactId=connector-scimrest-generic&maven.extension=jar&maven.classifier=&sort=version&direction=desc+++`
-* Get the connector framework JAR in link:https://nexus.evolveum.com/nexus/#browse/search=name.raw%3Dconnector-scimrest-generic[Evolveum Nexus repository].
-    Select the version you wish to use and download the JAR to use it locally.
-    For development versions of midPoint, use the framework version that is current (i.e., newest) at the time your midPoint and midPilot have been built. +
-    A local `file://` path may be used instead of an HTTP URL if, for example, network access to Nexus is restricted.
+MidPoint 4.11 ships with default values that point to the template versions released together with midPoint in the link:https://nexus.evolveum.com/[Evolveum Nexus repository]:
 
-=== Startup behavior
+* `+https://nexus.evolveum.com/nexus/repository/releases/com/evolveum/polygon/scimrest/connector-scimrest-template/0.2.0-RC2/connector-scimrest-template-0.2.0-RC2.jar+`
+* `+https://nexus.evolveum.com/nexus/repository/releases/com/evolveum/polygon/sql/connector-sql-template/0.2.0-RC2/connector-sql-template-0.2.0-RC2.jar+`
 
-The connector generator service starts by running *Python Alembic database migrations* before launching the API server.
-This is why the PostgreSQL database must already exist and be accessible at startup.
-
-At runtime, `hypercorn` (ASGI web server implementation for Python, used internally by the microservice) may *attempt to download or verify Python dependencies*.
-If your deployment environment has restricted Internet access, you can prevent this using either of the following approaches:
-
-Use `--no-sync` flags ::
-    `uv run --no-sync alembic upgrade head  &&  uv run --no-sync python server.py`
-
-Use the virtual environment binaries directly ::
-    `/app/.venv/bin/alembic upgrade head  &&  /app/.venv/bin/python server.py`
+Change these values only when necessary.
+For example, if network access to Nexus is restricted, download the JAR files and use a local `file://` path instead of the HTTP URL.
 
 === Recommended pre-deployment checks
 
-. Verify the LLM endpoint is reachable.
-. Verify the LLM API key is valid.
-. Verify PostgreSQL connectivity and that the database exists.
+. Verify the LLM endpoint is reachable and the LLM API key is valid.
+. Verify PostgreSQL connectivity, that the database exists, and that the migration has run.
 . Verify search engine access and configuration (DuckDuckGo or Brave, depending on configuration).
-. Verify access to Nexus or the local path for the connector framework JAR.
+. Verify that midPoint can access Nexus or the local path for the connector framework JAR files.
 . Test connectivity between midPoint and the connector generator service.
 . Perform a runtime test: create a SCIM connector targeting link:https://scim.dev/[`scim.dev`] (search for documentation and generate a connector).
 
+[[demo-target-application]]
 === Demo target application
 
 A demo Docker Compose file for OpenProject is available at link:https://github.com/Evolveum/midpoint-samples/blob/master/samples/demo/codegen-openproject/docker-compose.yml[Evolveum midpoint-samples GitHub repository].
-This OpenProject instance (deployed separately) can serve as your testing target application.
+This OpenProject instance (deployed separately) can serve as a testing target application,
+with both the Evolveum-hosted service and a self-hosted deployment.
 
+[[midpoint-configuration]]
 == MidPoint configuration
 
-Once the microservices are deployed, configure midPoint to connect to them.
+Once the microservices are available, configure midPoint to connect to them.
 This is done in the `smartIntegration` block within the midPoint System configuration object.
-The configuration block is present in the System configuration object out of the box.
+It can be edited in the GUI in *System* -> *Smart integration*, or directly in XML.
+
+The configuration block is present in the System configuration object out of the box, including the default connector framework URLs.
+Only the service URLs and, if needed, the API keys have to be added.
+
+Example for the Evolveum-hosted service:
 
 [source,xml]
 ----
 <smartIntegration>
-    <!-- Shared settings for both microservices -->
-    <statisticsTtl>P1D</statisticsTtl> <1>
-    <schemaMatchTtl>P1D</schemaMatchTtl> <2>
-    <mappingSuggestionRetryCount>0</mappingSuggestionRetryCount> <3>
+    <!-- Smart resource integration service -->
+    <serviceUrl>https://midpilot-api.evolveum.com/midpilot-smart-integration/</serviceUrl> <1>
+    <serviceApiKey>
+        <t:clearValue>integration-catalog-api-key</t:clearValue> <2>
+    </serviceApiKey>
 
-    <!-- Smart resource integration service URL -->
-    <serviceUrl>http://midpilot-smart-resource-integration:8090/</serviceUrl> <4>
+    <!-- Connector generator service -->
+    <connectorGenerationUrl>https://midpilot-api.evolveum.com/midpilot-connector-gen/api/v1</connectorGenerationUrl> <3>
+    <connectorGeneratorApiKey>
+        <t:clearValue>integration-catalog-api-key</t:clearValue> <2>
+    </connectorGeneratorApiKey>
 
-    <!-- Connector generator service URL -->
-    <connectorGenerationUrl>http://midpilot-connector-gen:8090/api/v1</connectorGenerationUrl> <5>
+    <!-- Connector framework templates (defaults shipped with midPoint) -->
+    <connectorFrameworkUrl>https://nexus.evolveum.com/nexus/repository/releases/com/evolveum/polygon/scimrest/connector-scimrest-template/0.2.0-RC2/connector-scimrest-template-0.2.0-RC2.jar</connectorFrameworkUrl> <4>
+    <connectorSqlFrameworkUrl>https://nexus.evolveum.com/nexus/repository/releases/com/evolveum/polygon/sql/connector-sql-template/0.2.0-RC2/connector-sql-template-0.2.0-RC2.jar</connectorSqlFrameworkUrl> <4>
 
-    <!-- Connector framework JAR (URL or local path) -->
-    <connectorFrameworkUrl>https://nexus.evolveum.com/nexus/service/rest/v1/search/assets/download?repository=snapshots&maven.groupId=com.evolveum.polygon.scimrest&maven.artifactId=connector-scimrest-generic&maven.extension=jar&maven.classifier=&sort=version&direction=desc</connectorFrameworkUrl> <6>
+    <!-- Timeouts -->
+    <connectorGenerationTransientErrorTimeout>PT15S</connectorGenerationTransientErrorTimeout> <5>
+    <serviceResponseTimeout>PT2M</serviceResponseTimeout> <6>
+
+    <!-- Shared settings -->
+    <statisticsTtl>P1D</statisticsTtl> <7>
+    <schemaMatchTtl>P1D</schemaMatchTtl> <8>
+    <mappingSuggestionRetryCount>1</mappingSuggestionRetryCount> <9>
 </smartIntegration>
 ----
-<1> Time-to-live for cached statistics data (ISO 8601 duration, e.g., P1D = 1 day)
-<2> Time-to-live for cached schema matching results (ISO 8601 duration)
-<3> Number of retry attempts for mapping suggestions (0 = no retries)
-<4> Base URL of the smart resource integration microservice
-<5> Base URL of the connector generator microservice API
-<6> URL or local `file://` path to the connector framework JAR
+<1> Base URL of the smart resource integration microservice, *without* `/api/v1`.
+<2> API key sent with every request to the microservice in the `X-Gravitee-Api-Key` HTTP header.
+<3> URL of the connector generator microservice API, *including* `/api/v1`.
+<4> URL or local `file://` path to the link:#connector-framework-jar[connector framework template JAR] for SCIM/REST and SQL connectors
+<5> How long midPoint tolerates transient gateway errors (HTTP 502 and 504) while monitoring connector generation jobs before it declares the operation failed (default: 15 seconds)
+<6> Maximum time to wait for a response from the smart resource integration microservice (default: 2 minutes)
+<7> Time-to-live for cached statistics data (ISO 8601 duration, e.g., P1D = 1 day)
+<8> Time-to-live for cached schema matching results (ISO 8601 duration)
+<9> Number of retry attempts for mapping suggestions when validation fails (default: 1; 0 = no retries)
+
+A self-hosted deployment uses its own addresses:
+
+[cols="2,3,3", options="header"]
+|===
+|Element |Evolveum-hosted service |Self-hosted deployment (example)
+|`serviceUrl`
+|`\https://midpilot-api.evolveum.com/midpilot-smart-integration/`
+|`\http://midpilot-smart-integration:8090/`
+|`serviceApiKey`
+|Integration catalog API key
+|Only if the API gateway requires a key
+|`connectorGenerationUrl`
+|`\https://midpilot-api.evolveum.com/midpilot-connector-gen/api/v1`
+|`\http://midpilot-connector-gen:8090/api/v1`
+|`connectorGeneratorApiKey`
+|Integration catalog API key (the same as for `serviceApiKey`)
+|Required with `AUTH__MODE=prod`, see link:#authentication[Authentication]
+|===
 
 == Addendum
 
@@ -338,22 +645,28 @@ The configuration block is present in the System configuration object out of the
 
 Network ::
     The microservices communicate with midPoint using REST API over HTTP.
-    Ensure your network policies permit such communication.
+    Ensure the network policies permit such communication.
+    For the Evolveum-hosted service, midPoint needs outbound HTTPS access to `midpilot-api.evolveum.com`.
 Authentication ::
-    By default, the microservices do not require authentication for requests from midPoint.
+    The Evolveum-hosted service requires an API key from the Integration catalog.
+    In a self-hosted deployment, the smart resource integration microservice has no authentication of its own,
+    and the connector generator expects an API key that an API gateway in front of it has validated.
+    See link:#authentication[Authentication].
 Secrets management ::
-    API keys (LLM, Brave search), database passwords, and other sensitive values should be injected through your secret vault (e.g., Kubernetes Secrets), not hardcoded in deployment manifests.
+    API keys (LLM, Brave search, midPilot), database passwords, and other sensitive values should be injected through a secret vault (e.g., Kubernetes Secrets), not hardcoded in deployment manifests.
 Logs ::
     The midPoint-side logging module for the midPilot microservices is `com.evolveum.midpoint.smart.impl`.
 
+[[corporate-proxy-environments]]
 === Corporate proxy environments
 
-If your deployment sits behind a corporate proxy, additional configuration is needed:
+If the deployment sits behind a corporate proxy, additional configuration is needed:
 
-* *Microservices* inherit proxy configuration from the operating system (standard `HTTP_PROXY` / `HTTPS_PROXY` environment variables).
+* *Microservices* inherit proxy configuration from the operating system (standard `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` environment variables).
+    Add internal hosts, such as a self-hosted LLM endpoint, to `NO_PROXY` if they are not reachable through the proxy.
 * *MidPoint (Java)* additionally requires JVM proxy properties. +
     Container proxy variables alone are *not sufficient* for outbound HTTP communication initiated by Java.
-    You must set:
+    The following properties must be set:
     ** `http.proxyHost`
     ** `http.proxyPort`
     ** `https.proxyHost` (if applicable)
@@ -369,32 +682,60 @@ We suggest using the `MP_SET` environment variables, such as:
 * `MP_SET_http_nonProxyHost`
 * And their `https` counterparts if applicable
 
+If the proxy or the LLM endpoint uses certificates signed by an internal certificate authority, configure the CA certificate file in the microservices:
+
+* `LLM__CA_CERT_FILE` for the LLM endpoint
+* `LANGFUSE__CA_CERT_FILE` for Langfuse, if used
+* `SSL_CERT_FILE` and `REQUESTS_CA_BUNDLE` for the other outbound HTTPS calls
+
+The headless Chromium browser that the connector generator uses to download documentation uses the proxy settings but not these CA variables.
+Downloading documentation through a TLS-inspecting proxy may therefore fail.
+
+[[verification-checklist]]
 === Verification checklist
 
 Use these checklists after deployment to confirm everything works correctly.
 
-* *Common to both microservices*
+* *Evolveum-hosted service*
+    ** `serviceUrl` and `connectorGenerationUrl` in System configuration exactly match the URLs in the link:#evolveum-hosted[Evolveum-hosted midPilot service] section.
+    ** `serviceApiKey` and `connectorGeneratorApiKey` contain a valid, unexpired API key from the Integration catalog.
+    ** MidPoint can reach `midpilot-api.evolveum.com` over HTTPS (check the proxy configuration, if applicable).
+    ** Verification of the API key:
++
+[source,bash]
+----
+curl -H "X-Gravitee-Api-Key: $KEY" https://midpilot-api.evolveum.com/midpilot-connector-gen/api/v1/ready
+----
++
+The command must return HTTP 200.
+    ** Verification: create a dummy CSV resource and request mapping suggestions, and generate a SCIM connector targeting link:https://scim.dev/[`scim.dev`].
+
+* *Common to both self-hosted microservices*
     ** LLM endpoint is reachable from the microservices.
     ** LLM API key is valid.
     ** MidPoint and the microservices can communicate.
 
-* *Smart resource integration*
+* *Smart resource integration (self-hosted)*
     ** `serviceUrl` in System configuration points to the correct microservice address and port.
     ** Verification: create a dummy CSV resource and request mapping suggestions.
 
-* *Connector generator*
-    ** `connectorGenerationUrl` in System configuration points to the correct microservice address and port.
-    ** `connectorFrameworkUrl` points to a valid, accessible JAR.
+* *Connector generator (self-hosted)*
+    ** `connectorGenerationUrl` in System configuration points to the correct microservice address and port, including `/api/v1`.
+    ** `connectorGeneratorApiKey` is set when the microservice runs with `AUTH__MODE=prod`.
+    ** `connectorFrameworkUrl` and `connectorSqlFrameworkUrl` point to valid JAR files that midPoint can access.
         The JAR version matters.
-    ** PostgreSQL is running, the database exists, and the microservice can connect.
+    ** PostgreSQL is running, the database exists, the migration has run, and the microservice can connect.
     ** Search engine is configured and accessible by the microservice.
+    ** `GET /api/v1/ready` returns HTTP 200.
     ** Verification: generate a SCIM connector targeting link:https://scim.dev/[`scim.dev`].
 
 == See also
 
+* xref:/connectors/integration-catalog/catalog-settings/#api-keys[Integration catalog: API keys]
 * link:https://hub.docker.com/r/evolveum/midpoint/tags?name=4.11[Docker Hub: midPoint 4.11 tags]
 * link:https://github.com/Evolveum/midpoint/tags[GitHub repository: midPoint milestone tags]
+* link:https://github.com/Evolveum/midpilot-smart-integration/tags[GitHub repository: smart resource integration releases]
+* link:https://github.com/Evolveum/midpilot-connector-gen/blob/main/release-notes.adoc[GitHub repository: connector generator release notes]
 * link:https://github.com/Evolveum/midpoint-samples/tree/master/samples/demo/smart-resource-integration[Demo code samples: smart resource integration]
 * link:https://github.com/Evolveum/midpoint-samples/tree/master/samples/demo/codegen-openproject[Demo code samples: connector generator (OpenProject)]
 * xref:/midpoint/projects/midPilot/[MidPilot project page]
-* xref:/midpoint/get-started/try-ai-in-midpoint/[]
