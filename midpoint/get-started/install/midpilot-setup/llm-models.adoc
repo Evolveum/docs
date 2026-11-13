@@ -1,0 +1,1644 @@
+= LLM models for the connector generator
+:page-nav-title: LLM models
+:page-display-order: 10
+:page-toc: top
+:page-keywords: connector generator, midpilot, llm, model, evaluation, benchmark, gpt-oss, gemma, qwen, self-hosted
+:page-description: Evaluation of smaller open-weight LLMs for the self-hosted midPilot connector generator microservice, compared with the GPT-OSS-120b baseline
+
+
+The self-hosted xref:/midpoint/get-started/install/midpilot-setup/#connector-generator-microservice[connector generator microservice] works with any LLM that offers an OpenAI-compatible API (see xref:/midpoint/get-started/install/midpilot-setup/#llm-provider[LLM provider]).
+The xref:/midpoint/get-started/install/midpilot-setup/#evolveum-hosted[Evolveum-hosted service] uses *GPT-OSS-120b*, and that model also serves as the baseline on this page.
+
+A model of that size needs a data-center GPU.
+Smaller open-weight models can run on less hardware, but they may produce worse connectors.
+This page compares several smaller models with GPT-OSS-120b on the same applications and documentation, so you can decide which model fits your hardware and quality needs.
+
+[NOTE]
+====
+The results apply to the connector generator only.
+The xref:/midpoint/get-started/install/midpilot-setup/#smart-resource-integration-microservice[smart resource integration microservice] (mapping and correlation suggestions) was not evaluated on this page.
+
+The results of Qwen3.5 9B are not complete yet.
+The missing values are marked _TBD_ and will be added when its evaluation finishes.
+====
+// TODO(qwen3.5): remove this paragraph from the note when all applications are evaluated.
+
+== Summary
+
+None of the smaller models is significantly worse than GPT-OSS-120b in the digester, the part of the connector generator that analyzes the documentation: all differences in the overall scores are within the uncertainty.
+The models differ in the details: some leave expected object classes out, some list many object classes that the connector does not need, and some take much longer than the baseline.
+Qwen3.6 35B-A3B comes closest to the baseline overall, finds every evaluated object class, and its generated Jira code scores higher than the baseline code, at the edge of significance.
+Qwen3.8 27B has the highest digester score, but like Gemma 4 31B it leaves expected object classes out, and it is slower than GPT-OSS-120b on the same GPU server.
+// TODO(qwen3.5): summarize the digester score and the generated code against the baseline when all applications are evaluated.
+Qwen3.5 9B, the smallest evaluated model, is very slow on local hardware; its results against the baseline are TBD.
+
+[cols="2,2,4", options="header"]
+|===
+|If you need |Use |Why
+
+|The same results as the Evolveum-hosted service
+|GPT-OSS-120b
+|The Evolveum-hosted service uses it, and no smaller model is significantly better overall.
+
+|A smaller model close to the baseline
+|Qwen3.6 35B-A3B
+|The digester score is on par with the baseline (F1 0.447 against 0.453), it found every evaluated object class in every run, and its generated Jira code scores higher (0.71 against 0.49, at the edge of significance).
+Gemma 4 26B-A4B is similar and had no failed jobs, but its OpenProject attributes are worse.
+
+|The highest digester score
+|Qwen3.8 27B
+|F1 0.501 against 0.453, but the difference is not significant.
+It leaves expected object classes out in some runs.
+
+|The smallest model
+|Qwen3.5 9B
+|The digester score is TBD (F1 TBD against 0.453), and the generated code scores TBD.
+It is slow on local hardware.
+|===
+
+== Evaluated models
+
+[cols="3,3,2,2,2,2,2", options="header"]
+|===
+|Model |Model ID |Architecture |Total parameters |Active parameters |Provider |Reasoning
+
+|GPT-OSS-120b (baseline)
+|`openai/gpt-oss-120b`
+|Mixture of experts
+|117B
+|5.1B
+|Self-hosted GPU server
+|effort `high`
+
+|Gemma 4 31B
+|`google/gemma-4-31b-it`
+|Dense
+|31B
+|31B
+|OpenRouter
+|thinking on
+
+|Gemma 4 26B-A4B
+|`google/gemma-4-26b-a4b-it`
+|Mixture of experts
+|26B
+|4B
+|OpenRouter
+|thinking on
+
+|Qwen3.6 35B-A3B
+|`qwen/qwen3.6-35b-a3b`
+|Mixture of experts
+|35B
+|3B
+|OpenRouter
+|thinking on
+
+|Qwen3.8 27B
+|`qwen/qwen3.8-27b`
+|Dense
+|27B
+|27B
+|Self-hosted GPU server
+|thinking on, default effort (`xhigh`)
+
+|Qwen3.5 9B
+|`qwen/qwen3.5-9b`
+|Dense
+|9B
+|9B
+|Self-hosted on macOS (Apple M3 Max, 48 GB)
+|thinking on
+|===
+
+.Reasoning settings
+[NOTE]
+====
+The models differ in how their reasoning can be controlled:
+
+* GPT-OSS-120b has the reasoning effort levels `low`, `medium`, and `high`.
+    The evaluation used `high` (`LLM__REASONING_EFFORT=high`).
+    The connector generator sends no reasoning effort by default, so set this variable to reproduce the evaluation.
+* The Gemma 4 models, Qwen3.6 35B-A3B, and Qwen3.5 9B have no effort levels.
+    They can only turn thinking on or off, and thinking was on.
+* Qwen3.8 27B has its own effort levels: `xhigh` (the default), `medium`, and `low`.
+    The evaluation used the default effort.
+====
+
+== How the models were evaluated
+
+The connector generator first analyzes the API documentation of the application; this part is called the _digester_.
+It finds the object classes (such as users, groups, or projects), their attributes, the API endpoints for each class, the authentication methods, and application metadata.
+Then it generates the connector code from the results.
+
+The evaluation measured both parts:
+
+Digester::
+Every result was compared with expected answers that engineers prepared by hand.
+Four operations were scored: object classes, metadata, attributes, and endpoints.
+The digester score is the overall score of these four operations.
+Authentication and relations between object classes are not included (see the note below).
+
+Generated connector code::
+Each generated part of the connector ran inside the hand-written reference connector, against a mocked API of the application.
+Its score shows how closely it behaves like the hand-written part, from 0 to 1.
+The evaluated parts are the native schema, the searches (all objects, by ID, and by filter), and the create, update, and delete operations of each object class.
+The authorization part is not included (see the note below).
+Only OpenProject and Jira have a reference connector, so the code was evaluated for these two applications only.
+
+[[applications]]
+=== Applications
+
+[cols="2,1,4,2,2", options="header"]
+|===
+|Application |Version |Documentation |Object classes evaluated in detail |Other expected object classes
+
+|OpenProject
+|17
+|link:https://community.openproject.org/api/v3/spec.json[API v3 specification]
+|Group, Principal, Project, Role, User, Membership, WorkPackage
+|Priority, Status, Type, OAuthApplication, OauthClientCredentials, ProjectStatus
+
+|Jira
+|Cloud
+|link:https://developer.atlassian.com/cloud/jira/platform/swagger-v3.v3.json[Cloud platform REST API v3 specification]
+|User, Group, Project, Issue, Role
+|—
+
+|Nextcloud
+|35
+a|* Provisioning API specifications: link:https://github.com/nextcloud/server/blob/3640a1c9a8041e3b7e5bb3b6d25842071888d3e6/apps/provisioning_api/openapi-full.json[full specification] and link:https://github.com/nextcloud/server/blob/3640a1c9a8041e3b7e5bb3b6d25842071888d3e6/apps/provisioning_api/openapi-administration.json[administration specification]
+* Six pages of the administration manual: link:https://docs.nextcloud.com/server/35/admin_manual/configuration_user/index.html[User management], link:https://docs.nextcloud.com/server/35/admin_manual/configuration_user/user_provisioning_api.html[User provisioning API], link:https://docs.nextcloud.com/server/35/admin_manual/configuration_user/instruction_set_for_users.html[Instruction set for users], link:https://docs.nextcloud.com/server/35/admin_manual/configuration_user/instruction_set_for_groups.html[Instruction set for groups], link:https://docs.nextcloud.com/server/35/admin_manual/apps_management_api.html[Apps management API], and link:https://docs.nextcloud.com/server/35/admin_manual/configuration_server/oauth2.html[OAuth2]
+* The whole link:https://docs.nextcloud.com/server/35/Nextcloud_Server_Administration_Manual.pdf[Administration Manual] (PDF)
+|User, Group
+|—
+
+|Forgejo
+|17
+|link:https://v17.next.forgejo.org/swagger.v1.json[API specification]
+|User, Organization, Team
+|Email, Repository
+|===
+
+The attributes, endpoints, and generated code were evaluated for the object classes in the _Object classes evaluated in detail_ column.
+The object classes operation is scored against both columns: the connector needs the other expected object classes too, or it may need them (OAuthApplication, OauthClientCredentials, and ProjectStatus of OpenProject), but their attributes and endpoints were not evaluated.
+OpenProject therefore has 13 expected object classes, Jira 5, Nextcloud 2, and Forgejo 5.
+
+The documentation was downloaded manually and uploaded to the connector generator.
+The documentation search (discovery) and download (scraper) of the connector generator were not used, to avoid problems caused by wrong or incomplete documentation.
+The goal was to evaluate the digester and the code generation when the correct documentation is uploaded.
+
+=== Repetition and documentation
+
+The documentation of each application was uploaded to the connector generator once.
+Every model read exactly the same documentation, so the differences between the models do not come from the documentation.
+
+An LLM gives slightly different answers each time.
+The digester and the code generation therefore ran *3 times* for each application and model, and the scores are means over these runs.
+
+.Authentication, relations, and authorization are not included
+[NOTE]
+====
+The digester score does not include two operations of the digester: authentication and relations between object classes.
+The score of the generated code does not include the authorization part, which builds on the authentication output of the digester.
+These parts will be evaluated later.
+====
+
+[[scores]]
+=== Scores
+
+Each run of an operation produces a set of items, for example the names of the object classes the model found.
+The items are compared with the expected answers, and each item falls into one of three groups:
+
+* *TP* (true positive): the model produced the item, and it is expected.
+* *FP* (false positive): the model produced the item, but it is not expected.
+    The model invented it, or it is not needed for the connector.
+* *FN* (false negative): the item is expected, but the model did not produce it.
+
+From these counts, four scores from 0 to 1 are computed:
+
+[cols="1,2,4", options="header"]
+|===
+|Score |Formula |Meaning
+
+|Precision
+|`TP / (TP + FP)`
+|How much of what the model produced is correct.
+Low precision means that the model invents object classes, attributes, or endpoints that the application does not have, or lists more than the connector needs.
+
+|Recall
+|`TP / (TP + FN)`
+|How much of what the model should have found it really found.
+Low recall means that the model misses things.
+
+|F1
+|`2 × precision × recall / (precision + recall)`
+|Precision and recall combined into one number.
+F1 is high only when both are high.
+This is the main score.
+
+|Accuracy
+|`TP / (TP + FP + FN)`
+|The share of agreement between the produced and the expected items (the Jaccard index).
+The evaluation compares sets of items, so there are no true negatives, and the usual accuracy formula does not apply.
+Accuracy is always lower than or equal to F1, and it penalizes every wrong or missing item more strongly.
+|===
+
+A score with a zero denominator is 0.
+A job that failed scores 0 on all four scores.
+
+The items of each operation are the following:
+
+[cols="1,4", options="header"]
+|===
+|Operation |Items compared with the expected answers
+
+|Object classes
+|Names of the object classes, case-insensitive.
+Only the object classes that the connector needs or may need are expected (see <<applications>>), so precision is low when the model lists every object class the API has.
+
+|Metadata
+|Each field is one item: application name, application version, API version, API type, base API URLs and their type.
+
+|Attributes
+|Attributes of each object class, scored three ways and then averaged:
+by name only, by name with type and format, and by name with all six flags (mandatory, updatable, creatable, readable, multivalued, returned by default).
+An attribute found by name but with a wrong value counts as both FP and FN.
+
+|Endpoints
+|HTTP method and path of each endpoint of each object class, relative to the base API URL.
+A path that also contains the base path, such as `/ocs/v2.php/cloud/users` instead of `/users`, or that names its path parameters differently, such as `{userid}` instead of `{userId}`, matches too.
+|===
+
+The expected answers were prepared by hand by engineers, so they are partly subjective.
+Whether an object class is relevant for the connector is a matter of judgment, and another engineer might mark some object classes differently, which would change the scores slightly.
+The most important object classes are those that identity management systems work with, such as users, groups, roles, organizations, teams, or similar object classes.
+
+==== How the scores are combined
+
+Every level is a plain mean, so every part has the same weight:
+
+. The score of one operation for one object class is the mean of the 3 runs.
+. The score of an operation is the mean over its object classes.
+. The digester score of an application is the mean of its four operations.
+. The score of a model is the mean over the applications.
+
+Each score is averaged on its own.
+F1 is computed in every run and then averaged, so the mean F1 is not the F1 of the mean precision and the mean recall.
+
+[[uncertainty]]
+=== Uncertainty (u95)
+
+Every score has the form `mean ± u95`, for example `0.587 ± 0.070`.
+The u95 value is the expanded uncertainty with about 95% confidence: the score of the model lies between `0.517` and `0.657` with about 95% probability.
+
+The u95 of one operation for one object class comes from the 3 runs:
+
+`u95 = k × k~s~ × s / √n`
+
+where:
+
+* `n` is the number of runs (3),
+* `s` is the standard deviation of the scores of the runs,
+* `k = 2` is the coverage factor for about 95% confidence,
+* `k~s~` corrects for the small number of runs (`k~s~ = 2.3` for 3 runs).
+    Together, `k × k~s~ = 4.6` approximates the Student's t factor for 2 degrees of freedom at the confidence of `k = 2` (95.45%), which is 4.53.
+
+The u95 of a mean of `m` scores (over object classes, operations, or applications) combines their uncertainties as independent:
+
+`u95 = √(u95~1~² + u95~2~² + … + u95~m~²) / m`
+
+How to read u95:
+
+* *A difference between two models is significant* only when it is larger than the combined uncertainty of both, `√(u95~A~² + u95~B~²)`.
+    The verdict in the _Compared with baseline_ column follows this rule: better, worse, or no significant change.
+    In the comparison, each u95 is at least the weight of one expected item, so a difference caused by a single item is not reported as significant.
+    For the digester score of one application, this lower limit is 0.060 to 0.138, because a single object class or metadata field is a large part of the score.
+    The tables show u95 without this lower limit, so a difference can be larger than the combined u95 from the tables and still not be significant.
+    The _Compared with baseline_ column therefore also shows the difference and the limit that was used.
+* *`± 0.000`* means that all 3 runs gave the same result.
+    It does not mean that the score is exact: with 3 runs only, a rare different answer may simply not have occurred.
+* *A u95 wider than the score range*, such as `0.552 ± 0.555`, means that the runs differed a lot.
+    The model is unstable in that operation, and the mean alone says little.
+* u95 covers the variation between the runs of the model on the same documentation.
+    It does not cover other documentation, other applications, or errors in the expected answers.
+
+=== Failed jobs
+
+The share of jobs that failed, for example because the model returned output that the connector generator could not parse, or because a step had no input from the previous one.
+For example, when the model leaves an object class out of the object classes, the attributes and endpoints of that class cannot be analyzed in that run.
+
+== Results
+
+This section summarizes the results.
+All four scores for each application and operation are in <<detailed-results>>.
+
+Compare the scores of a model with the baseline rather than read them as absolute values.
+The expected answers are strict, so even the baseline does not reach 1.0.
+
+=== Digester
+
+Mean ± u95 over all four applications.
+The _Compared with baseline_ column compares F1, with the difference from the baseline and the limit of significance (see <<uncertainty>>); no other score differs significantly either.
+
+[cols="3,2,2,2,2,1,3", options="header"]
+|===
+|Model |Precision |Recall |F1 |Accuracy |Failed jobs |Compared with baseline
+
+|GPT-OSS-120b (baseline)
+|0.389 ± 0.027
+|0.776 ± 0.035
+|0.453 ± 0.025
+|0.333 ± 0.023
+|4 of 126 (3%)
+|—
+
+|Gemma 4 31B
+|0.374 ± 0.022
+|0.745 ± 0.035
+|0.437 ± 0.018
+|0.322 ± 0.017
+|10 of 126 (8%)
+|No significant change (difference −0.015, limit 0.064)
+
+|Gemma 4 26B-A4B
+|0.376 ± 0.028
+|0.778 ± 0.026
+|0.427 ± 0.021
+|0.317 ± 0.022
+|0 of 126 (0%)
+|No significant change (difference −0.026, limit 0.064)
+
+|Qwen3.6 35B-A3B
+|0.399 ± 0.043
+|0.794 ± 0.037
+|0.447 ± 0.033
+|0.342 ± 0.030
+|3 of 126 (2%)
+|No significant change (difference −0.005, limit 0.068)
+
+|Qwen3.8 27B
+|0.446 ± 0.021
+|0.737 ± 0.047
+|0.501 ± 0.032
+|0.381 ± 0.033
+|14 of 126 (11%)
+|No significant change (difference +0.048, limit 0.067)
+
+|Qwen3.5 9B
+|TBD
+|TBD
+|TBD
+|TBD
+|TBD
+|TBD
+
+|===
+
+==== Per application
+
+F1 ± u95 of the digester:
+
+[cols="3,2,2,2,2", options="header"]
+|===
+|Model |OpenProject |Jira |Nextcloud |Forgejo
+
+|GPT-OSS-120b (baseline)
+|0.587 ± 0.070
+|0.306 ± 0.040
+|0.447 ± 0.051
+|0.471 ± 0.028
+
+|Gemma 4 31B
+|0.577 ± 0.032
+|0.310 ± 0.034
+|0.429 ± 0.048
+|0.434 ± 0.030
+
+|Gemma 4 26B-A4B
+|0.537 ± 0.033
+|0.303 ± 0.037
+|0.449 ± 0.060
+|0.418 ± 0.034
+
+|Qwen3.6 35B-A3B
+|0.559 ± 0.059
+|0.338 ± 0.020
+|0.501 ± 0.044
+|0.392 ± 0.108
+
+|Qwen3.8 27B
+|0.643 ± 0.057
+|0.328 ± 0.026
+|0.494 ± 0.040
+|0.539 ± 0.102
+
+|Qwen3.5 9B
+|0.574 ± 0.075
+|TBD
+|TBD
+|TBD
+|===
+
+==== Per operation
+
+F1 ± u95, mean over all four applications:
+
+[cols="3,2,2,2,2", options="header"]
+|===
+|Model |Object classes |Metadata |Attributes |Endpoints
+
+|GPT-OSS-120b (baseline)
+|0.296 ± 0.065
+|0.562 ± 0.057
+|0.424 ± 0.040
+|0.529 ± 0.026
+
+|Gemma 4 31B
+|0.244 ± 0.039
+|0.559 ± 0.035
+|0.429 ± 0.034
+|0.516 ± 0.039
+
+|Gemma 4 26B-A4B
+|0.204 ± 0.033
+|0.596 ± 0.033
+|0.369 ± 0.046
+|0.538 ± 0.053
+
+|Qwen3.6 35B-A3B
+|0.187 ± 0.030
+|0.610 ± 0.111
+|0.430 ± 0.043
+|0.562 ± 0.050
+
+|Qwen3.8 27B
+|0.336 ± 0.061
+|0.611 ± 0.090
+|0.418 ± 0.046
+|0.639 ± 0.044
+
+|Qwen3.5 9B
+|TBD
+|TBD
+|TBD
+|TBD
+|===
+
+=== Generated connector code
+
+[cols="3,2,2,2,2,2,3", options="header"]
+|===
+|Model |Application |Codegen score ± u95 |Score of the generated code |Loads |Passes exactly |Compared with baseline
+
+.2+|GPT-OSS-120b (baseline)
+|OpenProject
+|0.66 ± 0.07
+|0.66
+|0.77
+|0.40
+|—
+
+|Jira
+|0.49 ± 0.17
+|0.56
+|0.74
+|0.25
+|—
+
+.2+|Gemma 4 31B
+|OpenProject
+|0.65 ± 0.11
+|0.72
+|0.72
+|0.43
+|No significant change (difference −0.006)
+
+|Jira
+|0.47 ± 0.15
+|0.60
+|0.67
+|0.27
+|No significant change (difference −0.022)
+
+.2+|Gemma 4 26B-A4B
+|OpenProject
+|0.72 ± 0.05
+|0.72
+|0.84
+|0.48
+|No significant change (difference +0.065)
+
+|Jira
+|0.43 ± 0.23
+|0.43
+|0.80
+|0.22
+|No significant change (difference −0.060)
+
+.2+|Qwen3.6 35B-A3B
+|OpenProject
+|0.67 ± 0.17
+|0.73
+|0.77
+|0.46
+|No significant change (difference +0.009)
+
+|Jira
+|0.71 ± 0.14
+|0.71
+|0.93
+|0.43
+|Better (difference +0.223)
+
+.2+|Qwen3.8 27B
+|OpenProject
+|0.58 ± 0.15
+|0.78
+|0.64
+|0.47
+|No significant change (difference −0.081)
+
+|Jira
+|0.49 ± 0.15
+|0.68
+|0.63
+|0.32
+|No significant change (difference −0.002)
+
+.2+|Qwen3.5 9B
+|OpenProject
+|0.40 ± 0.15
+|0.56
+|0.52
+|0.28
+|Worse (difference −0.26)
+
+|Jira
+|TBD
+|TBD
+|TBD
+|TBD
+|TBD
+|===
+
+The columns mean the following:
+
+Codegen score::
+The main score.
+Each generated part runs in test scenarios, and its result and the requests it sends to the API are compared with the hand-written part, with partial credit.
+The score is the mean over all parts; a part that the model did not generate, or could not generate because of a missing input, scores 0.
+The u95 is computed in the same way as for the digester.
+
+Score of the generated code::
+The same score, but only over the parts for which the model generated code.
+A large difference from the codegen score means that the model often produced no code at all.
+
+Loads::
+The share of the parts that the connector framework could load, as a mean over the parts.
+A part without code counts as not loaded.
+A part that does not load scores 0 in all its scenarios.
+
+Passes exactly::
+The share of test scenarios in which the generated part behaves exactly like the hand-written part, as a mean over the parts.
+
+Compared with baseline::
+The verdict for the codegen score, with the difference from the baseline and the limit of significance.
+Unlike the digester, the codegen score has no lower limit of one item: the limit is the combined u95 of both models, computed from the values before rounding.
+
+=== Run time
+
+Wall time of the whole evaluation of one application, in minutes:
+
+[cols="3,2,2,2,2", options="header"]
+|===
+|Model |OpenProject |Jira |Nextcloud |Forgejo
+
+|GPT-OSS-120b (baseline)
+|262
+|240
+|41
+|49
+
+|Gemma 4 31B
+|177
+|155
+|54
+|51
+
+|Gemma 4 26B-A4B
+|108
+|144
+|15
+|22
+
+|Qwen3.6 35B-A3B
+|144
+|125
+|29
+|54
+
+|Qwen3.8 27B
+|328
+|312
+|98
+|75
+
+|Qwen3.5 9B
+|1925
+|TBD
+|TBD
+|TBD
+|===
+
+The times of OpenProject and Jira include the code generation and its evaluation.
+Every evaluation ran with 4 parallel jobs.
+The evaluation did not aim to measure the run time or to compare exact times: the times only show that every model works, and that the models differ in speed.
+The times of the models accessed through OpenRouter depend on the load of their provider.
+GPT-OSS-120b and Qwen3.8 27B ran on the same self-hosted GPU server; on OpenProject, Jira, and Forgejo, the server may have been shared with another evaluation for part of the time.
+Qwen3.5 9B ran on macOS on an Apple M3 Max with 48 GB.
+
+
+== Observations per model
+
+[cols="2,4,4", options="header"]
+|===
+|Model |Strengths |Weaknesses
+
+|GPT-OSS-120b (baseline)
+a|* Finds most expected object classes and nearly all expected endpoints.
+* Gets most attribute names right.
+* In the generated OpenProject code, searches by ID and delete operations work.
+a|* Lists many object classes that the connector does not need.
+* Often gets attribute flags wrong, such as mandatory or updatable.
+* On Nextcloud, lists many base API URLs that are not needed.
+* Left Role out in 2 of 3 Jira runs.
+* In the generated OpenProject code, searches by filter fail.
+
+|Gemma 4 31B
+a|* Digester score on par with the baseline.
+* Generated code about as good as the baseline code.
+a|* Leaves WorkPackage (OpenProject) and Issue (Jira) out, so 10 jobs failed.
+* On Forgejo, finds only 3 of the 8 expected user endpoints.
+
+|Gemma 4 26B-A4B
+a|* No failed jobs: finds every evaluated object class in every run.
+* Generated OpenProject code scores higher than the baseline code (not significant).
+a|* Lists more object classes that the connector does not need.
+* Finds fewer attributes: its OpenProject attributes are significantly worse.
+
+|Qwen3.6 35B-A3B
+a|* Digester score on par with the baseline.
+* Finds every evaluated object class in every run.
+* Nextcloud endpoints significantly better than the baseline.
+* Generated Jira code scores higher than the baseline code (at the edge of significance).
+a|* Lists the most object classes that the connector does not need.
+* 3 jobs failed because of a short outage of the LLM service, not because of the model.
+
+|Qwen3.8 27B
+a|* Highest digester score, but not significantly higher.
+* Lists far fewer object classes that the connector does not need.
+* Endpoints significantly better than the baseline, most of all on Forgejo.
+* The code that it generates scores better than the baseline code.
+a|* Leaves WorkPackage (OpenProject) and Issue (Jira) out, like Gemma 4 31B.
+* The most failed jobs (14), 4 of them because the GPU server did not answer in time.
+* Slower than GPT-OSS-120b on the same GPU server.
+
+// TODO(qwen3.5): fill in the strengths and weaknesses when all applications are evaluated.
+|Qwen3.5 9B
+a|* TBD
+a|* The attribute analysis of object classes with many attributes may not finish within the time limit (3.6 hours), so no code is generated for them.
+* Sometimes does not stop generating, so one job can run for more than an hour.
+* Generated code TBD against the baseline code.
+* Very slow on macOS: TBD times as long as GPT-OSS-120b on the GPU server.
+|===
+
+[[detailed-results]]
+== Detailed results
+
+All four scores of the digester, as mean ± u95 over the 3 runs, for each application and operation.
+The _Digester (overall)_ row of each application is the mean of its four operations (see <<scores>> and <<uncertainty>>).
+_Failed jobs_ counts the jobs that failed out of all jobs of the operation: one job per run, or one job per run and object class for attributes and endpoints.
+
+=== GPT-OSS-120b (baseline)
+
+[cols="2,3,2,2,2,2,1", options="header"]
+|===
+|Application |Operation |Precision |Recall |F1 |Accuracy |Failed jobs
+
+.5+|OpenProject
+|*Digester (overall)*
+|*0.493 ± 0.075*
+|*0.859 ± 0.053*
+|*0.587 ± 0.070*
+|*0.467 ± 0.074*
+|*0 of 48*
+
+|Object classes
+|0.238 ± 0.146
+|0.769 ± 0.204
+|0.362 ± 0.194
+|0.223 ± 0.144
+|0 of 3
+
+|Metadata
+|0.661 ± 0.243
+|1.000 ± 0.000
+|0.794 ± 0.183
+|0.661 ± 0.243
+|0 of 3
+
+|Attributes
+|0.595 ± 0.088
+|0.696 ± 0.054
+|0.619 ± 0.070
+|0.507 ± 0.076
+|0 of 21
+
+|Endpoints
+|0.478 ± 0.031
+|0.971 ± 0.000
+|0.571 ± 0.041
+|0.477 ± 0.030
+|0 of 21
+
+.5+|Jira
+|*Digester (overall)*
+|*0.268 ± 0.066*
+|*0.689 ± 0.110*
+|*0.306 ± 0.040*
+|*0.211 ± 0.034*
+|*4 of 36*
+
+|Object classes
+|0.045 ± 0.021
+|0.867 ± 0.307
+|0.086 ± 0.039
+|0.045 ± 0.021
+|0 of 3
+
+|Metadata
+|0.611 ± 0.256
+|0.571 ± 0.000
+|0.588 ± 0.126
+|0.418 ± 0.124
+|0 of 3
+
+|Attributes
+|0.219 ± 0.038
+|0.453 ± 0.076
+|0.286 ± 0.051
+|0.188 ± 0.031
+|2 of 15
+
+|Endpoints
+|0.196 ± 0.042
+|0.867 ± 0.307
+|0.265 ± 0.073
+|0.196 ± 0.042
+|2 of 15
+
+.5+|Nextcloud
+|*Digester (overall)*
+|*0.329 ± 0.040*
+|*0.831 ± 0.056*
+|*0.447 ± 0.051*
+|*0.322 ± 0.039*
+|*0 of 18*
+
+|Object classes
+|0.278 ± 0.128
+|1.000 ± 0.000
+|0.433 ± 0.153
+|0.278 ± 0.128
+|0 of 3
+
+|Metadata
+|0.159 ± 0.040
+|0.833 ± 0.000
+|0.267 ± 0.056
+|0.154 ± 0.037
+|0 of 3
+
+|Attributes
+|0.230 ± 0.077
+|0.491 ± 0.226
+|0.311 ± 0.114
+|0.207 ± 0.068
+|0 of 6
+
+|Endpoints
+|0.648 ± 0.043
+|1.000 ± 0.000
+|0.778 ± 0.038
+|0.648 ± 0.043
+|0 of 6
+
+.5+|Forgejo
+|*Digester (overall)*
+|*0.468 ± 0.024*
+|*0.723 ± 0.037*
+|*0.471 ± 0.028*
+|*0.333 ± 0.024*
+|*0 of 24*
+
+|Object classes
+|0.178 ± 0.051
+|1.000 ± 0.000
+|0.302 ± 0.073
+|0.178 ± 0.051
+|0 of 3
+
+|Metadata
+|0.750 ± 0.000
+|0.500 ± 0.000
+|0.600 ± 0.000
+|0.429 ± 0.000
+|0 of 3
+
+|Attributes
+|0.571 ± 0.057
+|0.420 ± 0.074
+|0.481 ± 0.067
+|0.351 ± 0.059
+|0 of 9
+
+|Endpoints
+|0.373 ± 0.058
+|0.972 ± 0.128
+|0.503 ± 0.051
+|0.373 ± 0.058
+|0 of 9
+|===
+
+=== Gemma 4 31B
+
+[cols="2,3,2,2,2,2,1", options="header"]
+|===
+|Application |Operation |Precision |Recall |F1 |Accuracy |Failed jobs
+
+.5+|OpenProject
+|*Digester (overall)*
+|*0.511 ± 0.024*
+|*0.788 ± 0.100*
+|*0.577 ± 0.032*
+|*0.464 ± 0.028*
+|*4 of 48*
+
+|Object classes
+|0.263 ± 0.044
+|0.718 ± 0.312
+|0.385 ± 0.088
+|0.239 ± 0.069
+|0 of 3
+
+|Metadata
+|0.714 ± 0.000
+|1.000 ± 0.000
+|0.833 ± 0.000
+|0.714 ± 0.000
+|0 of 3
+
+|Attributes
+|0.617 ± 0.071
+|0.560 ± 0.117
+|0.550 ± 0.077
+|0.456 ± 0.075
+|2 of 21
+
+|Endpoints
+|0.449 ± 0.049
+|0.876 ± 0.219
+|0.539 ± 0.053
+|0.448 ± 0.049
+|2 of 21
+
+.5+|Jira
+|*Digester (overall)*
+|*0.271 ± 0.065*
+|*0.666 ± 0.016*
+|*0.310 ± 0.034*
+|*0.215 ± 0.033*
+|*6 of 36*
+
+|Object classes
+|0.042 ± 0.003
+|0.800 ± 0.000
+|0.080 ± 0.006
+|0.042 ± 0.003
+|0 of 3
+
+|Metadata
+|0.611 ± 0.256
+|0.571 ± 0.000
+|0.588 ± 0.126
+|0.418 ± 0.124
+|0 of 3
+
+|Attributes
+|0.218 ± 0.037
+|0.492 ± 0.064
+|0.286 ± 0.048
+|0.191 ± 0.032
+|3 of 15
+
+|Endpoints
+|0.211 ± 0.024
+|0.800 ± 0.000
+|0.285 ± 0.017
+|0.211 ± 0.024
+|3 of 15
+
+.5+|Nextcloud
+|*Digester (overall)*
+|*0.316 ± 0.048*
+|*0.864 ± 0.047*
+|*0.429 ± 0.048*
+|*0.310 ± 0.049*
+|*0 of 18*
+
+|Object classes
+|0.135 ± 0.048
+|1.000 ± 0.000
+|0.237 ± 0.075
+|0.135 ± 0.048
+|0 of 3
+
+|Metadata
+|0.196 ± 0.049
+|0.833 ± 0.000
+|0.317 ± 0.064
+|0.188 ± 0.046
+|0 of 3
+
+|Attributes
+|0.270 ± 0.062
+|0.630 ± 0.183
+|0.375 ± 0.092
+|0.255 ± 0.070
+|0 of 6
+
+|Endpoints
+|0.665 ± 0.168
+|0.992 ± 0.035
+|0.787 ± 0.136
+|0.660 ± 0.170
+|0 of 6
+
+.5+|Forgejo
+|*Digester (overall)*
+|*0.399 ± 0.021*
+|*0.661 ± 0.083*
+|*0.434 ± 0.030*
+|*0.298 ± 0.023*
+|*0 of 24*
+
+|Object classes
+|0.161 ± 0.063
+|0.933 ± 0.307
+|0.275 ± 0.103
+|0.160 ± 0.069
+|0 of 3
+
+|Metadata
+|0.500 ± 0.000
+|0.500 ± 0.000
+|0.500 ± 0.000
+|0.333 ± 0.000
+|0 of 3
+
+|Attributes
+|0.594 ± 0.043
+|0.446 ± 0.040
+|0.507 ± 0.042
+|0.368 ± 0.031
+|0 of 9
+
+|Endpoints
+|0.339 ± 0.036
+|0.765 ± 0.124
+|0.453 ± 0.048
+|0.333 ± 0.052
+|0 of 9
+|===
+
+=== Gemma 4 26B-A4B
+
+[cols="2,3,2,2,2,2,1", options="header"]
+|===
+|Application |Operation |Precision |Recall |F1 |Accuracy |Failed jobs
+
+.5+|OpenProject
+|*Digester (overall)*
+|*0.471 ± 0.039*
+|*0.841 ± 0.041*
+|*0.537 ± 0.033*
+|*0.427 ± 0.031*
+|*0 of 48*
+
+|Object classes
+|0.187 ± 0.048
+|0.949 ± 0.118
+|0.312 ± 0.073
+|0.185 ± 0.051
+|0 of 3
+
+|Metadata
+|0.714 ± 0.000
+|1.000 ± 0.000
+|0.833 ± 0.000
+|0.714 ± 0.000
+|0 of 3
+
+|Attributes
+|0.514 ± 0.131
+|0.465 ± 0.104
+|0.440 ± 0.093
+|0.345 ± 0.095
+|0 of 21
+
+|Endpoints
+|0.469 ± 0.067
+|0.952 ± 0.044
+|0.562 ± 0.056
+|0.465 ± 0.061
+|0 of 21
+
+.5+|Jira
+|*Digester (overall)*
+|*0.266 ± 0.066*
+|*0.746 ± 0.026*
+|*0.303 ± 0.037*
+|*0.211 ± 0.034*
+|*0 of 36*
+
+|Object classes
+|0.041 ± 0.010
+|1.000 ± 0.000
+|0.078 ± 0.019
+|0.041 ± 0.010
+|0 of 3
+
+|Metadata
+|0.611 ± 0.256
+|0.571 ± 0.000
+|0.588 ± 0.126
+|0.418 ± 0.124
+|0 of 3
+
+|Attributes
+|0.180 ± 0.055
+|0.414 ± 0.106
+|0.237 ± 0.069
+|0.153 ± 0.049
+|0 of 15
+
+|Endpoints
+|0.234 ± 0.031
+|1.000 ± 0.000
+|0.308 ± 0.022
+|0.234 ± 0.031
+|0 of 15
+
+.5+|Nextcloud
+|*Digester (overall)*
+|*0.342 ± 0.076*
+|*0.844 ± 0.046*
+|*0.449 ± 0.060*
+|*0.331 ± 0.073*
+|*0 of 18*
+
+|Object classes
+|0.143 ± 0.027
+|1.000 ± 0.000
+|0.251 ± 0.042
+|0.143 ± 0.027
+|0 of 3
+
+|Metadata
+|0.231 ± 0.032
+|0.833 ± 0.000
+|0.362 ± 0.039
+|0.221 ± 0.029
+|0 of 3
+
+|Attributes
+|0.308 ± 0.147
+|0.544 ± 0.185
+|0.380 ± 0.122
+|0.272 ± 0.117
+|0 of 6
+
+|Endpoints
+|0.687 ± 0.264
+|1.000 ± 0.000
+|0.804 ± 0.197
+|0.687 ± 0.264
+|0 of 6
+
+.5+|Forgejo
+|*Digester (overall)*
+|*0.423 ± 0.027*
+|*0.681 ± 0.080*
+|*0.418 ± 0.034*
+|*0.297 ± 0.024*
+|*0 of 24*
+
+|Object classes
+|0.096 ± 0.058
+|0.933 ± 0.307
+|0.174 ± 0.100
+|0.096 ± 0.059
+|0 of 3
+
+|Metadata
+|0.750 ± 0.000
+|0.500 ± 0.000
+|0.600 ± 0.000
+|0.429 ± 0.000
+|0 of 3
+
+|Attributes
+|0.498 ± 0.076
+|0.369 ± 0.067
+|0.421 ± 0.070
+|0.315 ± 0.060
+|0 of 9
+
+|Endpoints
+|0.349 ± 0.048
+|0.921 ± 0.068
+|0.478 ± 0.058
+|0.347 ± 0.049
+|0 of 9
+|===
+
+=== Qwen3.6 35B-A3B
+
+[cols="2,3,2,2,2,2,1", options="header"]
+|===
+|Application |Operation |Precision |Recall |F1 |Accuracy |Failed jobs
+
+.5+|OpenProject
+|*Digester (overall)*
+|*0.508 ± 0.060*
+|*0.840 ± 0.083*
+|*0.559 ± 0.059*
+|*0.460 ± 0.061*
+|*3 of 48*
+
+|Object classes
+|0.166 ± 0.022
+|1.000 ± 0.000
+|0.285 ± 0.032
+|0.166 ± 0.022
+|0 of 3
+
+|Metadata
+|0.794 ± 0.183
+|1.000 ± 0.000
+|0.884 ± 0.116
+|0.794 ± 0.183
+|0 of 3
+
+|Attributes
+|0.618 ± 0.084
+|0.495 ± 0.116
+|0.529 ± 0.103
+|0.427 ± 0.093
+|1 of 21
+
+|Endpoints
+|0.456 ± 0.132
+|0.867 ± 0.313
+|0.538 ± 0.177
+|0.454 ± 0.132
+|2 of 21
+
+.5+|Jira
+|*Digester (overall)*
+|*0.304 ± 0.020*
+|*0.776 ± 0.023*
+|*0.338 ± 0.020*
+|*0.240 ± 0.020*
+|*0 of 36*
+
+|Object classes
+|0.036 ± 0.007
+|1.000 ± 0.000
+|0.070 ± 0.013
+|0.036 ± 0.007
+|0 of 3
+
+|Metadata
+|0.667 ± 0.000
+|0.571 ± 0.000
+|0.615 ± 0.000
+|0.444 ± 0.000
+|0 of 3
+
+|Attributes
+|0.259 ± 0.072
+|0.534 ± 0.091
+|0.333 ± 0.075
+|0.225 ± 0.076
+|0 of 15
+
+|Endpoints
+|0.254 ± 0.030
+|1.000 ± 0.000
+|0.333 ± 0.019
+|0.254 ± 0.030
+|0 of 15
+
+.5+|Nextcloud
+|*Digester (overall)*
+|*0.417 ± 0.070*
+|*0.849 ± 0.048*
+|*0.501 ± 0.044*
+|*0.395 ± 0.034*
+|*0 of 18*
+
+|Object classes
+|0.137 ± 0.074
+|1.000 ± 0.000
+|0.240 ± 0.114
+|0.137 ± 0.074
+|0 of 3
+
+|Metadata
+|0.284 ± 0.067
+|0.833 ± 0.000
+|0.424 ± 0.074
+|0.269 ± 0.060
+|0 of 3
+
+|Attributes
+|0.354 ± 0.260
+|0.562 ± 0.191
+|0.400 ± 0.114
+|0.280 ± 0.099
+|0 of 6
+
+|Endpoints
+|0.893 ± 0.000
+|1.000 ± 0.000
+|0.940 ± 0.000
+|0.893 ± 0.000
+|0 of 6
+
+.5+|Forgejo
+|*Digester (overall)*
+|*0.368 ± 0.142*
+|*0.710 ± 0.112*
+|*0.392 ± 0.108*
+|*0.275 ± 0.095*
+|*0 of 24*
+
+|Object classes
+|0.082 ± 0.006
+|1.000 ± 0.000
+|0.152 ± 0.011
+|0.082 ± 0.006
+|0 of 3
+
+|Metadata
+|0.552 ± 0.555
+|0.500 ± 0.443
+|0.516 ± 0.421
+|0.358 ± 0.363
+|0 of 3
+
+|Attributes
+|0.527 ± 0.027
+|0.411 ± 0.027
+|0.460 ± 0.027
+|0.348 ± 0.018
+|0 of 9
+
+|Endpoints
+|0.313 ± 0.113
+|0.930 ± 0.064
+|0.439 ± 0.092
+|0.312 ± 0.113
+|0 of 9
+|===
+
+=== Qwen3.8 27B
+
+[cols="2,3,2,2,2,2,1", options="header"]
+|===
+|Application |Operation |Precision |Recall |F1 |Accuracy |Failed jobs
+
+.5+|OpenProject
+|*Digester (overall)*
+|*0.580 ± 0.054*
+|*0.770 ± 0.084*
+|*0.643 ± 0.057*
+|*0.534 ± 0.053*
+|*6 of 48*
+
+|Object classes
+|0.337 ± 0.110
+|0.667 ± 0.236
+|0.448 ± 0.150
+|0.290 ± 0.127
+|0 of 3
+
+|Metadata
+|0.714 ± 0.000
+|1.000 ± 0.000
+|0.833 ± 0.000
+|0.714 ± 0.000
+|0 of 3
+
+|Attributes
+|0.614 ± 0.118
+|0.538 ± 0.101
+|0.567 ± 0.106
+|0.489 ± 0.098
+|4 of 21
+
+|Endpoints
+|0.652 ± 0.143
+|0.876 ± 0.219
+|0.722 ± 0.136
+|0.643 ± 0.140
+|2 of 21
+
+.5+|Jira
+|*Digester (overall)*
+|*0.292 ± 0.018*
+|*0.630 ± 0.049*
+|*0.328 ± 0.026*
+|*0.229 ± 0.017*
+|*8 of 36*
+
+|Object classes
+|0.086 ± 0.025
+|0.800 ± 0.000
+|0.156 ± 0.042
+|0.085 ± 0.024
+|0 of 3
+
+|Metadata
+|0.667 ± 0.000
+|0.571 ± 0.000
+|0.615 ± 0.000
+|0.444 ± 0.000
+|0 of 3
+
+|Attributes
+|0.184 ± 0.068
+|0.350 ± 0.195
+|0.234 ± 0.097
+|0.157 ± 0.061
+|5 of 15
+
+|Endpoints
+|0.232 ± 0.004
+|0.800 ± 0.000
+|0.308 ± 0.008
+|0.232 ± 0.004
+|3 of 15
+
+.5+|Nextcloud
+|*Digester (overall)*
+|*0.379 ± 0.031*
+|*0.870 ± 0.056*
+|*0.494 ± 0.040*
+|*0.361 ± 0.031*
+|*0 of 18*
+
+|Object classes
+|0.253 ± 0.085
+|1.000 ± 0.000
+|0.403 ± 0.107
+|0.253 ± 0.085
+|0 of 3
+
+|Metadata
+|0.195 ± 0.023
+|0.833 ± 0.000
+|0.316 ± 0.030
+|0.188 ± 0.021
+|0 of 3
+
+|Attributes
+|0.300 ± 0.075
+|0.715 ± 0.222
+|0.419 ± 0.112
+|0.284 ± 0.079
+|0 of 6
+
+|Endpoints
+|0.769 ± 0.044
+|0.932 ± 0.000
+|0.838 ± 0.030
+|0.721 ± 0.044
+|0 of 6
+
+.5+|Forgejo
+|*Digester (overall)*
+|*0.534 ± 0.052*
+|*0.676 ± 0.151*
+|*0.539 ± 0.102*
+|*0.401 ± 0.117*
+|*0 of 24*
+
+|Object classes
+|0.208 ± 0.103
+|0.867 ± 0.307
+|0.335 ± 0.156
+|0.202 ± 0.114
+|0 of 3
+
+|Metadata
+|0.778 ± 0.128
+|0.611 ± 0.511
+|0.678 ± 0.358
+|0.524 ± 0.438
+|0 of 3
+
+|Attributes
+|0.523 ± 0.031
+|0.402 ± 0.027
+|0.453 ± 0.029
+|0.340 ± 0.019
+|0 of 9
+
+|Endpoints
+|0.625 ± 0.124
+|0.825 ± 0.089
+|0.689 ± 0.110
+|0.537 ± 0.121
+|0 of 9
+|===
+
+=== Qwen3.5 9B
+
+The missing values are marked _TBD_ and will be added when the evaluation finishes.
+
+[cols="2,3,2,2,2,2,1", options="header"]
+|===
+|Application |Operation |Precision |Recall |F1 |Accuracy |Failed jobs
+
+.5+|OpenProject
+|*Digester (overall)*
+|*0.501 ± 0.083*
+|*0.837 ± 0.069*
+|*0.574 ± 0.075*
+|*0.459 ± 0.082*
+|*4 of 48*
+
+|Object classes
+|0.229 ± 0.065
+|0.974 ± 0.118
+|0.370 ± 0.091
+|0.227 ± 0.069
+|0 of 3
+
+|Metadata
+|0.661 ± 0.243
+|1.000 ± 0.000
+|0.794 ± 0.183
+|0.661 ± 0.243
+|0 of 3
+
+|Attributes
+|0.574 ± 0.127
+|0.468 ± 0.110
+|0.503 ± 0.109
+|0.412 ± 0.112
+|3 of 21
+
+|Endpoints
+|0.541 ± 0.174
+|0.905 ± 0.223
+|0.630 ± 0.194
+|0.537 ± 0.174
+|1 of 21
+
+.5+|Jira
+|*Digester (overall)*
+|*TBD*
+|*TBD*
+|*TBD*
+|*TBD*
+|*TBD*
+
+|Object classes
+|TBD
+|TBD
+|TBD
+|TBD
+|TBD
+
+|Metadata
+|TBD
+|TBD
+|TBD
+|TBD
+|TBD
+
+|Attributes
+|TBD
+|TBD
+|TBD
+|TBD
+|TBD
+
+|Endpoints
+|TBD
+|TBD
+|TBD
+|TBD
+|TBD
+
+.5+|Nextcloud
+|*Digester (overall)*
+|*TBD*
+|*TBD*
+|*TBD*
+|*TBD*
+|*TBD*
+
+|Object classes
+|TBD
+|TBD
+|TBD
+|TBD
+|TBD
+
+|Metadata
+|TBD
+|TBD
+|TBD
+|TBD
+|TBD
+
+|Attributes
+|TBD
+|TBD
+|TBD
+|TBD
+|TBD
+
+|Endpoints
+|TBD
+|TBD
+|TBD
+|TBD
+|TBD
+
+.5+|Forgejo
+|*Digester (overall)*
+|*TBD*
+|*TBD*
+|*TBD*
+|*TBD*
+|*TBD*
+
+|Object classes
+|TBD
+|TBD
+|TBD
+|TBD
+|TBD
+
+|Metadata
+|TBD
+|TBD
+|TBD
+|TBD
+|TBD
+
+|Attributes
+|TBD
+|TBD
+|TBD
+|TBD
+|TBD
+
+|Endpoints
+|TBD
+|TBD
+|TBD
+|TBD
+|TBD
+|===
+
+== Conclusion
+
+In the digester, the evaluated smaller models can replace GPT-OSS-120b: none of them is significantly worse in the overall score.
+They differ more in reliability than in the scores.
+Models that leave expected object classes out lose the attributes, endpoints, and generated code of those classes, and some models take much longer than the baseline.
+The generated code does not always follow the digester score.
+
+In these results, Qwen3.6 35B-A3B comes closest to the baseline, followed by Gemma 4 26B-A4B. Try it on the applications that you need, because the results differ between applications.
+
+
+== See also
+
+* xref:/midpoint/get-started/install/midpilot-setup/[MidPilot Setup]
+
