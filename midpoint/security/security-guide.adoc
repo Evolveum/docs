@@ -240,7 +240,7 @@ Some expression security can be achieved by using xref:/midpoint/reference/expre
 See xrefv:/midpoint/reference/master/expressions/expressions/security/[Expression Security] and xref:/midpoint/reference/expressions/expressions/profiles/configuration/[Expression Profile Configuration] page for details.
 Please consider using xref:/support/subscription-sponsoring/[platform subscription] to  fund xref:/midpoint/features/planned/expression-profiles/[full implementation of expression profiles.]
 
-
+[[networking]]
 == Networking
 
 xref:/midpoint/reference/deployment/stand-alone-deployment/[Stand-alone deployment] of midPoint is supposed to expose only HTTP port 8080 by default.
@@ -272,48 +272,54 @@ The general `style-src 'self' 'unsafe-inline'` directive remains as a fallback f
 
 == Security of MidPoint Services
 
-MidPoint is exposing remote services, such as xref:/midpoint/reference/interfaces/rest/[RESTful API]. Those services provide access to a significant part of midPoint functionality.
-The services allow "raw" access to midPoint data, which means access that is not protected by the mechanisms of user interface.
-Significant harm can be done by using those services, as there are almost no safeguards with respect to robustness.
-E.g. the services will not ask for confirmation dialog, they will allow to delete objects that are in use and so on.
-Significant care should be employed when using those services.
+MidPoint exposes a xref:/midpoint/reference/interfaces/rest/[REST API] that provides programmatic access to a significant part of midPoint functionality, including reading and modifying objects and executing operations.
+This access can have significant security implications and must be carefully controlled.
 
-MidPoint remote services are using the same authentication credentials as ordinary midPoint users.
-However, special xref:/midpoint/reference/security/authorization/[authorization] is required to access those services.
+Unlike the user interface, the REST API provides direct access to midPoint operations without some of the safeguards associated with interactive workflows.
+For example, REST operations do not require confirmations.
+Administrators should therefore exercise particular care when granting REST access.
+
+However, accessing REST services requires specific xref:/midpoint/reference/security/authorization/service[service authorizations], in addition to the object authorizations required to perform individual operations.
 Both _service_ authorization and _object_ authorization are required to access the service and execute operations.
-Therefore, even a user that has very broad privileges in midPoint user interface cannot use those privileges in the context of remote services unless special service authorization is in place.
 
-Administrators are advised to give access to the services very carefully.
-Those services are designed with the purpose of being comprehensive, secure and general services that are exposing (almost) all functionality of midPoint.
-However, the implementation has not reached that stage yet.
-Some parts of the service will be further developed in the future.
-Current purpose of midPoint remote services is to allow access to few trusted applications that implement the barriers the midPoint services do not provide yet.
-The services are not meant to be used by end users directly.
+Access to REST services should be granted selectively.
+The REST API is designed to expose a comprehensive range of midPoint functionality, but not all operations necessarily provide the safeguards required by every use case.
+REST clients should therefore be trusted applications that implement safeguards (or users who require REST access), rather than direct interfaces for end users.
 
-There are many ways how the use of midPoint services may impact availability of midPoint functions, creating Denial of Service (DoS) situation.
-The user of the services may create messages that are too long, flood midPoint servers with many messages, depleting network resources, craft messages that overload the server hosting midPoint application or use similar mechanism.
-Therefore it is recommended to prohibit access to midPoint services on network level, make them available only to trusted entities.
+REST access can also affect the availability of midPoint.
+For example, a client may submit excessively long messages, flood midPoint with requests, deplete network resources, or submit requests that overload the application server.
+Such activities may result in a Denial of Service (DoS) situation.
 
-=== Best practices
+=== Recommendations
 
-With the security considerations in mind, the following best practices are recommended:
+The following recommendations help reduce the security risks associated with REST access:
 
-* Provide REST access to midPoint only to users who really need it.
-Before providing REST access to all users who have broad privileges in the midPoint user interface, make sure they really need it. +
-Note that xref:/midpoint/tools/studio/[MidPoint Studio] uses REST so you may need to provide REST access to MidPoint Studio users.
-* Limit REST access to a minimum using xref:/midpoint/reference/security/authorization/[authorizations].
-* Separate accounts.
-One user can be issued multiple accounts.
+* *Grant REST access selectively* - Provide REST access only to users and applications that actually need it.
+Do not automatically grant REST access to every user with broad privileges in the midPoint user interface. +
+Note that xref:/midpoint/tools/studio/[MidPoint Studio] uses REST, so its users may need appropriate REST access.
+
+* *Apply the principle of least privilege* - Use authorizations to limit REST access to the minimum necessary.
+Grant only the service and object xref:/midpoint/reference/security/authorization/[authorizations] required for the intended operations.
+
+* *Use separate accounts when authentication requirements differ* - If a user requires xref:/midpoint/reference/security/authentication/flexible-authentication/modules/totp/[TOTP protection] for GUI access but also needs REST access, use separate accounts for these purposes.
 
 +
-[NOTE]
+[NOTE] 
 ====
-For example, if a user has an account with xref:/midpoint/reference/security/authentication/flexible-authentication/modules/totp/[TOTP enabled and configured], but the same account has REST access, then the REST access circumvents the TOTP protection.
-Such an account is then easier to compromise through the REST access than if you created two separate accounts; one with TOTP protection and another one with stricter REST access.
+xref:/midpoint/reference/security/authentication/flexible-authentication/modules/totp/[Time-based One-Time Password (TOTP)] is currently available only for GUI authentication.
+REST uses a separate authentication channel, so a user with REST access whose account is protected by TOTP when accessing the GUI can authenticate through REST without completing TOTP authentication.
+
+If a user needs both GUI access protected by TOTP and REST access, use separate accounts: one for GUI access, protected by TOTP, and another for REST access, configured with an appropriate authentication mechanism.
+This allows authentication requirements to be configured independently without weakening the protection of the user's account.
 ====
 
-* Protect the accounts that have REST access with strong passwords.
-* Protect the REST interface with a network layer such as WAF or VPN.
+* *Protect account credentials* - Use strong passwords and appropriate authentication mechanisms for all accounts.
+In particular, ensure that accounts used for REST access have strong, unique credentials.
+Store credentials securely and avoid sharing them between integrations.
+
+* *Restrict network access* - Make REST services accessible only to trusted systems and networks that need them.
+Use appropriate network-level controls, such as firewall rules or network segmentation, to limit access and mitigate potential DoS attacks.
+See <<networking,Networking>> for general recommendations on protecting the midPoint deployment at the network level.
 
 == Security of Reports
 
