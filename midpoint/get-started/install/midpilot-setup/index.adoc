@@ -16,8 +16,8 @@ This article describes the architecture and requirements of midPilot and how to 
 MidPilot consists of two independent microservices:
 
 midpilot-smart-integration ::
-    Generates configuration suggestions for resource object types, inbound/outbound mappings, delineation, synchronization, and correlation rules.
-    Uses midPoint schema information as context. +
+    Generates configuration suggestions for resource object types, inbound/outbound mappings, delineation, and correlation rules.
+    Uses midPoint schema information, statistics and sample data as context. +
     link:https://github.com/Evolveum/midpilot-smart-integration[Smart integration microservice repository on GitHub]
 midpilot-connector-gen ::
     Generates connector code for a target application by analyzing API documentation of the application retrieved from the Internet.
@@ -26,7 +26,7 @@ midpilot-connector-gen ::
     link:https://github.com/Evolveum/midpilot-connector-gen[Connector generator microservice repository on GitHub]
 
 Both services use a LLM for certain parts of their operations.
-Hence the "AI-assisted" term.
+Hence, the "AI-assisted" term.
 Both services have been production-ready since their 1.0.0 release in October 2026.
 
 Both services are optional and not essential for midPoint itself to function.
@@ -73,16 +73,51 @@ a|* A container runtime and the link:#container-images[midPilot container images
 |===
 
 To use the Evolveum-hosted service, see link:#evolveum-hosted[Evolveum-hosted midPilot service] and link:#midpoint-configuration[MidPoint configuration].
-The rest of this article, except the midPoint configuration, applies to self-hosted deployments.
+
+[[evolveum-hosted]]
+== Evolveum-hosted midPilot service
+
+Evolveum runs both midPilot microservices in production, together with the LLM they use.
+This is the fastest way to start with midPilot: no deployment is needed, midPoint only connects to the service with an API key.
+
+With the Evolveum-hosted service, midPoint needs outbound HTTPS access to `midpilot-api.evolveum.com` and to the Evolveum Nexus repository.
+
+[cols="1,3", options="header"]
+|===
+|Microservice |URL
+|Smart resource integration
+|`\https://midpilot-api.evolveum.com/midpilot-smart-integration/`
+|Connector generator
+|`\https://midpilot-api.evolveum.com/midpilot-connector-gen/api/v1`
+|===
+
+To connect midPoint to the hosted service:
+
+. Create an API key in the Integration catalog.
+See xref:/connectors/integration-catalog/catalog-settings/#api-keys[Integration catalog API keys]. +
+API keys expire.
+Rotate the key before it expires and update it in midPoint.
+The linked page describes the expiration and rotation rules.
+. In midPoint, go to *System* -> *Smart integration* and fill in the service URLs above and the API key.
+Use the same API key for both microservices.
+. Verify the connection, see link:#verification-checklist[Verification checklist].
+
+MidPoint sends the API key with every request to the microservices.
+The key also identifies the owner of connector generation sessions:
+sessions created with one key are not accessible with another key.
+This also applies to a rotated key.
+Finish running connector generation sessions before rotating the key, or start them again with the new key.
 
 == Prerequisites
+
+The rest of this article, except the midPoint configuration and Corporate proxy environments section, applies to self-hosted deployments.
 
 This section covers the basic requirements for deployment of midPilot AI services.
 
 === MidPoint version
 
 MidPilot integration requires *midPoint 4.11 or later*.
-See, for example, the link:https://hub.docker.com/r/evolveum/midpoint/tags?name=4.11[Docker Hub midPoint 4.11 tags].
+See the link:https://hub.docker.com/r/evolveum/midpoint/tags?name=4.11[Docker Hub midPoint 4.11 tags].
 
 [[llm-provider]]
 === LLM provider
@@ -114,14 +149,13 @@ Configuration of either microservice requires the following information from the
 |===
 |Environment variable |Description
 |`LLM__OPENAI_API_BASE`
-|Base URL of the OpenAI-compatible API endpoint. +
-    Defaults to `\https://openrouter.ai/api/v1` (OpenRouter).
+|Base URL of the OpenAI-compatible API endpoint.
 |`LLM__MODEL_NAME`
 |Model identifier. +
-    The defaults differ: the connector generator uses `openai/gpt-oss-120b`, the smart resource integration service uses `openai/gpt-oss-20b`.
+    The defaults differ: the connector generator uses `openai/gpt-oss-120b`, the smart resource integration service does not provide any default.
     Set the value explicitly for both services. +
     Based on our analysis, *gpt-oss-120b* has proven to be the most effective so far.
-    Pay attention to naming conventions—some providers prefix model names (e.g., `openai/gpt-oss-120b`).
+    Pay attention to naming conventions - some providers prefix model names (e.g., `openai/gpt-oss-120b`).
     Consult the documentation of the LLM provider.
 |`LLM__OPENAI_API_KEY`
 |API key for the LLM endpoint, sent as a Bearer token
@@ -139,8 +173,6 @@ MidPoint itself downloads the link:#connector-framework-jar[connector framework 
 
 Additionally, both microservices require network connection to call the LLM API.
 If the LLM does not run within the same network perimeter, the smart resource integration service requires Internet connection as well.
-
-With the Evolveum-hosted service, midPoint needs outbound HTTPS access to `midpilot-api.evolveum.com` and to the Evolveum Nexus repository.
 
 If the deployment environment restricts Internet access, see the link:#corporate-proxy-environments[Corporate proxy environments] section below.
 
@@ -200,38 +232,6 @@ Recommended values ::
         Each developer should use a unique `dev-<name>` value.
         Otherwise, local traces generated by different developers cannot be reliably distinguished.
 
-[[evolveum-hosted]]
-== Evolveum-hosted midPilot service
-
-Evolveum runs both midPilot microservices in production, together with the LLM they use.
-This is the fastest way to start with midPilot: no deployment is needed, midPoint only connects to the service with an API key.
-
-[cols="1,3", options="header"]
-|===
-|Microservice |URL
-|Smart resource integration
-|`\https://midpilot-api.evolveum.com/midpilot-smart-integration/`
-|Connector generator
-|`\https://midpilot-api.evolveum.com/midpilot-connector-gen/api/v1`
-|===
-
-To connect midPoint to the hosted service:
-
-. Create an API key in the Integration catalog.
-    See xref:/connectors/integration-catalog/catalog-settings/#api-keys[Integration catalog API keys]. +
-    API keys expire.
-    Rotate the key before it expires and update it in midPoint.
-    The linked page describes the expiration and rotation rules.
-. In midPoint, go to *System* -> *Smart integration* and fill in the service URLs above and the API key.
-    Use the same API key for both microservices.
-. Verify the connection, see link:#verification-checklist[Verification checklist].
-
-MidPoint sends the API key with every request to the microservices.
-The key also identifies the owner of connector generation sessions:
-sessions created with one key are not accessible with another key.
-This also applies to a rotated key.
-Finish running connector generation sessions before rotating the key, or start them again with the new key.
-
 [[container-images]]
 == Container images
 
@@ -266,7 +266,6 @@ The following tags are available:
     Nightly builds of the development branch.
     *Not intended for production.*
 
-The current release of both microservices is *1.0.1*.
 See the link:https://github.com/Evolveum/midpilot-smart-integration/tags[smart resource integration tags], the link:https://github.com/Evolveum/midpilot-connector-gen/tags[connector generator tags] on GitHub.
 
 
@@ -280,12 +279,9 @@ The microservice provides AI-assisted suggestions for:
 
 * Resource object type configuration
 * Inbound and outbound mapping rules
-    ** Mapping suggestions are generated on demand using midPoint schema information as context.
 * Delineation
 * Synchronization rules
 * Correlation rules
-    ** Requires related shadow objects to be present in midPoint.
-
 
 === Requirements
 
@@ -296,10 +292,14 @@ No additional database is required.
 
 === Deployment
 
-Deploy the `midpilot-smart-resource-integration` container (e.g., via Kubernetes, Docker Compose, Nomad job, etc.).
+Deploy the `midpilot-smart-integration` container (e.g., via Kubernetes, Docker Compose, etc).
 The service listens on *port 8090* by default.
 MidPoint communicates with the microservice using REST API over HTTP.
 `GET /health` is a liveness check without dependencies, suitable for container health probes.
+
+NOTE: The service can work with any OpenAI API compatible inference provider.
+However, the `/health` endpoint is specifically optimized for the LiteLLM as a proxy provider.
+With different provider, some details retrieved from `health` endpoint (e.g., availability of the configured model) may be inaccurate.
 
 For example, with Docker, put the configuration into an environment file:
 
@@ -324,7 +324,9 @@ docker run -d --name midpilot-smart-integration \
 
 The microservice has no authentication of its own.
 Make sure that only midPoint can reach it, or put an API gateway in front of it.
-If the gateway requires an API key in the `X-Gravitee-Api-Key` HTTP header, set it in `serviceApiKey` in the link:#midpoint-configuration[midPoint configuration].
+MidPoint in each request to the service sends the key configured in the `serviceApiKey` property of the link:#midpoint-configuration[midPoint configuration].
+It is sent in the HTTP request header with name `X-Gravitee-Api-Key`.
+Your API gateway can use that header to authenticate the midPoint instance and forward the request to the service.
 
 A demo Docker Compose file is available at link:https://github.com/Evolveum/midpoint-samples/blob/master/samples/demo/smart-resource-integration/docker/smart-resource-integration/docker-compose.yml[Evolveum midpoint-samples GitHub repository].
 The demo uses the floating `smart-integration-demo` image tag;
@@ -347,12 +349,11 @@ Beside the link:#required-config-vars[required configuration variables] and the 
 |`info`
 |Logging level (e.g., `debug`, `info`, `error`, `warning`, `critical`)
 |`LLM__EXTRA_BODY`
-|OpenRouter provider routing
+|Extra options supported by some inference providers.
 |JSON object added to the body of every LLM request.
-    The default contains OpenRouter-specific provider preferences.
-    *Set it to `{}` for any other provider.*
+    The default is empty dictionary
 |`LLM__PROVIDER_NAME`
-|`openrouter`
+|empty string
 |Name of the LLM provider shown in health and status messages.
     Set it to the name of the LLM provider in use.
 |`LLM__REQUEST_TIMEOUT`
@@ -731,7 +732,7 @@ The command must return HTTP 200.
 
 * *Smart resource integration (self-hosted)*
     ** `serviceUrl` in System configuration points to the correct microservice address and port.
-    ** Verification: create a dummy CSV resource and request mapping suggestions.
+    ** Verification: create a dummy CSV resource and request object type suggestions.
 
 * *Connector generator (self-hosted)*
     ** `connectorGenerationUrl` in System configuration points to the correct microservice address and port, including `/api/v1`.
