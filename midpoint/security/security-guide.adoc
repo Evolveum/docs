@@ -242,21 +242,45 @@ However, with great power comes great responsibility.
 
 One of the most powerful parts of midPoint are xref:/midpoint/reference/expressions/[mappings and expressions]. Expressions allow to customize midPoint behavior and they are essential for the success of midPoint deployments.
 However, the expressions are very powerful and they may even be too powerful for some use cases.
-The expressions can use general-purpose scripting languages such as Groovy or JavaScript.
-Therefore such expressions have almost unlimited capabilities.
-Which means that the expressions can damage the system or compromise security of the system.
+
+Expressions can use general-purpose scripting languages such as Groovy or JavaScript, unless the deployment restricts them.
+Such expressions have almost unlimited capabilities, so they can damage the system or compromise its security.
 *Use the expressions with utmost care.*
 
-Currently, there are very little restraints for expression execution.
-The xref:/midpoint/reference/expressions/expressions/script/functions/[expression functions] provided by midPoint usually check for proper authorizations.
-But as the expressions can use general-purpose languages, there is no obligation for the expressions to use those libraries.
-The expression can easily circumvent those weak protections.
-Therefore do not let any unauthorized user to set up any kind of expression in midPoint.
-*Allowing the right to edit any expression may lead to compromise of system security.*
+Since midPoint 4.11, new installations restrict expressions by default.
+Earlier versions, and deployments upgraded from them, do not.
 
-Some expression security can be achieved by using xref:/midpoint/reference/expressions/expressions/profiles/[expression profiles]. However, the usefulness of this feature is currently limited.
-See xrefv:/midpoint/reference/master/expressions/expressions/security/[Expression Security] and xref:/midpoint/reference/expressions/expressions/profiles/configuration/[Expression Profile Configuration] page for details.
-Please consider using xref:/support/subscription-sponsoring/[platform subscription] to  fund xref:/midpoint/features/planned/expression-profiles/[full implementation of expression profiles.]
+[[expression-security-before-4-11]]
+=== MidPoint 4.10 and Earlier
+
+Expressions are not restricted by default.
+Anyone who can edit an object that contains expressions, e.g. a role, a resource or an object template, can run arbitrary code in midPoint.
+Use xref:/midpoint/reference/security/authorization/[authorizations] to limit this right to trusted administrators.
+
+You can restrict expressions with xref:/midpoint/reference/expressions/expressions/profiles/[expression profiles], but you have to configure and apply them yourself, and their implementation in these versions is limited.
+See xrefv:/midpoint/reference/support-4.10/expressions/expressions/security/[Expression Security (midPoint 4.10)] for details.
+
+For better protection, upgrade to the latest midPoint version and apply the restrictions described below.
+
+=== MidPoint 4.11 and Later
+
+New installations restrict expressions by default:
+
+* General-purpose scripting languages (Groovy, JavaScript, Python and full Velocity) are disabled by the `expressions/safeScriptingLanguagesOnly` setting in the default `config.xml`.
+Only the safe languages, i.e. xref:/midpoint/reference/expressions/expressions/script/mel/[MEL] and Safe Velocity, can be used.
+
+* The initial system configuration assigns xref:/midpoint/reference/expressions/expressions/profiles/[expression profiles] to object types, e.g. `safe` for roles, `reporting` for reports and `configuration` for resources.
+Objects of other types, including users, get the `prohibitive` profile, which denies all expressions.
+
+*Upgraded deployments keep their existing `config.xml` and system configuration*, so they behave as described in <<expression-security-before-4-11>> until you apply these settings.
+Apply them after testing that your existing expressions work under the restricted profiles.
+See xref:/midpoint/reference/expressions/expressions/security/#using-expression-profiles-in-objects[Using these Expression Profiles in Objects] and xref:/midpoint/reference/expressions/expressions/configuration/[Configuring Expression Evaluation].
+
+Even with expression profiles applied, do not let any unauthorized user set up any kind of expression in midPoint.
+Expression profiles reduce the risk but do not replace authorizations.
+
+*Allowing the right to edit any expression may lead to compromise of system security.*
+See xref:/midpoint/reference/expressions/expressions/security/[Expression Security] and xref:/midpoint/reference/expressions/expressions/profiles/configuration/[Expression Profile Configuration] for details.
 
 [[networking]]
 == Networking
@@ -325,10 +349,17 @@ Note that xref:/midpoint/tools/studio/[MidPoint Studio] uses REST, so you need t
 * *Apply the principle of least privilege* - Use authorizations to limit REST access to the minimum necessary.
 Grant only the service and object xref:/midpoint/reference/security/authorization/[authorizations] required for the intended operations.
 
+* *Limit assignment items for end users* - Over REST, a user who may assign roles to themselves controls the whole assignment content and could add expressions to it.
+In midPoint 4.10 and earlier, and in upgraded deployments without expression profiles, such expressions run with full access, see <<expression-security-before-4-11>>.
+The default _End user_ role grants no REST access, and its `#assign` authorization permits only safe assignment items.
+*This restricted role is the default since midPoint 4.8.15, 4.10.6 and 4.11.1.*
+If end users need REST access, check that all their roles limit assignment items too, especially custom roles and roles in deployments upgraded from earlier versions, which keep their original _End user_ role.
+See xref:/midpoint/reference/security/authorization/configuration/#limiting-assignment-items[Limiting Assignment Items].
+
 * *Use separate accounts when authentication requirements differ* - If a user requires xref:/midpoint/reference/security/authentication/flexible-authentication/modules/totp/[TOTP protection] for GUI access but also needs REST access, use separate accounts for these purposes.
 
 +
-[NOTE] 
+[NOTE]
 ====
 xref:/midpoint/reference/security/authentication/flexible-authentication/modules/totp/[Time-based One-Time Password (TOTP)] is currently available only for GUI authentication.
 REST uses a separate authentication channel, so a user with REST access whose account is protected by TOTP when accessing the GUI can authenticate through REST without completing TOTP authentication.
