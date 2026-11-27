@@ -1,0 +1,70 @@
+= Security Advisory: Groovy Not Disabled by Default in Container Deployments
+:page-display-order: 29
+:page-upkeep-status: green
+
+
+*Date:* 24. 11. 2026
+
+*Severity:* 4.7 (Medium)
+
+*CVSS 3.1 Vector*: AV:N/AC:L/PR:H/UI:N/S:U/C:L/I:L/A:L
+
+*Affected versions:* midPoint 4.11.0 container deployments
+
+*Fixed in versions:* 4.11.1
+
+== Description
+
+midPoint 4.11 disables Groovy and other general-purpose scripting languages (JavaScript, Python, full Velocity) by default for new deployments.
+This is done by the `safeScriptingLanguagesOnly` setting in the default `config.xml`.
+
+New deployments created with the midPoint 4.11.0 container setup did not get this setting.
+The container initialization created `config.xml` from an older template that does not contain it, so Groovy remained enabled, contrary to the documentation.
+
+*You are affected if:*
+
+* You created a new midPoint 4.11.0 deployment using the official container images and their standard initialization, e.g., the docker compose file, the quickstart script, or a Kubernetes setup based on our examples, and
+* You did not set `safeScriptingLanguagesOnly` yourself.
+
+*You are not affected if:*
+
+* You do not use the standard container initialization, e.g., you run midPoint from the distribution archive, or you provide your own `config.xml`.
+
+To check your deployment, look for `safeScriptingLanguagesOnly` in `config.xml` in midPoint home (`/opt/midpoint/var/config.xml` in the container).
+If the setting is missing, Groovy is enabled.
+
+NOTE: Deployments upgraded from midPoint 4.10 or older keep their existing `config.xml`, so Groovy stays enabled there as well.
+This is expected behavior described in the 4.11 release notes and not part of this issue, but we recommend disabling Groovy in these deployments too, once your scripts are migrated.
+
+== Severity and Impact
+
+The impact is limited.
+By default, midPoint 4.11 does not allow Groovy in expressions anyway, because of the built-in expression profiles.
+To run Groovy in an affected deployment, a user has to be allowed to change the system configuration or archetypes, which is normally reserved for administrators.
+
+The `safeScriptingLanguagesOnly` setting is an additional protection layer that prevents even administrators from running arbitrary code on the server.
+This protection layer is missing in affected deployments.
+
+== Mitigation
+
+Users of affected deployments are advised to enable the setting manually.
+*Upgrading to midPoint 4.11.1 alone is not enough*, because the upgrade does not change an existing `config.xml`.
+midPoint 4.11.1 fixes only the newly created deployments.
+
+To disable Groovy, add the following to `config.xml` in midPoint home (`/opt/midpoint/var/config.xml` in the container) and restart midPoint:
+
+[source,xml]
+----
+<configuration>
+    <midpoint>
+        ...
+        <expressions>
+            <safeScriptingLanguagesOnly>true</safeScriptingLanguagesOnly>
+        </expressions>
+    </midpoint>
+</configuration>
+----
+
+== Credit
+
+This issue was found internally by the Evolveum team.
