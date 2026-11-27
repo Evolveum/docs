@@ -58,7 +58,7 @@ MidPilot can be used in two ways:
 |Any OpenAI-compatible LLM provider
 
 |Requirements
-|An API key from the Integration catalog and HTTPS access from midPoint to `midpilot-api.evolveum.com`
+|An API key from the Integration catalog, HTTPS access from midPoint to `midpilot-api.evolveum.com`, and a truststore that trusts the service certificate, see link:#hosted-service-certificate[Trusting the service certificate]
 a|* A container runtime and the link:#container-images[midPilot container images]
 * LLM endpoint
 * For the connector generator: PostgreSQL, a search engine, and Internet access
@@ -107,6 +107,69 @@ The key also identifies the owner of connector generation sessions:
 sessions created with one key are not accessible with another key.
 This also applies to a rotated key.
 Finish running connector generation sessions before rotating the key, or start them again with the new key.
+
+[[hosted-service-certificate]]
+=== Trusting the service certificate
+
+When midPoint connects to `midpilot-api.evolveum.com`, or downloads the connector framework template JAR files from the Evolveum Nexus repository (`nexus.evolveum.com`), it validates the TLS certificate of the server against the JVM truststore.
+By default, the startup script points the JVM truststore to midPoint's own xrefv:/midpoint/reference/master/security/crypto/keystore-configuration/[keystore] (`keystore.jceks` in the midPoint home directory).
+
+The default keystore contains no public root certificate authorities (CAs), so the services are not trusted out of the box.
+If the certificate cannot be validated, midPoint fails to connect and the operations that use the services (for example, requesting mapping suggestions or starting a connector generation) fail with a TLS validation error such as `PKIX path building failed` or "unable to find valid certification path to requested target".
+
+The services use certificates issued by Let's Encrypt; the certificate chain anchors at the *ISRG Root X2* root certificate.
+To trust the services, either import the root CA into the midPoint keystore, or point the JVM at a truststore that already contains the public roots.
+
+[NOTE]
+====
+midPoint 4.11 and later distributions import the Let's Encrypt root certificates into the keystore at initialization, so a fresh deployment may already trust the services.
+If in doubt, check the keystore content before importing.
+====
+
+==== Import the root CA into the midPoint keystore
+
+. Obtain the *ISRG Root X2* certificate, either by downloading it from link:https://letsencrypt.org/certs/isrg-root-x2.pem[the Let's Encrypt website] or by retrieving the certificate chain from the live service:
++
+[source,bash]
+----
+openssl s_client -showcerts -servername midpilot-api.evolveum.com -connect midpilot-api.evolveum.com:443
+----
++
+See xref:/midpoint/reference/security/crypto/ssl-connections-client-side-/[TLS Connections (Client Side)] for more details.
+. Import the certificate into the midPoint keystore:
++
+[source,bash]
+----
+keytool -keystore <midpoint.home>/keystore.jceks -storetype jceks -storepass changeit \
+  -importcert -alias isrg-root-x2 -trustcacerts -file isrg-root-x2.pem
+----
++
+`changeit` is the default keystore password; use the actual password if you changed it.
+The alias `isrg-root-x2` matches the name used by the automatic import in midPoint 4.11 and later, so the import does not create a duplicate entry.
+. Restart midPoint.
+. Verify that the certificate is in the keystore:
++
+[source,bash]
+----
+keytool -list -keystore <midpoint.home>/keystore.jceks -storetype jceks -storepass changeit
+----
+
+==== Use the system or JVM built-in truststore
+
+As an alternative, point the JVM truststore at a store that already contains the public root CAs, for example the `cacerts` truststore shipped with the JDK (usually `$JAVA_HOME/lib/security/cacerts`):
+
+[source,bash]
+----
+MP_SET_javax_net_ssl_trustStore=$JAVA_HOME/lib/security/cacerts
+MP_SET_javax_net_ssl_trustStoreType=pkcs12
+----
+
+Variables with the `MP_SET_` prefix are mapped to JVM `-D` options by the startup script, so the example above is equivalent to `-Djavax.net.ssl.trustStore=... -Djavax.net.ssl.trustStoreType=pkcs12`.
+Note that this changes the truststore of the entire JVM, including all other outbound connections (for example, to connector hosts), not only the midPilot service calls.
+
+If midPoint reaches the services through a TLS-inspecting corporate proxy, the presented certificate is issued by the proxy's internal CA.
+In that case, import the proxy's CA certificate into the keystore instead.
+See the link:#corporate-proxy-environments[Corporate proxy environments] section.
 
 == Prerequisites
 
@@ -568,6 +631,9 @@ MidPoint 4.11 ships with default values that point to the template versions rele
 Change these values only when necessary.
 For example, if network access to Nexus is restricted, download the JAR files and use a local `file://` path instead of the HTTP URL.
 
+Nexus serves the JAR files over HTTPS.
+Make sure that midPoint trusts the certificate of `nexus.evolveum.com`; see link:#hosted-service-certificate[Trusting the service certificate].
+
 === Recommended pre-deployment checks
 
 . Verify the LLM endpoint is reachable and the LLM API key is valid.
@@ -718,6 +784,7 @@ Use these checklists after deployment to confirm everything works correctly.
     ** `serviceUrl` and `connectorGenerationUrl` in System configuration exactly match the URLs in the link:#evolveum-hosted[Evolveum-hosted midPilot service] section.
     ** `serviceApiKey` and `connectorGeneratorApiKey` contain a valid, unexpired API key from the Integration catalog.
     ** MidPoint can reach `midpilot-api.evolveum.com` over HTTPS (check the proxy configuration, if applicable).
+    ** midPoint trusts the TLS certificate of `midpilot-api.evolveum.com`; otherwise, import the CA, see link:#hosted-service-certificate[Trusting the service certificate].
     ** Verification of the API key:
 +
 [source,bash]
